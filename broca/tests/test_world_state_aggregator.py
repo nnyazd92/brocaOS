@@ -254,6 +254,35 @@ class TestWorldStateAggregator:
         assert state["available"] is False
         assert "error" in state
     
+    def test_get_project_state_auto_builds(self):
+        """Test that get_project_state triggers auto-build if state not built."""
+        import tempfile
+        from pathlib import Path
+        from broca.tools.project_world_state import ProjectWorldStateTool
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test files
+            (Path(tmpdir) / "test.py").write_text("print('test')")
+            
+            # Create tool but don't build state
+            tool = ProjectWorldStateTool(project_root=tmpdir)
+            # Verify state is None (not built)
+            assert tool._state is None
+            
+            # Create aggregator
+            aggregator = WorldStateAggregator(project_world_state_tool=tool)
+            
+            # Get project state - should auto-build
+            state = aggregator.get_project_state()
+            
+            # Should be available and have files/directory_tree
+            assert state["available"] is True
+            assert "files" in state
+            assert "directory_tree" in state
+            assert len(state["files"]) > 0
+            # Verify tool state was built
+            assert tool._state is not None
+    
     def test_get_system_info(self):
         """Test getting system information."""
         aggregator = WorldStateAggregator()

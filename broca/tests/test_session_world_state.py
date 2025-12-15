@@ -382,4 +382,125 @@ class TestSessionWorldState:
             assert "behavioral_patterns" not in internal_state
             # Other fields should still be present
             assert "interoceptive_report" in internal_state or "tool_statistics" in internal_state
+    
+    def test_system_prompt_includes_project_files_and_directory_tree(self, mock_llm_client):
+        """Test that system prompt includes project files and directory_tree when available."""
+        from broca.tools.project_world_state import ProjectWorldStateTool
+        
+        # Create a real project world state tool with test data
+        import tempfile
+        from pathlib import Path
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test files
+            (Path(tmpdir) / "test1.py").write_text("print('test1')")
+            (Path(tmpdir) / "test2.py").write_text("print('test2')")
+            subdir = Path(tmpdir) / "subdir"
+            subdir.mkdir()
+            (subdir / "test3.py").write_text("print('test3')")
+            
+            # Build world state
+            project_tool = ProjectWorldStateTool(project_root=tmpdir)
+            project_tool.build_world_state(project_root=tmpdir)
+            
+            # Create aggregator with project tool
+            aggregator = WorldStateAggregator(project_world_state_tool=project_tool)
+            
+            # Create session
+            session = ConversationSession(
+                system_prompt=None,
+                llm=mock_llm_client,
+                world_state_aggregator=aggregator,
+            )
+            
+            # Get system prompt content
+            assert len(session.messages) == 1
+            assert session.messages[0]["role"] == "system"
+            system_content = session.messages[0]["content"]
+            
+            # Extract JSON part
+            if "\n\n" in system_content:
+                json_part = system_content.split("\n\n", 1)[1]
+            else:
+                json_part = system_content
+            
+            # Parse JSON
+            parsed = json.loads(json_part)
+            
+            # Verify project section exists
+            assert "project" in parsed
+            project = parsed["project"]
+            
+            # Verify files are included
+            assert "files" in project
+            assert isinstance(project["files"], list)
+            assert len(project["files"]) > 0
+            # Verify file structure
+            first_file = project["files"][0]
+            assert "path" in first_file
+            assert "metadata" in first_file
+            assert "creation_date" in first_file["metadata"]
+            assert "last_modified" in first_file["metadata"]
+            
+            # Verify directory_tree is included
+            assert "directory_tree" in project
+            assert isinstance(project["directory_tree"], dict)
+    
+    def test_system_prompt_includes_memory_namespace_hierarchy(self, mock_llm_client):
+        """Test that system prompt includes memory namespace hierarchy when available."""
+        from broca.memory.manager import MemoryManager
+        from broca.memory.storage import MemoryStorage
+        from broca.memory.vector_index import VectorIndex
+        from broca.memory.embeddings import EmbeddingService
+        
+        # Create a real memory manager
+        import tempfile
+        import os
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                db_path = os.path.join(tmpdir, "test_memories.db")
+                index_path = os.path.join(tmpdir, "test.faiss")
+                
+                # Initialize components
+                storage = MemoryStorage(db_path=db_path)
+                vector_index = VectorIndex(dimension=1536, index_path=index_path)
+                embedding_service = EmbeddingService()
+                memory_manager = MemoryManager(storage, vector_index, embedding_service)
+                
+                try:
+                    # Create aggregator with memory manager
+                    aggregator = WorldStateAggregator(memory_manager=memory_manager)
+                    
+                    # Create session
+                    session = ConversationSession(
+                        system_prompt=None,
+                        llm=mock_llm_client,
+                        world_state_aggregator=aggregator,
+                    )
+                    
+                    # Get system prompt content
+                    assert len(session.messages) == 1
+                    assert session.messages[0]["role"] == "system"
+                    system_content = session.messages[0]["content"]
+                    
+                    # Extract JSON part
+                    if "\n\n" in system_content:
+                        json_part = system_content.split("\n\n", 1)[1]
+                    else:
+                        json_part = system_content
+                    
+                    # Parse JSON
+                    parsed = json.loads(json_part)
+                    
+                    # Verify memory section exists
+                    assert "memory" in parsed
+                    memory = parsed["memory"]
+                    
+                    # Verify namespace_hierarchy is included
+                    assert "namespace_hierarchy" in memory
+                    assert isinstance(memory["namespace_hierarchy"], dict)
+                finally:
+                    memory_manager.close()
+        except ImportError:
+            pytest.skip("Memory dependencies not available")
 

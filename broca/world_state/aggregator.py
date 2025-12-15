@@ -228,14 +228,23 @@ class WorldStateAggregator:
                 }
             
             # Extract full project state information including file metadata
+            files = world_state_result.get("files", [])
+            directory_tree = world_state_result.get("directory_tree", {})
+            
+            # Log if files or directory_tree are missing (should not happen after auto-build)
+            if not files:
+                logger.debug("Project state has no files (may be empty project or unbuilt state)")
+            if not directory_tree:
+                logger.debug("Project state has no directory_tree (may be empty project or unbuilt state)")
+            
             return {
                 "available": True,
                 "project_root": world_state_result.get("project_root"),
                 "last_updated": world_state_result.get("last_updated"),
                 "statistics": world_state_result.get("statistics", {}),
-                "files": world_state_result.get("files", []),
-                "directory_tree": world_state_result.get("directory_tree", {}),
-                "file_count": len(world_state_result.get("files", [])),
+                "files": files,
+                "directory_tree": directory_tree,
+                "file_count": len(files),
                 "directory_count": world_state_result.get("statistics", {}).get("total_directories", 0),
             }
         except Exception as e:

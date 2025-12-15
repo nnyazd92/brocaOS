@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from datetime import datetime, timezone
 
-from broca.memory import MemoryRecord
+from broca.memory import MemoryRecord, SourceType, SourceMetadata
 from broca.memory.storage import MemoryStorage
 
 
@@ -739,5 +739,302 @@ class TestMemoryStorageDeleteMemory:
                 else:
                     assert mem_id not in remaining_ids
             
+            storage.close()
+
+
+class TestMemoryStorageSourceMigration:
+    """Test source column migration."""
+    
+    def test_init_creates_source_columns(self):
+        """
+        Test that initialization creates source columns.
+        
+        Rationale: Ensures source columns are added to new databases.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            storage = MemoryStorage(db_path)
+            
+            cursor = storage._connection.cursor()
+            cursor.execute("PRAGMA table_info(memories)")
+            columns = {row[1]: row[2] for row in cursor.fetchall()}
+            
+            assert "source_type" in columns
+            assert "source_metadata" in columns
+            assert columns["source_type"] == "TEXT"
+            assert columns["source_metadata"] == "TEXT"
+            storage.close()
+    
+    def test_migration_adds_source_columns_to_existing_db(self):
+        """
+        Test that migration adds source columns to existing databases.
+        
+        Rationale: Ensures backward compatibility with existing databases.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            
+            # Create database without source columns (simulate old schema)
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    namespace TEXT NOT NULL,
+                    tags TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    importance REAL NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL
+                )
+            """)
+            conn.commit()
+            conn.close()
+            
+            # Now initialize storage (should migrate)
+            storage = MemoryStorage(db_path)
+            
+            cursor = storage._connection.cursor()
+            cursor.execute("PRAGMA table_info(memories)")
+            columns = {row[1] for row in cursor.fetchall()}
+            
+            assert "source_type" in columns
+            assert "source_metadata" in columns
+            storage.close()
+    
+    def test_migration_sets_default_source_for_existing_memories(self):
+        """
+        Test that migration sets default UNKNOWN source for existing memories.
+        
+        Rationale: Ensures existing memories get a default source during migration.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            
+            # Create database with old schema and existing memory
+            import sqlite3
+            import json
+            from datetime import datetime, timezone
+            
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    namespace TEXT NOT NULL,
+                    tags TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    importance REAL NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL
+                )
+            """)
+            
+            # Insert a memory without source
+            now = datetime.now(timezone.utc).isoformat()
+            cursor.execute("""
+                INSERT INTO memories (namespace, tags, text, importance, created_at, last_used_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, ("test.ns", json.dumps(["tag1"]), "Test memory", 0.5, now, now))
+            conn.commit()
+            conn.close()
+            
+            # Now initialize storage (should migrate and set default source)
+            storage = MemoryStorage(db_path)
+            
+            # Retrieve the memory
+            memory = storage.get_memory(1)
+            assert memory is not None
+            # Should have default UNKNOWN source
+            assert memory.source is not None
+            assert memory.source.source_type == SourceType.UNKNOWN
+            storage.close()
+    
+    def test_init_creates_source_index(self):
+        """
+        Test that initialization creates index on source_type.
+        
+        Rationale: Ensures efficient filtering by source type.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            storage = MemoryStorage(db_path)
+            
+            cursor = storage._connection.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='index'")
+            indexes = [row[0] for row in cursor.fetchall()]
+            
+            assert "idx_source_type" in indexes
+            storage.close()
+
+
+class TestMemoryStorageSource:
+    """Test source tracking in storage."""
+    
+    def test_store_memory_with_source(self):
+        """
+        Test storing a memory with source information.
+        
+        Rationale: Ensures source is stored correctly.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage = MemoryStorage(os.path.join(tmpdir, "test.db"))
+            
+            source = SourceMetadata(source_type=SourceType.USER)
+            record = MemoryRecord(
+                namespace="test",
+                text="Test memory",
+                importance=0.5,
+                source=source
+            )
+            
+            memory_id = storage.store_memory(record)
+            retrieved = storage.get_memory(memory_id)
+            
+            assert retrieved is not None
+            assert retrieved.source is not None
+            assert retrieved.source.source_type == SourceType.USER
+            storage.close()
+    
+    def test_store_memory_with_source_metadata(self):
+        """
+        Test storing a memory with source and metadata.
+        
+        Rationale: Ensures source metadata is stored correctly.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage = MemoryStorage(os.path.join(tmpdir, "test.db"))
+            
+            source = SourceMetadata(
+                source_type=SourceType.WEB_SEARCH,
+                metadata={"query": "test", "urls": ["http://example.com"]}
+            )
+            record = MemoryRecord(
+                namespace="test",
+                text="Test memory",
+                importance=0.5,
+                source=source
+            )
+            
+            memory_id = storage.store_memory(record)
+            retrieved = storage.get_memory(memory_id)
+            
+            assert retrieved is not None
+            assert retrieved.source is not None
+            assert retrieved.source.source_type == SourceType.WEB_SEARCH
+            assert retrieved.source.metadata is not None
+            assert retrieved.source.metadata["query"] == "test"
+            assert len(retrieved.source.metadata["urls"]) == 1
+            storage.close()
+    
+    def test_store_memory_without_source(self):
+        """
+        Test storing a memory without source (backward compatibility).
+        
+        Rationale: Ensures backward compatibility with existing code.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage = MemoryStorage(os.path.join(tmpdir, "test.db"))
+            
+            record = MemoryRecord(
+                namespace="test",
+                text="Test memory",
+                importance=0.5
+            )
+            
+            memory_id = storage.store_memory(record)
+            retrieved = storage.get_memory(memory_id)
+            
+            assert retrieved is not None
+            assert retrieved.source is None
+            storage.close()
+    
+    def test_store_memory_all_source_types(self):
+        """
+        Test storing memories with all source types.
+        
+        Rationale: Ensures all source types are supported.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage = MemoryStorage(os.path.join(tmpdir, "test.db"))
+            
+            for source_type in SourceType:
+                source = SourceMetadata(source_type=source_type)
+                record = MemoryRecord(
+                    namespace="test",
+                    text=f"Memory from {source_type.value}",
+                    importance=0.5,
+                    source=source
+                )
+                
+                memory_id = storage.store_memory(record)
+                retrieved = storage.get_memory(memory_id)
+                
+                assert retrieved is not None
+                assert retrieved.source is not None
+                assert retrieved.source.source_type == source_type
+            storage.close()
+    
+    def test_get_all_memories_includes_source(self):
+        """
+        Test that get_all_memories includes source information.
+        
+        Rationale: Ensures source is loaded when retrieving all memories.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage = MemoryStorage(os.path.join(tmpdir, "test.db"))
+            
+            # Store memories with different sources
+            record1 = MemoryRecord(
+                namespace="test.ns1",
+                text="Memory 1",
+                importance=0.5,
+                source=SourceMetadata(source_type=SourceType.USER)
+            )
+            record2 = MemoryRecord(
+                namespace="test.ns2",
+                text="Memory 2",
+                importance=0.5,
+                source=SourceMetadata(source_type=SourceType.WEB_SEARCH)
+            )
+            
+            memory_id1 = storage.store_memory(record1)
+            memory_id2 = storage.store_memory(record2)
+            
+            all_memories = storage.get_all_memories()
+            assert len(all_memories) == 2
+            
+            mem1 = next(m for m in all_memories if m.id == memory_id1)
+            mem2 = next(m for m in all_memories if m.id == memory_id2)
+            
+            assert mem1.source is not None
+            assert mem1.source.source_type == SourceType.USER
+            assert mem2.source is not None
+            assert mem2.source.source_type == SourceType.WEB_SEARCH
+            storage.close()
+    
+    def test_search_by_namespace_includes_source(self):
+        """
+        Test that search results include source information.
+        
+        Rationale: Ensures source is loaded in search results.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage = MemoryStorage(os.path.join(tmpdir, "test.db"))
+            
+            record = MemoryRecord(
+                namespace="test.ns",
+                text="Test memory",
+                importance=0.5,
+                source=SourceMetadata(source_type=SourceType.SYSTEM_FILE)
+            )
+            
+            storage.store_memory(record)
+            results = storage.search_by_namespace("test.ns")
+            
+            assert len(results) >= 1
+            assert results[0].source is not None
+            assert results[0].source.source_type == SourceType.SYSTEM_FILE
             storage.close()
 

@@ -12,7 +12,7 @@ from datetime import datetime
 
 from . import Tool
 from ..memory.manager import MemoryManager
-from ..memory import RelationType
+from ..memory import RelationType, SourceType, SourceMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,9 @@ class StoreMemoryTool:
         deduplicate: bool = True,
         conflict_check: bool = False,
         auto_resolve: bool = False,
-        ask_user_threshold: float = 0.7
+        ask_user_threshold: float = 0.7,
+        source_type: Optional[str] = None,
+        source_metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Execute memory storage with optional conflict resolution.
@@ -135,6 +137,8 @@ class StoreMemoryTool:
             conflict_check: Whether to check for conflicts
             auto_resolve: Whether to automatically resolve conflicts
             ask_user_threshold: Confidence threshold for asking user
+            source_type: Optional source type (defaults to 'user' for user-initiated storage)
+            source_metadata: Optional additional source metadata
             
         Returns:
             Dictionary with memory ID, was_duplicate flag, conflict info, and confirmation
@@ -150,14 +154,27 @@ class StoreMemoryTool:
             
             tags = tags or []
             
+            # Create source metadata (default to USER for user-initiated storage)
+            if source_type is None:
+                source_type = "user"
+            try:
+                source_type_enum = SourceType(source_type)
+            except ValueError:
+                raise ValueError(f"Invalid source_type: {source_type}. Must be one of: {[st.value for st in SourceType]}")
+            
+            source = SourceMetadata(
+                source_type=source_type_enum,
+                metadata=source_metadata
+            )
+            
             # Store memory with epistemic tracking if engine available
             if self.epistemic_engine:
                 try:
-                    from broca.self_model.epistemic.models import SourceType, SourceMetadata
+                    from broca.self_model.epistemic.models import SourceType as EpistemicSourceType, SourceMetadata as EpistemicSourceMetadata
                     from datetime import datetime, timezone
                     
-                    source_metadata = SourceMetadata(
-                        source_type=SourceType.MEMORY_RETRIEVAL,
+                    epistemic_source_metadata = EpistemicSourceMetadata(
+                        source_type=EpistemicSourceType.MEMORY_RETRIEVAL,
                         timestamp=datetime.now(timezone.utc)
                     )
                     
@@ -168,7 +185,8 @@ class StoreMemoryTool:
                             importance=importance,
                             tags=tags,
                             epistemic_engine=self.epistemic_engine,
-                            source_metadata=source_metadata,
+                            source_metadata=epistemic_source_metadata,
+                            source=source,
                             deduplicate=deduplicate,
                             conflict_check=conflict_check,
                             auto_resolve=auto_resolve,
@@ -195,6 +213,7 @@ class StoreMemoryTool:
                         text=text.strip(),
                         importance=importance,
                         tags=tags,
+                        source=source,
                         deduplicate=deduplicate,
                         conflict_check=conflict_check,
                         auto_resolve=auto_resolve,
@@ -207,6 +226,7 @@ class StoreMemoryTool:
                     text=text.strip(),
                     importance=importance,
                     tags=tags,
+                    source=source,
                     deduplicate=deduplicate,
                     conflict_check=conflict_check,
                     auto_resolve=auto_resolve,
@@ -416,6 +436,14 @@ class RetrieveMemoriesTool:
                     "type": "boolean",
                     "description": "If true, include warnings for low-confidence memories (default: true). Only used when epistemic engine is available.",
                     "default": True
+                },
+                "source_types": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["web_search", "user", "system_file", "terminal_output", "memory_retrieval", "unknown"]
+                    },
+                    "description": "Optional list of source types to filter by (e.g., ['web_search', 'user'])"
                 }
             },
             "required": ["query"]
@@ -440,7 +468,8 @@ class RetrieveMemoriesTool:
         max_importance: Optional[float] = None,
         min_confidence: Optional[float] = None,
         rank_by_confidence: bool = True,
-        warn_low_confidence: bool = True
+        warn_low_confidence: bool = True,
+        source_types: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Execute memory retrieval with temporal weighting and enhanced search features.
@@ -548,6 +577,17 @@ class RetrieveMemoriesTool:
                     "error": f"min_confidence must be between 0.0 and 1.0, got {min_confidence}"
                 }
             
+            # Convert source_types strings to SourceType enums if provided
+            source_type_enums = None
+            if source_types:
+                try:
+                    source_type_enums = [SourceType(st) for st in source_types]
+                except ValueError as e:
+                    return {
+                        "success": False,
+                        "error": f"Invalid source_type in list: {e}. Must be one of: {[st.value for st in SourceType]}"
+                    }
+            
             # Retrieve memories with enhanced search features
             # Use epistemic-aware retrieval if engine available
             epistemic_result_dict = None
@@ -572,7 +612,8 @@ class RetrieveMemoriesTool:
                         last_used_after=parsed_last_used_after,
                         last_used_before=parsed_last_used_before,
                         min_importance=min_importance,
-                        max_importance=max_importance
+                        max_importance=max_importance,
+                        source_types=source_type_enums
                     )
                     memories = epistemic_result_dict.get("memories", [])
                 except Exception as e:
@@ -592,7 +633,8 @@ class RetrieveMemoriesTool:
                         last_used_after=parsed_last_used_after,
                         last_used_before=parsed_last_used_before,
                         min_importance=min_importance,
-                        max_importance=max_importance
+                        max_importance=max_importance,
+                        source_types=source_type_enums
                     )
             else:
                 memories = self.memory_manager.retrieve_memories(
@@ -610,7 +652,8 @@ class RetrieveMemoriesTool:
                     last_used_after=parsed_last_used_after,
                     last_used_before=parsed_last_used_before,
                     min_importance=min_importance,
-                    max_importance=max_importance
+                    max_importance=max_importance,
+                    source_types=source_type_enums
                 )
             
             # Format results with temporal information

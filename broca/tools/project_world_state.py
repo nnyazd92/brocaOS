@@ -374,13 +374,24 @@ class ProjectWorldStateTool:
         """
         Retrieve current cached world state.
         
+        If state hasn't been built yet, automatically builds it.
+        
         Returns:
             Result dictionary with success status and state information
         """
         if self._state is None:
+            # Auto-build state if it hasn't been built yet
+            logger.info("World state not built yet, building automatically")
+            build_result = self.build_world_state(project_root=None, persist=False)
+            if not build_result.get("success"):
+                return {
+                    "success": False,
+                    "error": build_result.get("error", "Failed to build world state")
+                }
+            # State is now built, return it
             return {
-                "success": False,
-                "error": "World state has not been built yet. Use build_world_state first."
+                "success": True,
+                **self._state
             }
         
         return {

@@ -80,11 +80,13 @@ class TestStoreMemoryToolStructure:
         )
         
         assert result["success"] is True
+        from broca.memory import SourceMetadata, SourceType
         mock_manager.store_memory.assert_called_once_with(
             namespace="test",
             text="Test memory",
             importance=0.5,
             tags=[],
+            source=SourceMetadata(source_type=SourceType.USER, metadata=None),
             deduplicate=True,
             conflict_check=False,  # Default value
             auto_resolve=False,  # Default value
@@ -166,7 +168,8 @@ class TestRetrieveMemoriesToolStructure:
             last_used_after=None,
             last_used_before=None,
             min_importance=None,
-            max_importance=None
+            max_importance=None,
+            source_types=None
         )
 
 

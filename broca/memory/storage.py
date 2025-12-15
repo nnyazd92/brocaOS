@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 from datetime import datetime, timezone, timedelta
 
-from . import MemoryRecord, RelationshipRecord, RelationType
+from . import MemoryRecord, RelationshipRecord, RelationType, SourceType, SourceMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,8 @@ class MemoryStorage:
                 valid_from TEXT,  -- ISO format datetime (temporal metadata)
                 valid_until TEXT,  -- ISO format datetime (temporal metadata)
                 temporal_scope TEXT,  -- Temporal classification
+                source_type TEXT,  -- Source type (SourceType enum value)
+                source_metadata TEXT,  -- JSON object with source metadata
                 UNIQUE(id)
             )
         """)
@@ -87,6 +89,24 @@ class MemoryStorage:
         if "temporal_scope" not in columns:
             cursor.execute("ALTER TABLE memories ADD COLUMN temporal_scope TEXT")
             logger.info("Added temporal_scope column to memories table")
+        if "source_type" not in columns:
+            cursor.execute("ALTER TABLE memories ADD COLUMN source_type TEXT")
+            logger.info("Added source_type column to memories table")
+        if "source_metadata" not in columns:
+            cursor.execute("ALTER TABLE memories ADD COLUMN source_metadata TEXT")
+            logger.info("Added source_metadata column to memories table")
+            
+            # Migrate existing memories: set default UNKNOWN source
+            default_source_type = SourceType.UNKNOWN.value
+            default_source_metadata = json.dumps(None)
+            cursor.execute("""
+                UPDATE memories 
+                SET source_type = ?, source_metadata = ?
+                WHERE source_type IS NULL
+            """, (default_source_type, default_source_metadata))
+            migrated_count = cursor.rowcount
+            if migrated_count > 0:
+                logger.info(f"Migrated {migrated_count} existing memories with default UNKNOWN source")
         
         # Create indexes for faster searches
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_namespace ON memories(namespace)")
@@ -95,6 +115,7 @@ class MemoryStorage:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_temporal_valid_from ON memories(valid_from)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_temporal_valid_until ON memories(valid_until)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_type ON memories(source_type)")
         
         # Create relationship tables
         self.create_relationship_tables()
@@ -228,9 +249,16 @@ class MemoryStorage:
         # Convert embedding to JSON if provided
         embedding_json = json.dumps(embedding) if embedding else None
         
+        # Convert source to database format
+        source_type_str = None
+        source_metadata_json = None
+        if record.source is not None:
+            source_type_str = record.source.source_type.value
+            source_metadata_json = json.dumps(record.source.metadata) if record.source.metadata else None
+        
         cursor.execute("""
-            INSERT INTO memories (namespace, tags, text, importance, created_at, last_used_at, embedding, valid_from, valid_until, temporal_scope)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO memories (namespace, tags, text, importance, created_at, last_used_at, embedding, valid_from, valid_until, temporal_scope, source_type, source_metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             record.namespace,
             tags_json,
@@ -241,7 +269,9 @@ class MemoryStorage:
             embedding_json,
             valid_from_str,
             valid_until_str,
-            record.temporal_scope
+            record.temporal_scope,
+            source_type_str,
+            source_metadata_json
         ))
         
         memory_id = cursor.lastrowid
@@ -720,6 +750,29 @@ class MemoryStorage:
         if row["embedding"] is not None:
             embedding = json.loads(row["embedding"])
         
+        # Load source if present
+        source = None
+        try:
+            source_type_str = row["source_type"]
+            if source_type_str is not None:
+                source_type = SourceType(source_type_str)
+                source_metadata = None
+                try:
+                    source_metadata_str = row["source_metadata"]
+                    if source_metadata_str is not None:
+                        try:
+                            source_metadata = json.loads(source_metadata_str)
+                        except (json.JSONDecodeError, TypeError):
+                            pass  # Invalid JSON, use None
+                except (KeyError, IndexError):
+                    pass  # Column doesn't exist
+                source = SourceMetadata(
+                    source_type=source_type,
+                    metadata=source_metadata
+                )
+        except (KeyError, IndexError, ValueError):
+            pass  # Column doesn't exist or invalid source type
+        
         return MemoryRecord(
             id=row["id"],
             namespace=row["namespace"],
@@ -731,7 +784,8 @@ class MemoryStorage:
             embedding=embedding,
             valid_from=valid_from,
             valid_until=valid_until,
-            temporal_scope=temporal_scope
+            temporal_scope=temporal_scope,
+            source=source
         )
     
     def get_embedding(self, memory_id: int) -> Optional[List[float]]:

@@ -10,7 +10,7 @@ import pytest
 from datetime import datetime, timezone
 from pydantic import ValidationError
 
-from broca.memory import MemoryRecord
+from broca.memory import MemoryRecord, SourceType, SourceMetadata
 
 
 class TestMemoryRecordCreation:
@@ -263,4 +263,124 @@ class TestMemoryRecordEmbedding:
         
         assert record.embedding == embedding
         assert len(record.embedding) == 1536
+
+
+class TestMemoryRecordSource:
+    """Test source tracking in MemoryRecord."""
+    
+    def test_memory_record_without_source(self):
+        """
+        Test that MemoryRecord can be created without source (backward compatibility).
+        
+        Rationale: Ensures backward compatibility for existing code.
+        """
+        record = MemoryRecord(
+            namespace="test",
+            text="Test memory",
+            importance=0.5
+        )
+        
+        assert record.source is None
+    
+    def test_memory_record_with_source(self):
+        """
+        Test that MemoryRecord can be created with source.
+        
+        Rationale: Ensures source tracking works correctly.
+        """
+        source = SourceMetadata(source_type=SourceType.USER)
+        record = MemoryRecord(
+            namespace="test",
+            text="Test memory",
+            importance=0.5,
+            source=source
+        )
+        
+        assert record.source is not None
+        assert record.source.source_type == SourceType.USER
+        assert record.source.metadata is None
+    
+    def test_memory_record_with_source_metadata(self):
+        """
+        Test that MemoryRecord can be created with source and metadata.
+        
+        Rationale: Ensures source metadata is preserved.
+        """
+        source = SourceMetadata(
+            source_type=SourceType.WEB_SEARCH,
+            metadata={"query": "test", "urls": ["http://example.com"]}
+        )
+        record = MemoryRecord(
+            namespace="test",
+            text="Test memory",
+            importance=0.5,
+            source=source
+        )
+        
+        assert record.source.source_type == SourceType.WEB_SEARCH
+        assert record.source.metadata is not None
+        assert record.source.metadata["query"] == "test"
+        assert len(record.source.metadata["urls"]) == 1
+    
+    def test_memory_record_all_source_types(self):
+        """
+        Test that MemoryRecord works with all source types.
+        
+        Rationale: Ensures all source types are supported.
+        """
+        for source_type in SourceType:
+            source = SourceMetadata(source_type=source_type)
+            record = MemoryRecord(
+                namespace="test",
+                text="Test memory",
+                importance=0.5,
+                source=source
+            )
+            
+            assert record.source.source_type == source_type
+    
+    def test_memory_record_source_system_file(self):
+        """
+        Test MemoryRecord with system file source.
+        
+        Rationale: Ensures system file source tracking works.
+        """
+        source = SourceMetadata(
+            source_type=SourceType.SYSTEM_FILE,
+            metadata={"file_path": "/etc/config.json"}
+        )
+        record = MemoryRecord(
+            namespace="test",
+            text="Config file content",
+            importance=0.5,
+            source=source
+        )
+        
+        assert record.source.source_type == SourceType.SYSTEM_FILE
+        assert record.source.metadata["file_path"] == "/etc/config.json"
+    
+    def test_memory_record_source_web_search(self):
+        """
+        Test MemoryRecord with web search source.
+        
+        Rationale: Ensures web search source tracking works.
+        """
+        source = SourceMetadata(
+            source_type=SourceType.WEB_SEARCH,
+            metadata={
+                "query": "Python memory",
+                "urls": ["https://example.com"],
+                "result_count": 5
+            }
+        )
+        record = MemoryRecord(
+            namespace="test",
+            text="Web search result",
+            importance=0.5,
+            source=source
+        )
+        
+        assert record.source.source_type == SourceType.WEB_SEARCH
+        assert record.source.metadata["query"] == "Python memory"
+        assert len(record.source.metadata["urls"]) == 1
 

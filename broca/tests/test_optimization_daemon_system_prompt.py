@@ -361,4 +361,108 @@ class TestOptimizationDaemonSystemPromptComponents:
                     aggregator = call_kwargs['world_state_aggregator']
                     # Aggregator should have self_model attribute
                     assert hasattr(aggregator, 'self_model')
+    
+    def test_project_world_state_uses_sandbox_root(self):
+        """
+        Test that optimization daemon creates project world state tool with /home/wizard/broca as root.
+        
+        Rationale: Ensures daemon tracks sandbox directory, not main project directory.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            goals_file = os.path.join(tmpdir, "goals.json")
+            reports_file = os.path.join(tmpdir, "reports.json")
+            
+            daemon = OptimizationDaemon(
+                goal_manager=GoalManager(goals_file_path=goals_file),
+                report_manager=ReportManager(reports_file_path=reports_file)
+            )
+            
+            # Mock initialization but allow ProjectWorldStateTool creation
+            with patch('broca.main_repl._initialize_storage', return_value=None), \
+                 patch('broca.main_repl._initialize_memory_manager', return_value=None), \
+                 patch('broca.main_repl._initialize_self_model', return_value=(None, None, None)), \
+                 patch('broca.main_repl._initialize_internal_sensing', return_value=None), \
+                 patch('broca.main_repl._initialize_environment_system', return_value=None), \
+                 patch('broca.main_repl._initialize_tool_registry', return_value=None), \
+                 patch('broca.optimization_daemon.ConversationSession') as mock_session:
+                
+                daemon._initialize_systems()
+                
+                # Verify ConversationSession was called with world_state_aggregator
+                assert mock_session.called
+                call_kwargs = mock_session.call_args[1]
+                assert 'world_state_aggregator' in call_kwargs
+                aggregator = call_kwargs['world_state_aggregator']
+                # Aggregator should have project_world_state_tool
+                assert hasattr(aggregator, 'project_world_state_tool')
+                assert aggregator.project_world_state_tool is not None
+                # Verify it uses /home/wizard/broca as project root
+                project_root = str(aggregator.project_world_state_tool._project_root)
+                assert project_root == "/home/wizard/broca", f"Expected /home/wizard/broca, got {project_root}"
+    
+    def test_system_prompt_includes_project_files_and_directory_tree(self):
+        """
+        Test that system prompt includes files and directory_tree from sandbox directory.
+        
+        Rationale: Ensures project world state files/directory_tree appear in system prompt.
+        """
+        import json
+        from pathlib import Path
+        from broca.tools.project_world_state import ProjectWorldStateTool
+        from broca.repl.session import ConversationSession
+        
+        # Create a temporary sandbox directory structure
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create sandbox-like structure
+            sandbox_dir = os.path.join(tmpdir, "broca")
+            os.makedirs(sandbox_dir, exist_ok=True)
+            (Path(sandbox_dir) / "test1.py").write_text("print('test1')")
+            (Path(sandbox_dir) / "test2.py").write_text("print('test2')")
+            subdir = Path(sandbox_dir) / "subdir"
+            subdir.mkdir()
+            (subdir / "test3.py").write_text("print('test3')")
+            
+            # Create project world state tool with sandbox directory
+            project_tool = ProjectWorldStateTool(project_root=sandbox_dir)
+            project_tool.build_world_state(project_root=sandbox_dir)
+            
+            # Create aggregator with the tool
+            aggregator = WorldStateAggregator(project_world_state_tool=project_tool)
+            
+            # Create session (simulating what optimization daemon does)
+            session = ConversationSession(
+                system_prompt="Test base prompt",
+                world_state_aggregator=aggregator
+            )
+            
+            # Get the system prompt
+            assert len(session.messages) > 0
+            system_message = session.messages[0]
+            assert system_message.get("role") == "system"
+            content = system_message["content"]
+            
+            # Extract JSON part (after base prompt)
+            if "\n\n" in content:
+                json_part = content.split("\n\n", 1)[1]
+            else:
+                # If no base prompt separator, entire content might be JSON
+                json_part = content
+            
+            # Parse JSON
+            parsed = json.loads(json_part)
+            
+            # Verify project section exists
+            assert "project" in parsed
+            project = parsed["project"]
+            
+            # Verify files are included
+            assert "files" in project
+            assert isinstance(project["files"], list)
+            assert len(project["files"]) == 3  # test1.py, test2.py, subdir/test3.py
+            
+            # Verify directory_tree is included
+            assert "directory_tree" in project
+            assert isinstance(project["directory_tree"], dict)
+            # Should have subdir in tree
+            assert "subdir" in project["directory_tree"] or "_files" in project["directory_tree"]
 

@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
-from . import MemoryRecord, RelationType
+from . import MemoryRecord, RelationType, SourceType, SourceMetadata
 from .storage import MemoryStorage
 from .vector_index import VectorIndex
 from .embeddings import EmbeddingService
@@ -286,7 +286,8 @@ class MemoryManager:
         deduplicate: bool = True,
         conflict_check: bool = False,
         auto_resolve: bool = False,
-        auto_link: bool = True
+        auto_link: bool = True,
+        source: Optional[SourceMetadata] = None
     ) -> Tuple[int, bool, List[Any]]:
         """
         Store a new memory with optional deduplication.
@@ -299,6 +300,7 @@ class MemoryManager:
             deduplicate: Whether to check for and update duplicates
             conflict_check: Whether to check for conflicts with existing memories
             auto_resolve: Whether to automatically resolve conflicts
+            source: Optional source metadata (defaults to UNKNOWN if not provided)
             
         Returns:
             Tuple of (memory_id, was_duplicate, conflicts_detected)
@@ -308,6 +310,10 @@ class MemoryManager:
             # Create memory record
             if tags is None:
                 tags = []
+            
+            # Default source to UNKNOWN if not provided
+            if source is None:
+                source = SourceMetadata(source_type=SourceType.UNKNOWN)
             
             # Check for exact duplicate if deduplication is enabled
             if deduplicate:
@@ -349,7 +355,8 @@ class MemoryManager:
                 namespace=namespace,
                 tags=tags,
                 text=text,
-                importance=importance
+                importance=importance,
+                source=source
             )
             
             # Generate embedding
@@ -607,7 +614,8 @@ class MemoryManager:
         last_used_before: Optional[datetime] = None,
         min_importance: Optional[float] = None,
         max_importance: Optional[float] = None,
-        order_by_temporal: bool = False
+        order_by_temporal: bool = False,
+        source_types: Optional[List[SourceType]] = None
     ) -> List[MemoryRecord]:
         """
         Retrieve memories using combined search with temporal weighting.
@@ -629,6 +637,7 @@ class MemoryManager:
             min_importance: Optional float - minimum importance score (0.0-1.0)
             max_importance: Optional float - maximum importance score (0.0-1.0)
             order_by_temporal: If True, order results by PRECEDES/FOLLOWS relationships (default: False)
+            source_types: Optional list of source types to filter by
             
         Returns:
             List of MemoryRecord objects, ranked by relevance with temporal weighting
@@ -696,6 +705,16 @@ class MemoryManager:
                     if max_importance is not None and memory.importance > max_importance:
                         continue
                     
+                    # Apply source type filter if specified
+                    if source_types:
+                        if memory.source is None:
+                            # If source is None, only include if UNKNOWN is in the filter
+                            if SourceType.UNKNOWN not in source_types:
+                                continue
+                        else:
+                            if memory.source.source_type not in source_types:
+                                continue
+                    
                     candidates.append(memory)
                     # Weight vector similarity heavily
                     candidate_scores[memory_id] += similarity_score * (1.0 - recency_weight)
@@ -760,6 +779,15 @@ class MemoryManager:
                     if max_importance is not None and memory.importance > max_importance:
                         continue
                     
+                    # Apply source type filter if specified
+                    if source_types:
+                        if memory.source is None:
+                            if SourceType.UNKNOWN not in source_types:
+                                continue
+                        else:
+                            if memory.source.source_type not in source_types:
+                                continue
+                    
                     if memory.id not in candidate_scores:
                         candidates.append(memory)
                     # Weight tag match
@@ -819,6 +847,15 @@ class MemoryManager:
                         if max_importance is not None and memory.importance > max_importance:
                             continue
                         
+                        # Apply source type filter if specified
+                        if source_types:
+                            if memory.source is None:
+                                if SourceType.UNKNOWN not in source_types:
+                                    continue
+                            else:
+                                if memory.source.source_type not in source_types:
+                                    continue
+                        
                         # Apply boolean operators
                         if self._apply_boolean_operators(memory, parsed_query):
                             results.append(memory)
@@ -853,6 +890,16 @@ class MemoryManager:
                     continue
                 if max_importance is not None and memory.importance > max_importance:
                     continue
+                
+                # Apply source type filter if specified
+                if source_types:
+                    if memory.source is None:
+                        # If source is None, only include if UNKNOWN is in the filter
+                        if SourceType.UNKNOWN not in source_types:
+                            continue
+                    else:
+                        if memory.source.source_type not in source_types:
+                            continue
                 
                 # Apply tag filter if specified
                 if tags:
@@ -1682,6 +1729,9 @@ class MemoryManager:
                 - low_confidence_warnings: List[Dict] - Warnings for low-confidence memories
                 - confidence_stats: Dict - Statistics about confidence distribution
         """
+        # Extract source_types from kwargs if provided
+        source_types = kwargs.pop('source_types', None)
+        
         # Retrieve memories using existing method
         memories = self.retrieve_memories(
             query=query,
@@ -1689,6 +1739,7 @@ class MemoryManager:
             namespace=namespace,
             namespaces=namespaces,
             tags=tags,
+            source_types=source_types,
             **kwargs
         )
         
@@ -1846,12 +1897,24 @@ class MemoryManager:
         Returns:
             Tuple of (memory_id, was_duplicate, conflicts_detected, epistemic_result)
         """
+        # Extract source from kwargs if provided, otherwise use source_metadata if it's a memory SourceMetadata
+        source = kwargs.pop('source', None)
+        if source is None and source_metadata is not None:
+            # Check if source_metadata is a memory SourceMetadata (not epistemic)
+            # Use the module-level SourceMetadata to avoid shadowing from later import
+            from broca.memory import SourceMetadata as MemorySourceMetadata
+            if isinstance(source_metadata, MemorySourceMetadata) and hasattr(source_metadata, 'source_type'):
+                # It's already a memory SourceMetadata, use it
+                source = source_metadata
+            # Otherwise, source_metadata is epistemic SourceMetadata, ignore it for memory source
+        
         # Store memory using existing method
         memory_id, was_duplicate, conflicts = self.store_memory(
             namespace=namespace,
             text=text,
             importance=importance,
             tags=tags,
+            source=source,
             **kwargs
         )
         

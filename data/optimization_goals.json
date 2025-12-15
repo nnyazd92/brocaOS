@@ -2,8 +2,9 @@
   {
     "goal": "Learn mathematics concepts and theorems and deepen your understanding of the subject",
     "active": true,
-    "constraints": ["no_code_planning", "no_architecture_planning", "knowledge_maximization"],
+    "constraints": ["Commit findings incrementally to memory",  "Link memories to maintain graph structure", "Use the web search tool to find relevant information"],
     "created_at": "2025-12-14T14:15:03.473980+00:00",
     "updated_at": "2025-12-14T14:15:03.474004+00:00"
   }
 ]
+

@@ -13,6 +13,41 @@ from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 
 
+class SourceType(str, Enum):
+    """
+    Types of sources for memory records.
+    
+    Tracks where information came from:
+    - WEB_SEARCH: Information from web searches
+    - USER: Information from user input/conversation
+    - SYSTEM_FILE: Information from reading system files
+    - TERMINAL_OUTPUT: Information from terminal commands
+    - MEMORY_RETRIEVAL: Information retrieved from existing memories
+    - UNKNOWN: Unknown source (for migration/backward compatibility)
+    """
+    WEB_SEARCH = "web_search"
+    USER = "user"
+    SYSTEM_FILE = "system_file"
+    TERMINAL_OUTPUT = "terminal_output"
+    MEMORY_RETRIEVAL = "memory_retrieval"
+    UNKNOWN = "unknown"
+
+
+class SourceMetadata(BaseModel):
+    """
+    Metadata about the source of a memory.
+    
+    Attributes:
+        source_type: The type of source (web search, user, system file, etc.)
+        metadata: Optional additional context (URLs, file paths, queries, etc.)
+    """
+    source_type: SourceType = Field(..., description="The type of source")
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Additional context (URLs, file paths, queries, etc.)"
+    )
+
+
 class MemoryRecord(BaseModel):
     """
     Memory record schema for storing facts, insights, and information.
@@ -29,6 +64,7 @@ class MemoryRecord(BaseModel):
         valid_from: Optional timestamp when this fact became true
         valid_until: Optional timestamp when this fact stopped being true
         temporal_scope: Optional temporal classification ("past", "present", "future", "timeless")
+        source: Optional source metadata tracking where the memory came from
     """
     
     id: Optional[int] = None
@@ -43,6 +79,10 @@ class MemoryRecord(BaseModel):
     valid_until: Optional[datetime] = Field(default=None, description="Timestamp when this fact stopped being true")
     temporal_scope: Optional[Literal["past", "present", "future", "timeless"]] = Field(
         default=None, description="Temporal classification"
+    )
+    source: Optional[SourceMetadata] = Field(
+        default=None,
+        description="Source metadata tracking where the memory came from"
     )
     
     @field_validator('namespace')

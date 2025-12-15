@@ -94,9 +94,16 @@ class TestLinkMemoriesTool:
         assert result["relationship_id"] > 0
         
         # Verify relationship exists
+        # Note: Auto-detection may create additional relationships (e.g., temporal FOLLOWS)
+        # So we check that the manually created relationship exists, not that there's exactly 1
         related = memory_manager.get_related_memories(mem_id1)
-        assert len(related) == 1
-        assert related[0][0].id == mem_id2
+        # Find the manually created "supports" relationship
+        supports_relationships = [
+            (mem, rel) for mem, rel in related
+            if rel.relation_type.value == "supports" and mem.id == mem_id2
+        ]
+        assert len(supports_relationships) == 1
+        assert supports_relationships[0][0].id == mem_id2
     
     @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
     def test_link_memories_tool_bidirectional(self, memory_manager):

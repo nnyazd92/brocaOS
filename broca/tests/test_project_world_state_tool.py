@@ -375,20 +375,22 @@ class TestGetWorldState:
         """
         Test getting world state when not yet built.
         
-        Rationale: Ensures tool handles case where state hasn't been built.
+        Rationale: Ensures tool auto-builds state when it hasn't been built yet.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Use a temporary state file that doesn't exist
             state_file = Path(tmpdir) / "nonexistent_state.json"
-            tool = ProjectWorldStateTool(state_file=str(state_file))
+            tool = ProjectWorldStateTool(state_file=str(state_file), project_root=tmpdir)
             
             # Clear any loaded state
             tool._state = None
             
             result = tool.get_world_state()
             
-            assert result["success"] is False
-            assert "not been built" in result["error"].lower()
+            # Tool should auto-build the state, so it should succeed
+            assert result["success"] is True
+            assert "project_root" in result
+            assert "files" in result
     
     def test_get_world_state_after_build(self):
         """

@@ -11,7 +11,7 @@ import os
 from unittest.mock import Mock, patch
 import pytest
 
-from broca.memory import MemoryRecord
+from broca.memory import MemoryRecord, SourceType, SourceMetadata
 from broca.memory.storage import MemoryStorage
 from broca.memory.vector_index import VectorIndex
 from broca.memory.embeddings import EmbeddingService
@@ -291,6 +291,225 @@ class TestMemoryManagerGetMemory:
         
         memory = manager.get_memory(999)
         assert memory is None
+
+
+class TestMemoryManagerSource:
+    """Test source tracking in MemoryManager."""
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_store_memory_with_source(self, temp_storage, temp_vector_index, mock_embedding_service):
+        """
+        Test storing a memory with source information.
+        
+        Rationale: Ensures source is passed through to storage.
+        """
+        manager = MemoryManager(temp_storage, temp_vector_index, mock_embedding_service)
+        
+        source = SourceMetadata(source_type=SourceType.USER)
+        memory_id, was_duplicate, _ = manager.store_memory(
+            namespace="test",
+            text="Test memory",
+            importance=0.5,
+            source=source
+        )
+        
+        assert memory_id > 0
+        assert was_duplicate is False
+        
+        # Verify source was stored
+        stored = temp_storage.get_memory(memory_id)
+        assert stored is not None
+        assert stored.source is not None
+        assert stored.source.source_type == SourceType.USER
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_store_memory_with_source_metadata(self, temp_storage, temp_vector_index, mock_embedding_service):
+        """
+        Test storing a memory with source and metadata.
+        
+        Rationale: Ensures source metadata is preserved.
+        """
+        manager = MemoryManager(temp_storage, temp_vector_index, mock_embedding_service)
+        
+        source = SourceMetadata(
+            source_type=SourceType.WEB_SEARCH,
+            metadata={"query": "test", "urls": ["http://example.com"]}
+        )
+        memory_id, was_duplicate, _ = manager.store_memory(
+            namespace="test",
+            text="Test memory",
+            importance=0.5,
+            source=source
+        )
+        
+        assert memory_id > 0
+        
+        # Verify source and metadata were stored
+        stored = temp_storage.get_memory(memory_id)
+        assert stored is not None
+        assert stored.source is not None
+        assert stored.source.source_type == SourceType.WEB_SEARCH
+        assert stored.source.metadata is not None
+        assert stored.source.metadata["query"] == "test"
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_store_memory_defaults_to_unknown_source(self, temp_storage, temp_vector_index, mock_embedding_service):
+        """
+        Test that storing without source defaults to UNKNOWN.
+        
+        Rationale: Ensures backward compatibility and default source.
+        """
+        manager = MemoryManager(temp_storage, temp_vector_index, mock_embedding_service)
+        
+        memory_id, was_duplicate, _ = manager.store_memory(
+            namespace="test",
+            text="Test memory",
+            importance=0.5
+        )
+        
+        assert memory_id > 0
+        
+        # Verify default UNKNOWN source was set
+        stored = temp_storage.get_memory(memory_id)
+        assert stored is not None
+        assert stored.source is not None
+        assert stored.source.source_type == SourceType.UNKNOWN
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_store_memory_all_source_types(self, temp_storage, temp_vector_index, mock_embedding_service):
+        """
+        Test storing memories with all source types.
+        
+        Rationale: Ensures all source types are supported.
+        """
+        manager = MemoryManager(temp_storage, temp_vector_index, mock_embedding_service)
+        
+        for source_type in SourceType:
+            source = SourceMetadata(source_type=source_type)
+            memory_id, was_duplicate, _ = manager.store_memory(
+                namespace="test",
+                text=f"Memory from {source_type.value}",
+                importance=0.5,
+                source=source
+            )
+            
+            assert memory_id > 0
+            
+            # Verify source was stored
+            stored = temp_storage.get_memory(memory_id)
+            assert stored is not None
+            assert stored.source is not None
+            assert stored.source.source_type == source_type
+
+
+class TestMemoryManagerSourceFiltering:
+    """Test source-based filtering in MemoryManager."""
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_retrieve_memories_filter_by_source_type(self, temp_storage, temp_vector_index, mock_embedding_service):
+        """
+        Test filtering memories by source type.
+        
+        Rationale: Ensures source-based filtering works correctly.
+        """
+        manager = MemoryManager(temp_storage, temp_vector_index, mock_embedding_service)
+        
+        # Store memories with different sources
+        manager.store_memory(
+            namespace="test",
+            text="User memory",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.USER)
+        )
+        manager.store_memory(
+            namespace="test",
+            text="Web search memory",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.WEB_SEARCH)
+        )
+        manager.store_memory(
+            namespace="test",
+            text="System file memory",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.SYSTEM_FILE)
+        )
+        
+        # Filter by USER source only
+        results = manager.retrieve_memories(
+            query="memory",
+            source_types=[SourceType.USER]
+        )
+        
+        assert len(results) >= 1
+        assert all(r.source is not None and r.source.source_type == SourceType.USER for r in results)
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_retrieve_memories_filter_by_multiple_source_types(self, temp_storage, temp_vector_index, mock_embedding_service):
+        """
+        Test filtering memories by multiple source types.
+        
+        Rationale: Ensures multiple source types can be filtered.
+        """
+        manager = MemoryManager(temp_storage, temp_vector_index, mock_embedding_service)
+        
+        # Store memories with different sources
+        manager.store_memory(
+            namespace="test",
+            text="User memory",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.USER)
+        )
+        manager.store_memory(
+            namespace="test",
+            text="Web search memory",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.WEB_SEARCH)
+        )
+        manager.store_memory(
+            namespace="test",
+            text="System file memory",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.SYSTEM_FILE)
+        )
+        
+        # Filter by USER and WEB_SEARCH
+        results = manager.retrieve_memories(
+            query="memory",
+            source_types=[SourceType.USER, SourceType.WEB_SEARCH]
+        )
+        
+        assert len(results) >= 2
+        source_types_found = {r.source.source_type for r in results if r.source}
+        assert SourceType.USER in source_types_found or SourceType.WEB_SEARCH in source_types_found
+        assert SourceType.SYSTEM_FILE not in source_types_found
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_retrieve_memories_no_source_filter(self, temp_storage, temp_vector_index, mock_embedding_service):
+        """
+        Test that retrieving without source filter returns all memories.
+        
+        Rationale: Ensures backward compatibility when no source filter is provided.
+        """
+        manager = MemoryManager(temp_storage, temp_vector_index, mock_embedding_service)
+        
+        # Store memories with different sources
+        manager.store_memory(
+            namespace="test",
+            text="User memory",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.USER)
+        )
+        manager.store_memory(
+            namespace="test",
+            text="Web search memory",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.WEB_SEARCH)
+        )
+        
+        # Retrieve without source filter
+        results = manager.retrieve_memories(query="memory")
+        
+        assert len(results) >= 2
 
 
 if __name__ == "__main__":

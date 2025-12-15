@@ -38,7 +38,7 @@ from .self_model.model import SelfModel
 from .self_model.consistency import ConsistencyChecker
 from .self_model.updater import SelfModelUpdater
 from .self_model.layer import ConsistencyLayer
-from .tools.self_model_tool import QuerySelfModelTool, UpdateSelfModelTool
+from .tools.self_model_tool import QuerySelfModelTool
 from .internal_sensing.framework import InternalSensingFramework
 from .tools.internal_sensing_tool import QueryInternalStateTool, GetInteroceptiveReportTool
 from .repl.session import ConversationSession
@@ -142,16 +142,15 @@ class OptimizationDaemon:
                     # If list_tools() fails (e.g., Mock object), skip removal
                     logger.debug("Could not remove restricted tools (registry may be mocked)")
         
-        # Register self-model tools if self-model system is enabled
+        # Register self-model query tool if self-model system is enabled
+        # Note: UpdateSelfModelTool is NOT registered in autonomous mode for safety
         if consistency_layer and tool_registry:
             try:
                 query_tool = QuerySelfModelTool(consistency_layer)
-                update_tool = UpdateSelfModelTool(consistency_layer)
                 tool_registry.register_tool(query_tool)
-                tool_registry.register_tool(update_tool)
-                logger.info("Registered self-model tools")
+                logger.info("Registered self-model query tool (update tool excluded in autonomous mode)")
             except Exception as e:
-                logger.warning(f"Failed to register self-model tools: {e}", exc_info=True)
+                logger.warning(f"Failed to register self-model query tool: {e}", exc_info=True)
         
         # Register internal sensing tools if internal sensing is enabled
         if internal_sensing and tool_registry:
@@ -179,13 +178,16 @@ class OptimizationDaemon:
         if environment_system:
             logger.debug("Environment access tool skipped in optimization daemon (safety restriction)")
         
-        # Get project world state tool if available
+        # Create separate project world state tool for sandbox directory
+        # This ensures the daemon tracks /home/wizard/broca, not the main project directory
         project_world_state_tool = None
-        if tool_registry:
-            try:
-                project_world_state_tool = tool_registry.get_tool("project_world_state")
-            except Exception:
-                pass  # Tool not registered, that's okay
+        try:
+            from .tools.project_world_state import ProjectWorldStateTool
+            # Use sandbox directory as project root (same as SandboxTool default)
+            project_world_state_tool = ProjectWorldStateTool(project_root="/home/wizard/broca")
+            logger.info(f"Created project world state tool for sandbox directory: /home/wizard/broca")
+        except Exception as e:
+            logger.warning(f"Failed to create project world state tool for sandbox: {e}", exc_info=True)
         
         # Create world state aggregator (enables dynamic system prompt mutation)
         world_state_aggregator = WorldStateAggregator(

@@ -774,6 +774,57 @@ class TestOptimizationDaemonToolAccess:
     @patch('broca.main_repl._initialize_internal_sensing')
     @patch('broca.main_repl._initialize_environment_system')
     @patch('broca.main_repl._initialize_tool_registry')
+    def test_update_self_model_tool_not_available(self, mock_tool_registry, mock_env, mock_sensing, mock_self_model, mock_memory, mock_storage):
+        """
+        Test that update_self_model tool is not available in optimization daemon.
+        
+        Rationale: Ensures self-model update tool is excluded from daemon for safety.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            goals_file = os.path.join(tmpdir, "goals.json")
+            reports_file = os.path.join(tmpdir, "reports.json")
+            
+            # Setup mocks
+            mock_storage.return_value = None
+            mock_memory.return_value = None
+            # Create a mock consistency layer for self-model
+            mock_consistency_layer = Mock()
+            mock_self_model.return_value = (mock_consistency_layer, None, None)
+            mock_sensing.return_value = None
+            mock_env.return_value = None
+            
+            daemon = OptimizationDaemon(
+                goal_manager=GoalManager(goals_file_path=goals_file),
+                report_manager=ReportManager(reports_file_path=reports_file)
+            )
+            
+            # Create a mock registry
+            from broca.tools.registry import ToolRegistry
+            mock_registry = ToolRegistry()
+            mock_tool_registry.return_value = mock_registry
+            
+            # Initialize systems
+            daemon._initialize_systems()
+            
+            # Verify update_self_model tool is not available
+            assert daemon.session is not None
+            tool_registry = daemon.session.tool_registry
+            assert tool_registry is not None
+            
+            # Update self model tool should not be available
+            update_tool = tool_registry.get_tool("update_self_model")
+            assert update_tool is None, "Update self-model tool should not be available in optimization daemon"
+            
+            # Query self model tool should still be available
+            query_tool = tool_registry.get_tool("query_self_model")
+            assert query_tool is not None, "Query self-model tool should still be available"
+    
+    @patch('broca.main_repl._initialize_storage')
+    @patch('broca.main_repl._initialize_memory_manager')
+    @patch('broca.main_repl._initialize_self_model')
+    @patch('broca.main_repl._initialize_internal_sensing')
+    @patch('broca.main_repl._initialize_environment_system')
+    @patch('broca.main_repl._initialize_tool_registry')
     def test_system_prompt_excludes_terminal(self, mock_tool_registry, mock_env, mock_sensing, mock_self_model, mock_memory, mock_storage):
         """
         Test that system prompt does not mention terminal tool.

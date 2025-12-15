@@ -15,7 +15,7 @@ import pytest
 from broca.repl.session import ConversationSession
 from broca.tools.registry import ToolRegistry
 from broca.tools.memory_tool import StoreMemoryTool, RetrieveMemoriesTool
-from broca.memory import MemoryRecord
+from broca.memory import MemoryRecord, SourceType, SourceMetadata
 from broca.memory.storage import MemoryStorage
 from broca.memory.vector_index import VectorIndex
 from broca.memory.embeddings import EmbeddingService
@@ -251,4 +251,171 @@ class TestMemoryPersistence:
         
         assert len(results) > 0
         assert any(r.text == "Persistent memory" for r in results)
+
+
+class TestMemorySourceIntegration:
+    """Test source tracking integration across the memory system."""
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_end_to_end_source_tracking(self, temp_memory_system):
+        """
+        Test end-to-end source tracking from tool to storage.
+        
+        Rationale: Ensures source is tracked correctly through the entire system.
+        """
+        manager, storage, vector_index = temp_memory_system
+        
+        # Store memory with source via tool
+        tool = StoreMemoryTool(manager)
+        result = tool.execute(
+            namespace="test",
+            text="Web search result",
+            importance=0.5,
+            source_type="web_search",
+            source_metadata={"query": "test query", "urls": ["http://example.com"]}
+        )
+        
+        assert result["success"] is True
+        memory_id = result["memory_id"]
+        
+        # Verify source was stored
+        memory = storage.get_memory(memory_id)
+        assert memory is not None
+        assert memory.source is not None
+        assert memory.source.source_type == SourceType.WEB_SEARCH
+        assert memory.source.metadata is not None
+        assert memory.source.metadata["query"] == "test query"
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_source_filtering_integration(self, temp_memory_system):
+        """
+        Test source filtering works end-to-end.
+        
+        Rationale: Ensures source filtering works through the entire system.
+        """
+        manager, storage, vector_index = temp_memory_system
+        
+        # Store memories with different sources
+        manager.store_memory(
+            namespace="test",
+            text="User provided information",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.USER)
+        )
+        manager.store_memory(
+            namespace="test",
+            text="Web search result",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.WEB_SEARCH)
+        )
+        manager.store_memory(
+            namespace="test",
+            text="System file content",
+            importance=0.5,
+            source=SourceMetadata(source_type=SourceType.SYSTEM_FILE)
+        )
+        
+        # Filter by USER source
+        results = manager.retrieve_memories(
+            query="information",
+            source_types=[SourceType.USER]
+        )
+        
+        assert len(results) >= 1
+        assert all(r.source is not None and r.source.source_type == SourceType.USER for r in results)
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_backward_compatibility_no_source(self, temp_memory_system):
+        """
+        Test backward compatibility with memories without source.
+        
+        Rationale: Ensures existing code without source still works.
+        """
+        manager, storage, vector_index = temp_memory_system
+        
+        # Store memory without source (old way)
+        record = MemoryRecord(
+            namespace="test",
+            text="Old memory",
+            importance=0.5
+        )
+        memory_id = storage.store_memory(record)
+        
+        # Should still be retrievable
+        memory = storage.get_memory(memory_id)
+        assert memory is not None
+        assert memory.text == "Old memory"
+        # Source should be None (not set)
+        assert memory.source is None
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_all_source_types_work(self, temp_memory_system):
+        """
+        Test that all source types work correctly.
+        
+        Rationale: Ensures all source types are supported end-to-end.
+        """
+        manager, storage, vector_index = temp_memory_system
+        
+        # Store memories with all source types
+        for source_type in SourceType:
+            memory_id, _, _ = manager.store_memory(
+                namespace="test",
+                text=f"Memory from {source_type.value}",
+                importance=0.5,
+                source=SourceMetadata(source_type=source_type)
+            )
+            
+            # Verify source was stored
+            memory = storage.get_memory(memory_id)
+            assert memory is not None
+            assert memory.source is not None
+            assert memory.source.source_type == source_type
+    
+    @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
+    def test_source_metadata_persistence(self, temp_memory_system):
+        """
+        Test that source metadata persists correctly.
+        
+        Rationale: Ensures complex source metadata is preserved.
+        """
+        manager, storage, vector_index = temp_memory_system
+        
+        # Store memory with complex metadata
+        source = SourceMetadata(
+            source_type=SourceType.WEB_SEARCH,
+            metadata={
+                "query": "Python memory management",
+                "urls": ["https://example.com/1", "https://example.com/2"],
+                "result_count": 5,
+                "timestamp": "2024-01-01T00:00:00Z"
+            }
+        )
+        memory_id, _, _ = manager.store_memory(
+            namespace="test",
+            text="Web search result",
+            importance=0.5,
+            source=source
+        )
+        
+        # Close and reopen storage (simulate restart)
+        manager.close()
+        
+        # Reopen
+        storage2 = MemoryStorage(storage.db_path)
+        vector_index2 = VectorIndex(dimension=1536, index_path=vector_index.index_path)
+        manager2 = MemoryManager(storage2, vector_index2, Mock(spec=EmbeddingService))
+        
+        # Verify source metadata persisted
+        memory = storage2.get_memory(memory_id)
+        assert memory is not None
+        assert memory.source is not None
+        assert memory.source.source_type == SourceType.WEB_SEARCH
+        assert memory.source.metadata is not None
+        assert memory.source.metadata["query"] == "Python memory management"
+        assert len(memory.source.metadata["urls"]) == 2
+        assert memory.source.metadata["result_count"] == 5
+        
+        manager2.close()
+        storage2.close()
 
