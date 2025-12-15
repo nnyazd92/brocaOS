@@ -21,9 +21,9 @@ class TestWorldStateAggregator:
         """Create a mock internal sensing framework."""
         mock = Mock(spec=InternalSensingFramework)
         mock.sample_internal_state.return_value = {
-            "physiology": {"metrics": {"processing_latency": 0.5}},
-            "cognition": {"metrics": {"confidence": 0.8, "uncertainty": 0.2}},
-            "affect": {"valence": 0.6, "arousal": 0.4},
+            "computational": {"metrics": {"processing_latency": 0.5}},
+            "cognitive": {"metrics": {"confidence": 0.8, "uncertainty": 0.2}},
+            "affective": {"valence": 0.6, "arousal": 0.4},
         }
         mock.generate_interoceptive_report.return_value = "Current state: stable"
         mock.get_tool_statistics.return_value = {"memory": 5, "terminal": 3}
@@ -363,4 +363,35 @@ class TestWorldStateAggregator:
         # Other expected fields should still be present
         assert "interoceptive_report" in internal_state
         assert "tool_statistics" in internal_state
+    
+    def test_aggregate_includes_valence(self, mock_internal_sensing):
+        """Test that valence appears in world state affect section."""
+        aggregator = WorldStateAggregator(internal_sensing=mock_internal_sensing)
+        
+        world_state = aggregator.aggregate()
+        
+        # internal_state should be present
+        assert "internal_state" in world_state
+        assert "affect" in world_state["internal_state"]
+        
+        # Valence should be in affect section
+        affect = world_state["internal_state"]["affect"]
+        assert "valence" in affect
+        assert isinstance(affect["valence"], float)
+        assert -1.0 <= affect["valence"] <= 1.0
+    
+    def test_valence_in_system_prompt(self, mock_internal_sensing):
+        """Test that valence appears in formatted world state."""
+        from broca.world_state.formatter import WorldStateFormatter
+        
+        aggregator = WorldStateAggregator(internal_sensing=mock_internal_sensing)
+        formatter = WorldStateFormatter()
+        
+        world_state = aggregator.aggregate()
+        formatted = formatter.format(world_state)
+        
+        # Formatted JSON should contain valence
+        assert "valence" in formatted
+        # Should be in affect section
+        assert '"affect"' in formatted or '"valence"' in formatted
 

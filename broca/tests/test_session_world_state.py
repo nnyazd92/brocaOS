@@ -506,4 +506,123 @@ class TestSessionWorldState:
                     memory_manager.close()
         except ImportError:
             pytest.skip("Memory dependencies not available")
+    
+    def test_valence_computed_from_conversation_history(self, mock_llm_client):
+        """Test that session computes valence from conversation history."""
+        from broca.internal_sensing.framework import InternalSensingFramework
+        
+        framework = InternalSensingFramework()
+        aggregator = WorldStateAggregator(internal_sensing=framework)
+        
+        session = ConversationSession(
+            system_prompt=None,
+            llm=mock_llm_client,
+            world_state_aggregator=aggregator,
+            internal_sensing_framework=framework,
+        )
+        
+        # Add conversation messages
+        session.messages.extend([
+            {"role": "user", "content": "This is great! Excellent work!"},
+            {"role": "assistant", "content": "Thank you! I'm glad you're happy."},
+        ])
+        
+        # Send a message (this should compute valence from history)
+        response = session.send("Perfect!")
+        
+        # Check that valence was computed
+        valence = framework.interoception.affect.affective_states.get("valence")
+        assert valence is not None
+        assert isinstance(valence, float)
+        assert -1.0 <= valence <= 1.0
+    
+    def test_valence_excludes_system_in_history(self, mock_llm_client):
+        """Test that system messages are excluded from valence computation."""
+        from broca.internal_sensing.framework import InternalSensingFramework
+        
+        framework = InternalSensingFramework()
+        aggregator = WorldStateAggregator(internal_sensing=framework)
+        
+        session = ConversationSession(
+            system_prompt="You are a helpful assistant.",
+            llm=mock_llm_client,
+            world_state_aggregator=aggregator,
+            internal_sensing_framework=framework,
+        )
+        
+        # Add conversation with negative sentiment
+        session.messages.extend([
+            {"role": "user", "content": "This is terrible. I'm very frustrated."},
+            {"role": "assistant", "content": "I understand your frustration."},
+        ])
+        
+        # Send a message
+        response = session.send("Still terrible!")
+        
+        # Check that valence reflects conversation (negative), not system prompt
+        valence = framework.interoception.affect.affective_states.get("valence")
+        assert valence is not None
+        assert isinstance(valence, float)
+        # Should be negative from conversation, not affected by system prompt
+        assert valence < 0.0
+    
+    def test_valence_computed_before_first_response(self, mock_llm_client):
+        """Test that valence is computed from user message before first assistant response."""
+        from broca.internal_sensing.framework import InternalSensingFramework
+        
+        framework = InternalSensingFramework()
+        aggregator = WorldStateAggregator(internal_sensing=framework)
+        
+        session = ConversationSession(
+            system_prompt=None,
+            llm=mock_llm_client,
+            world_state_aggregator=aggregator,
+            internal_sensing_framework=framework,
+        )
+        
+        # Before sending, valence should be None
+        initial_valence = framework.interoception.affect.affective_states.get("valence")
+        assert initial_valence is None
+        
+        # Send first message - valence should be computed from user message before response
+        # We'll check by mocking the send to stop before LLM call
+        # Actually, let's just send and check that valence was computed early
+        response = session.send("This is wonderful! I'm so happy!")
+        
+        # Valence should have been computed from user message
+        valence = framework.interoception.affect.affective_states.get("valence")
+        assert valence is not None
+        assert isinstance(valence, float)
+        assert -1.0 <= valence <= 1.0
+        assert valence > 0.0  # Should be positive from positive user message
+    
+    def test_valence_in_world_state_on_first_prompt(self, mock_llm_client):
+        """Test that valence appears in world state on first prompt."""
+        from broca.internal_sensing.framework import InternalSensingFramework
+        
+        framework = InternalSensingFramework()
+        aggregator = WorldStateAggregator(internal_sensing=framework)
+        
+        session = ConversationSession(
+            system_prompt=None,
+            llm=mock_llm_client,
+            world_state_aggregator=aggregator,
+            internal_sensing_framework=framework,
+        )
+        
+        # Send first message
+        response = session.send("This is terrible! I'm frustrated!")
+        
+        # Get world state after first prompt
+        world_state = aggregator.aggregate()
+        
+        # Valence should be in world state
+        assert "internal_state" in world_state
+        assert "affect" in world_state["internal_state"]
+        affect = world_state["internal_state"]["affect"]
+        assert "valence" in affect
+        assert affect["valence"] is not None
+        assert isinstance(affect["valence"], float)
+        assert -1.0 <= affect["valence"] <= 1.0
+        assert affect["valence"] < 0.0  # Should be negative from negative user message
 

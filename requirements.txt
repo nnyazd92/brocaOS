@@ -11,3 +11,5 @@ faiss-cpu
 numpy
 sqlite-database
 psutil
+nltk
+textblob

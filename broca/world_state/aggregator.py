@@ -113,12 +113,12 @@ class WorldStateAggregator:
             }
             # Add physiology, cognition, affect from current_state if available
             if current_state:
-                if "physiology" in current_state:
-                    world_state["internal_state"]["physiology"] = current_state["physiology"]
+                if "computational" in current_state:
+                    world_state["internal_state"]["physiology"] = current_state["computational"]
                 if "cognition" in current_state:
                     world_state["internal_state"]["cognition"] = current_state["cognition"]
-                if "affect" in current_state:
-                    world_state["internal_state"]["affect"] = current_state["affect"]
+                if "affective" in current_state:
+                    world_state["internal_state"]["affect"] = current_state["affective"]
         
         # Project state - only include if available (minimal: directory_tree + filenames)
         project_state = self.get_project_state()

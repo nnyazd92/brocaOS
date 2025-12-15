@@ -10,6 +10,11 @@ import time
 import logging
 from typing import Dict, Any, List, Optional, TYPE_CHECKING, Union
 
+try:
+    from textblob import TextBlob
+except ImportError:
+    TextBlob = None  # type: ignore
+
 if TYPE_CHECKING:
     from .cognitive_state import CognitiveStateMonitor
 
@@ -61,6 +66,61 @@ class ComputationalAffectMonitor:
             valence = (positive_score - negative_score) / (positive_score + negative_score)
         
         self.affective_states["valence"] = max(-1.0, min(1.0, valence))
+    
+    def compute_valence_from_text(self, text: str) -> None:
+        """
+        Compute valence directly from text using TextBlob.
+        
+        Args:
+            text: Text to analyze
+        """
+        if not text:
+            # Empty text - leave valence as None
+            return
+        
+        if TextBlob is None:
+            logger.debug("TextBlob not available, cannot compute valence from text")
+            return
+        
+        try:
+            blob = TextBlob(text)
+            polarity = blob.sentiment.polarity  # -1.0 to 1.0
+            # Map polarity directly to valence (same range)
+            self.affective_states["valence"] = max(-1.0, min(1.0, polarity))
+        except Exception as e:
+            logger.debug(f"TextBlob sentiment analysis failed: {e}")
+            # On error, leave valence unchanged (None or previous value)
+    
+    def compute_valence_from_conversation_history(self, messages: List[Dict[str, Any]]) -> None:
+        """
+        Compute valence from conversation history, excluding system and tool messages.
+        
+        Args:
+            messages: List of message dictionaries with "role" and "content" keys
+        """
+        if not messages:
+            # Empty conversation - leave valence as None
+            return
+        
+        # Filter out system and tool messages, keep only user and assistant
+        conversation_texts = []
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            
+            # Only include user and assistant messages
+            if role in ("user", "assistant") and content:
+                conversation_texts.append(str(content))
+        
+        if not conversation_texts:
+            # No user/assistant messages - leave valence as None
+            return
+        
+        # Combine all conversation text
+        combined_text = " ".join(conversation_texts)
+        
+        # Compute valence from combined text
+        self.compute_valence_from_text(combined_text)
     
     def compute_arousal(self, activation_level: float) -> None:
         """

@@ -131,6 +131,14 @@ class ConversationSession:
                 response_id = f"response_{len(self.messages)}"
                 self._current_response_id = response_id  # Store it
                 self.internal_sensing_framework.interoception.physiology._record_operation_start(response_id)
+                
+                # Compute valence from conversation history BEFORE updating system prompt
+                # This ensures valence is available when world state is sampled
+                self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(self.messages)
+                # Force a fresh sample to ensure updated valence is included in cached state
+                # Reset last sample time to bypass rate limiting
+                self.internal_sensing_framework._last_sample_time = 0.0
+                self.internal_sensing_framework.sample_internal_state()
             except Exception as e:
                 logger.debug(f"Error in pre-LLM instrumentation: {e}", exc_info=True)
         
@@ -311,10 +319,10 @@ class ConversationSession:
                             self.internal_sensing_framework.interoception.cognition.record_uncertainty(response_id, uncertainty)
                         
                         # Compute valence and arousal
-                        valence_result = ResponseAnalyzer.compute_valence(assistant_text)
-                        if valence_result is not None:
-                            positive_score, negative_score = valence_result
-                            self.internal_sensing_framework.interoception.affect.compute_valence(positive_score, negative_score)
+                        # Use conversation history for valence (excluding system prompts)
+                        # Include current assistant response in history
+                        conversation_messages = self.messages + [{"role": "assistant", "content": assistant_text}]
+                        self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(conversation_messages)
                         
                         arousal = ResponseAnalyzer.compute_arousal(assistant_text)
                         if arousal is not None:
@@ -335,7 +343,9 @@ class ConversationSession:
                             }
                         )
                         
-                        # Sample internal state
+                        # Sample internal state after recomputing valence
+                        # Force a fresh sample by resetting last sample time to ensure updated valence is included
+                        self.internal_sensing_framework._last_sample_time = 0.0
                         self.internal_sensing_framework.sample_internal_state()
                         
                     except Exception as e:
