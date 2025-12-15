@@ -89,7 +89,11 @@ class TestMemoryManagerRelationshipMethods:
         assert rel_id > 0
         
         # Verify relationship exists
-        related = memory_manager.get_related_memories(mem_id1)
+        # Filter by SUPPORTS relation type to avoid counting auto-detected relationships
+        related = memory_manager.get_related_memories(
+            mem_id1,
+            relation_types=[RelationType.SUPPORTS]
+        )
         assert len(related) == 1
         assert related[0][0].id == mem_id2
         assert related[0][1].relation_type == RelationType.SUPPORTS

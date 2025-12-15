@@ -23,7 +23,6 @@ from .self_model.updater import SelfModelUpdater
 from .self_model.layer import ConsistencyLayer
 from .tools.self_model_tool import QuerySelfModelTool, UpdateSelfModelTool
 from .internal_sensing.framework import InternalSensingFramework
-from .tools.internal_sensing_tool import QueryInternalStateTool, GetInteroceptiveReportTool
 from .world_state.aggregator import WorldStateAggregator
 
 logger = logging.getLogger(__name__)
@@ -174,16 +173,9 @@ def _initialize_tool_registry(
             except Exception as e:
                 logger.warning(f"Failed to register version control tool: {e}", exc_info=True)
         
-        # Register project world state tool if enabled
-        if config.tools.enable_project_world_state:
-            try:
-                from .tools.project_world_state import ProjectWorldStateTool
-                project_root = config.tools.project_world_state_path
-                world_state_tool = ProjectWorldStateTool(project_root=project_root)
-                registry.register_tool(world_state_tool)
-                logger.info("Registered project world state tool")
-            except Exception as e:
-                logger.warning(f"Failed to register project world state tool: {e}", exc_info=True)
+        # Project world state tool is NOT registered as a tool since project world state data
+        # is already included in the LLM's mutable system prompt via WorldStateAggregator.
+        # The tool instance is still created directly (not from registry) for WorldStateAggregator.
         
         if len(registry.list_tools()) == 0:
             logger.debug("No tools registered")
@@ -510,16 +502,8 @@ def main() -> None:
             except Exception as e:
                 logger.warning(f"Failed to register self-model tools: {e}", exc_info=True)
         
-        # Register internal sensing tools if internal sensing is enabled
-        if internal_sensing and tool_registry:
-            try:
-                query_state_tool = QueryInternalStateTool(internal_sensing)
-                report_tool = GetInteroceptiveReportTool(internal_sensing)
-                tool_registry.register_tool(query_state_tool)
-                tool_registry.register_tool(report_tool)
-                logger.info("Registered internal sensing tools")
-            except Exception as e:
-                logger.warning(f"Failed to register internal sensing tools: {e}", exc_info=True)
+        # Internal sensing tools are NOT registered as tools since internal sensing data
+        # is already included in the LLM's mutable system prompt via WorldStateAggregator.
         
         # Register environment access tool if environment system is enabled
         if environment_system and tool_registry:
@@ -531,13 +515,18 @@ def main() -> None:
             except Exception as e:
                 logger.warning(f"Failed to register environment access tool: {e}", exc_info=True)
 
-        # Get project world state tool if available
+        # Create project world state tool directly (not from registry) for WorldStateAggregator
+        # The tool is not registered as a callable tool since project world state data
+        # is already included in the LLM's mutable system prompt via WorldStateAggregator.
         project_world_state_tool = None
-        if tool_registry:
+        if config.tools.enable_project_world_state:
             try:
-                project_world_state_tool = tool_registry.get_tool("project_world_state")
-            except Exception:
-                pass  # Tool not registered, that's okay
+                from .tools.project_world_state import ProjectWorldStateTool
+                project_root = config.tools.project_world_state_path
+                project_world_state_tool = ProjectWorldStateTool(project_root=project_root)
+                logger.info("Created project world state tool for WorldStateAggregator")
+            except Exception as e:
+                logger.warning(f"Failed to create project world state tool: {e}", exc_info=True)
         
         # Create world state aggregator
         world_state_aggregator = WorldStateAggregator(

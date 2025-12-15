@@ -40,7 +40,6 @@ from .self_model.updater import SelfModelUpdater
 from .self_model.layer import ConsistencyLayer
 from .tools.self_model_tool import QuerySelfModelTool
 from .internal_sensing.framework import InternalSensingFramework
-from .tools.internal_sensing_tool import QueryInternalStateTool, GetInteroceptiveReportTool
 from .repl.session import ConversationSession
 from .optimization.goal_manager import GoalManager
 from .optimization.report_manager import ReportManager
@@ -152,16 +151,8 @@ class OptimizationDaemon:
             except Exception as e:
                 logger.warning(f"Failed to register self-model query tool: {e}", exc_info=True)
         
-        # Register internal sensing tools if internal sensing is enabled
-        if internal_sensing and tool_registry:
-            try:
-                query_state_tool = QueryInternalStateTool(internal_sensing)
-                report_tool = GetInteroceptiveReportTool(internal_sensing)
-                tool_registry.register_tool(query_state_tool)
-                tool_registry.register_tool(report_tool)
-                logger.info("Registered internal sensing tools")
-            except Exception as e:
-                logger.warning(f"Failed to register internal sensing tools: {e}", exc_info=True)
+        # Internal sensing tools are NOT registered as tools since internal sensing data
+        # is already included in the LLM's mutable system prompt via WorldStateAggregator.
         
         # Register sandbox tool for safe command execution and artifact generation
         if tool_registry:
