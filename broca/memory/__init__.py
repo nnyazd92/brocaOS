@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 
@@ -26,6 +26,9 @@ class MemoryRecord(BaseModel):
         created_at: Timestamp when memory was created
         last_used_at: Timestamp when memory was last retrieved
         embedding: Optional embedding vector (stored separately in FAISS)
+        valid_from: Optional timestamp when this fact became true
+        valid_until: Optional timestamp when this fact stopped being true
+        temporal_scope: Optional temporal classification ("past", "present", "future", "timeless")
     """
     
     id: Optional[int] = None
@@ -36,6 +39,11 @@ class MemoryRecord(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_used_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     embedding: Optional[List[float]] = Field(default=None, description="Embedding vector (stored in FAISS)")
+    valid_from: Optional[datetime] = Field(default=None, description="Timestamp when this fact became true")
+    valid_until: Optional[datetime] = Field(default=None, description="Timestamp when this fact stopped being true")
+    temporal_scope: Optional[Literal["past", "present", "future", "timeless"]] = Field(
+        default=None, description="Temporal classification"
+    )
     
     @field_validator('namespace')
     @classmethod

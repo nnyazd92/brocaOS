@@ -7,6 +7,7 @@ Defines the Conflict and Resolution structures for conflict detection and resolu
 from __future__ import annotations
 
 from typing import Optional, Literal
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, Field, field_validator
 
 from .. import MemoryRecord
@@ -23,6 +24,9 @@ class Conflict(BaseModel):
         confidence: Confidence score from 0.0 to 1.0
         evidence: Description of why this is a conflict
         resolution_strategy: Suggested resolution strategy
+        detected_at: Timestamp when conflict was detected
+        temporal_gap: Time difference between conflicting memories
+        temporal_context: Temporal relationship context ("same_period", "different_periods", "unknown")
     """
     
     memory1: MemoryRecord = Field(..., description="First memory in the conflict")
@@ -36,6 +40,18 @@ class Conflict(BaseModel):
     evidence: str = Field(..., min_length=1, description="Description of why this is a conflict")
     resolution_strategy: str = Field(
         ..., description="Suggested resolution strategy"
+    )
+    detected_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Timestamp when conflict was detected"
+    )
+    temporal_gap: Optional[timedelta] = Field(
+        default=None,
+        description="Time difference between conflicting memories"
+    )
+    temporal_context: Optional[Literal["same_period", "different_periods", "unknown"]] = Field(
+        default=None,
+        description="Temporal relationship context"
     )
     
     @field_validator('confidence')

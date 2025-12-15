@@ -1727,6 +1727,117 @@ class MemoryManager:
             logger.warning(f"Error ensuring namespace index exists: {e}", exc_info=True)
             # Don't fail initialization if index creation fails
     
+    def retrieve_with_conflict_warnings(
+        self,
+        query: str,
+        limit: int = 10,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Retrieve memories and warn about potential conflicts.
+        
+        Args:
+            query: Text query for semantic search
+            limit: Maximum number of results
+            **kwargs: Additional arguments passed to retrieve_memories
+            
+        Returns:
+            Dictionary containing:
+                - memories: List of retrieved memories
+                - conflicts: List of detected conflicts
+                - warnings: List of conflict warnings
+        """
+        # Retrieve memories using existing method
+        memories = self.retrieve_memories(query=query, limit=limit, **kwargs)
+        
+        # Detect conflicts in retrieved set
+        conflicts = self._detect_conflicts_in_set(memories)
+        
+        # Generate warnings
+        warnings = self._generate_conflict_warnings(conflicts)
+        
+        return {
+            "memories": memories,
+            "conflicts": conflicts,
+            "warnings": warnings
+        }
+    
+    def _detect_conflicts_in_set(
+        self,
+        memories: List[MemoryRecord]
+    ) -> List[Any]:
+        """
+        Detect conflicts within a set of memories.
+        
+        Args:
+            memories: List of memories to check for conflicts
+            
+        Returns:
+            List of Conflict objects
+        """
+        if len(memories) < 2:
+            return []
+        
+        from .conflict import ConflictDetector
+        
+        conflicts = []
+        detector = ConflictDetector(
+            memory_manager=self,
+            similarity_threshold=0.85,
+            contradiction_threshold=0.7
+        )
+        
+        # Check each pair of memories
+        for i, memory1 in enumerate(memories):
+            for memory2 in memories[i+1:]:
+                # Skip if same memory
+                if memory1.id and memory2.id and memory1.id == memory2.id:
+                    continue
+                
+                # Detect conflicts between this pair
+                pair_conflicts = detector.detect_conflicts(memory1, [memory2])
+                conflicts.extend(pair_conflicts)
+        
+        return conflicts
+    
+    def _generate_conflict_warnings(
+        self,
+        conflicts: List[Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate user-friendly warnings from conflicts.
+        
+        Args:
+            conflicts: List of Conflict objects
+            
+        Returns:
+            List of warning dictionaries
+        """
+        warnings = []
+        
+        for conflict in conflicts:
+            memory1_id = conflict.memory1.id if conflict.memory1.id else "unknown"
+            memory2_id = conflict.memory2.id if conflict.memory2.id else "unknown"
+            
+            warning = {
+                "type": conflict.conflict_type,
+                "confidence": conflict.confidence,
+                "memory1_id": memory1_id,
+                "memory2_id": memory2_id,
+                "memory1_preview": conflict.memory1.text[:100] if conflict.memory1.text else "",
+                "memory2_preview": conflict.memory2.text[:100] if conflict.memory2.text else "",
+                "evidence": conflict.evidence,
+                "temporal_context": conflict.temporal_context,
+                "message": f"Potential {conflict.conflict_type} detected between memories {memory1_id} and {memory2_id}"
+            }
+            
+            if conflict.temporal_context == "different_periods":
+                warning["message"] += " (different time periods - may be update rather than contradiction)"
+            
+            warnings.append(warning)
+        
+        return warnings
+    
     def close(self) -> None:
         """Close storage and save index."""
         self.save_index()

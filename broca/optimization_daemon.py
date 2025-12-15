@@ -164,6 +164,16 @@ class OptimizationDaemon:
             except Exception as e:
                 logger.warning(f"Failed to register internal sensing tools: {e}", exc_info=True)
         
+        # Register sandbox tool for safe command execution and artifact generation
+        if tool_registry:
+            try:
+                from .tools.sandbox import SandboxTool
+                sandbox_tool = SandboxTool()
+                tool_registry.register_tool(sandbox_tool)
+                logger.info("Registered sandbox tool for autonomous learning")
+            except Exception as e:
+                logger.warning(f"Failed to register sandbox tool: {e}", exc_info=True)
+        
         # Skip registering environment access tool in daemon (safety restriction for autonomous operation)
         # Environment access tool is not available in autonomous optimization mode
         if environment_system:

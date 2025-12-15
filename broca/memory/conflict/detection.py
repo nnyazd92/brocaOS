@@ -13,7 +13,7 @@ import re
 import json
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from .. import MemoryRecord
 from .models import Conflict
@@ -95,6 +95,9 @@ class ConflictDetector:
         # Try semantic detection first (if memory_manager available)
         if self.memory_manager:
             semantic_conflicts = self.detect_semantic_conflicts(memory, existing)
+            # Enhance with temporal context
+            for conflict in semantic_conflicts:
+                self._enhance_conflict_with_temporal_context(conflict, memory)
             conflicts.extend(semantic_conflicts)
         
         # Also check rule-based for all pairs
@@ -106,6 +109,9 @@ class ConflictDetector:
                 memory2=existing_memory
             )
             if rule_conflict:
+                # Enhance with temporal context
+                self._enhance_conflict_with_temporal_context(rule_conflict, memory)
+                
                 # Check if we already have this conflict from semantic detection
                 if not any(
                     (c.memory1.id == memory.id and c.memory2.id == existing_memory.id) or
@@ -448,4 +454,118 @@ JSON response:"""
         except Exception as e:
             logger.warning(f"Error in LLM contradiction analysis: {e}", exc_info=True)
             return None
+    
+    def _check_temporal_overlap(
+        self,
+        memory1: MemoryRecord,
+        memory2: MemoryRecord
+    ) -> bool:
+        """
+        Check if two memories have temporally overlapping validity periods.
+        
+        Args:
+            memory1: First memory
+            memory2: Second memory
+            
+        Returns:
+            True if memories overlap temporally, False otherwise
+        """
+        # If neither has temporal metadata, assume they might overlap
+        if not memory1.valid_from and not memory1.valid_until and \
+           not memory2.valid_from and not memory2.valid_until:
+            return True  # Unknown temporal scope, assume overlap
+        
+        # If one has temporal metadata and other doesn't, check if current time is in range
+        now = datetime.now(timezone.utc)
+        
+        # Check memory1 validity
+        mem1_valid = True
+        if memory1.valid_from or memory1.valid_until:
+            if memory1.valid_from and now < memory1.valid_from:
+                mem1_valid = False
+            if memory1.valid_until and now > memory1.valid_until:
+                mem1_valid = False
+        
+        # Check memory2 validity
+        mem2_valid = True
+        if memory2.valid_from or memory2.valid_until:
+            if memory2.valid_from and now < memory2.valid_from:
+                mem2_valid = False
+            if memory2.valid_until and now > memory2.valid_until:
+                mem2_valid = False
+        
+        # If both have explicit validity periods, check overlap
+        if memory1.valid_from and memory1.valid_until and \
+           memory2.valid_from and memory2.valid_until:
+            # Check if periods overlap
+            return not (memory1.valid_until < memory2.valid_from or 
+                       memory2.valid_until < memory1.valid_from)
+        
+        # If only one has explicit period, check if current time is in both
+        return mem1_valid and mem2_valid
+    
+    def _is_update(
+        self,
+        memory1: MemoryRecord,
+        memory2: MemoryRecord
+    ) -> bool:
+        """
+        Check if one memory is an update of another (different time periods).
+        
+        Args:
+            memory1: First memory
+            memory2: Second memory
+            
+        Returns:
+            True if memories appear to be updates (different periods), False otherwise
+        """
+        # If they don't overlap temporally and are similar, likely an update
+        if not self._check_temporal_overlap(memory1, memory2):
+            # Check if one is clearly after the other
+            if memory1.valid_from and memory2.valid_from:
+                return memory1.valid_from > memory2.valid_from or \
+                       memory2.valid_from > memory1.valid_from
+            # Check created_at as fallback
+            return abs((memory1.created_at - memory2.created_at).total_seconds()) > 86400  # More than 1 day apart
+        return False
+    
+    def _enhance_conflict_with_temporal_context(
+        self,
+        conflict: Conflict,
+        new_memory: MemoryRecord
+    ) -> None:
+        """
+        Enhance conflict with temporal context information.
+        
+        Args:
+            conflict: Conflict to enhance
+            new_memory: New memory that triggered the conflict
+        """
+        # Determine which memory is the new one and which is existing
+        # Compare by id if available, otherwise by object identity
+        if new_memory.id and conflict.memory1.id and new_memory.id == conflict.memory1.id:
+            existing_memory = conflict.memory2
+        elif new_memory.id and conflict.memory2.id and new_memory.id == conflict.memory2.id:
+            existing_memory = conflict.memory1
+        else:
+            # Fallback: assume memory1 is new (common case)
+            existing_memory = conflict.memory2
+        
+        # Calculate temporal gap
+        conflict.temporal_gap = abs(new_memory.created_at - existing_memory.created_at)
+        
+        # Determine temporal context
+        if self._check_temporal_overlap(new_memory, existing_memory):
+            conflict.temporal_context = "same_period"
+            # If same period, likely a true contradiction
+            if conflict.conflict_type == "contradiction":
+                # Keep as contradiction
+                pass
+        else:
+            conflict.temporal_context = "different_periods"
+            # If different periods, might be an update rather than contradiction
+            if self._is_update(new_memory, existing_memory):
+                conflict.conflict_type = "update"
+                conflict.confidence = min(conflict.confidence, 0.8)  # Lower confidence for updates
+                conflict.evidence += " (Different time periods suggest update rather than contradiction)"
 

@@ -65,22 +65,36 @@ class MemoryStorage:
                 created_at TEXT NOT NULL,  -- ISO format datetime
                 last_used_at TEXT NOT NULL,  -- ISO format datetime
                 embedding TEXT,  -- JSON array of floats (embedding vector)
+                valid_from TEXT,  -- ISO format datetime (temporal metadata)
+                valid_until TEXT,  -- ISO format datetime (temporal metadata)
+                temporal_scope TEXT,  -- Temporal classification
                 UNIQUE(id)
             )
         """)
         
-        # Add embedding column if it doesn't exist (for existing databases)
+        # Add columns if they don't exist (for existing databases)
         cursor.execute("PRAGMA table_info(memories)")
         columns = [row[1] for row in cursor.fetchall()]
         if "embedding" not in columns:
             cursor.execute("ALTER TABLE memories ADD COLUMN embedding TEXT")
             logger.info("Added embedding column to memories table")
+        if "valid_from" not in columns:
+            cursor.execute("ALTER TABLE memories ADD COLUMN valid_from TEXT")
+            logger.info("Added valid_from column to memories table")
+        if "valid_until" not in columns:
+            cursor.execute("ALTER TABLE memories ADD COLUMN valid_until TEXT")
+            logger.info("Added valid_until column to memories table")
+        if "temporal_scope" not in columns:
+            cursor.execute("ALTER TABLE memories ADD COLUMN temporal_scope TEXT")
+            logger.info("Added temporal_scope column to memories table")
         
         # Create indexes for faster searches
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_namespace ON memories(namespace)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_importance ON memories(importance DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_last_used ON memories(last_used_at DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON memories(created_at DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_temporal_valid_from ON memories(valid_from)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_temporal_valid_until ON memories(valid_until)")
         
         # Create relationship tables
         self.create_relationship_tables()
@@ -208,13 +222,15 @@ class MemoryStorage:
         # Convert datetimes to ISO format strings
         created_at_str = record.created_at.isoformat()
         last_used_at_str = record.last_used_at.isoformat()
+        valid_from_str = record.valid_from.isoformat() if record.valid_from else None
+        valid_until_str = record.valid_until.isoformat() if record.valid_until else None
         
         # Convert embedding to JSON if provided
         embedding_json = json.dumps(embedding) if embedding else None
         
         cursor.execute("""
-            INSERT INTO memories (namespace, tags, text, importance, created_at, last_used_at, embedding)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO memories (namespace, tags, text, importance, created_at, last_used_at, embedding, valid_from, valid_until, temporal_scope)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             record.namespace,
             tags_json,
@@ -222,7 +238,10 @@ class MemoryStorage:
             record.importance,
             created_at_str,
             last_used_at_str,
-            embedding_json
+            embedding_json,
+            valid_from_str,
+            valid_until_str,
+            record.temporal_scope
         ))
         
         memory_id = cursor.lastrowid
@@ -667,6 +686,35 @@ class MemoryStorage:
         else:
             last_used_at = last_used_at.astimezone(timezone.utc)
         
+        # Load temporal metadata if present
+        valid_from = None
+        try:
+            if row["valid_from"] is not None:
+                valid_from = datetime.fromisoformat(row["valid_from"])
+                if valid_from.tzinfo is None:
+                    valid_from = valid_from.replace(tzinfo=timezone.utc)
+                else:
+                    valid_from = valid_from.astimezone(timezone.utc)
+        except (KeyError, IndexError):
+            pass  # Column doesn't exist or is None
+        
+        valid_until = None
+        try:
+            if row["valid_until"] is not None:
+                valid_until = datetime.fromisoformat(row["valid_until"])
+                if valid_until.tzinfo is None:
+                    valid_until = valid_until.replace(tzinfo=timezone.utc)
+                else:
+                    valid_until = valid_until.astimezone(timezone.utc)
+        except (KeyError, IndexError):
+            pass  # Column doesn't exist or is None
+        
+        temporal_scope = None
+        try:
+            temporal_scope = row["temporal_scope"]
+        except (KeyError, IndexError):
+            pass  # Column doesn't exist
+        
         # Load embedding if present
         embedding = None
         if row["embedding"] is not None:
@@ -680,7 +728,10 @@ class MemoryStorage:
             importance=row["importance"],
             created_at=created_at,
             last_used_at=last_used_at,
-            embedding=embedding
+            embedding=embedding,
+            valid_from=valid_from,
+            valid_until=valid_until,
+            temporal_scope=temporal_scope
         )
     
     def get_embedding(self, memory_id: int) -> Optional[List[float]]:

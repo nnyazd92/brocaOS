@@ -316,3 +316,58 @@ class SmartMergeStrategy(ResolutionStrategy):
         # In a more sophisticated implementation, could use LLM to merge coherently
         return f"{text1} | {text2}"
 
+
+class TemporalAwareResolutionStrategy(ResolutionStrategy):
+    """Resolve conflicts considering temporal ordering and context."""
+    
+    def resolve(self, conflict: Conflict, context: Dict[str, Any]) -> Resolution:
+        """Resolve by considering temporal relationships and context."""
+        from .. import RelationType
+        
+        # Check if memories have temporal relationships
+        # (This would require checking relationship manager - simplified for now)
+        
+        # Check temporal context from conflict
+        if conflict.temporal_context == "different_periods":
+            # Different time periods - likely both valid, keep both
+            return Resolution(
+                action="keep_both",
+                kept_memory=None,
+                archived_memory=None,
+                merged_memory=None,
+                rationale="Memories about different time periods, both valid"
+            )
+        
+        # Check if memories have temporal metadata
+        memory1_has_temporal = conflict.memory1.valid_from or conflict.memory1.valid_until
+        memory2_has_temporal = conflict.memory2.valid_from or conflict.memory2.valid_until
+        
+        if memory1_has_temporal and memory2_has_temporal:
+            # Both have temporal metadata - check ordering
+            mem1_start = conflict.memory1.valid_from or conflict.memory1.created_at
+            mem2_start = conflict.memory2.valid_from or conflict.memory2.created_at
+            
+            if mem1_start < mem2_start:
+                # Memory2 is later - likely supersedes
+                return Resolution(
+                    action="keep_new",
+                    kept_memory=conflict.memory2,
+                    archived_memory=conflict.memory1,
+                    merged_memory=None,
+                    rationale=f"Later memory (valid from {mem2_start}) supersedes earlier one (valid from {mem1_start}) based on temporal ordering"
+                )
+            elif mem2_start < mem1_start:
+                # Memory1 is later
+                return Resolution(
+                    action="keep_new",
+                    kept_memory=conflict.memory1,
+                    archived_memory=conflict.memory2,
+                    merged_memory=None,
+                    rationale=f"Later memory (valid from {mem1_start}) supersedes earlier one (valid from {mem2_start}) based on temporal ordering"
+                )
+        
+        # Fallback to recency strategy
+        from .strategies import RecencyResolutionStrategy
+        fallback_strategy = RecencyResolutionStrategy()
+        return fallback_strategy.resolve(conflict, context)
+
