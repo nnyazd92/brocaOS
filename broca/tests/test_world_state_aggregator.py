@@ -55,7 +55,20 @@ class TestWorldStateAggregator:
                 "total_directories": 5,
                 "total_size": 1024,
             },
-            "files": [{"path": "test.py", "size": 100}],
+            "files": [
+                {
+                    "path": "test.py",
+                    "name": "test.py",
+                    "size": 100,
+                    "extension": ".py",
+                    "metadata": {
+                        "creation_date": "2024-01-01T00:00:00+00:00",
+                        "last_modified": "2024-01-02T00:00:00+00:00",
+                        "file_size": 100
+                    }
+                }
+            ],
+            "directory_tree": {"src": {"_files": ["test.py"]}},
         }
         return mock
     
@@ -113,6 +126,10 @@ class TestWorldStateAggregator:
         assert "internal_state" in world_state
         assert "project" in world_state
         assert "tools" in world_state
+        # Project should include full file metadata
+        assert "files" in world_state["project"]
+        assert "directory_tree" in world_state["project"]
+        assert len(world_state["project"]["files"]) == 1
     
     def test_aggregate_with_no_components(self):
         """Test aggregating world state with no components."""
@@ -203,6 +220,14 @@ class TestWorldStateAggregator:
         assert state["project_root"] == "/test/project"
         assert "statistics" in state
         assert state["file_count"] == 1
+        # Should include full file metadata
+        assert "files" in state
+        assert len(state["files"]) == 1
+        assert state["files"][0]["path"] == "test.py"
+        assert "metadata" in state["files"][0]
+        # Should include directory tree
+        assert "directory_tree" in state
+        assert "src" in state["directory_tree"]
     
     def test_get_project_state_none(self):
         """Test getting project state when not available."""

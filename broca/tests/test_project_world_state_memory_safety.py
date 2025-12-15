@@ -20,9 +20,9 @@ class TestMemorySafety:
     
     def test_skip_binary_files(self):
         """
-        Test that binary files are skipped when reading headers.
+        Test that binary files are excluded from scanning.
         
-        Rationale: Binary files should not be read to prevent memory issues.
+        Rationale: Binary files should not be included in world state (only allowed extensions).
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a binary file (won't be included since it's not .py)
@@ -45,15 +45,18 @@ class TestMemorySafety:
             # Binary file should not be in results (not .py extension)
             assert binary_info is None
             
-            # Python file should have headers
+            # Python file should have metadata
             assert py_info is not None
-            assert len(py_info["headers"]) > 0
+            assert "metadata" in py_info
+            assert "creation_date" in py_info["metadata"]
+            assert "last_modified" in py_info["metadata"]
+            assert "file_size" in py_info["metadata"]
     
-    def test_skip_large_files(self):
+    def test_handle_large_files(self):
         """
-        Test that very large files are skipped when reading headers.
+        Test that large files are handled correctly (metadata only, no content reading).
         
-        Rationale: Large files should not be read to prevent memory issues.
+        Rationale: Large files should have metadata collected without reading contents.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a large Python file (simulate by checking size limit)
@@ -70,23 +73,25 @@ class TestMemorySafety:
             
             assert result["success"] is True
             
-            # Large file should be in results but with empty headers
+            # Both files should be in results (we collect metadata for all files)
             large_info = next((f for f in result["files"] if f["path"] == "large.py"), None)
             normal_info = next((f for f in result["files"] if f["path"] == "normal.py"), None)
             
             assert large_info is not None
-            # Headers should be empty for large files
-            assert large_info["headers"] == []
+            # Large file should have metadata (we don't read contents, just get stats)
+            assert "metadata" in large_info
+            assert large_info["metadata"]["file_size"] > 10 * 1024 * 1024  # Should be > 10MB
             
-            # Normal file should have headers
+            # Normal file should have metadata
             assert normal_info is not None
-            assert len(normal_info["headers"]) > 0
+            assert "metadata" in normal_info
+            assert normal_info["metadata"]["file_size"] < 100  # Should be small
     
-    def test_only_read_first_lines(self):
+    def test_only_collect_metadata_not_contents(self):
         """
-        Test that only first N lines are read, not entire file.
+        Test that we only collect file metadata, not file contents.
         
-        Rationale: We should never load entire files into memory.
+        Rationale: We should never load file contents into memory, only collect metadata.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a Python file with many lines
@@ -95,17 +100,18 @@ class TestMemorySafety:
                 for i in range(10000):
                     f.write(f"Line {i}\n")
             
-            tool = ProjectWorldStateTool(project_root=tmpdir, max_header_lines=10)
+            tool = ProjectWorldStateTool(project_root=tmpdir)
             result = tool.build_world_state(project_root=tmpdir)
             
             assert result["success"] is True
             
             file_info = next((f for f in result["files"] if f["path"] == "many_lines.py"), None)
             assert file_info is not None
-            # Should only have 10 lines, not 10000
-            assert len(file_info["headers"]) == 10
-            assert file_info["headers"][0] == "Line 0"
-            assert file_info["headers"][9] == "Line 9"
+            # Should have metadata, not file contents
+            assert "metadata" in file_info
+            assert "headers" not in file_info  # No headers field anymore
+            # File size should reflect the actual file size
+            assert file_info["metadata"]["file_size"] > 0
     
     def test_skip_common_binary_extensions(self):
         """
@@ -135,10 +141,12 @@ class TestMemorySafety:
                 file_info = next((f for f in result["files"] if f["path"] == f"test{ext}"), None)
                 assert file_info is None
             
-            # Python file should have headers
+            # Python file should have metadata
             py_info = next((f for f in result["files"] if f["path"] == "test.py"), None)
             assert py_info is not None
-            assert len(py_info["headers"]) > 0
+            assert "metadata" in py_info
+            assert "creation_date" in py_info["metadata"]
+            assert "last_modified" in py_info["metadata"]
     
     def test_handle_unicode_files_safely(self):
         """
@@ -158,8 +166,11 @@ class TestMemorySafety:
             
             file_info = next((f for f in result["files"] if f["path"] == "unicode.py"), None)
             assert file_info is not None
-            assert len(file_info["headers"]) > 0
-            assert "测试" in file_info["headers"][0] or "🎉" in file_info["headers"][0]
+            # Should have metadata (we don't read file contents anymore)
+            assert "metadata" in file_info
+            assert "creation_date" in file_info["metadata"]
+            assert "last_modified" in file_info["metadata"]
+            assert file_info["metadata"]["file_size"] > 0
     
     def test_skip_database_files(self):
         """
@@ -211,7 +222,11 @@ class TestMemorySafety:
             assert result["success"] is True
             assert len(result["files"]) == 100
             
-            # All files should have headers (they're small Python files)
+            # All files should have metadata (we collect metadata for all files)
             for file_info in result["files"]:
-                assert len(file_info["headers"]) > 0
+                assert "metadata" in file_info
+                assert "creation_date" in file_info["metadata"]
+                assert "last_modified" in file_info["metadata"]
+                assert "file_size" in file_info["metadata"]
+                assert "headers" not in file_info  # No headers field anymore
 

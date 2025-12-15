@@ -183,75 +183,114 @@ class TestDirectoryScanning:
             assert "readme.md" in file_names
 
 
-class TestFileHeaderExtraction:
-    """Test file header extraction."""
+class TestFileMetadataCollection:
+    """Test file metadata collection."""
     
-    def test_get_file_header_text_file(self):
+    def test_file_metadata_includes_creation_date(self):
         """
-        Test extracting headers from a Python file.
+        Test that file metadata includes creation_date.
         
-        Rationale: Ensures file headers are extracted correctly.
+        Rationale: Ensures creation_date is collected for all files.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / "test.py"
-            content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
+            file_path.write_text("print('hello')")
+            
+            tool = ProjectWorldStateTool(project_root=tmpdir)
+            files, dirs = tool._scan_directory(Path(tmpdir))
+            
+            assert len(files) == 1
+            file_info = files[0]
+            assert "metadata" in file_info
+            assert "creation_date" in file_info["metadata"]
+            # Verify it's a valid ISO format timestamp
+            from datetime import datetime
+            datetime.fromisoformat(file_info["metadata"]["creation_date"].replace('Z', '+00:00'))
+    
+    def test_file_metadata_includes_last_modified(self):
+        """
+        Test that file metadata includes last_modified.
+        
+        Rationale: Ensures last_modified timestamp is collected for all files.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "test.py"
+            file_path.write_text("print('hello')")
+            
+            tool = ProjectWorldStateTool(project_root=tmpdir)
+            files, dirs = tool._scan_directory(Path(tmpdir))
+            
+            assert len(files) == 1
+            file_info = files[0]
+            assert "metadata" in file_info
+            assert "last_modified" in file_info["metadata"]
+            # Verify it's a valid ISO format timestamp
+            from datetime import datetime
+            datetime.fromisoformat(file_info["metadata"]["last_modified"].replace('Z', '+00:00'))
+    
+    def test_file_metadata_includes_file_size(self):
+        """
+        Test that file metadata includes file_size.
+        
+        Rationale: Ensures file_size is included in metadata structure.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "test.py"
+            content = "print('hello')"
             file_path.write_text(content)
             
             tool = ProjectWorldStateTool(project_root=tmpdir)
-            headers = tool._get_file_header(file_path, max_lines=3)
+            files, dirs = tool._scan_directory(Path(tmpdir))
             
-            assert len(headers) == 3
-            assert headers[0] == "Line 1"
-            assert headers[1] == "Line 2"
-            assert headers[2] == "Line 3"
+            assert len(files) == 1
+            file_info = files[0]
+            assert "metadata" in file_info
+            assert "file_size" in file_info["metadata"]
+            assert file_info["metadata"]["file_size"] == len(content.encode('utf-8'))
     
-    def test_get_file_header_fewer_lines(self):
+    def test_file_metadata_structure(self):
         """
-        Test extracting headers when file has fewer lines than requested.
+        Test that file metadata has correct structure.
         
-        Rationale: Ensures tool handles files with fewer lines gracefully.
+        Rationale: Ensures metadata is properly structured with all required fields.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            file_path = Path(tmpdir) / "short.py"
-            content = "Line 1\nLine 2"
-            file_path.write_text(content)
+            file_path = Path(tmpdir) / "test.py"
+            file_path.write_text("print('hello')")
             
             tool = ProjectWorldStateTool(project_root=tmpdir)
-            headers = tool._get_file_header(file_path, max_lines=10)
+            files, dirs = tool._scan_directory(Path(tmpdir))
             
-            assert len(headers) == 2
-            assert headers == ["Line 1", "Line 2"]
+            assert len(files) == 1
+            file_info = files[0]
+            assert "metadata" in file_info
+            metadata = file_info["metadata"]
+            assert isinstance(metadata, dict)
+            assert "creation_date" in metadata
+            assert "last_modified" in metadata
+            assert "file_size" in metadata
+            # Verify timestamps are ISO format strings
+            assert isinstance(metadata["creation_date"], str)
+            assert isinstance(metadata["last_modified"], str)
+            assert isinstance(metadata["file_size"], int)
     
-    def test_get_file_header_empty_file(self):
+    def test_file_metadata_no_headers_field(self):
         """
-        Test extracting headers from an empty file.
+        Test that files no longer have headers field.
         
-        Rationale: Ensures tool handles empty files gracefully.
+        Rationale: Ensures headers field has been removed in favor of metadata.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
-            file_path = Path(tmpdir) / "empty.py"
-            file_path.write_text("")
+            file_path = Path(tmpdir) / "test.py"
+            file_path.write_text("print('hello')")
             
             tool = ProjectWorldStateTool(project_root=tmpdir)
-            headers = tool._get_file_header(file_path, max_lines=10)
+            files, dirs = tool._scan_directory(Path(tmpdir))
             
-            assert headers == []
-    
-    def test_get_file_header_binary_file(self):
-        """
-        Test handling of binary files.
-        
-        Rationale: Ensures tool handles binary files without crashing.
-        """
-        with tempfile.TemporaryDirectory() as tmpdir:
-            file_path = Path(tmpdir) / "binary.bin"
-            file_path.write_bytes(b'\x00\x01\x02\x03')
-            
-            tool = ProjectWorldStateTool(project_root=tmpdir)
-            headers = tool._get_file_header(file_path, max_lines=10)
-            
-            # Should return empty list or handle gracefully
-            assert isinstance(headers, list)
+            assert len(files) == 1
+            file_info = files[0]
+            assert "headers" not in file_info
+            assert "metadata" in file_info
 
 
 class TestBuildWorldState:
@@ -299,8 +338,10 @@ class TestBuildWorldState:
             
             # Check file metadata
             file1 = next(f for f in result["files"] if "file1.py" in f["path"])
-            assert "headers" in file1
-            assert len(file1["headers"]) > 0
+            assert "metadata" in file1
+            assert "creation_date" in file1["metadata"]
+            assert "last_modified" in file1["metadata"]
+            assert "file_size" in file1["metadata"]
     
     def test_build_world_state_with_nested_structure(self):
         """
@@ -418,13 +459,13 @@ class TestUpdateWorldState:
 
 
 class TestPersistence:
-    """Test JSON persistence."""
+    """Test that persistence is disabled (state routed through world state aggregator)."""
     
-    def test_save_state_to_file(self):
+    def test_state_not_saved_to_file(self):
         """
-        Test saving state to JSON file.
+        Test that state is not saved to JSON file.
         
-        Rationale: Ensures state can be persisted.
+        Rationale: Ensures state is routed through world state aggregator, not persisted to file.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             state_file = Path(tmpdir) / "state.json"
@@ -433,23 +474,23 @@ class TestPersistence:
             tool = ProjectWorldStateTool(project_root=tmpdir, state_file=str(state_file))
             tool.build_world_state(project_root=tmpdir, persist=True)
             
-            assert state_file.exists()
-            with open(state_file, 'r') as f:
-                data = json.load(f)
-            
-            assert data["project_root"] == tmpdir
-            assert len(data["files"]) == 1
+            # State should not be saved to file (routed through aggregator instead)
+            assert not state_file.exists()
+            # But state should still be available in memory
+            result = tool.get_world_state()
+            assert result["success"] is True
+            assert len(result["files"]) == 1
     
-    def test_load_state_from_file(self):
+    def test_load_state_from_file_disabled(self):
         """
-        Test loading state from JSON file.
+        Test that loading state from file is disabled.
         
-        Rationale: Ensures persisted state can be restored.
+        Rationale: Ensures persisted state is not loaded (state is built fresh each time).
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             state_file = Path(tmpdir) / "state.json"
             
-            # Create a saved state
+            # Create a saved state file (should be ignored)
             saved_state = {
                 "project_root": tmpdir,
                 "last_updated": "2024-01-01T00:00:00",
@@ -460,38 +501,42 @@ class TestPersistence:
                 json.dump(saved_state, f)
             
             tool = ProjectWorldStateTool(project_root=tmpdir, state_file=str(state_file))
-            tool._load_state()
-            
-            assert tool._state is not None
-            assert tool._state["project_root"] == tmpdir
+            # _load_state should return False (no-op)
+            result = tool._load_state()
+            assert result is False
+            # State should be None until build_world_state is called
+            assert tool._state is None
     
-    def test_build_loads_existing_state(self):
+    def test_build_creates_fresh_state(self):
         """
-        Test that building loads existing state if available.
+        Test that building creates fresh state (doesn't load from file).
         
-        Rationale: Ensures tool can resume from saved state.
+        Rationale: Ensures tool builds state fresh each time, not from saved file.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             state_file = Path(tmpdir) / "state.json"
+            (Path(tmpdir) / "test.py").write_text("test content")
             
-            # Pre-create state file
+            # Pre-create state file with old data (should be ignored)
             saved_state = {
                 "project_root": tmpdir,
                 "last_updated": "2024-01-01T00:00:00",
-                "files": [],
-                "statistics": {"total_files": 0}
+                "files": [{"path": "old.py", "size": 100}],
+                "statistics": {"total_files": 1}
             }
             with open(state_file, 'w') as f:
                 json.dump(saved_state, f)
             
             tool = ProjectWorldStateTool(project_root=tmpdir, state_file=str(state_file))
-            result = tool.get_world_state()
+            result = tool.build_world_state(project_root=tmpdir)
             
-            # Should be able to get state even before explicit build
-            # (depends on implementation - may need build first)
-            # For now, verify load works
-            tool._load_state()
-            assert tool._state is not None
+            # Should build fresh state, not load from file
+            assert result["success"] is True
+            # Should include test.py and state.json (both are in the directory)
+            file_paths = [f["path"] for f in result["files"]]
+            assert "test.py" in file_paths
+            # Old file from saved state should not be in state (proves we didn't load from file)
+            assert "old.py" not in file_paths
 
 
 class TestToolProtocol:

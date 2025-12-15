@@ -27,7 +27,7 @@ class ProjectWorldStateTool:
     Maintains a structured representation of the project including:
     - Directory structure (tree representation)
     - File tree (all files with metadata)
-    - File structures (first few lines/headers)
+    - File metadata (creation date, last modified, size)
     """
     
     # Allowed file extensions that should be included in world state
@@ -104,7 +104,7 @@ class ProjectWorldStateTool:
         """Tool description for the LLM."""
         return (
             "Build, get, and update project world state containing directory structure, "
-            "file tree, and file headers (first few lines) for structure overview. "
+            "file tree, and file metadata (creation date, last modified, size) for structure overview. "
             "Use this tool to understand the current project structure, track changes, "
             "and maintain awareness of the codebase layout."
         )
@@ -139,7 +139,7 @@ class ProjectWorldStateTool:
         
         Args:
             path: Directory path to scan
-            max_header_lines: Maximum number of header lines to extract
+            max_header_lines: Deprecated parameter (kept for compatibility, not used)
             
         Returns:
             Tuple of (files list, directories list)
@@ -187,8 +187,21 @@ class ProjectWorldStateTool:
                         try:
                             stat = item.stat()
                             file_size = stat.st_size
+                            # Get timestamps - use st_ctime for creation (or st_birthtime if available)
+                            try:
+                                creation_timestamp = stat.st_birthtime
+                            except AttributeError:
+                                # Fallback to st_ctime on systems without birthtime
+                                creation_timestamp = stat.st_ctime
+                            last_modified_timestamp = stat.st_mtime
+                            
+                            # Convert to ISO format timestamps
+                            creation_date = datetime.fromtimestamp(creation_timestamp, tz=timezone.utc).isoformat()
+                            last_modified = datetime.fromtimestamp(last_modified_timestamp, tz=timezone.utc).isoformat()
                         except OSError:
                             file_size = 0
+                            creation_date = datetime.now(timezone.utc).isoformat()
+                            last_modified = datetime.now(timezone.utc).isoformat()
                         
                         # Get relative path
                         try:
@@ -196,17 +209,19 @@ class ProjectWorldStateTool:
                         except ValueError:
                             file_rel_path = str(item)
                         
-                        # Only read headers from text files that are within size limit
-                        headers: List[str] = []
-                        if self._should_read_file_headers(item, file_size, ext):
-                            headers = self._get_file_header(item, max_header_lines)
+                        # Build metadata dictionary
+                        metadata = {
+                            "creation_date": creation_date,
+                            "last_modified": last_modified,
+                            "file_size": file_size
+                        }
                         
                         file_info: Dict[str, Any] = {
                             "path": file_rel_path,
                             "name": item.name,
                             "size": file_size,
                             "extension": ext,
-                            "headers": headers
+                            "metadata": metadata
                         }
                         
                         files.append(file_info)
@@ -219,105 +234,6 @@ class ProjectWorldStateTool:
             logger.warning(f"Error scanning directory {path}: {e}")
         
         return files, directories
-    
-    def _should_read_file_headers(self, file_path: Path, file_size: int, extension: str) -> bool:
-        """
-        Determine if file headers should be read for this file.
-        
-        Args:
-            file_path: Path to the file
-            file_size: Size of the file in bytes
-            extension: File extension (lowercase)
-            
-        Returns:
-            True if headers should be read, False otherwise
-        """
-        # Skip binary file extensions
-        if extension in self.BINARY_EXTENSIONS:
-            return False
-        
-        # Skip files that are too large
-        if file_size > self._max_file_size:
-            logger.debug(f"Skipping large file {file_path} (size: {file_size} bytes)")
-            return False
-        
-        # Skip zero-byte files
-        if file_size == 0:
-            return False
-        
-        # Additional binary detection: check first few bytes for null bytes
-        # or attempt to decode as UTF-8
-        try:
-            with open(file_path, 'rb') as f:
-                sample = f.read(min(512, file_size))
-                if len(sample) == 0:
-                    return False
-                
-                # Check for null bytes (strong indicator of binary)
-                if b'\x00' in sample:
-                    logger.debug(f"Skipping binary file {file_path} (contains null bytes)")
-                    return False
-                
-                # Try to decode as UTF-8 to check if it's valid text
-                # This handles Unicode properly, not just ASCII
-                try:
-                    decoded = sample.decode('utf-8')
-                    # Check if decoded content has reasonable text character ratio
-                    # Count printable characters (including Unicode) and whitespace
-                    text_chars = sum(1 for c in decoded if c.isprintable() or c.isspace())
-                    if len(decoded) > 0:
-                        text_ratio = text_chars / len(decoded)
-                        # If less than 70% are printable/whitespace, likely binary
-                        # Lower threshold to allow for valid UTF-8 with various characters
-                        if text_ratio < 0.7:
-                            logger.debug(f"Skipping likely binary file {file_path} (text ratio: {text_ratio:.2%})")
-                            return False
-                except UnicodeDecodeError:
-                    # Can't decode as UTF-8, likely binary
-                    logger.debug(f"Skipping binary file {file_path} (not valid UTF-8)")
-                    return False
-        except (OSError, PermissionError) as e:
-            logger.debug(f"Could not check file {file_path} for binary detection: {e}")
-            return False
-        
-        return True
-    
-    def _get_file_header(self, file_path: Path, max_lines: int) -> List[str]:
-        """
-        Extract first N lines from a text file.
-        
-        This method should only be called after _should_read_file_headers
-        has verified the file is safe to read.
-        
-        Args:
-            file_path: Path to the file
-            max_lines: Maximum number of lines to extract
-            
-        Returns:
-            List of header lines (empty list if file can't be read)
-        """
-        headers: List[str] = []
-        
-        try:
-            # Read file line by line to avoid loading entire file into memory
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                for i, line in enumerate(f):
-                    if i >= max_lines:
-                        break
-                    # Strip line endings but preserve content
-                    headers.append(line.rstrip('\n\r'))
-                    
-                    # Safety check: if we've read a reasonable amount, stop
-                    # This prevents issues with files that have extremely long lines
-                    if len(headers) > 0 and sum(len(h) for h in headers) > 100000:  # 100KB of headers max
-                        logger.debug(f"Stopping header read for {file_path} (accumulated {sum(len(h) for h in headers)} bytes)")
-                        break
-        
-        except (OSError, UnicodeDecodeError, PermissionError) as e:
-            # File might have become unreadable or encoding issue
-            logger.debug(f"Could not read headers from {file_path}: {e}")
-        
-        return headers
     
     def _build_directory_tree(self, files: List[Dict[str, Any]], directories: List[str]) -> Dict[str, Any]:
         """
@@ -369,47 +285,25 @@ class ProjectWorldStateTool:
         """
         Load state from JSON file if it exists.
         
-        Returns:
-            True if state was loaded, False otherwise
-        """
-        if not self._state_file.exists():
-            return False
+        Note: This method is now a no-op as state is routed through world state aggregator.
         
-        try:
-            with open(self._state_file, 'r', encoding='utf-8') as f:
-                self._state = json.load(f)
-            logger.debug(f"Loaded world state from {self._state_file}")
-            return True
-        except (OSError, json.JSONDecodeError) as e:
-            logger.warning(f"Failed to load world state from {self._state_file}: {e}")
-            return False
+        Returns:
+            False (state is not loaded from file)
+        """
+        # No-op: state is now routed through world state aggregator, not persisted to file
+        return False
     
     def _save_state(self) -> bool:
         """
         Save current state to JSON file.
         
-        Returns:
-            True if state was saved, False otherwise
-        """
-        if self._state is None:
-            return False
+        Note: This method is now a no-op as state is routed through world state aggregator.
         
-        try:
-            # Ensure parent directory exists
-            self._state_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Write to temporary file first (atomic write)
-            temp_file = self._state_file.with_suffix('.tmp')
-            with open(temp_file, 'w', encoding='utf-8') as f:
-                json.dump(self._state, f, indent=2, ensure_ascii=False)
-            
-            # Atomic rename
-            temp_file.replace(self._state_file)
-            logger.debug(f"Saved world state to {self._state_file}")
-            return True
-        except (OSError, json.JSONEncodeError) as e:
-            logger.error(f"Failed to save world state to {self._state_file}: {e}")
-            return False
+        Returns:
+            False (state is not saved to file)
+        """
+        # No-op: state is now routed through world state aggregator, not persisted to file
+        return False
     
     def build_world_state(self, project_root: Optional[str] = None, persist: bool = True) -> Dict[str, Any]:
         """
@@ -417,7 +311,7 @@ class ProjectWorldStateTool:
         
         Args:
             project_root: Root directory to scan (defaults to tool's configured root)
-            persist: Whether to save state to file
+            persist: Deprecated parameter (kept for compatibility, no longer used)
             
         Returns:
             Result dictionary with success status and state information
@@ -461,9 +355,8 @@ class ProjectWorldStateTool:
                 }
             }
             
-            # Persist if requested
-            if persist:
-                self._save_state()
+            # State is now routed through world state aggregator, not persisted to file
+            # (persist parameter kept for backward compatibility but ignored)
             
             return {
                 "success": True,

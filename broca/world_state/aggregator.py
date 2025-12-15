@@ -127,6 +127,8 @@ class WorldStateAggregator:
                 "root": project_state.get("project_root"),
                 "last_updated": project_state.get("last_updated"),
                 "statistics": project_state.get("statistics", {}),
+                "files": project_state.get("files", []),
+                "directory_tree": project_state.get("directory_tree", {}),
                 "file_count": project_state.get("file_count", 0),
                 "directory_count": project_state.get("directory_count", 0),
             }
@@ -225,12 +227,14 @@ class WorldStateAggregator:
                     "error": world_state_result.get("error", "World state not built"),
                 }
             
-            # Extract key information
+            # Extract full project state information including file metadata
             return {
                 "available": True,
                 "project_root": world_state_result.get("project_root"),
                 "last_updated": world_state_result.get("last_updated"),
                 "statistics": world_state_result.get("statistics", {}),
+                "files": world_state_result.get("files", []),
+                "directory_tree": world_state_result.get("directory_tree", {}),
                 "file_count": len(world_state_result.get("files", [])),
                 "directory_count": world_state_result.get("statistics", {}).get("total_directories", 0),
             }
