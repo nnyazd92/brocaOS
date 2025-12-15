@@ -18,6 +18,7 @@ from .vector_index import VectorIndex
 from .embeddings import EmbeddingService
 from .relationships import RelationshipManager
 from .namespace_index import NamespaceIndexGenerator
+from .temporal_consistency import TemporalConsistencyChecker
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class MemoryManager:
         self.embedding_service = embedding_service
         self.relationships = RelationshipManager(storage)
         self.namespace_index = NamespaceIndexGenerator(storage)
+        self.temporal_consistency = TemporalConsistencyChecker(storage)
         
         # Sync vector index with storage on startup
         self._sync_index()
@@ -604,7 +606,8 @@ class MemoryManager:
         last_used_after: Optional[datetime] = None,
         last_used_before: Optional[datetime] = None,
         min_importance: Optional[float] = None,
-        max_importance: Optional[float] = None
+        max_importance: Optional[float] = None,
+        order_by_temporal: bool = False
     ) -> List[MemoryRecord]:
         """
         Retrieve memories using combined search with temporal weighting.
@@ -625,6 +628,7 @@ class MemoryManager:
             last_used_before: Optional datetime - filter memories last used before this date
             min_importance: Optional float - minimum importance score (0.0-1.0)
             max_importance: Optional float - maximum importance score (0.0-1.0)
+            order_by_temporal: If True, order results by PRECEDES/FOLLOWS relationships (default: False)
             
         Returns:
             List of MemoryRecord objects, ranked by relevance with temporal weighting
@@ -906,6 +910,10 @@ class MemoryManager:
                 return (-score, -memory.importance, -memory.last_used_at.timestamp())
             
             results = sorted(unique_memories.values(), key=sort_key)[:limit]
+            
+            # Apply temporal ordering if requested
+            if order_by_temporal:
+                results = self._order_by_temporal_relationships(results)
             
             # Update last_used_at for retrieved memories
             for memory in results:
@@ -1434,6 +1442,126 @@ class MemoryManager:
             # 4. Auto-detect SUPERSEDES when duplicate is updated
             # (This is handled in the duplicate update path)
             
+            # 5. Auto-detect PRECEDES/FOLLOWS temporal relationships
+            try:
+                # Get all memories for temporal analysis (more comprehensive than namespace search)
+                all_memories = self.storage.get_all_memories(limit=100)
+                
+                # Filter to same namespace or similar memories
+                candidate_memories = {}
+                for mem in all_memories:
+                    if mem.id and mem.id != memory_id:
+                        # Include if same namespace or if we can check similarity
+                        if mem.namespace == record.namespace:
+                            candidate_memories[mem.id] = mem
+                        else:
+                            # Check if embeddings suggest similarity
+                            if mem.embedding and embedding:
+                                similarity = self._cosine_similarity(embedding, mem.embedding)
+                                if similarity >= 0.5:
+                                    candidate_memories[mem.id] = mem
+                
+                for similar_mem in candidate_memories.values():
+                    # Skip if already have CONTRADICTS relationship (contradictions aren't temporal sequences)
+                    existing_rels = self.relationships.get_related(
+                        memory_id,
+                        relation_types=[RelationType.CONTRADICTS],
+                        direction="both"
+                    )
+                    if any(rel_mem.id == similar_mem.id for rel_mem, _ in existing_rels):
+                        continue
+                    
+                    # Check semantic similarity threshold (only link related memories)
+                    # If we have embeddings, use them; otherwise check namespace/text similarity
+                    similarity = 0.5  # Default for namespace-based
+                    
+                    # Try to get embedding for similar_mem if not loaded
+                    similar_mem_embedding = similar_mem.embedding
+                    if not similar_mem_embedding and similar_mem.id:
+                        similar_mem_embedding = self.storage.get_embedding(similar_mem.id)
+                    
+                    if similar_mem_embedding and embedding:
+                        similarity = self._cosine_similarity(embedding, similar_mem_embedding)
+                    
+                    # For same namespace, check text similarity
+                    if record.namespace == similar_mem.namespace:
+                        # Same namespace = some similarity
+                        # Also check if texts share common words
+                        record_words = set(record.text.lower().split())
+                        similar_words = set(similar_mem.text.lower().split())
+                        common_words = record_words & similar_words
+                        total_words = len(record_words | similar_words)
+                        if total_words > 0:
+                            # Jaccard similarity for words
+                            word_similarity = len(common_words) / total_words
+                            similarity = max(similarity, word_similarity)
+                        
+                        # If same namespace and at least 2 common words, boost similarity
+                        if len(common_words) >= 2:
+                            similarity = max(similarity, 0.6)
+                    
+                    # Only proceed if memories are somewhat related
+                    # Lower threshold for temporal relationships (0.3) since we're looking for sequential events
+                    # Same namespace with common words should pass
+                    if similarity < 0.3:
+                        continue
+                    
+                    # Determine temporal ordering
+                    # Use temporal metadata if available, otherwise use created_at
+                    new_mem_time = record.valid_from if record.valid_from else record.created_at
+                    similar_mem_time = similar_mem.valid_from if similar_mem.valid_from else similar_mem.created_at
+                    
+                    # Check if they're about sequential events (not just similar)
+                    # Simple heuristic: if times are significantly different and similar semantically,
+                    # they might be sequential events
+                    time_diff = abs((new_mem_time - similar_mem_time).total_seconds())
+                    
+                    # Only create temporal relationship if:
+                    # 1. Times are different (more than 0.01 seconds apart to handle fast storage)
+                    # 2. Memories are semantically similar (already checked above)
+                    # 3. Not contradictory (already checked above)
+                    if time_diff > 0.01:  # At least 0.01 seconds apart (10ms)
+                        if new_mem_time < similar_mem_time:
+                            # New memory happened before similar memory
+                            try:
+                                self.relationships.link(
+                                    source_id=memory_id,
+                                    target_id=similar_mem.id,
+                                    relation_type=RelationType.PRECEDES,
+                                    strength=min(0.8, similarity),
+                                    metadata={
+                                        "detection_method": "temporal_auto_detection",
+                                        "auto_detected": True,
+                                        "time_difference_seconds": time_diff,
+                                        "temporal_metadata_used": record.valid_from is not None or similar_mem.valid_from is not None,
+                                        "similarity_score": similarity
+                                    }
+                                )
+                                logger.debug(f"Auto-detected PRECEDES: {memory_id} -> {similar_mem.id}")
+                            except Exception as e:
+                                logger.debug(f"Could not create PRECEDES relationship: {e}")
+                        elif new_mem_time > similar_mem_time:
+                            # New memory happened after similar memory
+                            try:
+                                self.relationships.link(
+                                    source_id=memory_id,
+                                    target_id=similar_mem.id,
+                                    relation_type=RelationType.FOLLOWS,
+                                    strength=min(0.8, similarity),
+                                    metadata={
+                                        "detection_method": "temporal_auto_detection",
+                                        "auto_detected": True,
+                                        "time_difference_seconds": time_diff,
+                                        "temporal_metadata_used": record.valid_from is not None or similar_mem.valid_from is not None,
+                                        "similarity_score": similarity
+                                    }
+                                )
+                                logger.debug(f"Auto-detected FOLLOWS: {memory_id} -> {similar_mem.id}")
+                            except Exception as e:
+                                logger.debug(f"Could not create FOLLOWS relationship: {e}")
+            except Exception as e:
+                logger.debug(f"Error in temporal relationship auto-detection: {e}")
+            
         except Exception as e:
             logger.warning(f"Error in auto-detection: {e}", exc_info=True)
     
@@ -1452,6 +1580,65 @@ class MemoryManager:
             return 0.0
         
         return dot_product / (magnitude1 * magnitude2)
+    
+    def _order_by_temporal_relationships(
+        self,
+        memories: List[MemoryRecord]
+    ) -> List[MemoryRecord]:
+        """
+        Order memories by PRECEDES/FOLLOWS relationships using topological sort.
+        
+        Args:
+            memories: List of memories to order
+            
+        Returns:
+            List of memories ordered by temporal relationships
+        """
+        if not memories or len(memories) < 2:
+            return memories
+        
+        # Get temporal relationships between these memories
+        memory_ids = [mem.id for mem in memories if mem.id]
+        if len(memory_ids) < 2:
+            # Not enough memories with IDs, fallback to created_at
+            return sorted(memories, key=lambda m: m.created_at)
+        
+        # Build relationship map
+        relationships: Dict[tuple, RelationType] = {}
+        
+        for mem_id in memory_ids:
+            # Get temporal relationships for this memory
+            related = self.relationships.get_related(
+                mem_id,
+                relation_types=[RelationType.PRECEDES, RelationType.FOLLOWS],
+                direction="both"
+            )
+            
+            for related_mem, rel_record in related:
+                if related_mem.id and related_mem.id in memory_ids:
+                    pair = (mem_id, related_mem.id)
+                    relationships[pair] = rel_record.relation_type
+        
+        # If no temporal relationships, fallback to created_at
+        if not relationships:
+            return sorted(memories, key=lambda m: m.created_at)
+        
+        # Check for cycles before sorting
+        inconsistencies = self.temporal_consistency.check_consistency()
+        has_cycles = any("cycle" in inc.lower() for inc in inconsistencies)
+        
+        if has_cycles:
+            logger.warning("Cycles detected in temporal relationships, falling back to created_at ordering")
+            return sorted(memories, key=lambda m: m.created_at)
+        
+        # Use topological sort
+        from .temporal import topological_sort_by_temporal_relationships
+        try:
+            ordered = topological_sort_by_temporal_relationships(memories, relationships)
+            return ordered
+        except Exception as e:
+            logger.warning(f"Error in topological sort, falling back to created_at: {e}")
+            return sorted(memories, key=lambda m: m.created_at)
     
     def save_index(self) -> None:
         """Save vector index to disk."""
@@ -1837,6 +2024,18 @@ class MemoryManager:
             warnings.append(warning)
         
         return warnings
+    
+    def validate_temporal_relationships(self, memory_id: Optional[int] = None) -> List[str]:
+        """
+        Validate temporal relationships for consistency.
+        
+        Args:
+            memory_id: Optional specific memory ID to validate. If None, validates all.
+            
+        Returns:
+            List of inconsistency descriptions (empty if all consistent)
+        """
+        return self.temporal_consistency.check_consistency(memory_id)
     
     def close(self) -> None:
         """Close storage and save index."""

@@ -7,8 +7,8 @@ Provides helper functions for working with memory timestamps and temporal reason
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
-from . import MemoryRecord
+from typing import Optional, Tuple, List, Dict
+from . import MemoryRecord, RelationType
 
 
 class TemporalUtils:
@@ -256,3 +256,67 @@ def create_temporal_context(memory: MemoryRecord, include_stats: bool = True) ->
         })
     
     return context
+
+
+def topological_sort_by_temporal_relationships(
+    memories: List[MemoryRecord],
+    relationships: Dict[tuple, RelationType]
+) -> List[MemoryRecord]:
+    """
+    Perform topological sort on memories based on temporal relationships.
+    
+    Args:
+        memories: List of memories to sort
+        relationships: Dictionary mapping (source_id, target_id) tuples to RelationType
+        
+    Returns:
+        List of memories in topological order (chronological based on PRECEDES/FOLLOWS)
+    """
+    from collections import defaultdict, deque
+    
+    # Build adjacency list and in-degree count
+    graph: Dict[int, List[int]] = defaultdict(list)
+    in_degree: Dict[int, int] = defaultdict(int)
+    memory_by_id: Dict[int, MemoryRecord] = {mem.id: mem for mem in memories if mem.id}
+    
+    # Initialize in-degrees
+    for mem in memories:
+        if mem.id:
+            in_degree[mem.id] = 0
+    
+    # Build graph from relationships
+    for (source_id, target_id), rel_type in relationships.items():
+        if source_id not in memory_by_id or target_id not in memory_by_id:
+            continue
+        
+        if rel_type == RelationType.PRECEDES:
+            # source PRECEDES target: source -> target
+            graph[source_id].append(target_id)
+            in_degree[target_id] += 1
+        elif rel_type == RelationType.FOLLOWS:
+            # source FOLLOWS target: target -> source (reverse)
+            graph[target_id].append(source_id)
+            in_degree[source_id] += 1
+    
+    # Kahn's algorithm for topological sort
+    queue = deque([mem_id for mem_id, degree in in_degree.items() if degree == 0])
+    result: List[MemoryRecord] = []
+    
+    while queue:
+        node_id = queue.popleft()
+        if node_id in memory_by_id:
+            result.append(memory_by_id[node_id])
+        
+        for neighbor in graph[node_id]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+    
+    # Add any remaining nodes (cycles or disconnected)
+    remaining = [mem for mem in memories if mem.id and mem.id not in [m.id for m in result if m.id]]
+    if remaining:
+        # Sort remaining by created_at as fallback
+        remaining.sort(key=lambda m: m.created_at)
+        result.extend(remaining)
+    
+    return result

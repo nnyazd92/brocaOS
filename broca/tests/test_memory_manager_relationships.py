@@ -156,7 +156,13 @@ class TestMemoryManagerRelationshipMethods:
         # Get related
         related = memory_manager.get_related_memories(mem_id1)
         
-        assert len(related) == 2
+        # Should have at least 2 relationships (SUPPORTS and CONTRADICTS)
+        # May have additional auto-detected relationships (e.g., temporal)
+        assert len(related) >= 2
+        # Verify the expected relationships exist
+        related_ids = [mem.id for mem, _ in related]
+        assert mem_id2 in related_ids
+        assert mem_id3 in related_ids
         related_ids = {mem.id for mem, rel in related}
         assert mem_id2 in related_ids
         assert mem_id3 in related_ids
@@ -195,7 +201,13 @@ class TestMemoryManagerRelationshipMethods:
         assert "nodes" in graph
         assert "edges" in graph
         assert len(graph["nodes"]) >= 3
-        assert len(graph["edges"]) == 2
+        # Should have at least 2 edges (SUPPORTS and CONTRADICTS)
+        # May have additional auto-detected relationships (e.g., temporal)
+        assert len(graph["edges"]) >= 2
+        # Verify expected relationships exist
+        edge_types = {edge["type"] for edge in graph["edges"]}
+        assert "supports" in edge_types
+        assert "contradicts" in edge_types
 
 
 class TestMemoryManagerAutoDetection:

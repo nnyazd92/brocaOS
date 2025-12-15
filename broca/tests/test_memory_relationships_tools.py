@@ -243,7 +243,13 @@ class TestGetRelatedMemoriesTool:
         
         assert result["success"] is True
         assert "related_memories" in result
-        assert len(result["related_memories"]) == 2
+        # Should have at least 2 relationships (SUPPORTS and CONTRADICTS)
+        # May have additional auto-detected relationships (e.g., temporal)
+        assert len(result["related_memories"]) >= 2
+        # Verify expected relationships exist
+        related_ids = {mem["memory_id"] for mem in result["related_memories"]}
+        assert mem_id2 in related_ids
+        assert mem_id3 in related_ids
     
     @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
     def test_get_related_memories_tool_filter_by_type(self, memory_manager):
