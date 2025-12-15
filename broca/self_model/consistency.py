@@ -112,7 +112,11 @@ Be thorough but fair. Only flag genuine inconsistencies."""
                 context_lines = []
                 for msg in conversation_context[-3:]:  # Last 3 messages
                     role = msg.get("role", "unknown")
-                    content = msg.get("content", "")[:200]  # Truncate for brevity
+                    # Handle None content explicitly (msg.get("content", "") returns None if key exists but value is None)
+                    content = msg.get("content")
+                    if content is None:
+                        content = ""
+                    content = content[:200]  # Truncate for brevity
                     context_lines.append(f"{role}: {content}")
                 context_str = "\n".join(context_lines)
             

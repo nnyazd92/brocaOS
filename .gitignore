@@ -8,3 +8,4 @@ __pycache__/
 .pytest_cache
 memories.json
 memory_namespaces_index.md
+project_world_state.json

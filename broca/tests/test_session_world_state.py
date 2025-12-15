@@ -63,7 +63,12 @@ class TestSessionWorldState:
         assert session.messages[0]["role"] == "system"
         # Check that it's valid JSON with expected structure
         system_content = session.messages[0]["content"]
-        parsed = json.loads(system_content)
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in system_content:
+            json_part = system_content.split("\n\n", 1)[1]
+        else:
+            json_part = system_content
+        parsed = json.loads(json_part)
         assert "timestamp" in parsed
         assert "system" in parsed or "self_model" in parsed
     
@@ -94,8 +99,13 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in system_content:
+            json_part = system_content.split("\n\n", 1)[1]
+        else:
+            json_part = system_content
         # Check that it's valid JSON
-        parsed = json.loads(system_content)
+        parsed = json.loads(json_part)
         assert "timestamp" in parsed
         assert "system" in parsed or "self_model" in parsed
         
@@ -117,8 +127,13 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in system_content:
+            json_part = system_content.split("\n\n", 1)[1]
+        else:
+            json_part = system_content
         # Check that it's valid JSON
-        parsed = json.loads(system_content)
+        parsed = json.loads(json_part)
         assert "timestamp" in parsed
     
     def test_update_system_prompt_with_aggregator(self, mock_llm_client, mock_world_state_aggregator):
@@ -143,8 +158,13 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in system_content:
+            json_part = system_content.split("\n\n", 1)[1]
+        else:
+            json_part = system_content
         # Check that it's valid JSON
-        parsed = json.loads(system_content)
+        parsed = json.loads(json_part)
         assert "timestamp" in parsed
     
     def test_update_system_prompt_without_aggregator(self, mock_llm_client):
@@ -175,8 +195,13 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in system_content:
+            json_part = system_content.split("\n\n", 1)[1]
+        else:
+            json_part = system_content
         # Check that it's valid JSON
-        parsed = json.loads(system_content)
+        parsed = json.loads(json_part)
         assert "timestamp" in parsed
         
         # Reset and manually remove system message to test creation
@@ -190,8 +215,13 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in system_content:
+            json_part = system_content.split("\n\n", 1)[1]
+        else:
+            json_part = system_content
         # Check that it's valid JSON
-        parsed = json.loads(system_content)
+        parsed = json.loads(json_part)
         assert "timestamp" in parsed
     
     def test_update_system_prompt_handles_errors(self, mock_llm_client):
@@ -236,7 +266,12 @@ class TestSessionWorldState:
         
         # Verify system message contains only world state as JSON
         system_content = session.messages[0]["content"]
-        parsed = json.loads(system_content)
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in system_content:
+            json_part = system_content.split("\n\n", 1)[1]
+        else:
+            json_part = system_content
+        parsed = json.loads(json_part)
         assert "timestamp" in parsed
     
     def test_send_updates_system_prompt_each_iteration(self, mock_llm_client, mock_world_state_aggregator):
@@ -278,6 +313,73 @@ class TestSessionWorldState:
         assert session.messages[2]["role"] == "assistant"
         # System message should contain only world state as JSON
         system_content = session.messages[0]["content"]
-        parsed = json.loads(system_content)
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in system_content:
+            json_part = system_content.split("\n\n", 1)[1]
+        else:
+            json_part = system_content
+        parsed = json.loads(json_part)
         assert "timestamp" in parsed
+    
+    def test_system_prompt_excludes_behavioral_patterns(self, mock_llm_client):
+        """Test that system prompt JSON does NOT contain behavioral_patterns."""
+        from broca.internal_sensing.framework import InternalSensingFramework
+        
+        # Create a mock internal sensing that would return behavioral_patterns
+        mock_internal_sensing = Mock(spec=InternalSensingFramework)
+        mock_internal_sensing.sample_internal_state.return_value = {
+            "physiology": {"metrics": {"processing_latency": 0.5}},
+            "cognition": {"metrics": {"confidence": 0.8}},
+            "affect": {"valence": 0.6},
+        }
+        mock_internal_sensing.generate_interoceptive_report.return_value = "Test report"
+        mock_internal_sensing.get_tool_statistics.return_value = {"memory": 5}
+        mock_internal_sensing.extract_behavioral_patterns.return_value = [
+            {"type": "tool_usage", "tool": "memory"}
+        ]
+        
+        # Create real aggregator with mock internal sensing
+        aggregator = WorldStateAggregator(internal_sensing=mock_internal_sensing)
+        
+        session = ConversationSession(
+            system_prompt=None,
+            llm=mock_llm_client,
+            world_state_aggregator=aggregator,
+        )
+        
+        # Get system prompt content
+        assert len(session.messages) == 1
+        assert session.messages[0]["role"] == "system"
+        system_content = session.messages[0]["content"]
+        
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in system_content:
+            json_part = system_content.split("\n\n", 1)[1]
+        else:
+            # If no base prompt, entire content is JSON
+            json_part = system_content
+        
+        # Parse JSON
+        parsed = json.loads(json_part)
+        
+        # Verify behavioral_patterns is NOT in the JSON anywhere
+        # Check recursively in the parsed structure
+        def check_no_behavioral_patterns(obj, path=""):
+            """Recursively check that behavioral_patterns is not present."""
+            if isinstance(obj, dict):
+                assert "behavioral_patterns" not in obj, f"Found behavioral_patterns at path: {path}"
+                for key, value in obj.items():
+                    check_no_behavioral_patterns(value, f"{path}.{key}" if path else key)
+            elif isinstance(obj, list):
+                for i, item in enumerate(obj):
+                    check_no_behavioral_patterns(item, f"{path}[{i}]" if path else f"[{i}]")
+        
+        check_no_behavioral_patterns(parsed)
+        
+        # Verify internal_state exists and has expected fields (but not behavioral_patterns)
+        if "internal_state" in parsed and parsed["internal_state"] is not None:
+            internal_state = parsed["internal_state"]
+            assert "behavioral_patterns" not in internal_state
+            # Other fields should still be present
+            assert "interoceptive_report" in internal_state or "tool_statistics" in internal_state
 

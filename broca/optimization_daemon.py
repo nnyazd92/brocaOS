@@ -44,6 +44,7 @@ from .tools.internal_sensing_tool import QueryInternalStateTool, GetInteroceptiv
 from .repl.session import ConversationSession
 from .optimization.goal_manager import GoalManager
 from .optimization.report_manager import ReportManager
+from .world_state.aggregator import WorldStateAggregator
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +169,24 @@ class OptimizationDaemon:
         if environment_system:
             logger.debug("Environment access tool skipped in optimization daemon (safety restriction)")
         
-        # Create system prompt for optimization daemon
+        # Get project world state tool if available
+        project_world_state_tool = None
+        if tool_registry:
+            try:
+                project_world_state_tool = tool_registry.get_tool("project_world_state")
+            except Exception:
+                pass  # Tool not registered, that's okay
+        
+        # Create world state aggregator (enables dynamic system prompt mutation)
+        world_state_aggregator = WorldStateAggregator(
+            internal_sensing=internal_sensing,
+            self_model=self_model,
+            project_world_state_tool=project_world_state_tool,
+            tool_registry=tool_registry,
+        )
+        
+        # Create base system prompt for optimization daemon
+        # This will be combined with dynamic world state by _update_system_prompt()
         system_prompt = (
             "You are BrocaOS-LLM running in autonomous optimization mode. "
             "You have access to various tools such as a memory retrieval system and web search tool. "
@@ -177,13 +195,14 @@ class OptimizationDaemon:
             "and what should be done next."
         )
         
-        # Create conversation session
+        # Create conversation session with world_state_aggregator for dynamic system prompts
         self.session = ConversationSession(
             system_prompt=system_prompt,
             storage=storage,
             tool_registry=tool_registry,
             consistency_layer=consistency_layer,
-            internal_sensing_framework=internal_sensing
+            internal_sensing_framework=internal_sensing,
+            world_state_aggregator=world_state_aggregator,
         )
         
         logger.info("Initialized all systems for optimization daemon")

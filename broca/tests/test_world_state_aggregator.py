@@ -142,6 +142,8 @@ class TestWorldStateAggregator:
         assert "current_state" in state
         assert "interoceptive_report" in state
         assert "tool_statistics" in state
+        # behavioral_patterns should NOT be included
+        assert "behavioral_patterns" not in state
         
         mock_internal_sensing.sample_internal_state.assert_called_once()
         mock_internal_sensing.generate_interoceptive_report.assert_called_once()
@@ -281,4 +283,21 @@ class TestWorldStateAggregator:
         # Unavailable sections should be omitted
         assert "internal_state" not in world_state
         assert "project" not in world_state
+    
+    def test_aggregate_excludes_behavioral_patterns(self, mock_internal_sensing):
+        """Test that aggregated world state does NOT contain behavioral_patterns."""
+        aggregator = WorldStateAggregator(internal_sensing=mock_internal_sensing)
+        
+        world_state = aggregator.aggregate()
+        
+        # internal_state should be present
+        assert "internal_state" in world_state
+        assert world_state["internal_state"] is not None
+        
+        # behavioral_patterns should NOT be in internal_state
+        internal_state = world_state["internal_state"]
+        assert "behavioral_patterns" not in internal_state
+        # Other expected fields should still be present
+        assert "interoceptive_report" in internal_state
+        assert "tool_statistics" in internal_state
 

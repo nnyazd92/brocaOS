@@ -63,8 +63,8 @@ class WorldStateAggregator:
         
         Returns:
             Dictionary containing all aggregated world state information in a clean,
-            hierarchical format. Always includes all sections, with null values when
-            data is unavailable to ensure consistent structure.
+            hierarchical format. Only includes sections when data is available;
+            unavailable sections are omitted entirely.
         """
         world_state: Dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -87,7 +87,7 @@ class WorldStateAggregator:
                 "working_directory": system_info.get("working_directory"),
             }
         
-        # Self-model - always include, null if unavailable
+        # Self-model - only include if available
         self_model_state = self.get_self_model_state()
         if self_model_state.get("available"):
             world_state["self_model"] = {
@@ -97,17 +97,14 @@ class WorldStateAggregator:
                 "constraints": self_model_state.get("constraints", {}),
                 "metadata": self_model_state.get("metadata", {}),
             }
-        else:
-            world_state["self_model"] = None
         
-        # Internal sensing - always include, null if unavailable
+        # Internal sensing - only include if available
         internal_sensing_state = self.get_internal_sensing_state()
         if internal_sensing_state.get("available"):
             current_state = internal_sensing_state.get("current_state", {})
             world_state["internal_state"] = {
                 "interoceptive_report": internal_sensing_state.get("interoceptive_report"),
                 "tool_statistics": internal_sensing_state.get("tool_statistics", {}),
-                "behavioral_patterns": internal_sensing_state.get("behavioral_patterns", []),
             }
             # Add physiology, cognition, affect from current_state if available
             if current_state:
@@ -117,10 +114,8 @@ class WorldStateAggregator:
                     world_state["internal_state"]["cognition"] = current_state["cognition"]
                 if "affect" in current_state:
                     world_state["internal_state"]["affect"] = current_state["affect"]
-        else:
-            world_state["internal_state"] = None
         
-        # Project state - always include, null if unavailable
+        # Project state - only include if available
         project_state = self.get_project_state()
         if project_state.get("available"):
             world_state["project"] = {
@@ -130,18 +125,14 @@ class WorldStateAggregator:
                 "file_count": project_state.get("file_count", 0),
                 "directory_count": project_state.get("directory_count", 0),
             }
-        else:
-            world_state["project"] = None
         
-        # Tools - always include, null if unavailable
+        # Tools - only include if available
         tools_info = self.get_tools_info()
         if tools_info.get("available"):
             world_state["tools"] = {
                 "count": tools_info.get("tool_count", 0),
                 "names": tools_info.get("tool_names", []),
             }
-        else:
-            world_state["tools"] = None
         
         return world_state
     
@@ -165,15 +156,11 @@ class WorldStateAggregator:
             # Get tool statistics
             tool_stats = self.internal_sensing.get_tool_statistics()
             
-            # Get behavioral patterns
-            behavioral_patterns = self.internal_sensing.extract_behavioral_patterns()
-            
             return {
                 "available": True,
                 "current_state": current_state,
                 "interoceptive_report": interoceptive_report,
                 "tool_statistics": tool_stats,
-                "behavioral_patterns": behavioral_patterns,
             }
         except Exception as e:
             logger.warning(f"Error getting internal sensing state: {e}", exc_info=True)

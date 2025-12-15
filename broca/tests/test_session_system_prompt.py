@@ -85,7 +85,12 @@ class TestSystemPromptWithBasePrompt:
         # Should have system message with only world state
         assert len(session.messages) == 1
         content = session.messages[0]["content"]
-        parsed = json.loads(content)
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in content:
+            json_part = content.split("\n\n", 1)[1]
+        else:
+            json_part = content
+        parsed = json.loads(json_part)
         assert "timestamp" in parsed
         assert "system" in parsed
 
@@ -117,9 +122,14 @@ class TestSystemPromptWithEmptyWorldState:
         # System message should contain structured JSON
         assert len(session.messages) == 1
         content = session.messages[0]["content"]
-        parsed = json.loads(content)
+        # Extract JSON part (may have base prompt separated by \n\n)
+        if "\n\n" in content:
+            json_part = content.split("\n\n", 1)[1]
+        else:
+            json_part = content
+        parsed = json.loads(json_part)
         
-        # All sections should be present
+        # All sections should be present (this test uses a mock that returns None values)
         assert "timestamp" in parsed
         assert "system" in parsed
         assert "self_model" in parsed
