@@ -63,7 +63,8 @@ class WorldStateAggregator:
         
         Returns:
             Dictionary containing all aggregated world state information in a clean,
-            hierarchical format. Only includes sections that are available.
+            hierarchical format. Always includes all sections, with null values when
+            data is unavailable to ensure consistent structure.
         """
         world_state: Dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -86,7 +87,7 @@ class WorldStateAggregator:
                 "working_directory": system_info.get("working_directory"),
             }
         
-        # Self-model
+        # Self-model - always include, null if unavailable
         self_model_state = self.get_self_model_state()
         if self_model_state.get("available"):
             world_state["self_model"] = {
@@ -96,8 +97,10 @@ class WorldStateAggregator:
                 "constraints": self_model_state.get("constraints", {}),
                 "metadata": self_model_state.get("metadata", {}),
             }
+        else:
+            world_state["self_model"] = None
         
-        # Internal sensing
+        # Internal sensing - always include, null if unavailable
         internal_sensing_state = self.get_internal_sensing_state()
         if internal_sensing_state.get("available"):
             current_state = internal_sensing_state.get("current_state", {})
@@ -114,8 +117,10 @@ class WorldStateAggregator:
                     world_state["internal_state"]["cognition"] = current_state["cognition"]
                 if "affect" in current_state:
                     world_state["internal_state"]["affect"] = current_state["affect"]
+        else:
+            world_state["internal_state"] = None
         
-        # Project state
+        # Project state - always include, null if unavailable
         project_state = self.get_project_state()
         if project_state.get("available"):
             world_state["project"] = {
@@ -125,14 +130,18 @@ class WorldStateAggregator:
                 "file_count": project_state.get("file_count", 0),
                 "directory_count": project_state.get("directory_count", 0),
             }
+        else:
+            world_state["project"] = None
         
-        # Tools
+        # Tools - always include, null if unavailable
         tools_info = self.get_tools_info()
         if tools_info.get("available"):
             world_state["tools"] = {
                 "count": tools_info.get("tool_count", 0),
                 "names": tools_info.get("tool_names", []),
             }
+        else:
+            world_state["tools"] = None
         
         return world_state
     

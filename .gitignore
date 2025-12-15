@@ -6,3 +6,5 @@ conversations/
 __pycache__/
 .env
 .pytest_cache
+memories.json
+memory_namespaces_index.md

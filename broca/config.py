@@ -23,6 +23,7 @@ class LoggingConfig(BaseModel):
 class StorageConfig(BaseModel):
     storage_type: str = os.getenv("BROCA_STORAGE_TYPE", "json")
     storage_path: str = os.getenv("BROCA_STORAGE_PATH", "conversations")
+    base_system_prompt: str = os.getenv("BROCA_BASE_SYSTEM_PROMPT", "")
 
 
 class ToolsConfig(BaseModel):

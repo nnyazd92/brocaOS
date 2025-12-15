@@ -46,6 +46,7 @@ class ConversationSession:
         consistency_layer: Optional["ConsistencyLayer"] = None,
         internal_sensing_framework: Optional["InternalSensingFramework"] = None,
         world_state_aggregator: Optional["WorldStateAggregator"] = None,
+        base_system_prompt: Optional[str] = None,
     ) -> None:
         self.llm = llm or DeepSeekClient()
         self.messages: List[Dict[str, str]] = []
@@ -56,6 +57,23 @@ class ConversationSession:
         self.world_state_aggregator = world_state_aggregator
         self.session_id = session_id or str(uuid.uuid4())
         self.system_prompt = system_prompt
+        
+        # Get base system prompt from parameter, system_prompt, or config
+        # Track whether base_system_prompt was explicitly provided
+        if base_system_prompt is not None:
+            self.base_system_prompt = base_system_prompt
+            self._base_system_prompt_explicit = True
+        elif system_prompt:
+            # If system_prompt is provided but base_system_prompt is not,
+            # use system_prompt as the base (for backward compatibility)
+            self.base_system_prompt = system_prompt
+            self._base_system_prompt_explicit = True
+        else:
+            # Fall back to config if not provided
+            from ..config import config
+            self.base_system_prompt = config.storage.base_system_prompt
+            self._base_system_prompt_explicit = False
+        
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = self.created_at
         self._max_tool_iterations = 100
@@ -438,8 +456,9 @@ class ConversationSession:
         the system message in the conversation. If no system message exists,
         creates one. If world state aggregator is not available, does nothing.
         
-        The system prompt consists solely of the formatted world state,
-        with no base prompt appended.
+        The system prompt consists of:
+        1. Base system prompt (if configured) - user-defined invariants
+        2. Formatted world state JSON - dynamic content with consistent structure
         """
         if not self.world_state_aggregator or not self._world_state_formatter:
             return
@@ -451,8 +470,20 @@ class ConversationSession:
             # Format world state for prompt
             formatted_world_state = self._world_state_formatter.format(world_state)
             
-            # Use formatted world state as the complete system prompt
-            complete_prompt = formatted_world_state or ""
+            # Combine base prompt and world state
+            parts = []
+            if self.base_system_prompt:
+                parts.append(self.base_system_prompt)
+            if formatted_world_state:
+                parts.append(formatted_world_state)
+            
+            # Join with double newline if both parts exist, otherwise just use the non-empty part
+            if len(parts) == 2:
+                complete_prompt = "\n\n".join(parts)
+            elif len(parts) == 1:
+                complete_prompt = parts[0]
+            else:
+                complete_prompt = ""
             
             # Update or create system message
             if self.messages and self.messages[0].get("role") == "system":
@@ -670,15 +701,30 @@ class ConversationSession:
         Save conversation to storage if storage backend is available.
         
         Logs errors but does not raise exceptions to avoid breaking the REPL.
+        
+        The system_prompt field in metadata stores the base system prompt
+        (user-defined invariants), not the full combined prompt with world state.
+        The full prompt is always available in the messages[0]["content"].
         """
         if not self.storage:
             return
         
         try:
+            # Use base_system_prompt if it was explicitly set, otherwise use system_prompt
+            # If base_system_prompt came from config and system_prompt is None, save empty string
+            # to indicate no explicit system prompt was set
+            if hasattr(self, '_base_system_prompt_explicit') and self._base_system_prompt_explicit:
+                # Base prompt was explicitly provided (via parameter or system_prompt)
+                saved_system_prompt = self.base_system_prompt or ""
+            else:
+                # Base prompt came from config - only save if system_prompt was also set
+                # This preserves the behavior: if user didn't set system_prompt, save empty
+                saved_system_prompt = self.system_prompt or ""
+            
             metadata = {
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
-                "system_prompt": self.system_prompt or "",
+                "system_prompt": saved_system_prompt,
             }
             
             self.storage.save_conversation(
@@ -697,7 +743,8 @@ class ConversationSession:
         cls,
         session_id: str,
         storage: "ConversationStorage",
-        llm: Optional[DeepSeekClient] = None
+        llm: Optional[DeepSeekClient] = None,
+        world_state_aggregator: Optional["WorldStateAggregator"] = None,
     ) -> Optional["ConversationSession"]:
         """
         Load a conversation session from storage.
@@ -706,6 +753,7 @@ class ConversationSession:
             session_id: Unique identifier for the conversation session
             storage: Storage backend to load from
             llm: Optional LLM client (uses default if not provided)
+            world_state_aggregator: Optional world state aggregator for dynamic prompts
             
         Returns:
             ConversationSession instance if found, None otherwise
@@ -716,35 +764,56 @@ class ConversationSession:
                 logger.debug(f"Conversation {session_id} not found in storage")
                 return None
             
-            messages = result["messages"]
-            metadata = result["metadata"]
+            messages = result.get("messages", [])
+            metadata = result.get("metadata", {})
             
-            # Extract system prompt from messages or metadata
-            system_prompt = metadata.get("system_prompt") or None
-            if not system_prompt:
-                # Try to get from first message if it's a system message
-                if messages and messages[0].get("role") == "system":
-                    system_prompt = messages[0].get("content")
+            # Extract base system prompt from metadata (this is the user-defined base prompt)
+            # Use the saved value, even if empty (don't override with config when loading)
+            base_system_prompt = metadata.get("system_prompt", "")
             
-            # Create session
+            # If messages contain a system message with combined prompt, try to extract base
+            # This handles cases where the system message has both base prompt and world state
+            if messages and messages[0].get("role") == "system":
+                system_content = messages[0].get("content", "")
+                # If the content contains both base prompt and JSON (separated by \n\n),
+                # and we don't have a base prompt in metadata, try to extract it
+                if "\n\n" in system_content and not base_system_prompt:
+                    parts = system_content.split("\n\n", 1)
+                    potential_base = parts[0].strip()
+                    # Only use if it doesn't look like JSON
+                    if potential_base and not potential_base.startswith("{"):
+                        base_system_prompt = potential_base
+            
+            # Create session with base system prompt
+            # Note: We don't pass system_prompt parameter to avoid double-adding
+            # The messages will be restored below
+            # Pass base_system_prompt explicitly (even if empty) to avoid using config
             session = cls(
-                system_prompt=system_prompt,
+                system_prompt=None,  # Don't add system prompt here, we'll use messages
                 llm=llm,
                 storage=storage,
-                session_id=session_id
+                session_id=session_id,
+                world_state_aggregator=world_state_aggregator,
+                base_system_prompt=base_system_prompt  # Use saved value, not config
             )
             
-            # Restore messages (skip system if already added)
+            # Restore messages directly (they already contain the system message)
             if messages:
-                if messages[0].get("role") == "system" and session.messages and session.messages[0].get("role") == "system":
-                    # System prompt already added, skip first message
-                    session.messages = messages
-                else:
-                    session.messages = messages
+                session.messages = messages
             
             # Restore timestamps
             session.created_at = metadata.get("created_at", session.created_at)
             session.updated_at = metadata.get("updated_at", session.updated_at)
+            
+            # Restore system_prompt for backward compatibility (legacy code may check this)
+            # This is the base prompt, not the full combined prompt
+            # If saved value is empty, set to None to indicate no system prompt was set
+            session.system_prompt = base_system_prompt if base_system_prompt else None
+            
+            # If we have a world state aggregator, update the system prompt to refresh world state
+            # This ensures the world state is current even after loading
+            if world_state_aggregator and session._world_state_formatter:
+                session._update_system_prompt()
             
             logger.info(f"Loaded conversation {session_id} from storage")
             return session
