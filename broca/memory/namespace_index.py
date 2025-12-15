@@ -178,4 +178,28 @@ class NamespaceIndexGenerator:
             True if namespace is not in cache, False otherwise
         """
         return namespace not in self._cached_namespaces
+    
+    def get_namespace_hierarchy(self) -> Dict[str, Any]:
+        """
+        Get the namespace hierarchy as a tree data structure.
+        
+        This method returns the same tree structure that is used to generate
+        the markdown index, but as a dictionary that can be included in world state.
+        
+        Returns:
+            Dictionary representing the namespace tree structure with format:
+            {
+                "namespace_name": {
+                    "children": {...},
+                    "is_leaf": bool
+                }
+            }
+        """
+        try:
+            namespaces = self.get_all_namespaces()
+            tree = self.build_namespace_tree(namespaces)
+            return tree
+        except Exception as e:
+            logger.error(f"Error getting namespace hierarchy: {e}", exc_info=True)
+            return {}
 

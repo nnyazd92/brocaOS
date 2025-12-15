@@ -183,6 +183,7 @@ class OptimizationDaemon:
             self_model=self_model,
             project_world_state_tool=project_world_state_tool,
             tool_registry=tool_registry,
+            memory_manager=self.memory_manager,
         )
         
         # Create base system prompt for optimization daemon

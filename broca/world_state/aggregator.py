@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ..self_model.model import SelfModel
     from ..tools.project_world_state import ProjectWorldStateTool
     from ..tools.registry import ToolRegistry
+    from ..memory.manager import MemoryManager
 
 
 class WorldStateAggregator:
@@ -32,6 +33,7 @@ class WorldStateAggregator:
     - Project world state (file structure, project info)
     - System information (date/time, platform)
     - Tool registry (available tools)
+    - Memory namespace hierarchy (memory organization structure)
     """
     
     def __init__(
@@ -40,6 +42,7 @@ class WorldStateAggregator:
         self_model: Optional["SelfModel"] = None,
         project_world_state_tool: Optional["ProjectWorldStateTool"] = None,
         tool_registry: Optional["ToolRegistry"] = None,
+        memory_manager: Optional["MemoryManager"] = None,
     ) -> None:
         """
         Initialize world state aggregator.
@@ -49,11 +52,13 @@ class WorldStateAggregator:
             self_model: Optional SelfModel instance
             project_world_state_tool: Optional ProjectWorldStateTool instance
             tool_registry: Optional ToolRegistry instance
+            memory_manager: Optional MemoryManager instance for namespace hierarchy
         """
         self.internal_sensing = internal_sensing
         self.self_model = self_model
         self.project_world_state_tool = project_world_state_tool
         self.tool_registry = tool_registry
+        self.memory_manager = memory_manager
         
         logger.info("Initialized WorldStateAggregator")
     
@@ -132,6 +137,13 @@ class WorldStateAggregator:
             world_state["tools"] = {
                 "count": tools_info.get("tool_count", 0),
                 "names": tools_info.get("tool_names", []),
+            }
+        
+        # Memory namespace hierarchy - only include if available
+        memory_info = self.get_memory_namespace_hierarchy()
+        if memory_info.get("available"):
+            world_state["memory"] = {
+                "namespace_hierarchy": memory_info.get("namespace_hierarchy", {}),
             }
         
         return world_state
@@ -274,5 +286,27 @@ class WorldStateAggregator:
             }
         except Exception as e:
             logger.warning(f"Error getting tools info: {e}", exc_info=True)
+            return {"available": False, "error": str(e)}
+    
+    def get_memory_namespace_hierarchy(self) -> Dict[str, Any]:
+        """
+        Get memory namespace hierarchy.
+        
+        Returns:
+            Dictionary with namespace hierarchy information
+        """
+        if not self.memory_manager:
+            return {"available": False}
+        
+        try:
+            # Get namespace hierarchy from memory manager's namespace index generator
+            namespace_hierarchy = self.memory_manager.namespace_index.get_namespace_hierarchy()
+            
+            return {
+                "available": True,
+                "namespace_hierarchy": namespace_hierarchy,
+            }
+        except Exception as e:
+            logger.warning(f"Error getting memory namespace hierarchy: {e}", exc_info=True)
             return {"available": False, "error": str(e)}
 
