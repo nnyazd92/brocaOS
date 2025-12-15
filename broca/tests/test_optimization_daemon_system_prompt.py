@@ -455,10 +455,18 @@ class TestOptimizationDaemonSystemPromptComponents:
             assert "project" in parsed
             project = parsed["project"]
             
-            # Verify files are included
-            assert "files" in project
-            assert isinstance(project["files"], list)
-            assert len(project["files"]) == 3  # test1.py, test2.py, subdir/test3.py
+            # Verify minimal structure: directory_tree and filenames only
+            assert "directory_tree" in project
+            assert "filenames" in project
+            assert isinstance(project["filenames"], list)
+            assert len(project["filenames"]) == 3  # test1.py, test2.py, subdir/test3.py
+            # Verify filenames are simple strings (paths), not objects with metadata
+            for filename in project["filenames"]:
+                assert isinstance(filename, str)
+            # Should NOT have extraneous fields
+            assert "files" not in project  # Should be "filenames" not "files"
+            assert "root" not in project
+            assert "statistics" not in project
             
             # Verify directory_tree is included
             assert "directory_tree" in project

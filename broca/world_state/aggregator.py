@@ -120,17 +120,12 @@ class WorldStateAggregator:
                 if "affect" in current_state:
                     world_state["internal_state"]["affect"] = current_state["affect"]
         
-        # Project state - only include if available
+        # Project state - only include if available (minimal: directory_tree + filenames)
         project_state = self.get_project_state()
         if project_state.get("available"):
             world_state["project"] = {
-                "root": project_state.get("project_root"),
-                "last_updated": project_state.get("last_updated"),
-                "statistics": project_state.get("statistics", {}),
-                "files": project_state.get("files", []),
                 "directory_tree": project_state.get("directory_tree", {}),
-                "file_count": project_state.get("file_count", 0),
-                "directory_count": project_state.get("directory_count", 0),
+                "filenames": project_state.get("filenames", []),
             }
         
         # Tools - only include if available
@@ -227,7 +222,7 @@ class WorldStateAggregator:
                     "error": world_state_result.get("error", "World state not built"),
                 }
             
-            # Extract full project state information including file metadata
+            # Extract minimal project state: only directory_tree and filenames
             files = world_state_result.get("files", [])
             directory_tree = world_state_result.get("directory_tree", {})
             
@@ -237,15 +232,13 @@ class WorldStateAggregator:
             if not directory_tree:
                 logger.debug("Project state has no directory_tree (may be empty project or unbuilt state)")
             
+            # Extract just filenames (paths) from files list, removing all metadata
+            filenames = [file_info.get("path", "") for file_info in files if file_info.get("path")]
+            
             return {
                 "available": True,
-                "project_root": world_state_result.get("project_root"),
-                "last_updated": world_state_result.get("last_updated"),
-                "statistics": world_state_result.get("statistics", {}),
-                "files": files,
                 "directory_tree": directory_tree,
-                "file_count": len(files),
-                "directory_count": world_state_result.get("statistics", {}).get("total_directories", 0),
+                "filenames": filenames,
             }
         except Exception as e:
             logger.warning(f"Error getting project state: {e}", exc_info=True)

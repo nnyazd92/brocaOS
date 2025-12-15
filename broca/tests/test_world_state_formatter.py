@@ -196,13 +196,8 @@ class TestWorldStateFormatter:
         world_state = {
             "timestamp": "2024-01-01T00:00:00Z",
             "project": {
-                "root": "/test/project",
-                "statistics": {
-                    "total_files": 10,
-                    "total_directories": 5,
-                    "total_size": 1024,
-                },
-                "last_updated": "2024-01-01T00:00:00Z",
+                "directory_tree": {"src": {"_files": ["test.py"]}},
+                "filenames": ["test.py", "readme.md"],
             },
         }
         
@@ -212,9 +207,15 @@ class TestWorldStateFormatter:
         
         # Should be valid JSON
         parsed = json.loads(formatted)
-        assert parsed["project"]["root"] == "/test/project"
-        assert parsed["project"]["statistics"]["total_files"] == 10
-        assert parsed["project"]["statistics"]["total_directories"] == 5
+        # Project should have minimal structure (directory_tree + filenames)
+        assert "directory_tree" in parsed["project"]
+        assert "filenames" in parsed["project"]
+        assert isinstance(parsed["project"]["filenames"], list)
+        assert len(parsed["project"]["filenames"]) == 2
+        # Should NOT have extraneous fields
+        assert "root" not in parsed["project"]
+        assert "statistics" not in parsed["project"]
+        assert "files" not in parsed["project"]  # Should be "filenames" not "files"
     
     def test_format_tools(self):
         """Test formatting tools section as JSON."""

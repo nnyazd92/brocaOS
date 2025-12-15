@@ -431,16 +431,19 @@ class TestSessionWorldState:
             assert "project" in parsed
             project = parsed["project"]
             
-            # Verify files are included
-            assert "files" in project
-            assert isinstance(project["files"], list)
-            assert len(project["files"]) > 0
-            # Verify file structure
-            first_file = project["files"][0]
-            assert "path" in first_file
-            assert "metadata" in first_file
-            assert "creation_date" in first_file["metadata"]
-            assert "last_modified" in first_file["metadata"]
+            # Verify minimal structure: directory_tree and filenames only
+            assert "directory_tree" in project
+            assert "filenames" in project
+            assert isinstance(project["filenames"], list)
+            assert len(project["filenames"]) > 0
+            # Verify filenames are simple strings (paths), not objects with metadata
+            for filename in project["filenames"]:
+                assert isinstance(filename, str)
+            # Should NOT include extraneous metadata
+            assert "files" not in project  # Should be "filenames" not "files"
+            assert "root" not in project
+            assert "statistics" not in project
+            assert "file_count" not in project
             
             # Verify directory_tree is included
             assert "directory_tree" in project

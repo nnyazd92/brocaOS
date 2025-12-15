@@ -126,10 +126,14 @@ class TestWorldStateAggregator:
         assert "internal_state" in world_state
         assert "project" in world_state
         assert "tools" in world_state
-        # Project should include full file metadata
-        assert "files" in world_state["project"]
+        # Project should include minimal structure (directory_tree + filenames)
+        assert "filenames" in world_state["project"]
         assert "directory_tree" in world_state["project"]
-        assert len(world_state["project"]["files"]) == 1
+        assert len(world_state["project"]["filenames"]) == 1
+        # Should NOT have extraneous fields
+        assert "files" not in world_state["project"]  # Should be "filenames" not "files"
+        assert "root" not in world_state["project"]
+        assert "statistics" not in world_state["project"]
     
     def test_aggregate_with_no_components(self):
         """Test aggregating world state with no components."""
@@ -217,17 +221,18 @@ class TestWorldStateAggregator:
         
         # State should have "available" flag for internal use
         assert state["available"] is True
-        assert state["project_root"] == "/test/project"
-        assert "statistics" in state
-        assert state["file_count"] == 1
-        # Should include full file metadata
-        assert "files" in state
-        assert len(state["files"]) == 1
-        assert state["files"][0]["path"] == "test.py"
-        assert "metadata" in state["files"][0]
-        # Should include directory tree
+        # Should only include minimal structure: directory_tree and filenames
         assert "directory_tree" in state
+        assert "filenames" in state
         assert "src" in state["directory_tree"]
+        # Should NOT include extraneous metadata
+        assert "project_root" not in state
+        assert "statistics" not in state
+        assert "files" not in state  # Should be "filenames" not "files"
+        assert "file_count" not in state
+        # Verify filenames is a simple list of paths
+        assert isinstance(state["filenames"], list)
+        assert "test.py" in state["filenames"]
     
     def test_get_project_state_none(self):
         """Test getting project state when not available."""
@@ -275,11 +280,15 @@ class TestWorldStateAggregator:
             # Get project state - should auto-build
             state = aggregator.get_project_state()
             
-            # Should be available and have files/directory_tree
+            # Should be available and have minimal structure (directory_tree + filenames)
             assert state["available"] is True
-            assert "files" in state
+            assert "filenames" in state
             assert "directory_tree" in state
-            assert len(state["files"]) > 0
+            assert len(state["filenames"]) > 0
+            # Should NOT have extraneous fields
+            assert "files" not in state  # Should be "filenames" not "files"
+            assert "project_root" not in state
+            assert "statistics" not in state
             # Verify tool state was built
             assert tool._state is not None
     
