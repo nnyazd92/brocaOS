@@ -1,0 +1,13 @@
+pydantic
+python-dotenv
+openai
+pytest
+pytest-cov
+pytest-mock
+pytest-asyncio
+httpx
+tavily-python
+faiss-cpu
+numpy
+sqlite-database
+psutil
