@@ -173,9 +173,16 @@ def _initialize_tool_registry(
             except Exception as e:
                 logger.warning(f"Failed to register version control tool: {e}", exc_info=True)
         
-        # Project world state tool is NOT registered as a tool since project world state data
-        # is already included in the LLM's mutable system prompt via WorldStateAggregator.
-        # The tool instance is still created directly (not from registry) for WorldStateAggregator.
+        # Register project world state tool if enabled
+        if config.tools.enable_project_world_state:
+            try:
+                from .tools.project_world_state import ProjectWorldStateTool
+                project_root = config.tools.project_world_state_path
+                project_world_state_tool = ProjectWorldStateTool(project_root=project_root)
+                registry.register_tool(project_world_state_tool)
+                logger.info("Registered project world state tool")
+            except Exception as e:
+                logger.warning(f"Failed to register project world state tool: {e}", exc_info=True)
         
         if len(registry.list_tools()) == 0:
             logger.debug("No tools registered")
@@ -514,25 +521,11 @@ def main() -> None:
                 logger.info("Registered environment access tool")
             except Exception as e:
                 logger.warning(f"Failed to register environment access tool: {e}", exc_info=True)
-
-        # Create project world state tool directly (not from registry) for WorldStateAggregator
-        # The tool is not registered as a callable tool since project world state data
-        # is already included in the LLM's mutable system prompt via WorldStateAggregator.
-        project_world_state_tool = None
-        if config.tools.enable_project_world_state:
-            try:
-                from .tools.project_world_state import ProjectWorldStateTool
-                project_root = config.tools.project_world_state_path
-                project_world_state_tool = ProjectWorldStateTool(project_root=project_root)
-                logger.info("Created project world state tool for WorldStateAggregator")
-            except Exception as e:
-                logger.warning(f"Failed to create project world state tool: {e}", exc_info=True)
         
         # Create world state aggregator
         world_state_aggregator = WorldStateAggregator(
             internal_sensing=internal_sensing,
             self_model=self_model,
-            project_world_state_tool=project_world_state_tool,
             tool_registry=tool_registry,
             memory_manager=memory_manager,
         )
@@ -546,12 +539,13 @@ def main() -> None:
             world_state_aggregator=world_state_aggregator,
         )
 
+        provider_name = config.llm.provider.upper()
         storage_status = "enabled" if storage else "disabled"
         tools_status = "enabled" if tool_registry else "disabled"
         memory_status = "enabled" if memory_manager else "disabled"
         self_model_status = "enabled" if consistency_layer else "disabled"
         sensing_status = "enabled" if internal_sensing else "disabled"
-        print(f"BrocaOS REPL (DeepSeek backend). Storage: {storage_status}, Tools: {tools_status}, Memory: {memory_status}, Self-Model: {self_model_status}, Internal Sensing: {sensing_status}. Type /exit to quit, /reset to clear context.\n")
+        print(f"BrocaOS REPL ({provider_name} backend). Storage: {storage_status}, Tools: {tools_status}, Memory: {memory_status}, Self-Model: {self_model_status}, Internal Sensing: {sensing_status}. Type /exit to quit, /reset to clear context.\n")
 
         while True:
             try:

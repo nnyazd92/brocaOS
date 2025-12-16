@@ -43,36 +43,6 @@ class TestWorldStateAggregator:
         )
     
     @pytest.fixture
-    def mock_project_world_state_tool(self):
-        """Create a mock project world state tool."""
-        mock = Mock()
-        mock.get_world_state.return_value = {
-            "success": True,
-            "project_root": "/test/project",
-            "last_updated": "2024-01-01T00:00:00Z",
-            "statistics": {
-                "total_files": 10,
-                "total_directories": 5,
-                "total_size": 1024,
-            },
-            "files": [
-                {
-                    "path": "test.py",
-                    "name": "test.py",
-                    "size": 100,
-                    "extension": ".py",
-                    "metadata": {
-                        "creation_date": "2024-01-01T00:00:00+00:00",
-                        "last_modified": "2024-01-02T00:00:00+00:00",
-                        "file_size": 100
-                    }
-                }
-            ],
-            "directory_tree": {"src": {"_files": ["test.py"]}},
-        }
-        return mock
-    
-    @pytest.fixture
     def mock_tool_registry(self):
         """Create a mock tool registry."""
         mock = Mock()
@@ -83,18 +53,16 @@ class TestWorldStateAggregator:
         mock.list_tools.return_value = [tool1, tool2]
         return mock
     
-    def test_init_with_all_components(self, mock_internal_sensing, mock_self_model, mock_project_world_state_tool, mock_tool_registry):
+    def test_init_with_all_components(self, mock_internal_sensing, mock_self_model, mock_tool_registry):
         """Test initializing aggregator with all components."""
         aggregator = WorldStateAggregator(
             internal_sensing=mock_internal_sensing,
             self_model=mock_self_model,
-            project_world_state_tool=mock_project_world_state_tool,
             tool_registry=mock_tool_registry,
         )
         
         assert aggregator.internal_sensing is mock_internal_sensing
         assert aggregator.self_model is mock_self_model
-        assert aggregator.project_world_state_tool is mock_project_world_state_tool
         assert aggregator.tool_registry is mock_tool_registry
     
     def test_init_with_none_components(self):
@@ -103,15 +71,13 @@ class TestWorldStateAggregator:
         
         assert aggregator.internal_sensing is None
         assert aggregator.self_model is None
-        assert aggregator.project_world_state_tool is None
         assert aggregator.tool_registry is None
     
-    def test_aggregate_with_all_components(self, mock_internal_sensing, mock_self_model, mock_project_world_state_tool, mock_tool_registry):
+    def test_aggregate_with_all_components(self, mock_internal_sensing, mock_self_model, mock_tool_registry):
         """Test aggregating world state with all components."""
         aggregator = WorldStateAggregator(
             internal_sensing=mock_internal_sensing,
             self_model=mock_self_model,
-            project_world_state_tool=mock_project_world_state_tool,
             tool_registry=mock_tool_registry,
         )
         
@@ -124,16 +90,9 @@ class TestWorldStateAggregator:
         assert "system" in world_state
         assert "self_model" in world_state
         assert "internal_state" in world_state
-        assert "project" in world_state
         assert "tools" in world_state
-        # Project should include minimal structure (directory_tree + filenames)
-        assert "filenames" in world_state["project"]
-        assert "directory_tree" in world_state["project"]
-        assert len(world_state["project"]["filenames"]) == 1
-        # Should NOT have extraneous fields
-        assert "files" not in world_state["project"]  # Should be "filenames" not "files"
-        assert "root" not in world_state["project"]
-        assert "statistics" not in world_state["project"]
+        # Project should NOT be in world state (tool is now callable, not in aggregator)
+        assert "project" not in world_state
     
     def test_aggregate_with_no_components(self):
         """Test aggregating world state with no components."""
@@ -212,85 +171,6 @@ class TestWorldStateAggregator:
         
         # Internal method still returns "available" flag for aggregator logic
         assert state["available"] is False
-    
-    def test_get_project_state(self, mock_project_world_state_tool):
-        """Test getting project state."""
-        aggregator = WorldStateAggregator(project_world_state_tool=mock_project_world_state_tool)
-        
-        state = aggregator.get_project_state()
-        
-        # State should have "available" flag for internal use
-        assert state["available"] is True
-        # Should only include minimal structure: directory_tree and filenames
-        assert "directory_tree" in state
-        assert "filenames" in state
-        assert "src" in state["directory_tree"]
-        # Should NOT include extraneous metadata
-        assert "project_root" not in state
-        assert "statistics" not in state
-        assert "files" not in state  # Should be "filenames" not "files"
-        assert "file_count" not in state
-        # Verify filenames is a simple list of paths
-        assert isinstance(state["filenames"], list)
-        assert "test.py" in state["filenames"]
-    
-    def test_get_project_state_none(self):
-        """Test getting project state when not available."""
-        aggregator = WorldStateAggregator()
-        
-        state = aggregator.get_project_state()
-        
-        # Internal method still returns "available" flag for aggregator logic
-        assert state["available"] is False
-    
-    def test_get_project_state_not_built(self):
-        """Test getting project state when world state not built."""
-        mock_tool = Mock()
-        mock_tool.get_world_state.return_value = {
-            "success": False,
-            "error": "World state not built",
-        }
-        
-        aggregator = WorldStateAggregator(project_world_state_tool=mock_tool)
-        
-        state = aggregator.get_project_state()
-        
-        # Internal method still returns "available" flag for aggregator logic
-        assert state["available"] is False
-        assert "error" in state
-    
-    def test_get_project_state_auto_builds(self):
-        """Test that get_project_state triggers auto-build if state not built."""
-        import tempfile
-        from pathlib import Path
-        from broca.tools.project_world_state import ProjectWorldStateTool
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create test files
-            (Path(tmpdir) / "test.py").write_text("print('test')")
-            
-            # Create tool but don't build state
-            tool = ProjectWorldStateTool(project_root=tmpdir)
-            # Verify state is None (not built)
-            assert tool._state is None
-            
-            # Create aggregator
-            aggregator = WorldStateAggregator(project_world_state_tool=tool)
-            
-            # Get project state - should auto-build
-            state = aggregator.get_project_state()
-            
-            # Should be available and have minimal structure (directory_tree + filenames)
-            assert state["available"] is True
-            assert "filenames" in state
-            assert "directory_tree" in state
-            assert len(state["filenames"]) > 0
-            # Should NOT have extraneous fields
-            assert "files" not in state  # Should be "filenames" not "files"
-            assert "project_root" not in state
-            assert "statistics" not in state
-            # Verify tool state was built
-            assert tool._state is not None
     
     def test_get_system_info(self):
         """Test getting system information."""

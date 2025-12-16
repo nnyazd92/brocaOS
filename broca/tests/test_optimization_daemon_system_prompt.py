@@ -364,10 +364,12 @@ class TestOptimizationDaemonSystemPromptComponents:
     
     def test_project_world_state_uses_sandbox_root(self):
         """
-        Test that optimization daemon creates project world state tool with /home/wizard/broca as root.
+        Test that optimization daemon registers project world state tool with /home/wizard/broca as root.
         
-        Rationale: Ensures daemon tracks sandbox directory, not main project directory.
+        Rationale: Ensures daemon tracks sandbox directory, not main project directory. Tool should be registered, not passed to aggregator.
         """
+        from broca.tools.registry import ToolRegistry
+        
         with tempfile.TemporaryDirectory() as tmpdir:
             goals_file = os.path.join(tmpdir, "goals.json")
             reports_file = os.path.join(tmpdir, "reports.json")
@@ -378,33 +380,38 @@ class TestOptimizationDaemonSystemPromptComponents:
             )
             
             # Mock initialization but allow ProjectWorldStateTool creation
+            mock_tool_registry = ToolRegistry()
             with patch('broca.main_repl._initialize_storage', return_value=None), \
                  patch('broca.main_repl._initialize_memory_manager', return_value=None), \
                  patch('broca.main_repl._initialize_self_model', return_value=(None, None, None)), \
                  patch('broca.main_repl._initialize_internal_sensing', return_value=None), \
                  patch('broca.main_repl._initialize_environment_system', return_value=None), \
-                 patch('broca.main_repl._initialize_tool_registry', return_value=None), \
+                 patch('broca.main_repl._initialize_tool_registry', return_value=mock_tool_registry), \
                  patch('broca.optimization_daemon.ConversationSession') as mock_session:
                 
                 daemon._initialize_systems()
+                
+                # Verify tool is registered in tool registry
+                tool = mock_tool_registry.get_tool("project_world_state")
+                assert tool is not None
+                assert tool.name == "project_world_state"
+                # Verify it uses /home/wizard/broca as project root
+                project_root = str(tool._project_root)
+                assert project_root == "/home/wizard/broca", f"Expected /home/wizard/broca, got {project_root}"
                 
                 # Verify ConversationSession was called with world_state_aggregator
                 assert mock_session.called
                 call_kwargs = mock_session.call_args[1]
                 assert 'world_state_aggregator' in call_kwargs
                 aggregator = call_kwargs['world_state_aggregator']
-                # Aggregator should have project_world_state_tool
-                assert hasattr(aggregator, 'project_world_state_tool')
-                assert aggregator.project_world_state_tool is not None
-                # Verify it uses /home/wizard/broca as project root
-                project_root = str(aggregator.project_world_state_tool._project_root)
-                assert project_root == "/home/wizard/broca", f"Expected /home/wizard/broca, got {project_root}"
+                # Aggregator should NOT have project_world_state_tool (removed from aggregator)
+                assert not hasattr(aggregator, 'project_world_state_tool') or aggregator.project_world_state_tool is None
     
-    def test_system_prompt_includes_project_files_and_directory_tree(self):
+    def test_system_prompt_excludes_project_files_and_directory_tree(self):
         """
-        Test that system prompt includes files and directory_tree from sandbox directory.
+        Test that system prompt does NOT include files and directory_tree from sandbox directory.
         
-        Rationale: Ensures project world state files/directory_tree appear in system prompt.
+        Rationale: Project world state tool is now callable, not included in system prompt via aggregator.
         """
         import json
         from pathlib import Path
@@ -422,12 +429,12 @@ class TestOptimizationDaemonSystemPromptComponents:
             subdir.mkdir()
             (subdir / "test3.py").write_text("print('test3')")
             
-            # Create project world state tool with sandbox directory
+            # Create project world state tool with sandbox directory (tool is now callable, not in aggregator)
             project_tool = ProjectWorldStateTool(project_root=sandbox_dir)
             project_tool.build_world_state(project_root=sandbox_dir)
             
-            # Create aggregator with the tool
-            aggregator = WorldStateAggregator(project_world_state_tool=project_tool)
+            # Create aggregator without project tool (project data no longer in aggregator)
+            aggregator = WorldStateAggregator()
             
             # Create session (simulating what optimization daemon does)
             session = ConversationSession(
@@ -451,26 +458,6 @@ class TestOptimizationDaemonSystemPromptComponents:
             # Parse JSON
             parsed = json.loads(json_part)
             
-            # Verify project section exists
-            assert "project" in parsed
-            project = parsed["project"]
-            
-            # Verify minimal structure: directory_tree and filenames only
-            assert "directory_tree" in project
-            assert "filenames" in project
-            assert isinstance(project["filenames"], list)
-            assert len(project["filenames"]) == 3  # test1.py, test2.py, subdir/test3.py
-            # Verify filenames are simple strings (paths), not objects with metadata
-            for filename in project["filenames"]:
-                assert isinstance(filename, str)
-            # Should NOT have extraneous fields
-            assert "files" not in project  # Should be "filenames" not "files"
-            assert "root" not in project
-            assert "statistics" not in project
-            
-            # Verify directory_tree is included
-            assert "directory_tree" in project
-            assert isinstance(project["directory_tree"], dict)
-            # Should have subdir in tree
-            assert "subdir" in project["directory_tree"] or "_files" in project["directory_tree"]
+            # Verify project section does NOT exist (project data no longer in world state)
+            assert "project" not in parsed
 

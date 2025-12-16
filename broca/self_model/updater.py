@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from .model import SelfModel
 from .consistency import ConsistencyResult
 from .source import Source
-from ..llm.deepseek_client import DeepSeekClient
+from ..llm import create_llm_client, LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -57,17 +57,17 @@ Note: Sources will be automatically assigned (llm_inference for updates from thi
     
     def __init__(
         self,
-        llm_client: Optional[DeepSeekClient] = None,
+        llm_client: Optional[LLMClient] = None,
         update_prompt_template: Optional[str] = None,
     ) -> None:
         """
         Initialize self-model updater.
         
         Args:
-            llm_client: Optional DeepSeekClient instance
+            llm_client: Optional LLMClient instance (defaults to new instance via factory)
             update_prompt_template: Optional custom prompt template for updates
         """
-        self._llm = llm_client or DeepSeekClient()
+        self._llm = llm_client or create_llm_client()
         self._update_prompt_template = update_prompt_template or self._DEFAULT_UPDATE_PROMPT
         logger.info("Initialized SelfModelUpdater")
     
@@ -170,7 +170,7 @@ Note: Sources will be automatically assigned (llm_inference for updates from thi
             
             logger.debug("Calling LLM to generate self-model updates")
             llm_response = self._llm.chat(messages)
-            response_content = DeepSeekClient.extract_assistant_content(llm_response)
+            response_content = self._llm.extract_assistant_content(llm_response)
             
             # Parse JSON response
             updates = self._parse_updates(response_content)

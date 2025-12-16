@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 
-from ..llm.deepseek_client import DeepSeekClient
+from ..llm import create_llm_client, LLMClient
 from ..config import config
 
 logger = logging.getLogger(__name__)
@@ -42,17 +42,17 @@ Be strict and thorough in your evaluation. Reject any response that violates eve
 
     def __init__(
         self,
-        llm_client: Optional[DeepSeekClient] = None,
+        llm_client: Optional[LLMClient] = None,
         system_prompt_template: Optional[str] = None,
     ) -> None:
         """
         Initialize the critic tool.
         
         Args:
-            llm_client: Optional DeepSeekClient instance (defaults to new instance)
+            llm_client: Optional LLMClient instance (defaults to new instance via factory)
             system_prompt_template: Optional custom system prompt template
         """
-        self._llm = llm_client or DeepSeekClient()
+        self._llm = llm_client or create_llm_client()
         self._system_prompt_template = (
             system_prompt_template or self._DEFAULT_SYSTEM_PROMPT_TEMPLATE
         )
@@ -185,7 +185,7 @@ Be strict and thorough in your evaluation. Reject any response that violates eve
             
             # Call LLM
             response = self._llm.chat(messages)
-            response_content = DeepSeekClient.extract_assistant_content(response)
+            response_content = self._llm.extract_assistant_content(response)
             
             # Parse JSON response
             try:

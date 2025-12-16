@@ -383,8 +383,8 @@ class TestSessionWorldState:
             # Other fields should still be present
             assert "interoceptive_report" in internal_state or "tool_statistics" in internal_state
     
-    def test_system_prompt_includes_project_files_and_directory_tree(self, mock_llm_client):
-        """Test that system prompt includes project files and directory_tree when available."""
+    def test_system_prompt_excludes_project_files_and_directory_tree(self, mock_llm_client):
+        """Test that system prompt does NOT include project files and directory_tree."""
         from broca.tools.project_world_state import ProjectWorldStateTool
         
         # Create a real project world state tool with test data
@@ -399,12 +399,12 @@ class TestSessionWorldState:
             subdir.mkdir()
             (subdir / "test3.py").write_text("print('test3')")
             
-            # Build world state
+            # Build world state (tool is now callable, not in aggregator)
             project_tool = ProjectWorldStateTool(project_root=tmpdir)
             project_tool.build_world_state(project_root=tmpdir)
             
-            # Create aggregator with project tool
-            aggregator = WorldStateAggregator(project_world_state_tool=project_tool)
+            # Create aggregator without project tool (project data no longer in aggregator)
+            aggregator = WorldStateAggregator()
             
             # Create session
             session = ConversationSession(
@@ -427,16 +427,8 @@ class TestSessionWorldState:
             # Parse JSON
             parsed = json.loads(json_part)
             
-            # Verify project section exists
-            assert "project" in parsed
-            project = parsed["project"]
-            
-            # Verify minimal structure: directory_tree and filenames only
-            assert "directory_tree" in project
-            assert "filenames" in project
-            assert isinstance(project["filenames"], list)
-            assert len(project["filenames"]) > 0
-            # Verify filenames are simple strings (paths), not objects with metadata
+            # Verify project section does NOT exist (project data no longer in world state)
+            assert "project" not in parsed
             for filename in project["filenames"]:
                 assert isinstance(filename, str)
             # Should NOT include extraneous metadata

@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 import logging
 import uuid
 from datetime import datetime, timezone
-from ..llm.deepseek_client import DeepSeekClient
+from ..llm import create_llm_client, LLMClient
 
 if TYPE_CHECKING:
     from ..storage import ConversationStorage
@@ -39,7 +39,7 @@ class ConversationSession:
     def __init__(
         self,
         system_prompt: Optional[str] = None,
-        llm: Optional[DeepSeekClient] = None,
+        llm: Optional["LLMClient"] = None,
         storage: Optional["ConversationStorage"] = None,
         session_id: Optional[str] = None,
         tool_registry: Optional["ToolRegistry"] = None,
@@ -48,7 +48,7 @@ class ConversationSession:
         world_state_aggregator: Optional["WorldStateAggregator"] = None,
         base_system_prompt: Optional[str] = None,
     ) -> None:
-        self.llm = llm or DeepSeekClient()
+        self.llm = llm or create_llm_client()
         self.messages: List[Dict[str, str]] = []
         self.storage = storage
         self.tool_registry = tool_registry
@@ -753,7 +753,7 @@ class ConversationSession:
         cls,
         session_id: str,
         storage: "ConversationStorage",
-        llm: Optional[DeepSeekClient] = None,
+        llm: Optional["LLMClient"] = None,
         world_state_aggregator: Optional["WorldStateAggregator"] = None,
     ) -> Optional["ConversationSession"]:
         """

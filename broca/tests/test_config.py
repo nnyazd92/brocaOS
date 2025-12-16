@@ -25,15 +25,28 @@ class TestLLMConfig:
         """
         # Test that we can instantiate with defaults
         from broca.config import LLMConfig
-        config_obj = LLMConfig()
         
-        # Verify defaults are sensible
-        assert config_obj.api_base == "https://api.deepseek.com/v1"
-        assert isinstance(config_obj.api_key, str)  # May be empty or env value
-        assert config_obj.model == "deepseek-chat"
-        # Temperature may come from env var or default to 0.3
-        assert isinstance(config_obj.temperature, float)
-        assert 0.0 <= config_obj.temperature <= 2.0  # Reasonable range
+        # Temporarily clear provider env var to test defaults
+        import os
+        original_provider = os.environ.get("BROCA_LLM_PROVIDER")
+        if "BROCA_LLM_PROVIDER" in os.environ:
+            del os.environ["BROCA_LLM_PROVIDER"]
+        
+        try:
+            config_obj = LLMConfig()
+            
+            # Verify defaults are sensible (default provider is deepseek)
+            assert config_obj.provider == "deepseek"
+            assert config_obj.api_base == "https://api.deepseek.com/v1"
+            assert isinstance(config_obj.api_key, str)  # May be empty or env value
+            assert config_obj.model == "deepseek-chat"
+            # Temperature may come from env var or default to 0.3
+            assert isinstance(config_obj.temperature, float)
+            assert 0.0 <= config_obj.temperature <= 2.0  # Reasonable range
+        finally:
+            # Restore original env var
+            if original_provider is not None:
+                os.environ["BROCA_LLM_PROVIDER"] = original_provider
     
     def test_env_var_api_key(self, monkeypatch: pytest.MonkeyPatch):
         """

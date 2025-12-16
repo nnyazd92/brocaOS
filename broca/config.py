@@ -6,11 +6,47 @@ load_dotenv()
 
 
 class LLMConfig(BaseModel):
-    api_base: str = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
-    api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
-    model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")  # adjust if needed
+    provider: str = os.getenv("BROCA_LLM_PROVIDER", "deepseek")  # "deepseek" or "openai"
+    api_base: str = os.getenv("DEEPSEEK_API_BASE", "")  # Will default based on provider
+    api_key: str = os.getenv("DEEPSEEK_API_KEY", "")  # Will default based on provider
+    model: str = os.getenv("DEEPSEEK_MODEL", "")  # Will default based on provider
     temperature: float = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.3"))
     timeout: float = float(os.getenv("DEEPSEEK_TIMEOUT", "300.0"))  # Default 5 minutes
+    
+    def __init__(self, **kwargs):
+        # Get provider first
+        provider = kwargs.get("provider", os.getenv("BROCA_LLM_PROVIDER", "deepseek"))
+        
+        # Set defaults based on provider
+        if provider == "openai":
+            default_base = kwargs.get("api_base") or os.getenv("DEEPSEEK_API_BASE") or "https://api.openai.com/v1"
+            # For OpenAI provider, prioritize OPENAI_API_KEY over DEEPSEEK_API_KEY
+            # Explicit kwargs take precedence, then OPENAI_API_KEY, then DEEPSEEK_API_KEY as fallback
+            default_key = kwargs.get("api_key") or os.getenv("OPENAI_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or ""
+            # Model precedence: OPENAI_MODEL > BROCA_LLM_MODEL > DEEPSEEK_MODEL > default
+            default_model = (
+                kwargs.get("model") or
+                os.getenv("OPENAI_MODEL") or
+                os.getenv("BROCA_LLM_MODEL") or
+                os.getenv("DEEPSEEK_MODEL") or
+                "gpt-5.2"
+            )
+        else:  # deepseek (default)
+            default_base = kwargs.get("api_base") or os.getenv("DEEPSEEK_API_BASE") or "https://api.deepseek.com/v1"
+            default_key = kwargs.get("api_key") or os.getenv("DEEPSEEK_API_KEY") or ""
+            default_model = kwargs.get("model") or os.getenv("BROCA_LLM_MODEL") or os.getenv("DEEPSEEK_MODEL") or "deepseek-chat"
+        
+        # Update kwargs with defaults
+        if "api_base" not in kwargs:
+            kwargs["api_base"] = default_base
+        if "api_key" not in kwargs:
+            kwargs["api_key"] = default_key
+        if "model" not in kwargs:
+            kwargs["model"] = default_model
+        if "provider" not in kwargs:
+            kwargs["provider"] = provider
+            
+        super().__init__(**kwargs)
 
 
 class LoggingConfig(BaseModel):

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import logging
 
 from .model import SelfModel
-from ..llm.deepseek_client import DeepSeekClient
+from ..llm import create_llm_client, LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -71,17 +71,17 @@ Be thorough but fair. Only flag genuine inconsistencies."""
     
     def __init__(
         self,
-        llm_client: Optional[DeepSeekClient] = None,
+        llm_client: Optional[LLMClient] = None,
         check_prompt_template: Optional[str] = None,
     ) -> None:
         """
         Initialize consistency checker.
         
         Args:
-            llm_client: Optional DeepSeekClient instance
+            llm_client: Optional LLMClient instance (defaults to new instance via factory)
             check_prompt_template: Optional custom prompt template for consistency checking
         """
-        self._llm = llm_client or DeepSeekClient()
+        self._llm = llm_client or create_llm_client()
         self._check_prompt_template = check_prompt_template or self._DEFAULT_CHECK_PROMPT
         logger.info("Initialized ConsistencyChecker")
     
@@ -134,7 +134,7 @@ Be thorough but fair. Only flag genuine inconsistencies."""
             
             logger.debug("Calling LLM for consistency check")
             llm_response = self._llm.chat(messages)
-            response_content = DeepSeekClient.extract_assistant_content(llm_response)
+            response_content = self._llm.extract_assistant_content(llm_response)
             
             # Parse JSON response
             result = self._parse_response(response_content)

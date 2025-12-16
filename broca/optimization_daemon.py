@@ -169,22 +169,22 @@ class OptimizationDaemon:
         if environment_system:
             logger.debug("Environment access tool skipped in optimization daemon (safety restriction)")
         
-        # Create separate project world state tool for sandbox directory
+        # Register project world state tool for sandbox directory
         # This ensures the daemon tracks /home/wizard/broca, not the main project directory
-        project_world_state_tool = None
-        try:
-            from .tools.project_world_state import ProjectWorldStateTool
-            # Use sandbox directory as project root (same as SandboxTool default)
-            project_world_state_tool = ProjectWorldStateTool(project_root="/home/wizard/broca")
-            logger.info(f"Created project world state tool for sandbox directory: /home/wizard/broca")
-        except Exception as e:
-            logger.warning(f"Failed to create project world state tool for sandbox: {e}", exc_info=True)
+        if tool_registry:
+            try:
+                from .tools.project_world_state import ProjectWorldStateTool
+                # Use sandbox directory as project root (same as SandboxTool default)
+                project_world_state_tool = ProjectWorldStateTool(project_root="/home/wizard/broca")
+                tool_registry.register_tool(project_world_state_tool)
+                logger.info(f"Registered project world state tool for sandbox directory: /home/wizard/broca")
+            except Exception as e:
+                logger.warning(f"Failed to register project world state tool for sandbox: {e}", exc_info=True)
         
         # Create world state aggregator (enables dynamic system prompt mutation)
         world_state_aggregator = WorldStateAggregator(
             internal_sensing=internal_sensing,
             self_model=self_model,
-            project_world_state_tool=project_world_state_tool,
             tool_registry=tool_registry,
             memory_manager=self.memory_manager,
         )

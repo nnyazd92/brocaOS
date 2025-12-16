@@ -1,7 +1,7 @@
 """
 World state aggregator that collects data from various sources.
 
-Aggregates information from internal sensing, self-model, project world state,
+Aggregates information from internal sensing, self-model,
 and system information into a unified world state object.
 """
 
@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from ..internal_sensing.framework import InternalSensingFramework
     from ..self_model.model import SelfModel
-    from ..tools.project_world_state import ProjectWorldStateTool
     from ..tools.registry import ToolRegistry
     from ..memory.manager import MemoryManager
 
@@ -30,7 +29,6 @@ class WorldStateAggregator:
     Collects data from:
     - Internal sensing framework (physiology, cognition, affect)
     - Self-model (capabilities, preferences, constraints)
-    - Project world state (file structure, project info)
     - System information (date/time, platform)
     - Tool registry (available tools)
     - Memory namespace hierarchy (memory organization structure)
@@ -40,7 +38,6 @@ class WorldStateAggregator:
         self,
         internal_sensing: Optional["InternalSensingFramework"] = None,
         self_model: Optional["SelfModel"] = None,
-        project_world_state_tool: Optional["ProjectWorldStateTool"] = None,
         tool_registry: Optional["ToolRegistry"] = None,
         memory_manager: Optional["MemoryManager"] = None,
     ) -> None:
@@ -50,13 +47,11 @@ class WorldStateAggregator:
         Args:
             internal_sensing: Optional InternalSensingFramework instance
             self_model: Optional SelfModel instance
-            project_world_state_tool: Optional ProjectWorldStateTool instance
             tool_registry: Optional ToolRegistry instance
             memory_manager: Optional MemoryManager instance for namespace hierarchy
         """
         self.internal_sensing = internal_sensing
         self.self_model = self_model
-        self.project_world_state_tool = project_world_state_tool
         self.tool_registry = tool_registry
         self.memory_manager = memory_manager
         
@@ -119,14 +114,6 @@ class WorldStateAggregator:
                     world_state["internal_state"]["cognition"] = current_state["cognition"]
                 if "affective" in current_state:
                     world_state["internal_state"]["affect"] = current_state["affective"]
-        
-        # Project state - only include if available (minimal: directory_tree + filenames)
-        project_state = self.get_project_state()
-        if project_state.get("available"):
-            world_state["project"] = {
-                "directory_tree": project_state.get("directory_tree", {}),
-                "filenames": project_state.get("filenames", []),
-            }
         
         # Tools - only include if available
         tools_info = self.get_tools_info()
@@ -200,48 +187,6 @@ class WorldStateAggregator:
             }
         except Exception as e:
             logger.warning(f"Error getting self-model state: {e}", exc_info=True)
-            return {"available": False, "error": str(e)}
-    
-    def get_project_state(self) -> Dict[str, Any]:
-        """
-        Get project world state.
-        
-        Returns:
-            Dictionary with project state information
-        """
-        if not self.project_world_state_tool:
-            return {"available": False}
-        
-        try:
-            # Get world state from tool
-            world_state_result = self.project_world_state_tool.get_world_state()
-            
-            if not world_state_result.get("success"):
-                return {
-                    "available": False,
-                    "error": world_state_result.get("error", "World state not built"),
-                }
-            
-            # Extract minimal project state: only directory_tree and filenames
-            files = world_state_result.get("files", [])
-            directory_tree = world_state_result.get("directory_tree", {})
-            
-            # Log if files or directory_tree are missing (should not happen after auto-build)
-            if not files:
-                logger.debug("Project state has no files (may be empty project or unbuilt state)")
-            if not directory_tree:
-                logger.debug("Project state has no directory_tree (may be empty project or unbuilt state)")
-            
-            # Extract just filenames (paths) from files list, removing all metadata
-            filenames = [file_info.get("path", "") for file_info in files if file_info.get("path")]
-            
-            return {
-                "available": True,
-                "directory_tree": directory_tree,
-                "filenames": filenames,
-            }
-        except Exception as e:
-            logger.warning(f"Error getting project state: {e}", exc_info=True)
             return {"available": False, "error": str(e)}
     
     def get_system_info(self) -> Dict[str, Any]:
