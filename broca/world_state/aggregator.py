@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ..self_model.model import SelfModel
     from ..tools.registry import ToolRegistry
     from ..memory.manager import MemoryManager
+    from .directory_structure import DirectoryStructureGenerator
 
 
 class WorldStateAggregator:
@@ -32,6 +33,7 @@ class WorldStateAggregator:
     - System information (date/time, platform)
     - Tool registry (available tools)
     - Memory namespace hierarchy (memory organization structure)
+    - Directory structure (Broca house directory structure)
     """
     
     def __init__(
@@ -40,6 +42,7 @@ class WorldStateAggregator:
         self_model: Optional["SelfModel"] = None,
         tool_registry: Optional["ToolRegistry"] = None,
         memory_manager: Optional["MemoryManager"] = None,
+        directory_structure_generator: Optional["DirectoryStructureGenerator"] = None,
     ) -> None:
         """
         Initialize world state aggregator.
@@ -49,11 +52,13 @@ class WorldStateAggregator:
             self_model: Optional SelfModel instance
             tool_registry: Optional ToolRegistry instance
             memory_manager: Optional MemoryManager instance for namespace hierarchy
+            directory_structure_generator: Optional DirectoryStructureGenerator instance for Broca house structure
         """
         self.internal_sensing = internal_sensing
         self.self_model = self_model
         self.tool_registry = tool_registry
         self.memory_manager = memory_manager
+        self.directory_structure_generator = directory_structure_generator
         
         logger.info("Initialized WorldStateAggregator")
     
@@ -128,6 +133,13 @@ class WorldStateAggregator:
         if memory_info.get("available"):
             world_state["memory"] = {
                 "namespace_hierarchy": memory_info.get("namespace_hierarchy", {}),
+            }
+        
+        # Broca house directory structure - only include if available
+        broca_house_info = self.get_broca_house_structure()
+        if broca_house_info.get("available"):
+            world_state["broca_house"] = {
+                "directory_hierarchy": broca_house_info.get("directory_hierarchy", {}),
             }
         
         return world_state
@@ -259,5 +271,27 @@ class WorldStateAggregator:
             }
         except Exception as e:
             logger.warning(f"Error getting memory namespace hierarchy: {e}", exc_info=True)
+            return {"available": False, "error": str(e)}
+    
+    def get_broca_house_structure(self) -> Dict[str, Any]:
+        """
+        Get Broca house directory structure.
+        
+        Returns:
+            Dictionary with directory hierarchy information
+        """
+        if not self.directory_structure_generator:
+            return {"available": False}
+        
+        try:
+            # Get directory hierarchy from directory structure generator
+            directory_hierarchy = self.directory_structure_generator.get_directory_hierarchy()
+            
+            return {
+                "available": True,
+                "directory_hierarchy": directory_hierarchy,
+            }
+        except Exception as e:
+            logger.warning(f"Error getting Broca house directory structure: {e}", exc_info=True)
             return {"available": False, "error": str(e)}
 

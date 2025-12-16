@@ -429,17 +429,6 @@ class TestSessionWorldState:
             
             # Verify project section does NOT exist (project data no longer in world state)
             assert "project" not in parsed
-            for filename in project["filenames"]:
-                assert isinstance(filename, str)
-            # Should NOT include extraneous metadata
-            assert "files" not in project  # Should be "filenames" not "files"
-            assert "root" not in project
-            assert "statistics" not in project
-            assert "file_count" not in project
-            
-            # Verify directory_tree is included
-            assert "directory_tree" in project
-            assert isinstance(project["directory_tree"], dict)
     
     def test_system_prompt_includes_memory_namespace_hierarchy(self, mock_llm_client):
         """Test that system prompt includes memory namespace hierarchy when available."""

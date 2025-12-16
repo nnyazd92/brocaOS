@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .aggregator import WorldStateAggregator
 from .formatter import WorldStateFormatter
+from .directory_structure import DirectoryStructureGenerator
 
-__all__ = ["WorldStateAggregator", "WorldStateFormatter"]
+__all__ = ["WorldStateAggregator", "WorldStateFormatter", "DirectoryStructureGenerator"]
 

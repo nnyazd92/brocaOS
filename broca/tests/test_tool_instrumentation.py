@@ -18,7 +18,7 @@ from broca.tests.utils import build_llm_response
 class TestToolExecutionTracksReasoning:
     """Test that tool execution records reasoning steps."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_tool_execution_tracks_reasoning(self, mock_llm_class):
         """
         Test that tool execution records reasoning steps.
@@ -69,7 +69,7 @@ class TestToolExecutionTracksReasoning:
 class TestToolChainsTrackDepth:
     """Test that tool chains increment processing depth."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_tool_chains_track_depth(self, mock_llm_class):
         """
         Test that tool chains increment processing depth.
@@ -129,7 +129,7 @@ class TestToolChainsTrackDepth:
 class TestToolSuccessAffectsAffective:
     """Test that tool success/failure affects affective state."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_tool_success_affects_affective(self, mock_llm_class):
         """
         Test that tool success/failure affects affective state.

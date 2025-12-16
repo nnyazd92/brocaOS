@@ -18,7 +18,7 @@ from broca.tests.utils import build_llm_response
 class TestEndToEndDataFlow:
     """Test end-to-end data flow through all monitors."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_data_flows_through_all_monitors(self, mock_llm_class):
         """
         Test that data flows through all monitors during conversation.
@@ -58,7 +58,7 @@ class TestEndToEndDataFlow:
         assert "valence" in affective
         assert "arousal" in affective
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_metrics_change_with_behavior(self, mock_llm_class):
         """
         Test that metrics change based on actual behavior.
@@ -97,7 +97,7 @@ class TestEndToEndDataFlow:
         assert conf1 != conf2 or abs(conf1 - conf2) < 0.1  # May be similar, but uncertainty should differ
         assert uncertainty2 >= 0.0  # Should detect uncertainty (may be 0.0 if not detected)
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_tool_usage_tracks_reasoning(self, mock_llm_class):
         """
         Test that tool usage tracks reasoning and depth.
@@ -149,7 +149,7 @@ class TestEndToEndDataFlow:
         if depth is not None:
             assert depth >= 0.0
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_affective_updates_from_cognitive(self, mock_llm_class):
         """
         Test that affective states update from cognitive data.

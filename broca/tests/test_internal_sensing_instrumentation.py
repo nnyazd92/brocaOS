@@ -18,7 +18,7 @@ from broca.tests.utils import build_llm_response
 class TestConfidenceRecordedOnResponse:
     """Test that confidence is recorded when LLM generates response."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_confidence_recorded_on_response(self, mock_llm_class):
         """
         Test that confidence is recorded when LLM generates response.
@@ -48,7 +48,7 @@ class TestConfidenceRecordedOnResponse:
 class TestAttentionRecordedFromContext:
     """Test that attention is recorded based on conversation topics."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_attention_recorded_from_context(self, mock_llm_class):
         """
         Test that attention is recorded based on conversation topics.
@@ -78,7 +78,7 @@ class TestAttentionRecordedFromContext:
 class TestProcessingDepthTracked:
     """Test that processing depth is tracked from tool call chains."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_processing_depth_tracked(self, mock_llm_class):
         """
         Test that processing depth is tracked from tool call chains.
@@ -130,7 +130,7 @@ class TestProcessingDepthTracked:
 class TestReasoningStepsRecorded:
     """Test that reasoning steps are recorded during tool execution."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_reasoning_steps_recorded(self, mock_llm_class):
         """
         Test that reasoning steps are recorded during tool execution.
@@ -182,7 +182,7 @@ class TestReasoningStepsRecorded:
 class TestAffectiveStatesComputed:
     """Test that affective states are computed from cognitive data."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_affective_states_computed(self, mock_llm_class):
         """
         Test that affective states are computed from cognitive data.
@@ -216,7 +216,7 @@ class TestAffectiveStatesComputed:
 class TestLatencyTracked:
     """Test that processing latency is tracked per response."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_latency_tracked(self, mock_llm_class):
         """
         Test that processing latency is tracked per response.
@@ -247,7 +247,7 @@ class TestLatencyTracked:
 class TestUncertaintyTracked:
     """Test that uncertainty is tracked from response characteristics."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_uncertainty_tracked(self, mock_llm_class):
         """
         Test that uncertainty is tracked from response characteristics.

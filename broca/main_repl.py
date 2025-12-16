@@ -522,12 +522,22 @@ def main() -> None:
             except Exception as e:
                 logger.warning(f"Failed to register environment access tool: {e}", exc_info=True)
         
+        # Create directory structure generator for Broca house
+        directory_structure_generator = None
+        try:
+            from .world_state.directory_structure import DirectoryStructureGenerator
+            directory_structure_generator = DirectoryStructureGenerator(root_path="/home/wizard/broca")
+            logger.info("Initialized directory structure generator for Broca house")
+        except Exception as e:
+            logger.warning(f"Failed to initialize directory structure generator: {e}", exc_info=True)
+        
         # Create world state aggregator
         world_state_aggregator = WorldStateAggregator(
             internal_sensing=internal_sensing,
             self_model=self_model,
             tool_registry=tool_registry,
             memory_manager=memory_manager,
+            directory_structure_generator=directory_structure_generator,
         )
         
         session = ConversationSession(

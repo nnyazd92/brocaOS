@@ -45,10 +45,14 @@ class TestConversationSessionInitialization:
         
         Rationale: Ensures dependency injection is optional and defaults work correctly.
         """
+        # The actual client type depends on configured provider (deepseek or openai).
+        # This test should verify that a real LLM client is created, not which provider.
+        from broca.llm.deepseek_client import DeepSeekClient
+        from broca.llm.openai_client import OpenAIClient
+
         session = ConversationSession()
         assert session.llm is not None
-        from broca.llm.deepseek_client import DeepSeekClient
-        assert isinstance(session.llm, DeepSeekClient)
+        assert isinstance(session.llm, (DeepSeekClient, OpenAIClient))
     
     def test_init_with_custom_llm(self, mock_llm_client: Mock):
         """

@@ -24,9 +24,14 @@ class TestCriticToolInitialization:
         
         Rationale: Ensures tool can be created without explicit LLM client.
         """
+        # The actual client type depends on configured provider (deepseek or openai).
+        # This test should verify that a real LLM client is created, not which provider.
+        from broca.llm.deepseek_client import DeepSeekClient
+        from broca.llm.openai_client import OpenAIClient
+
         tool = CriticTool()
         assert tool._llm is not None
-        assert isinstance(tool._llm, DeepSeekClient)
+        assert isinstance(tool._llm, (DeepSeekClient, OpenAIClient))
     
     def test_init_with_custom_llm(self):
         """
@@ -125,6 +130,8 @@ class TestCriticToolExecute:
                 "violations": []
             })
         )
+        # Use real extraction logic so execute() can parse the JSON
+        mock_llm.extract_assistant_content = DeepSeekClient.extract_assistant_content
         
         tool = CriticTool(llm_client=mock_llm)
         
@@ -168,6 +175,7 @@ class TestCriticToolExecute:
                 ]
             })
         )
+        mock_llm.extract_assistant_content = DeepSeekClient.extract_assistant_content
         
         tool = CriticTool(llm_client=mock_llm)
         
@@ -197,6 +205,7 @@ class TestCriticToolExecute:
         mock_llm.chat.return_value = build_llm_response(
             content=json.dumps({"accepted": True, "feedback": "OK", "violations": []})
         )
+        mock_llm.extract_assistant_content = DeepSeekClient.extract_assistant_content
         
         tool = CriticTool(llm_client=mock_llm)
         
@@ -232,6 +241,7 @@ class TestCriticToolExecute:
         mock_llm.chat.return_value = build_llm_response(
             content=json.dumps({"accepted": True, "feedback": "OK", "violations": []})
         )
+        mock_llm.extract_assistant_content = DeepSeekClient.extract_assistant_content
         
         tool = CriticTool(llm_client=mock_llm)
         
@@ -262,6 +272,7 @@ class TestCriticToolExecute:
         mock_llm.chat.return_value = build_llm_response(
             content=json.dumps({"accepted": True, "feedback": "OK", "violations": []})
         )
+        mock_llm.extract_assistant_content = DeepSeekClient.extract_assistant_content
         
         tool = CriticTool(llm_client=mock_llm)
         
@@ -284,6 +295,7 @@ class TestCriticToolExecute:
         mock_llm.chat.return_value = build_llm_response(
             content="This is not valid JSON"
         )
+        mock_llm.extract_assistant_content = DeepSeekClient.extract_assistant_content
         
         tool = CriticTool(llm_client=mock_llm)
         
@@ -305,6 +317,7 @@ class TestCriticToolExecute:
         mock_llm.chat.return_value = build_llm_response(
             content=json.dumps({"feedback": "Some feedback"})  # Missing accepted
         )
+        mock_llm.extract_assistant_content = DeepSeekClient.extract_assistant_content
         
         tool = CriticTool(llm_client=mock_llm)
         
@@ -442,6 +455,7 @@ class TestCriticToolErrorHandling:
         mock_llm.chat.return_value = build_llm_response(
             content=json.dumps({"accepted": False, "feedback": "Empty content", "violations": []})
         )
+        mock_llm.extract_assistant_content = DeepSeekClient.extract_assistant_content
         
         tool = CriticTool(llm_client=mock_llm)
         

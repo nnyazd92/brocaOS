@@ -36,7 +36,7 @@ class TestSessionInitializationWithSensing:
 class TestSensingDuringConversation:
     """Test sensing during conversation."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_sensing_during_conversation(self, mock_llm_class):
         """
         Test that sensing occurs during conversation.
@@ -131,7 +131,7 @@ class TestSensingPersistence:
 class TestNoneHandlingInSessionInstrumentation:
     """Test that session handles None values from ResponseAnalyzer gracefully."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     @patch('broca.repl.session.ResponseAnalyzer')
     def test_session_handles_none_confidence(self, mock_analyzer_class, mock_llm_class):
         """
@@ -164,7 +164,7 @@ class TestNoneHandlingInSessionInstrumentation:
         response = session.send("Hello")
         assert response is not None
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     @patch('broca.repl.session.ResponseAnalyzer')
     def test_session_handles_none_uncertainty(self, mock_analyzer_class, mock_llm_class):
         """
@@ -197,7 +197,7 @@ class TestNoneHandlingInSessionInstrumentation:
         response = session.send("Hello")
         assert response is not None
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     @patch('broca.repl.session.ResponseAnalyzer')
     def test_session_handles_none_valence(self, mock_analyzer_class, mock_llm_class):
         """
@@ -230,7 +230,7 @@ class TestNoneHandlingInSessionInstrumentation:
         response = session.send("Hello")
         assert response is not None
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     @patch('broca.repl.session.ResponseAnalyzer')
     def test_session_handles_none_arousal(self, mock_analyzer_class, mock_llm_class):
         """
@@ -263,7 +263,7 @@ class TestNoneHandlingInSessionInstrumentation:
         response = session.send("Hello")
         assert response is not None
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_session_handles_none_latency(self, mock_llm_class):
         """
         Test that session handles None latency values gracefully.
@@ -287,7 +287,7 @@ class TestNoneHandlingInSessionInstrumentation:
         response = session.send("Hello")
         assert response is not None
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     @patch('broca.repl.session.ResponseAnalyzer')
     def test_session_handles_empty_response(self, mock_analyzer_class, mock_llm_class):
         """

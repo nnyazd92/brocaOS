@@ -18,7 +18,7 @@ from broca.tests.utils import build_llm_response
 class TestToolUsageRecording:
     """Test tool usage recording functionality."""
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_tool_usage_recorded(self, mock_llm_class):
         """
         Test that tool usage is recorded in internal sensing.
@@ -65,7 +65,7 @@ class TestToolUsageRecording:
         tool_stats = framework.get_tool_statistics()
         assert "test_tool" in tool_stats or len(tool_stats) >= 0
     
-    @patch('broca.repl.session.DeepSeekClient')
+    @patch('broca.llm.DeepSeekClient')
     def test_tool_usage_parameters_recorded(self, mock_llm_class):
         """
         Test that tool parameters are recorded correctly.
