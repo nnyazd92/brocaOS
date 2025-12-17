@@ -84,6 +84,10 @@ class ToolsConfig(BaseModel):
     project_world_state_header_lines: int = int(os.getenv("BROCA_PROJECT_WORLD_STATE_HEADER_LINES", "10"))
     project_world_state_max_file_size: int = int(os.getenv("BROCA_PROJECT_WORLD_STATE_MAX_FILE_SIZE", str(1024 * 1024)))  # 1MB default
     project_world_state_max_file_size: int = int(os.getenv("BROCA_PROJECT_WORLD_STATE_MAX_FILE_SIZE", str(1024 * 1024)))  # 1MB default
+    # Policy: read-only mode and web search limits
+    tools_mode: str = os.getenv("BROCA_TOOLS_MODE", "normal")  # "normal" or "read_only"
+    web_search_max_queries: int = int(os.getenv("BROCA_WEB_SEARCH_MAX_QUERIES", "3"))
+    web_search_cooldown_turns: int = int(os.getenv("BROCA_WEB_SEARCH_COOLDOWN_TURNS", "3"))
 
 
 class EmbeddingConfig(BaseModel):
