@@ -118,6 +118,22 @@ class ConversationSession:
         self._log_context_before_turn(user_text=user_text)
 
         self.messages.append({"role": "user", "content": user_text})
+        # Start a new tool-policy turn (for per-turn rate limits)
+        if self.tool_registry and hasattr(self.tool_registry, "start_turn"):
+            try:
+                user_turns = sum(1 for m in self.messages if m.get("role") == "user")
+                self.tool_registry.start_turn(user_turns)
+            except Exception:
+                pass
+
+        # On-demand summarization command (no auto windowing)
+        if user_text.strip().startswith("/summarize"):
+            summary = self._summarize_history()
+            self.messages.append({"role": "assistant", "content": summary})
+            self.updated_at = datetime.now(timezone.utc).isoformat()
+            self._log_context_after_turn(assistant_text=summary, raw_response={})
+            self._save_conversation()
+            return summary
         
         # Instrumentation: Record attention and start latency timer
         if self.internal_sensing_framework and ResponseAnalyzer:
@@ -416,6 +432,33 @@ class ConversationSession:
             self._log_context_after_turn(assistant_text=assistant_text, raw_response={})
         self._save_conversation()
         return assistant_text
+
+
+    def _summarize_history(self, max_tokens: int = 250) -> str:
+        """Summarize recent conversation history (opt-in, read-only)."""
+        try:
+            convo_preview = []
+            for m in self.messages[-20:]:
+                role = m.get("role", "")
+                if role not in ("user", "assistant"):
+                    continue
+                content = (m.get("content") or "")[:800]
+                convo_preview.append(f"{role}: {content}")
+            prompt = (
+                "Summarize the conversation so far. Keep it concise (<= "
+                f"{max_tokens} tokens). Capture key goals, decisions, constraints, and open items."
+            )
+            messages = [
+                {"role": "system", "content": "You are a concise conversation summarizer."},
+                {"role": "user", "content": prompt + "
+
+" + "
+".join(convo_preview)}
+            ]
+            resp = self.llm.chat(messages)
+            return self.llm.extract_assistant_content(resp) or "Summary generated."
+        except Exception:
+            return "Summary unavailable due to an internal error."
 
     # ---------- Internal logging helpers ----------
 
