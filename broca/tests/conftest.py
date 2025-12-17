@@ -147,3 +147,15 @@ def env_vars_override(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, 
         else:
             monkeypatch.setenv(key, value)
 
+
+@pytest.fixture
+def normal_tools_mode(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    """
+    Fixture to ensure tools run in normal mode for tests.
+    
+    Sets BROCA_TOOLS_MODE to "normal" to allow tool execution and validation.
+    This is needed because some tests may run in environments where read_only mode is set.
+    """
+    monkeypatch.setenv("BROCA_TOOLS_MODE", "normal")
+    yield
+

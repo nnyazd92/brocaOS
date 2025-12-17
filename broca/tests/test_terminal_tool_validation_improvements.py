@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from unittest.mock import Mock, patch
 
 import pytest
@@ -77,7 +78,7 @@ class TestEnhancedTerminalToolDescription:
 class TestImprovedValidationErrorMessages:
     """Test that validation error messages are more actionable."""
     
-    def test_error_message_includes_python_script_example(self):
+    def test_error_message_includes_python_script_example(self, normal_tools_mode):
         """
         Test that error message includes python script.py example.
         
@@ -103,7 +104,7 @@ class TestImprovedValidationErrorMessages:
         assert "python script.py" in content or "python" in content.lower()
         assert "command" in content.lower()
     
-    def test_error_message_has_actionable_guidance(self):
+    def test_error_message_has_actionable_guidance(self, normal_tools_mode):
         """
         Test that error message provides step-by-step guidance.
         
@@ -130,7 +131,7 @@ class TestImprovedValidationErrorMessages:
         assert "example" in content.lower() or "usage" in content.lower()
         assert "command" in content.lower()
     
-    def test_error_message_shows_exact_json_format(self):
+    def test_error_message_shows_exact_json_format(self, normal_tools_mode):
         """
         Test that error message shows exact JSON format needed.
         
@@ -160,7 +161,7 @@ class TestImprovedValidationErrorMessages:
 class TestPythonScriptPyWorks:
     """Test that python script.py continues to work correctly."""
     
-    def test_python_script_py_executes_successfully(self):
+    def test_python_script_py_executes_successfully(self, normal_tools_mode):
         """
         Test that python script.py command executes successfully.
         
@@ -200,7 +201,7 @@ class TestPythonScriptPyWorks:
             if os.path.exists(script_path):
                 os.unlink(script_path)
     
-    def test_python3_script_py_works(self):
+    def test_python3_script_py_works(self, normal_tools_mode):
         """
         Test that python3 script.py also works.
         
@@ -230,7 +231,7 @@ class TestPythonScriptPyWorks:
 class TestValidationStillCatchesEmptyArguments:
     """Test that validation still correctly catches empty arguments."""
     
-    def test_empty_dict_still_rejected(self):
+    def test_empty_dict_still_rejected(self, normal_tools_mode):
         """
         Test that empty dict {} still triggers validation error.
         
@@ -256,7 +257,7 @@ class TestValidationStillCatchesEmptyArguments:
         assert "error" in content or "missing" in content
         assert "command" in content
     
-    def test_missing_command_parameter_rejected(self):
+    def test_missing_command_parameter_rejected(self, normal_tools_mode):
         """
         Test that missing command parameter is still rejected.
         
@@ -282,7 +283,7 @@ class TestValidationStillCatchesEmptyArguments:
         assert "error" in content or "missing" in content
         assert "command" in content
     
-    def test_none_command_rejected(self):
+    def test_none_command_rejected(self, normal_tools_mode):
         """
         Test that None command value is rejected.
         
@@ -312,7 +313,7 @@ class TestValidationStillCatchesEmptyArguments:
 class TestRegressionValidCalls:
     """Regression tests ensuring valid calls still work."""
     
-    def test_valid_command_with_working_dir(self):
+    def test_valid_command_with_working_dir(self, normal_tools_mode):
         """
         Test that valid command with working_dir still works.
         
@@ -341,7 +342,7 @@ class TestRegressionValidCalls:
         assert "missing" not in content
         assert "required" not in content or "error" not in content
     
-    def test_valid_command_with_timeout(self):
+    def test_valid_command_with_timeout(self, normal_tools_mode):
         """
         Test that valid command with timeout still works.
         
@@ -370,7 +371,7 @@ class TestRegressionValidCalls:
         assert "missing" not in content
         assert "required" not in content or "error" not in content
     
-    def test_simple_command_still_works(self):
+    def test_simple_command_still_works(self, normal_tools_mode):
         """
         Test that simple command like 'ls' still works.
         

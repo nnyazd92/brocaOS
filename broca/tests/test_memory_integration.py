@@ -59,7 +59,7 @@ class TestMemoryToolsWithSession:
     """Test memory tools integrated with ConversationSession."""
     
     @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
-    def test_store_memory_tool_call(self, mock_llm_client: Mock, temp_memory_system):
+    def test_store_memory_tool_call(self, mock_llm_client: Mock, temp_memory_system, normal_tools_mode):
         """
         Test storing memory via tool call in conversation.
         
@@ -165,7 +165,7 @@ class TestMemoryToolsWithSession:
         assert len(tool_messages) > 0
     
     @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
-    def test_memory_interoperability_with_web_search(self, mock_llm_client: Mock, temp_memory_system):
+    def test_memory_interoperability_with_web_search(self, mock_llm_client: Mock, temp_memory_system, normal_tools_mode):
         """
         Test that memory tools work alongside web search tool.
         

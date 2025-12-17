@@ -11,6 +11,7 @@ from unittest.mock import Mock
 import pytest
 import json
 import logging
+import os
 
 from broca.tools.registry import ToolRegistry
 from broca.tools.terminal import TerminalTool
@@ -262,7 +263,7 @@ class TestToolArgumentValidation:
         assert result.get("name") == "test_tool"
         assert "error" in result.get("content", "").lower() or "missing" in result.get("content", "").lower()
     
-    def test_terminal_tool_missing_command(self):
+    def test_terminal_tool_missing_command(self, normal_tools_mode):
         """
         Test validation with actual TerminalTool missing command parameter.
         

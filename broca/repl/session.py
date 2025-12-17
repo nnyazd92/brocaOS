@@ -30,7 +30,7 @@ class ConversationSession:
     Logging responsibilities:
     - Track and log current context length (messages, characters).
     - Log each turn with summary of both prompt and reply.
-    
+
     Storage responsibilities:
     - Optionally persist conversation history to storage backend.
     - Auto-save after each message exchange if storage is provided.
@@ -57,7 +57,7 @@ class ConversationSession:
         self.world_state_aggregator = world_state_aggregator
         self.session_id = session_id or str(uuid.uuid4())
         self.system_prompt = system_prompt
-        
+
         # Get base system prompt from parameter, system_prompt, or config
         # Track whether base_system_prompt was explicitly provided
         if base_system_prompt is not None:
@@ -71,23 +71,25 @@ class ConversationSession:
         else:
             # Fall back to config if not provided
             from ..config import config
+
             self.base_system_prompt = config.storage.base_system_prompt
             self._base_system_prompt_explicit = False
-        
+
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = self.created_at
         self._max_tool_iterations = 100
-        
+
         # Initialize formatter for world state
         if world_state_aggregator:
             from ..world_state.formatter import WorldStateFormatter
+
             self._world_state_formatter = WorldStateFormatter()
         else:
             self._world_state_formatter = None
 
         if system_prompt:
             self.messages.append({"role": "system", "content": system_prompt})
-        
+
         # Update system prompt with world state immediately if aggregator is available
         # This ensures world state is populated even before first user message
         if self.world_state_aggregator and self._world_state_formatter:
@@ -112,7 +114,7 @@ class ConversationSession:
     def send(self, user_text: str) -> str:
         """
         Append a user message, call the LLM, handle tool calls if needed, and return final reply.
-        
+
         Returns the assistant's final reply text after all tool calls are resolved.
         """
         self._log_context_before_turn(user_text=user_text)
@@ -134,30 +136,36 @@ class ConversationSession:
             self._log_context_after_turn(assistant_text=summary, raw_response={})
             self._save_conversation()
             return summary
-        
+
         # Instrumentation: Record attention and start latency timer
         if self.internal_sensing_framework and ResponseAnalyzer:
             try:
                 # Extract topics from user input and context
                 topics = ResponseAnalyzer.extract_topics(user_text, self.messages[-5:])
                 for topic, level in topics.items():
-                    self.internal_sensing_framework.interoception.cognition.record_attention(topic, level)
-                
+                    self.internal_sensing_framework.interoception.cognition.record_attention(
+                        topic, level
+                    )
+
                 # Start latency timer - store response_id for later use
                 response_id = f"response_{len(self.messages)}"
                 self._current_response_id = response_id  # Store it
-                self.internal_sensing_framework.interoception.physiology._record_operation_start(response_id)
-                
+                self.internal_sensing_framework.interoception.physiology._record_operation_start(
+                    response_id
+                )
+
                 # Compute valence from conversation history BEFORE updating system prompt
                 # This ensures valence is available when world state is sampled
-                self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(self.messages)
+                self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
+                    self.messages
+                )
                 # Force a fresh sample to ensure updated valence is included in cached state
                 # Reset last sample time to bypass rate limiting
                 self.internal_sensing_framework._last_sample_time = 0.0
                 self.internal_sensing_framework.sample_internal_state()
             except Exception as e:
                 logger.debug(f"Error in pre-LLM instrumentation: {e}", exc_info=True)
-        
+
         # Prepare tools for LLM if registry is available
         tools = None
         if self.tool_registry:
@@ -168,19 +176,19 @@ class ConversationSession:
                 extra={
                     "event": "tools_prepared",
                     "tool_count": len(tools),
-                    "available_tools": tool_names
-                }
+                    "available_tools": tool_names,
+                },
             )
-        
+
         # Handle tool calls iteratively (may require multiple LLM calls)
         iterations = 0
         response = None
         while iterations < self._max_tool_iterations:
             iterations += 1
-            
+
             # Update system prompt with current world state before each LLM call
             self._update_system_prompt()
-            
+
             try:
                 # Call LLM (only pass tools if registry is available)
                 if tools:
@@ -197,7 +205,9 @@ class ConversationSession:
                 self.messages.append({"role": "assistant", "content": error_message})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
-                self._log_context_after_turn(assistant_text=error_message, raw_response={})
+                self._log_context_after_turn(
+                    assistant_text=error_message, raw_response={}
+                )
                 self._save_conversation()
                 return error_message
             except ConnectionError as e:
@@ -209,7 +219,9 @@ class ConversationSession:
                 self.messages.append({"role": "assistant", "content": error_message})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
-                self._log_context_after_turn(assistant_text=error_message, raw_response={})
+                self._log_context_after_turn(
+                    assistant_text=error_message, raw_response={}
+                )
                 self._save_conversation()
                 return error_message
             except Exception as e:
@@ -221,13 +233,15 @@ class ConversationSession:
                 self.messages.append({"role": "assistant", "content": error_message})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
-                self._log_context_after_turn(assistant_text=error_message, raw_response={})
+                self._log_context_after_turn(
+                    assistant_text=error_message, raw_response={}
+                )
                 self._save_conversation()
                 return error_message
-            
+
             # Extract tool calls if any
             tool_calls = self.llm.extract_tool_calls(response)
-            
+
             # Instrumentation: Track processing depth from tool calls
             if self.internal_sensing_framework and tool_calls:
                 try:
@@ -237,27 +251,29 @@ class ConversationSession:
                     )
                 except Exception as e:
                     logger.debug(f"Error tracking processing depth: {e}", exc_info=True)
-            
+
             if tool_calls and self.tool_registry:
                 # Log tool calls detected
-                tool_names = [tc.get("function", {}).get("name", "unknown") for tc in tool_calls]
+                tool_names = [
+                    tc.get("function", {}).get("name", "unknown") for tc in tool_calls
+                ]
                 logger.info(
                     f"Tool calls detected in LLM response (iteration {iterations})",
                     extra={
                         "event": "tool_calls_detected",
                         "tool_calls_count": len(tool_calls),
                         "tool_names": tool_names,
-                        "iteration": iterations
-                    }
+                        "iteration": iterations,
+                    },
                 )
                 # Handle tool calls
                 self._handle_tool_calls(response, tool_calls)
-                
+
                 # Note: We don't enforce critic iteration immediately after tool calls.
                 # This allows the LLM to use other tools (terminal, web_search, etc.) to
                 # gather information before calling the critic again.
                 # Enforcement only happens when the LLM attempts a final response.
-                
+
                 # Continue loop to get LLM response with tool results
             else:
                 # No tool calls - check if we have a pending critic rejection
@@ -266,89 +282,128 @@ class ConversationSession:
                         "LLM attempted final response while critic rejection is pending, forcing iteration",
                         extra={
                             "event": "critic_rejection_blocked_final_response",
-                            "iteration": iterations
-                        }
+                            "iteration": iterations,
+                        },
                     )
                     # Inject message that allows tool usage but reminds about critic requirement
-                    self.messages.append({
-                        "role": "system",
-                        "content": (
-                            "The critic has rejected your response. You may use tools (terminal, web_search, etc.) "
-                            "to gather information, execute code, or improve your response. However, you MUST "
-                            "call the critic tool again with your revised response before providing a final "
-                            "response to the user. The critic must accept your response before you can respond "
-                            "to the user."
-                        )
-                    })
+                    self.messages.append(
+                        {
+                            "role": "system",
+                            "content": (
+                                "The critic has rejected your response. You may use tools (terminal, web_search, etc.) "
+                                "to gather information, execute code, or improve your response. However, you MUST "
+                                "call the critic tool again with your revised response before providing a final "
+                                "response to the user. The critic must accept your response before you can respond "
+                                "to the user."
+                            ),
+                        }
+                    )
                     # Force another iteration
                     continue
-                
+
                 # No tool calls and no pending critic rejection - extract final response
                 if iterations > 1:
                     logger.info(
                         f"Final LLM response after {iterations} tool iteration(s)",
                         extra={
                             "event": "final_response_after_tools",
-                            "iterations": iterations
-                        }
+                            "iterations": iterations,
+                        },
                     )
-                
+
                 # Log if critic was involved and accepted
                 if self.tool_registry and self.tool_registry.get_tool("critic"):
                     # Check if there was a recent critic acceptance
-                    for message in reversed(self.messages[-10:]):  # Check last 10 messages
-                        if message.get("role") == "tool" and message.get("name") == "critic":
+                    for message in reversed(
+                        self.messages[-10:]
+                    ):  # Check last 10 messages
+                        if (
+                            message.get("role") == "tool"
+                            and message.get("name") == "critic"
+                        ):
                             raw_result = message.get("_raw_result")
-                            if raw_result and isinstance(raw_result, dict) and raw_result.get("accepted", False):
+                            if (
+                                raw_result
+                                and isinstance(raw_result, dict)
+                                and raw_result.get("accepted", False)
+                            ):
                                 logger.info(
                                     "Critic acceptance allows final response",
                                     extra={
                                         "event": "critic_acceptance_allows_final_response",
-                                        "iteration": iterations
-                                    }
+                                        "iteration": iterations,
+                                    },
                                 )
                             break
-                
+
                 assistant_text = self.llm.extract_assistant_content(response) or ""
-                
+
                 # Instrumentation: Record metrics from response
-                if self.internal_sensing_framework and ResponseAnalyzer and assistant_text:
+                if (
+                    self.internal_sensing_framework
+                    and ResponseAnalyzer
+                    and assistant_text
+                ):
                     try:
                         # Use the stored response_id instead of recalculating
-                        response_id = getattr(self, '_current_response_id', f"response_{len(self.messages)}")
-                        
+                        response_id = getattr(
+                            self,
+                            "_current_response_id",
+                            f"response_{len(self.messages)}",
+                        )
+
                         # Record latency
-                        latency = self.internal_sensing_framework.interoception.physiology._record_operation_end(response_id)
+                        latency = self.internal_sensing_framework.interoception.physiology._record_operation_end(
+                            response_id
+                        )
                         if latency is not None and latency > 0:
-                            normalized_latency = self.internal_sensing_framework.interoception.physiology._normalize_latency(latency)
+                            normalized_latency = self.internal_sensing_framework.interoception.physiology._normalize_latency(
+                                latency
+                            )
                             if normalized_latency is not None:
-                                self.internal_sensing_framework.interoception.physiology.metrics["processing_latency"] = normalized_latency
-                        
+                                self.internal_sensing_framework.interoception.physiology.metrics[
+                                    "processing_latency"
+                                ] = normalized_latency
+
                         # Estimate confidence from response
-                        confidence = ResponseAnalyzer.estimate_confidence(assistant_text)
+                        confidence = ResponseAnalyzer.estimate_confidence(
+                            assistant_text
+                        )
                         if confidence is not None:
-                            self.internal_sensing_framework.interoception.cognition.record_confidence(response_id, confidence)
-                        
+                            self.internal_sensing_framework.interoception.cognition.record_confidence(
+                                response_id, confidence
+                            )
+
                         # Detect uncertainty
-                        uncertainty = ResponseAnalyzer.detect_uncertainty(assistant_text)
+                        uncertainty = ResponseAnalyzer.detect_uncertainty(
+                            assistant_text
+                        )
                         if uncertainty is not None:
-                            self.internal_sensing_framework.interoception.cognition.record_uncertainty(response_id, uncertainty)
-                        
+                            self.internal_sensing_framework.interoception.cognition.record_uncertainty(
+                                response_id, uncertainty
+                            )
+
                         # Compute valence and arousal
                         # Use conversation history for valence (excluding system prompts)
                         # Include current assistant response in history
-                        conversation_messages = self.messages + [{"role": "assistant", "content": assistant_text}]
-                        self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(conversation_messages)
-                        
+                        conversation_messages = self.messages + [
+                            {"role": "assistant", "content": assistant_text}
+                        ]
+                        self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
+                            conversation_messages
+                        )
+
                         arousal = ResponseAnalyzer.compute_arousal(assistant_text)
                         if arousal is not None:
-                            self.internal_sensing_framework.interoception.affect.compute_arousal(arousal)
-                        
+                            self.internal_sensing_framework.interoception.affect.compute_arousal(
+                                arousal
+                            )
+
                         # Update affective states from cognitive
                         self.internal_sensing_framework.interoception.affect.update_from_cognitive(
                             self.internal_sensing_framework.interoception.cognition
                         )
-                        
+
                         # Record reasoning step
                         self.internal_sensing_framework.interoception.cognition.record_reasoning_step(
                             f"step_{response_id}",
@@ -356,24 +411,30 @@ class ConversationSession:
                                 "premise": user_text[:100] if self.messages else "",
                                 "conclusion": assistant_text[:100],
                                 "confidence": confidence,
-                            }
+                            },
                         )
-                        
+
                         # Sample internal state after recomputing valence
                         # Force a fresh sample by resetting last sample time to ensure updated valence is included
                         self.internal_sensing_framework._last_sample_time = 0.0
                         self.internal_sensing_framework.sample_internal_state()
-                        
+
                     except Exception as e:
-                        logger.warning(f"Error in response instrumentation: {e}", exc_info=True)
-                
+                        logger.warning(
+                            f"Error in response instrumentation: {e}", exc_info=True
+                        )
+
                 # Check consistency with self-model if consistency layer is available
                 if self.consistency_layer:
                     logger.debug("Checking response consistency with self-model")
-                    conversation_context = self.messages[-3:] if len(self.messages) >= 3 else self.messages
-                    final_response, was_updated, consistency_result = self.consistency_layer.check_response(
-                        assistant_text,
-                        conversation_context,
+                    conversation_context = (
+                        self.messages[-3:] if len(self.messages) >= 3 else self.messages
+                    )
+                    final_response, was_updated, consistency_result = (
+                        self.consistency_layer.check_response(
+                            assistant_text,
+                            conversation_context,
+                        )
                     )
                     assistant_text = final_response
                     if was_updated:
@@ -382,37 +443,50 @@ class ConversationSession:
                         logger.warning(
                             f"Response has consistency issues: {len(consistency_result.violations)} violation(s)"
                         )
-                
+
                 self.messages.append({"role": "assistant", "content": assistant_text})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
-                self._log_context_after_turn(assistant_text=assistant_text, raw_response=response)
-                
+                self._log_context_after_turn(
+                    assistant_text=assistant_text, raw_response=response
+                )
+
                 # Auto-save to storage if available
                 self._save_conversation()
-                
+
                 return assistant_text
-        
+
         # Max iterations reached
         logger.warning(
             f"Reached max tool iterations ({self._max_tool_iterations})",
             extra={
                 "event": "max_tool_iterations_reached",
                 "max_iterations": self._max_tool_iterations,
-                "iteration": iterations
-            }
+                "iteration": iterations,
+            },
         )
         if response:
-            assistant_text = self.llm.extract_assistant_content(response) or "I apologize, but I encountered an issue processing your request."
+            assistant_text = (
+                self.llm.extract_assistant_content(response)
+                or "I apologize, but I encountered an issue processing your request."
+            )
         else:
-            assistant_text = "I apologize, but I encountered an issue processing your request."
-        
+            assistant_text = (
+                "I apologize, but I encountered an issue processing your request."
+            )
+
         # Check consistency with self-model if consistency layer is available
         if self.consistency_layer:
-            logger.debug("Checking response consistency with self-model (max iterations reached)")
-            conversation_context = self.messages[-3:] if len(self.messages) >= 3 else self.messages
-            final_response, was_updated, consistency_result = self.consistency_layer.check_response(
-                assistant_text,
-                conversation_context,
+            logger.debug(
+                "Checking response consistency with self-model (max iterations reached)"
+            )
+            conversation_context = (
+                self.messages[-3:] if len(self.messages) >= 3 else self.messages
+            )
+            final_response, was_updated, consistency_result = (
+                self.consistency_layer.check_response(
+                    assistant_text,
+                    conversation_context,
+                )
             )
             assistant_text = final_response
             if was_updated:
@@ -421,18 +495,19 @@ class ConversationSession:
                 logger.warning(
                     f"Response has consistency issues: {len(consistency_result.violations)} violation(s)"
                 )
-        
+
         self.messages.append({"role": "assistant", "content": assistant_text})
         self.updated_at = datetime.now(timezone.utc).isoformat()
         # Log conversation turn completion even on max iterations
         if response:
-            self._log_context_after_turn(assistant_text=assistant_text, raw_response=response)
+            self._log_context_after_turn(
+                assistant_text=assistant_text, raw_response=response
+            )
         else:
             # Create a minimal response dict for logging
             self._log_context_after_turn(assistant_text=assistant_text, raw_response={})
         self._save_conversation()
         return assistant_text
-
 
     def _summarize_history(self, max_tokens: int = 250) -> str:
         """Summarize recent conversation history (opt-in, read-only)."""
@@ -449,11 +524,11 @@ class ConversationSession:
                 f"{max_tokens} tokens). Capture key goals, decisions, constraints, and open items."
             )
             messages = [
-                {"role": "system", "content": "You are a concise conversation summarizer."},
-                {"role": "user", "content": prompt + "
-
-" + "
-".join(convo_preview)}
+                {
+                    "role": "system",
+                    "content": "You are a concise conversation summarizer.",
+                },
+                {"role": "user", "content": prompt + "\n\n" + "\n".join(convo_preview)},
             ]
             resp = self.llm.chat(messages)
             return self.llm.extract_assistant_content(resp) or "Summary generated."
@@ -485,51 +560,55 @@ class ConversationSession:
             extra={
                 "event": "turn_before",
                 "context_stats": stats,
-                "user_preview": user_text[:200] + ("..." if len(user_text) > 200 else ""),
+                "user_preview": user_text[:200]
+                + ("..." if len(user_text) > 200 else ""),
             },
         )
 
-    def _log_context_after_turn(self, assistant_text: str, raw_response: Dict[str, Any]) -> None:
+    def _log_context_after_turn(
+        self, assistant_text: str, raw_response: Dict[str, Any]
+    ) -> None:
         stats = self._current_context_stats()
         logger.info(
             "Received assistant message",
             extra={
                 "event": "turn_after",
                 "context_stats": stats,
-                "assistant_preview": assistant_text[:200] + ("..." if len(assistant_text) > 200 else ""),
+                "assistant_preview": assistant_text[:200]
+                + ("..." if len(assistant_text) > 200 else ""),
                 "usage": raw_response.get("usage", {}),
             },
         )
-    
+
     def _update_system_prompt(self) -> None:
         """
         Update system prompt with current world state.
-        
+
         Aggregates world state from all available sources and updates
         the system message in the conversation. If no system message exists,
         creates one. If world state aggregator is not available, does nothing.
-        
+
         The system prompt consists of:
         1. Base system prompt (if configured) - user-defined invariants
         2. Formatted world state JSON - dynamic content with consistent structure
         """
         if not self.world_state_aggregator or not self._world_state_formatter:
             return
-        
+
         try:
             # Aggregate current world state
             world_state = self.world_state_aggregator.aggregate()
-            
+
             # Format world state for prompt
             formatted_world_state = self._world_state_formatter.format(world_state)
-            
+
             # Combine base prompt and world state
             parts = []
             if self.base_system_prompt:
                 parts.append(self.base_system_prompt)
             if formatted_world_state:
                 parts.append(formatted_world_state)
-            
+
             # Join with double newline if both parts exist, otherwise just use the non-empty part
             if len(parts) == 2:
                 complete_prompt = "\n\n".join(parts)
@@ -537,7 +616,7 @@ class ConversationSession:
                 complete_prompt = parts[0]
             else:
                 complete_prompt = ""
-            
+
             # Update or create system message
             if self.messages and self.messages[0].get("role") == "system":
                 # Update existing system message
@@ -545,19 +624,21 @@ class ConversationSession:
             else:
                 # Create new system message at the beginning
                 self.messages.insert(0, {"role": "system", "content": complete_prompt})
-            
+
             logger.debug("Updated system prompt with current world state")
-            
+
         except Exception as e:
-            logger.warning(f"Error updating system prompt with world state: {e}", exc_info=True)
+            logger.warning(
+                f"Error updating system prompt with world state: {e}", exc_info=True
+            )
             # Continue with existing system prompt on error
-    
+
     # ---------- Critic enforcement helpers ----------
-    
+
     def _has_pending_critic_rejection(self) -> bool:
         """
         Check if there's a pending critic rejection that requires iteration.
-        
+
         Returns:
             True if:
             - Critic tool exists but has never been called in this turn, OR
@@ -566,23 +647,23 @@ class ConversationSession:
         """
         if not self.tool_registry:
             return False
-        
+
         # Check if critic tool is registered
         critic_tool = self.tool_registry.get_tool("critic")
         if not critic_tool:
             return False
-        
+
         # Find the index of the last user message (start of current turn)
         last_user_index = -1
         for i, message in enumerate(self.messages):
             if message.get("role") == "user":
                 last_user_index = i
-        
+
         # Look backwards through messages from the last user message
         # to find critic tool results in the current turn
         critic_called_in_turn = False
         last_critic_result = None
-        
+
         for i in range(len(self.messages) - 1, last_user_index, -1):
             message = self.messages[i]
             if message.get("role") == "tool" and message.get("name") == "critic":
@@ -592,39 +673,46 @@ class ConversationSession:
                 if raw_result and isinstance(raw_result, dict):
                     last_critic_result = raw_result
                     break
-                
+
                 # Fallback: check formatted content for rejection indicators
                 content = message.get("content", "")
                 if "rejected" in content.lower() or "violat" in content.lower():
                     # Check if it's actually rejected (not just mentioning rejection)
-                    if "accepted" not in content.lower() or "rejected" in content.lower():
+                    if (
+                        "accepted" not in content.lower()
+                        or "rejected" in content.lower()
+                    ):
                         last_critic_result = {"accepted": False}
                         break
                 # If we find an accepted critic result
-                elif "accepted" in content.lower() and "rejected" not in content.lower():
+                elif (
+                    "accepted" in content.lower() and "rejected" not in content.lower()
+                ):
                     last_critic_result = {"accepted": True}
                     break
-        
+
         # If critic tool exists but was never called in this turn, block final response
         if not critic_called_in_turn:
             return True
-        
+
         # If critic was called, check if it was accepted
         if last_critic_result:
             accepted = last_critic_result.get("accepted", False)
             return not accepted
-        
+
         # If we can't determine the result, assume rejection (safer)
         return True
-    
+
     # ---------- Tool handling helpers ----------
-    
-    def _handle_tool_calls(self, response: Dict[str, Any], tool_calls: List[Dict[str, Any]]) -> None:
+
+    def _handle_tool_calls(
+        self, response: Dict[str, Any], tool_calls: List[Dict[str, Any]]
+    ) -> None:
         """
         Handle tool calls from LLM response.
-        
+
         Executes tools and adds results to conversation history.
-        
+
         Args:
             response: Raw LLM response
             tool_calls: List of tool call dictionaries
@@ -634,32 +722,33 @@ class ConversationSession:
                 "Received tool calls but no tool registry available",
                 extra={
                     "event": "tool_calls_no_registry",
-                    "tool_calls_count": len(tool_calls)
-                }
+                    "tool_calls_count": len(tool_calls),
+                },
             )
             return
-        
+
         # Add assistant message with tool calls
         assistant_message = {
             "role": "assistant",
             "content": self.llm.extract_assistant_content(response) or None,
-            "tool_calls": tool_calls
+            "tool_calls": tool_calls,
         }
         self.messages.append(assistant_message)
-        
+
         # Execute each tool call
         for i, tool_call in enumerate(tool_calls, 1):
             tool_name = tool_call.get("function", {}).get("name", "unknown")
             tool_call_id = tool_call.get("id", "")
-            
+
             # Extract arguments from tool call for recording
             arguments_str = tool_call.get("function", {}).get("arguments", "{}")
             try:
                 import json
+
                 arguments = json.loads(arguments_str) if arguments_str else {}
             except (json.JSONDecodeError, TypeError):
                 arguments = {}
-            
+
             logger.info(
                 f"Processing tool call {i}/{len(tool_calls)}: {tool_name}",
                 extra={
@@ -667,14 +756,14 @@ class ConversationSession:
                     "tool_name": tool_name,
                     "tool_call_id": tool_call_id,
                     "tool_call_index": i,
-                    "total_tool_calls": len(tool_calls)
-                }
+                    "total_tool_calls": len(tool_calls),
+                },
             )
-            
+
             try:
                 tool_result = self.tool_registry.execute_tool_call(tool_call)
                 self.messages.append(tool_result)
-                
+
                 # Instrumentation: Record tool usage and reasoning
                 if self.internal_sensing_framework:
                     try:
@@ -682,9 +771,9 @@ class ConversationSession:
                         self.internal_sensing_framework.record_tool_usage(
                             tool_name=tool_name,
                             parameters=arguments,
-                            result=tool_result
+                            result=tool_result,
                         )
-                        
+
                         # Record reasoning step for tool execution
                         self.internal_sensing_framework.interoception.cognition.record_reasoning_step(
                             f"tool_{tool_call_id}",
@@ -693,19 +782,20 @@ class ConversationSession:
                                 "conclusion": f"Tool {tool_name} executed",
                                 "tool": tool_name,
                                 "parameters": arguments,
-                            }
+                            },
                         )
-                        
+
                         # Record reasoning pattern
                         self.internal_sensing_framework.interoception.cognition.record_reasoning_pattern(
-                            "tool_usage",
-                            tool_name
+                            "tool_usage", tool_name
                         )
-                        
+
                         # Check if tool was successful
                         tool_success = tool_result.get("content", "").lower()
-                        is_success = "error" not in tool_success and "failed" not in tool_success
-                        
+                        is_success = (
+                            "error" not in tool_success and "failed" not in tool_success
+                        )
+
                         # Update affective state based on tool outcome
                         if is_success:
                             self.internal_sensing_framework.interoception.affect.record_satisfaction(
@@ -715,18 +805,20 @@ class ConversationSession:
                             self.internal_sensing_framework.interoception.affect.record_frustration(
                                 f"tool_{tool_call_id}", 0.5
                             )
-                            
+
                     except Exception as e:
-                        logger.warning(f"Error recording tool usage: {e}", exc_info=True)
-                
+                        logger.warning(
+                            f"Error recording tool usage: {e}", exc_info=True
+                        )
+
                 logger.info(
                     f"Tool result added to conversation: {tool_name}",
                     extra={
                         "event": "tool_result_added",
                         "tool_name": tool_name,
                         "tool_call_id": tool_call_id,
-                        "result_length": len(tool_result.get("content", ""))
-                    }
+                        "result_length": len(tool_result.get("content", "")),
+                    },
                 )
             except Exception as e:
                 logger.error(
@@ -736,61 +828,66 @@ class ConversationSession:
                         "event": "tool_call_execution_error",
                         "tool_name": tool_name,
                         "tool_call_id": tool_call_id,
-                        "error": str(e)
-                    }
+                        "error": str(e),
+                    },
                 )
                 # Add error message
-                self.messages.append({
-                    "tool_call_id": tool_call_id,
-                    "role": "tool",
-                    "name": tool_name,
-                    "content": f"Error: {str(e)}"
-                })
-    
+                self.messages.append(
+                    {
+                        "tool_call_id": tool_call_id,
+                        "role": "tool",
+                        "name": tool_name,
+                        "content": f"Error: {str(e)}",
+                    }
+                )
+
     # ---------- Storage helpers ----------
-    
+
     def _save_conversation(self) -> None:
         """
         Save conversation to storage if storage backend is available.
-        
+
         Logs errors but does not raise exceptions to avoid breaking the REPL.
-        
+
         The system_prompt field in metadata stores the base system prompt
         (user-defined invariants), not the full combined prompt with world state.
         The full prompt is always available in the messages[0]["content"].
         """
         if not self.storage:
             return
-        
+
         try:
             # Use base_system_prompt if it was explicitly set, otherwise use system_prompt
             # If base_system_prompt came from config and system_prompt is None, save empty string
             # to indicate no explicit system prompt was set
-            if hasattr(self, '_base_system_prompt_explicit') and self._base_system_prompt_explicit:
+            if (
+                hasattr(self, "_base_system_prompt_explicit")
+                and self._base_system_prompt_explicit
+            ):
                 # Base prompt was explicitly provided (via parameter or system_prompt)
                 saved_system_prompt = self.base_system_prompt or ""
             else:
                 # Base prompt came from config - only save if system_prompt was also set
                 # This preserves the behavior: if user didn't set system_prompt, save empty
                 saved_system_prompt = self.system_prompt or ""
-            
+
             metadata = {
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
                 "system_prompt": saved_system_prompt,
             }
-            
+
             self.storage.save_conversation(
-                session_id=self.session_id,
-                messages=self.messages,
-                metadata=metadata
+                session_id=self.session_id, messages=self.messages, metadata=metadata
             )
-            
+
             logger.debug(f"Saved conversation {self.session_id} to storage")
-            
+
         except Exception as e:
-            logger.warning(f"Failed to save conversation {self.session_id}: {e}", exc_info=True)
-    
+            logger.warning(
+                f"Failed to save conversation {self.session_id}: {e}", exc_info=True
+            )
+
     @classmethod
     def load_from_storage(
         cls,
@@ -801,13 +898,13 @@ class ConversationSession:
     ) -> Optional["ConversationSession"]:
         """
         Load a conversation session from storage.
-        
+
         Args:
             session_id: Unique identifier for the conversation session
             storage: Storage backend to load from
             llm: Optional LLM client (uses default if not provided)
             world_state_aggregator: Optional world state aggregator for dynamic prompts
-            
+
         Returns:
             ConversationSession instance if found, None otherwise
         """
@@ -816,14 +913,14 @@ class ConversationSession:
             if not result:
                 logger.debug(f"Conversation {session_id} not found in storage")
                 return None
-            
+
             messages = result.get("messages", [])
             metadata = result.get("metadata", {})
-            
+
             # Extract base system prompt from metadata (this is the user-defined base prompt)
             # Use the saved value, even if empty (don't override with config when loading)
             base_system_prompt = metadata.get("system_prompt", "")
-            
+
             # If messages contain a system message with combined prompt, try to extract base
             # This handles cases where the system message has both base prompt and world state
             if messages and messages[0].get("role") == "system":
@@ -836,7 +933,7 @@ class ConversationSession:
                     # Only use if it doesn't look like JSON
                     if potential_base and not potential_base.startswith("{"):
                         base_system_prompt = potential_base
-            
+
             # Create session with base system prompt
             # Note: We don't pass system_prompt parameter to avoid double-adding
             # The messages will be restored below
@@ -847,30 +944,32 @@ class ConversationSession:
                 storage=storage,
                 session_id=session_id,
                 world_state_aggregator=world_state_aggregator,
-                base_system_prompt=base_system_prompt  # Use saved value, not config
+                base_system_prompt=base_system_prompt,  # Use saved value, not config
             )
-            
+
             # Restore messages directly (they already contain the system message)
             if messages:
                 session.messages = messages
-            
+
             # Restore timestamps
             session.created_at = metadata.get("created_at", session.created_at)
             session.updated_at = metadata.get("updated_at", session.updated_at)
-            
+
             # Restore system_prompt for backward compatibility (legacy code may check this)
             # This is the base prompt, not the full combined prompt
             # If saved value is empty, set to None to indicate no system prompt was set
             session.system_prompt = base_system_prompt if base_system_prompt else None
-            
+
             # If we have a world state aggregator, update the system prompt to refresh world state
             # This ensures the world state is current even after loading
             if world_state_aggregator and session._world_state_formatter:
                 session._update_system_prompt()
-            
+
             logger.info(f"Loaded conversation {session_id} from storage")
             return session
-            
+
         except Exception as e:
-            logger.error(f"Failed to load conversation {session_id}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to load conversation {session_id}: {e}", exc_info=True
+            )
             return None

@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
-from unittest.mock import Mock
+import os
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -105,7 +106,7 @@ class TestTerminalToolDescriptionClarity:
 class TestEnhancedErrorMessageFormat:
     """Test that validation error messages include examples."""
     
-    def test_error_message_includes_example_for_terminal(self):
+    def test_error_message_includes_example_for_terminal(self, normal_tools_mode):
         """
         Test that validation error messages include examples for terminal tool.
         
@@ -136,7 +137,7 @@ class TestEnhancedErrorMessageFormat:
 class TestEmptyArgumentsHandling:
     """Test empty JSON string handling."""
     
-    def test_empty_json_string_handled_correctly(self):
+    def test_empty_json_string_handled_correctly(self, normal_tools_mode):
         """
         Test that empty JSON string "{}" is handled correctly.
         
@@ -165,7 +166,7 @@ class TestEmptyArgumentsHandling:
 class TestWhitespaceOnlyArguments:
     """Test whitespace-only JSON strings handling."""
     
-    def test_whitespace_only_json_string(self):
+    def test_whitespace_only_json_string(self, normal_tools_mode):
         """
         Test that whitespace-only JSON strings are handled.
         
@@ -196,7 +197,7 @@ class TestWhitespaceOnlyArguments:
 class TestDiagnosticLogging:
     """Test that validation failures log structured diagnostic info."""
     
-    def test_validation_failure_logs_diagnostics(self):
+    def test_validation_failure_logs_diagnostics(self, normal_tools_mode):
         """
         Test that validation failures log structured diagnostic info.
         
@@ -259,7 +260,7 @@ class TestJSONRepairEmpty:
 class TestValidationErrorMessageActionability:
     """Test that error messages include actionable guidance."""
     
-    def test_error_message_actionable(self):
+    def test_error_message_actionable(self, normal_tools_mode):
         """
         Test that error messages include actionable guidance.
         
@@ -316,7 +317,7 @@ class TestSystemPromptIncludesTerminalGuidance:
 class TestRegressionValidCalls:
     """Regression tests ensuring valid tool calls still work."""
     
-    def test_valid_terminal_call_still_works(self):
+    def test_valid_terminal_call_still_works(self, normal_tools_mode):
         """
         Test that valid terminal tool calls with command parameter still execute.
         

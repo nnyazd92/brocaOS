@@ -127,7 +127,7 @@ class LogCapture:
 class TestRelaxedCriticEnforcement:
     """Test relaxed critic enforcement allowing tool usage."""
     
-    def test_tools_allowed_after_critic_rejection(self, mock_llm_client: Mock):
+    def test_tools_allowed_after_critic_rejection(self, mock_llm_client: Mock, normal_tools_mode):
         """
         Test that other tools can be called after critic rejection.
         
@@ -250,7 +250,7 @@ class TestRelaxedCriticEnforcement:
         # Final response should be returned after critic accepts
         assert response == "Final response"
     
-    def test_terminal_tool_allowed_after_rejection(self, mock_llm_client: Mock):
+    def test_terminal_tool_allowed_after_rejection(self, mock_llm_client: Mock, normal_tools_mode):
         """
         Test that terminal tool works after critic rejection.
         
@@ -418,7 +418,7 @@ class TestRelaxedCriticEnforcement:
         # Final response should be after acceptance
         assert "after acceptance" in response or response == "Final after acceptance"
     
-    def test_critic_can_be_called_after_other_tools(self, mock_llm_client: Mock):
+    def test_critic_can_be_called_after_other_tools(self, mock_llm_client: Mock, normal_tools_mode):
         """
         Test that critic can be called after using other tools.
         
@@ -523,10 +523,10 @@ class TestRelaxedCriticEnforcement:
         # Final response should be returned
         assert response == "Final response"
     
-    def test_multiple_tool_usage_before_critic(self, mock_llm_client: Mock):
+    def test_multiple_tool_usage_before_critic(self, mock_llm_client: Mock, normal_tools_mode):
         """
         Test that multiple tools can be used before calling critic again.
-        
+    
         Rationale: Ensures LLM can use multiple tools to gather comprehensive information.
         """
         registry = ToolRegistry()

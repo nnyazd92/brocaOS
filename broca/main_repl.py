@@ -21,7 +21,7 @@ from .self_model.model import SelfModel
 from .self_model.consistency import ConsistencyChecker
 from .self_model.updater import SelfModelUpdater
 from .self_model.layer import ConsistencyLayer
-from .tools.self_model_tool import QuerySelfModelTool, UpdateSelfModelTool
+from .tools.self_model_tool import QuerySelfModelTool
 from .internal_sensing.framework import InternalSensingFramework
 from .world_state.aggregator import WorldStateAggregator
 
@@ -502,12 +502,10 @@ def main() -> None:
         if consistency_layer and tool_registry:
             try:
                 query_tool = QuerySelfModelTool(consistency_layer)
-                update_tool = UpdateSelfModelTool(consistency_layer)
                 tool_registry.register_tool(query_tool)
-                tool_registry.register_tool(update_tool)
-                logger.info("Registered self-model tools")
+                logger.info("Registered self-model query tool")
             except Exception as e:
-                logger.warning(f"Failed to register self-model tools: {e}", exc_info=True)
+                logger.warning(f"Failed to register self-model query tool: {e}", exc_info=True)
         
         # Internal sensing tools are NOT registered as tools since internal sensing data
         # is already included in the LLM's mutable system prompt via WorldStateAggregator.
