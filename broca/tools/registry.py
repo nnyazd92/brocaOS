@@ -13,6 +13,7 @@ import time
 
 from . import Tool
 from ..config import config
+import os
 from .logging_utils import (
     log_tool_call_received,
     log_tool_execution_start,
@@ -43,9 +44,16 @@ class ToolRegistry:
         self._tools: Dict[str, Tool] = {}
         self.epistemic_engine = epistemic_engine
                 # Policy / rate-limits (read-only + web search)
-        self._policy_mode = getattr(config.tools, "tools_mode", "normal")
-        self._max_search_queries = getattr(config.tools, "web_search_max_queries", 3)
-        self._search_cooldown_turns = getattr(config.tools, "web_search_cooldown_turns", 3)
+        # Read from env first (to support tests patching os.environ), fallback to config
+        self._policy_mode = os.getenv("BROCA_TOOLS_MODE", getattr(config.tools, "tools_mode", "normal"))
+        try:
+            self._max_search_queries = int(os.getenv("BROCA_WEB_SEARCH_MAX_QUERIES", str(getattr(config.tools, "web_search_max_queries", 3))))
+        except Exception:
+            self._max_search_queries = 3
+        try:
+            self._search_cooldown_turns = int(os.getenv("BROCA_WEB_SEARCH_COOLDOWN_TURNS", str(getattr(config.tools, "web_search_cooldown_turns", 3))))
+        except Exception:
+            self._search_cooldown_turns = 3
         self._turn_index: int = 0
         self._search_burst_count: int = 0
         self._burst_exhausted_turn: Optional[int] = None
