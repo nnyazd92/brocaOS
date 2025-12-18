@@ -6,7 +6,7 @@ Tests session management, message history, context tracking, and logging functio
 
 from __future__ import annotations
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 import pytest
 import logging
 
@@ -461,4 +461,228 @@ class TestConversationSessionErrorHandling:
         
         # Verify save was called (even after error)
         assert mock_storage.save_conversation.called
+
+
+class TestConversationSessionStreaming:
+    """Test streaming functionality in ConversationSession."""
+    
+    @patch('builtins.print')
+    def test_send_streams_final_response(self, mock_print, mock_llm_client: Mock):
+        """
+        Test that final response streams when no tool calls.
+        
+        Rationale: Ensures streaming works for simple responses without tools.
+        """
+        # Create mock stream that yields strings directly
+        # The chat_stream method yields strings, so we mock it to return an iterable of strings
+        def mock_chat_stream(*args, **kwargs):
+            yield "Hello"
+            yield " world"
+        
+        mock_llm_client.chat_stream = Mock(side_effect=mock_chat_stream)
+        mock_llm_client.extract_assistant_content = lambda x: "Hello world"
+        mock_llm_client.extract_tool_calls = lambda x: []
+        
+        session = ConversationSession(llm=mock_llm_client)
+        
+        response = session.send("Hi")
+        
+        # Verify response is correct
+        assert response == "Hello world"
+        
+        # Verify streaming was called
+        mock_llm_client.chat_stream.assert_called_once()
+        
+        # Verify output was printed
+        print_calls = [str(call) for call in mock_print.call_args_list]
+        assert any("BrocaOS>" in call for call in print_calls)
+        assert any("Hello" in call for call in print_calls)
+        assert any(" world" in call for call in print_calls)
+    
+    @patch('builtins.print')
+    def test_send_streams_after_tool_calls(self, mock_print, mock_llm_client: Mock):
+        """
+        Test that streaming works after tool calls are resolved.
+        
+        Rationale: Ensures final response streams even after tool execution.
+        """
+        from broca.tools.registry import ToolRegistry
+        
+        # First response has tool calls (non-streaming)
+        tool_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "test_tool",
+                            "arguments": "{}"
+                        }
+                    }]
+                }
+            }]
+        }
+        
+        # Second response is final (streaming)
+        def mock_chat_stream_final(*args, **kwargs):
+            yield "Final"
+            yield " response"
+        
+        # Mock tool
+        mock_tool = Mock()
+        mock_tool.name = "test_tool"
+        mock_tool.execute.return_value = {"role": "tool", "content": "Tool result"}
+        
+        mock_registry = Mock(spec=ToolRegistry)
+        mock_registry.to_openai_format.return_value = [{"type": "function", "function": {"name": "test_tool"}}]
+        mock_registry.execute_tool_call.return_value = {"role": "tool", "content": "Tool result"}
+        mock_registry.get_tool.return_value = None  # No critic
+        
+        # Setup LLM mocks
+        mock_llm_client.chat.return_value = tool_response
+        mock_llm_client.chat_stream = Mock(side_effect=mock_chat_stream_final)
+        mock_llm_client.extract_tool_calls = lambda x: (
+            tool_response["choices"][0]["message"]["tool_calls"] if "tool_calls" in x.get("choices", [{}])[0].get("message", {}) else []
+        )
+        mock_llm_client.extract_assistant_content = lambda x: "Final response"
+        
+        session = ConversationSession(llm=mock_llm_client, tool_registry=mock_registry)
+        
+        response = session.send("Use tool then respond")
+        
+        # Verify final response is correct
+        assert response == "Final response"
+        
+        # Verify chat() was called for tool iteration (non-streaming)
+        assert mock_llm_client.chat.called
+        
+        # Verify chat_stream() was called for final response
+        mock_llm_client.chat_stream.assert_called_once()
+    
+    @patch('builtins.print')
+    def test_send_no_streaming_during_tool_iterations(self, mock_print, mock_llm_client: Mock):
+        """
+        Test that intermediate tool call responses don't stream.
+        
+        Rationale: Ensures tool call detection works correctly (requires non-streaming).
+        """
+        from broca.tools.registry import ToolRegistry
+        
+        tool_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {"name": "test_tool", "arguments": "{}"}
+                    }]
+                }
+            }]
+        }
+        
+        mock_registry = Mock(spec=ToolRegistry)
+        mock_registry.to_openai_format.return_value = [{"type": "function", "function": {"name": "test_tool"}}]
+        mock_registry.execute_tool_call.return_value = {"role": "tool", "content": "Result"}
+        mock_registry.get_tool.return_value = None
+        
+        mock_llm_client.chat.return_value = tool_response
+        mock_llm_client.extract_tool_calls = lambda x: (
+            tool_response["choices"][0]["message"]["tool_calls"] if "tool_calls" in x.get("choices", [{}])[0].get("message", {}) else []
+        )
+        mock_llm_client.extract_assistant_content = lambda x: ""
+        
+        session = ConversationSession(llm=mock_llm_client, tool_registry=mock_registry)
+        
+        # This will hit max iterations since we're not providing a final response
+        # But we can verify that chat_stream was NOT called during tool iterations
+        try:
+            session.send("Use tool")
+        except:
+            pass
+        
+        # Verify chat_stream was never called (only chat for tool calls)
+        assert not hasattr(mock_llm_client, 'chat_stream') or not mock_llm_client.chat_stream.called
+    
+    @patch('builtins.print')
+    def test_send_streaming_with_tools_available_but_not_called(self, mock_print, mock_llm_client: Mock):
+        """
+        Test that when tools are available, we use non-streaming to detect tool calls.
+        
+        Rationale: When tools are available, we must use non-streaming on first iteration
+        to properly detect tool calls, even if the LLM doesn't use them.
+        """
+        from broca.tools.registry import ToolRegistry
+        
+        mock_registry = Mock(spec=ToolRegistry)
+        mock_registry.to_openai_format.return_value = [{"type": "function", "function": {"name": "test_tool"}}]
+        mock_registry.get_tool.return_value = None
+        
+        # When tools are available, we use non-streaming to detect tool calls
+        mock_llm_client.chat.return_value = build_llm_response(content="Response")
+        mock_llm_client.extract_tool_calls = lambda x: []
+        mock_llm_client.extract_assistant_content = lambda x: "Response"
+        
+        session = ConversationSession(llm=mock_llm_client, tool_registry=mock_registry)
+        
+        response = session.send("Hello")
+        
+        assert response == "Response"
+        # Verify non-streaming was used (not streaming) when tools are available
+        mock_llm_client.chat.assert_called_once()
+        # chat_stream should not be called when tools are available (we need to detect tool calls)
+        assert not hasattr(mock_llm_client, 'chat_stream') or not mock_llm_client.chat_stream.called
+    
+    @patch('builtins.print')
+    @patch('broca.config.config')
+    def test_send_streaming_respects_config(self, mock_config, mock_print, mock_llm_client: Mock):
+        """
+        Test that streaming can be disabled via config.
+        
+        Rationale: Ensures config setting controls streaming behavior.
+        """
+        # Disable streaming in config
+        mock_config.llm.streaming_enabled = False
+        
+        mock_llm_client.chat.return_value = build_llm_response(content="Response")
+        mock_llm_client.extract_tool_calls = lambda x: []
+        mock_llm_client.extract_assistant_content = lambda x: "Response"
+        
+        session = ConversationSession(llm=mock_llm_client)
+        
+        response = session.send("Hello")
+        
+        assert response == "Response"
+        # Verify chat_stream was NOT called
+        assert not hasattr(mock_llm_client, 'chat_stream') or not mock_llm_client.chat_stream.called
+        # Verify regular chat was called
+        mock_llm_client.chat.assert_called_once()
+    
+    @patch('builtins.print')
+    def test_send_streaming_output_format(self, mock_print, mock_llm_client: Mock):
+        """
+        Test that streaming prints correctly with "BrocaOS> " prefix.
+        
+        Rationale: Ensures streaming output format matches non-streaming format.
+        """
+        def mock_chat_stream_format(*args, **kwargs):
+            yield "Hello"
+            yield " there"
+        
+        mock_llm_client.chat_stream = Mock(side_effect=mock_chat_stream_format)
+        mock_llm_client.extract_assistant_content = lambda x: "Hello there"
+        mock_llm_client.extract_tool_calls = lambda x: []
+        
+        session = ConversationSession(llm=mock_llm_client)
+        
+        session.send("Hi")
+        
+        # Verify print was called with "BrocaOS> " prefix
+        print_calls = [str(call) for call in mock_print.call_args_list]
+        # Check that "BrocaOS>" appears in the calls
+        assert any("BrocaOS>" in str(call) for call in mock_print.call_args_list)
 

@@ -111,9 +111,14 @@ class ConversationSession:
 
     # ---------- Public API ----------
 
-    def send(self, user_text: str) -> str:
+    def send(self, user_text: str, stream: bool = None) -> str:
         """
         Append a user message, call the LLM, handle tool calls if needed, and return final reply.
+
+        Args:
+            user_text: User's message
+            stream: If True, streams the final response (after tool calls are resolved).
+                   If None, uses config.llm.streaming_enabled. Default: None.
 
         Returns the assistant's final reply text after all tool calls are resolved.
         """
@@ -180,6 +185,14 @@ class ConversationSession:
                 },
             )
 
+        # Determine if streaming should be used (default from config if not specified)
+        if stream is None:
+            from ..config import config
+            stream = config.llm.streaming_enabled
+        
+        # Track if we've had tool calls in this turn (affects streaming decision)
+        had_tool_calls = False
+        
         # Handle tool calls iteratively (may require multiple LLM calls)
         iterations = 0
         response = None
@@ -189,12 +202,64 @@ class ConversationSession:
             # Update system prompt with current world state before each LLM call
             self._update_system_prompt()
 
+            # Track if we used streaming (for later use)
+            used_streaming = False
+            assistant_text = None  # Will be set during streaming or extracted later
+            
             try:
-                # Call LLM (only pass tools if registry is available)
-                if tools:
-                    response = self.llm.chat(self.messages, tools=tools)
+                # Determine if we should use streaming
+                # Stream on first iteration only if no tools are available (we can't detect tool calls from stream easily)
+                # OR on final response after tool calls (when we know there are no more tool calls)
+                use_streaming = (
+                    stream 
+                    and hasattr(self.llm, 'chat_stream')
+                    and (
+                        (iterations == 1 and not tools) or  # First iteration, no tools available
+                        (iterations > 1 and had_tool_calls)  # After tool calls, final response
+                    )
+                )
+                
+                if use_streaming:
+                    # Streaming mode - try streaming first
+                    assistant_text = ""
+                    print("BrocaOS> ", end="", flush=True)
+                    
+                    try:
+                        if tools:
+                            stream_gen = self.llm.chat_stream(self.messages, tools=tools)
+                        else:
+                            stream_gen = self.llm.chat_stream(self.messages)
+                        
+                        for chunk in stream_gen:
+                            assistant_text += chunk
+                            print(chunk, end="", flush=True)
+                        
+                        print()  # New line after streaming
+                        used_streaming = True
+                        
+                        # Build response dict for compatibility with existing code
+                        response = {
+                            "choices": [{
+                                "message": {
+                                    "content": assistant_text,
+                                    "role": "assistant"
+                                }
+                            }]
+                        }
+                    except Exception as e:
+                        # Fall back to non-streaming on error
+                        logger.warning(f"Streaming failed, falling back to non-streaming: {e}", exc_info=True)
+                        assistant_text = None  # Reset so it gets extracted from response
+                        if tools:
+                            response = self.llm.chat(self.messages, tools=tools)
+                        else:
+                            response = self.llm.chat(self.messages)
                 else:
-                    response = self.llm.chat(self.messages)
+                    # Non-streaming mode (for tool calls or when streaming disabled)
+                    if tools:
+                        response = self.llm.chat(self.messages, tools=tools)
+                    else:
+                        response = self.llm.chat(self.messages)
             except TimeoutError as e:
                 logger.error(f"LLM request timed out: {e}", exc_info=True)
                 error_message = (
@@ -253,6 +318,9 @@ class ConversationSession:
                     logger.debug(f"Error tracking processing depth: {e}", exc_info=True)
 
             if tool_calls and self.tool_registry:
+                # Mark that we've had tool calls
+                had_tool_calls = True
+                
                 # Log tool calls detected
                 tool_names = [
                     tc.get("function", {}).get("name", "unknown") for tc in tool_calls
@@ -336,7 +404,9 @@ class ConversationSession:
                                 )
                             break
 
-                assistant_text = self.llm.extract_assistant_content(response) or ""
+                # Extract assistant text - if we used streaming, it's already in assistant_text
+                if not used_streaming or assistant_text is None:
+                    assistant_text = self.llm.extract_assistant_content(response) or ""
 
                 # Instrumentation: Record metrics from response
                 if (

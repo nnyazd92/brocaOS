@@ -12,6 +12,7 @@ class LLMConfig(BaseModel):
     model: str = os.getenv("DEEPSEEK_MODEL", "")  # Will default based on provider
     temperature: float = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.3"))
     timeout: float = float(os.getenv("DEEPSEEK_TIMEOUT", "300.0"))  # Default 5 minutes
+    streaming_enabled: bool = os.getenv("BROCA_STREAMING_ENABLED", "true").lower() == "true"
     
     def __init__(self, **kwargs):
         # Get provider first

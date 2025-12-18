@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Iterator
 import logging
 from openai import OpenAI
 from openai import APIConnectionError, APITimeoutError, APIError
@@ -123,6 +123,95 @@ class OpenAIClient:
         except APIError as e:
             logger.error(
                 f"API returned error: {e}",
+                exc_info=True
+            )
+            raise  # Re-raise API errors (preserve existing behavior)
+
+    def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> Iterator[str]:
+        """
+        Stream chat completion, yielding text chunks as they arrive.
+        
+        Args:
+            messages: List of message dictionaries
+            temperature: Optional temperature override
+            tools: Optional list of tools in OpenAI function calling format
+        
+        Yields:
+            Text chunks from the streaming response
+        
+        Note: This should only be used for final responses (no tool calls expected).
+        For requests with tools, use chat() instead and handle tool calls first.
+        """
+        temp = temperature if temperature is not None else self.temperature
+
+        # Build request parameters
+        request_params: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+        }
+        
+        # Some OpenAI models (like o1, o1-preview, o1-mini, gpt-5, gpt-5.2, etc.) only support temperature=1.0 (the default)
+        # They reject temperature=0.0 and other values, so we omit the parameter when temp=0.0 for those models
+        # This allows the API to use its default (1.0)
+        models_requiring_default_temp = ["o1", "gpt-5"]
+        requires_default_temp = any(self.model.startswith(prefix) for prefix in models_requiring_default_temp)
+        
+        # For models that only support default temperature, omit temperature parameter when temp=0.0
+        # For other models, always include temperature
+        if not (requires_default_temp and temp == 0.0):
+            request_params["temperature"] = temp
+        
+        if tools:
+            request_params["tools"] = tools
+
+        logger.debug(
+            "Sending streaming chat request",
+            extra={
+                "event": "llm_request_stream",
+                "model": self.model,
+                "temperature": temp,
+                "messages_count": len(messages),
+                "tools_count": len(tools) if tools else 0,
+                "last_user_message_preview": self._last_user_preview(messages),
+            },
+        )
+
+        try:
+            # Call OpenAI API with streaming
+            stream = self._client.chat.completions.create(**request_params)
+            
+            # Yield text chunks as they arrive
+            for chunk in stream:
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, 'content') and delta.content:
+                        yield delta.content
+            
+        except APITimeoutError as e:
+            logger.error(
+                f"API streaming request timed out",
+                exc_info=True
+            )
+            raise TimeoutError(
+                f"API request timed out. "
+                "This may happen with large conversations or when the API is slow. "
+                "Try reducing conversation history or increasing the timeout."
+            ) from e
+        except APIConnectionError as e:
+            logger.error(
+                f"Network error during API streaming request: {e}",
+                exc_info=True
+            )
+            raise ConnectionError(f"Network error: {e}") from e
+        except APIError as e:
+            logger.error(
+                f"API returned error during streaming: {e}",
                 exc_info=True
             )
             raise  # Re-raise API errors (preserve existing behavior)

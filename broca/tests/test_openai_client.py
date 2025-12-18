@@ -490,3 +490,157 @@ class TestOpenAIClientExtractToolCalls:
         
         assert tool_calls == []
 
+
+class TestOpenAIClientStreaming:
+    """Test streaming chat completion functionality."""
+    
+    def test_chat_stream_yields_chunks(self):
+        """
+        Test that chat_stream() yields text chunks from streaming response.
+        
+        Rationale: Ensures streaming functionality works correctly and yields chunks.
+        """
+        mock_openai_client = MagicMock()
+        
+        # Create mock stream chunks
+        chunk1 = MagicMock()
+        chunk1.choices = [MagicMock()]
+        chunk1.choices[0].delta = MagicMock()
+        chunk1.choices[0].delta.content = "Hello"
+        
+        chunk2 = MagicMock()
+        chunk2.choices = [MagicMock()]
+        chunk2.choices[0].delta = MagicMock()
+        chunk2.choices[0].delta.content = " world"
+        
+        chunk3 = MagicMock()
+        chunk3.choices = [MagicMock()]
+        chunk3.choices[0].delta = MagicMock()
+        chunk3.choices[0].delta.content = "!"
+        
+        # Empty chunk (no content)
+        chunk4 = MagicMock()
+        chunk4.choices = [MagicMock()]
+        chunk4.choices[0].delta = MagicMock()
+        chunk4.choices[0].delta.content = None
+        
+        mock_openai_client.chat.completions.create.return_value = [chunk1, chunk2, chunk3, chunk4]
+        
+        with patch('broca.llm.openai_client.OpenAI', return_value=mock_openai_client):
+            client = OpenAIClient(api_key="test-key")
+            
+            messages = create_message_list(user_messages=["Hello"])
+            chunks = list(client.chat_stream(messages))
+            
+            # Verify chunks were yielded
+            assert chunks == ["Hello", " world", "!"]
+            
+            # Verify stream=True was passed
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert call_kwargs["stream"] is True
+    
+    def test_chat_stream_with_temperature(self):
+        """
+        Test that streaming respects temperature parameter.
+        
+        Rationale: Ensures temperature is correctly passed to streaming requests.
+        """
+        mock_openai_client = MagicMock()
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta = MagicMock()
+        chunk.choices[0].delta.content = "Test"
+        mock_openai_client.chat.completions.create.return_value = [chunk]
+        
+        with patch('broca.llm.openai_client.OpenAI', return_value=mock_openai_client):
+            client = OpenAIClient(api_key="test-key", temperature=0.3)
+            
+            messages = create_message_list(user_messages=["Test"])
+            list(client.chat_stream(messages, temperature=0.8))
+            
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert call_kwargs["temperature"] == 0.8
+    
+    def test_chat_stream_error_handling(self):
+        """
+        Test error handling in streaming.
+        
+        Rationale: Ensures streaming errors are properly raised.
+        """
+        mock_openai_client = MagicMock()
+        mock_openai_client.chat.completions.create.side_effect = APIError(
+            message="API Error",
+            request=MagicMock(),
+            body=MagicMock()
+        )
+        
+        with patch('broca.llm.openai_client.OpenAI', return_value=mock_openai_client):
+            client = OpenAIClient(api_key="test-key")
+            
+            messages = create_message_list(user_messages=["Test"])
+            
+            with pytest.raises(APIError):
+                list(client.chat_stream(messages))
+    
+    def test_chat_stream_with_tools_parameter(self):
+        """
+        Test streaming works when tools parameter is passed.
+        
+        Rationale: Ensures tools parameter can be passed to streaming (even if not used in final response).
+        """
+        mock_openai_client = MagicMock()
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta = MagicMock()
+        chunk.choices[0].delta.content = "Response"
+        mock_openai_client.chat.completions.create.return_value = [chunk]
+        
+        with patch('broca.llm.openai_client.OpenAI', return_value=mock_openai_client):
+            client = OpenAIClient(api_key="test-key")
+            
+            messages = create_message_list(user_messages=["Test"])
+            tools = [{"type": "function", "function": {"name": "test_tool"}}]
+            list(client.chat_stream(messages, tools=tools))
+            
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert call_kwargs["tools"] == tools
+            assert call_kwargs["stream"] is True
+    
+    def test_chat_stream_models_requiring_default_temp(self):
+        """
+        Test temperature handling for o1/gpt-5 models in streaming.
+        
+        Rationale: Ensures models that only support default temperature are handled correctly.
+        """
+        mock_openai_client = MagicMock()
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta = MagicMock()
+        chunk.choices[0].delta.content = "Test"
+        mock_openai_client.chat.completions.create.return_value = [chunk]
+        
+        with patch('broca.llm.openai_client.OpenAI', return_value=mock_openai_client):
+            # Test with o1 model and temp=0.0 (should omit temperature)
+            client = OpenAIClient(api_key="test-key", model="o1", temperature=0.0)
+            
+            messages = create_message_list(user_messages=["Test"])
+            list(client.chat_stream(messages))
+            
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert "temperature" not in call_kwargs
+            
+            # Test with o1 model and temp=0.5 (should include temperature)
+            mock_openai_client.chat.completions.create.reset_mock()
+            list(client.chat_stream(messages, temperature=0.5))
+            
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert call_kwargs["temperature"] == 0.5
+            
+            # Test with non-o1 model and temp=0.0 (should include temperature)
+            client2 = OpenAIClient(api_key="test-key", model="gpt-4", temperature=0.0)
+            mock_openai_client.chat.completions.create.reset_mock()
+            list(client2.chat_stream(messages))
+            
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert call_kwargs["temperature"] == 0.0
+
