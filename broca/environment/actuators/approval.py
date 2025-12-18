@@ -17,11 +17,25 @@ from __future__ import annotations
 
 import uuid
 import logging
+import os
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 
+from broca.token_auth.token import verify_token as verify_jwt_token
+from broca.token_auth.defaults import get_default_identity
+import json
+import time as time_module
+import hmac
+import hashlib
+import base64
+
 logger = logging.getLogger(__name__)
+
+
+def _b64url(data: bytes) -> str:
+    """Base64 URL-safe encoding without padding."""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
 @dataclass
@@ -40,6 +54,7 @@ class ApprovalRequest:
         safety_analysis: Safety analysis results (risk_level, requires_approval)
         approved: Whether the request has been approved (default: False)
         created_at: Timestamp when request was created (UTC)
+        actuator_id: ID of the actuator this request is for (optional, for scope determination)
     """
     
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -49,6 +64,7 @@ class ApprovalRequest:
     safety_analysis: Dict[str, Any] = field(default_factory=dict)
     approved: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    actuator_id: Optional[str] = None
 
 
 @dataclass
@@ -96,19 +112,28 @@ class ApprovalSystem:
     
     1. Request Approval: Create an approval request for an operation
     2. Approve Request: Set request.approved = True (typically by user/admin)
-    3. Generate Token: Create a reusable token from an approved request
-    4. Verify Token: Check token validity before use
+    3. Generate Token: Create a reusable JWT token from an approved request
+    4. Verify Token: Check token validity before use (supports JWT and legacy UUID tokens)
     5. Use Token: Provide token when calling control_actuator
     
     Tokens are reusable until expiration (default: 5 minutes). Once expired,
     they cannot be used and a new token must be generated.
     
+    Tokens are now JWT format (unified with token_auth system), but legacy UUID
+    tokens are still supported for backward compatibility.
+    
     Attributes:
         approval_chain: List of all approval requests (historical record)
-        tokens: Dictionary mapping token strings to ApprovalToken objects
+        tokens: Dictionary mapping token strings to ApprovalToken objects (for legacy UUID tokens)
         emergency_override: Emergency override flag (for bypassing approval)
         _approval_requests: Internal dictionary mapping request_id to ApprovalRequest
     """
+    
+    # Map actuator types to required scopes
+    ACTUATOR_SCOPE_MAP: Dict[str, List[str]] = {
+        "filesystem_actuator": ["filesystem:write"],
+        "default": ["filesystem:write", "project:write", "memory:write"],  # Default scopes for unknown actuators
+    }
     
     def __init__(self) -> None:
         """
@@ -117,7 +142,7 @@ class ApprovalSystem:
         Creates empty approval chain, token store, and request registry.
         """
         self.approval_chain: List[ApprovalRequest] = []
-        self.tokens: Dict[str, ApprovalToken] = {}
+        self.tokens: Dict[str, ApprovalToken] = {}  # Legacy UUID token storage
         self.emergency_override = False
         self._approval_requests: Dict[str, ApprovalRequest] = {}  # request_id -> ApprovalRequest
         logger.debug("Initialized ApprovalSystem")
@@ -126,7 +151,8 @@ class ApprovalSystem:
         self,
         operation: str,
         parameters: Dict[str, Any],
-        rationale: str
+        rationale: str,
+        actuator_id: Optional[str] = None
     ) -> ApprovalRequest:
         """
         Create approval request with safety analysis.
@@ -158,7 +184,8 @@ class ApprovalSystem:
             operation=operation,
             parameters=parameters,
             rationale=rationale,
-            safety_analysis=safety_analysis
+            safety_analysis=safety_analysis,
+            actuator_id=actuator_id
         )
         
         self.approval_chain.append(request)
@@ -170,15 +197,17 @@ class ApprovalSystem:
         )
         return request
     
-    def verify_approval(self, token: str) -> VerificationResult:
+    def verify_approval(self, token: str, required_scopes: Optional[List[str]] = None, actuator_id: Optional[str] = None) -> VerificationResult:
         """
         Verify approval token validity.
         
         Checks that the token exists, is not expired, and is valid for use.
+        Supports both JWT tokens (from token_auth) and legacy UUID tokens.
         Tokens are reusable until expiration.
         
         Args:
-            token: Approval token string to verify
+            token: Approval token string to verify (JWT or legacy UUID)
+            required_scopes: Optional list of required scopes (for JWT tokens)
             
         Returns:
             VerificationResult with valid=True if token is valid, valid=False otherwise.
@@ -188,8 +217,86 @@ class ApprovalSystem:
             logger.warning("Token verification attempted with empty/None token")
             return VerificationResult(valid=False, error="Token is required")
         
+        # Determine required scopes if not provided but actuator_id is
+        if required_scopes is None and actuator_id:
+            if actuator_id in self.ACTUATOR_SCOPE_MAP:
+                required_scopes = self.ACTUATOR_SCOPE_MAP[actuator_id]
+            else:
+                required_scopes = self.ACTUATOR_SCOPE_MAP.get("default", ["filesystem:write", "project:write", "memory:write"])
+        
+        # Try to verify as JWT token first
+        if "." in token and len(token.split(".")) == 3:
+            # Looks like a JWT token
+            return self._verify_jwt_token(token, required_scopes)
+        
+        # Fall back to legacy UUID token verification
+        return self._verify_legacy_token(token)
+    
+    def _verify_jwt_token(self, token: str, required_scopes: Optional[List[str]] = None) -> VerificationResult:
+        """
+        Verify JWT token using token_auth.
+        
+        Args:
+            token: JWT token string
+            required_scopes: Optional list of required scopes
+            
+        Returns:
+            VerificationResult
+        """
+        secret_key = os.environ.get("BROCA_TOKEN_SECRET")
+        if not secret_key:
+            logger.warning("BROCA_TOKEN_SECRET not set, cannot verify JWT token")
+            return VerificationResult(
+                valid=False,
+                error="JWT token verification requires BROCA_TOKEN_SECRET environment variable"
+            )
+        
+        try:
+            payload = verify_jwt_token(token, secret_key)
+        except ValueError as e:
+            logger.warning(f"JWT token verification failed: {str(e)}")
+            return VerificationResult(valid=False, error=f"Invalid JWT token: {str(e)}")
+        
+        # Check scopes if required
+        if required_scopes:
+            token_scopes = payload.get("scopes", [])
+            missing_scopes = [scope for scope in required_scopes if scope not in token_scopes]
+            if missing_scopes:
+                logger.warning(
+                    f"JWT token missing required scopes: {missing_scopes} "
+                    f"(token has: {token_scopes})"
+                )
+                return VerificationResult(
+                    valid=False,
+                    error=f"Insufficient token scopes. Required: {required_scopes}, token has: {token_scopes}"
+                )
+        
+        # Optionally verify request_id if present in payload
+        request_id = payload.get("request_id")
+        if request_id and request_id in self._approval_requests:
+            request = self._approval_requests[request_id]
+            if not request.approved:
+                logger.warning(f"JWT token references unapproved request: {request_id}")
+                return VerificationResult(
+                    valid=False,
+                    error=f"Token references unapproved request: {request_id}"
+                )
+        
+        logger.debug(f"JWT token verification successful (jti: {payload.get('jti', 'unknown')})")
+        return VerificationResult(valid=True)
+    
+    def _verify_legacy_token(self, token: str) -> VerificationResult:
+        """
+        Verify legacy UUID token (backward compatibility).
+        
+        Args:
+            token: Legacy UUID token string
+            
+        Returns:
+            VerificationResult
+        """
         if token not in self.tokens:
-            logger.warning(f"Token verification failed: token not found (token: {token[:8]}...)")
+            logger.warning(f"Legacy token verification failed: token not found (token: {token[:8]}...)")
             return VerificationResult(
                 valid=False, 
                 error=f"Approval token not found. The token may be invalid or may have been generated by a different approval system instance."
@@ -201,7 +308,7 @@ class ApprovalSystem:
         # Check expiration (tokens expire at the expires_at timestamp)
         if now > approval_token.expires_at:
             logger.warning(
-                f"Token verification failed: token expired "
+                f"Legacy token verification failed: token expired "
                 f"(expired_at: {approval_token.expires_at.isoformat()}, "
                 f"now: {now.isoformat()})"
             )
@@ -210,28 +317,26 @@ class ApprovalSystem:
                 error=f"Approval token expired at {approval_token.expires_at.isoformat()}. Request a new approval token."
             )
         
-        # Note: We do NOT check approval_token.used because tokens are reusable
-        # until expiration. The used field exists for potential future single-use token support.
-        
-        logger.debug(f"Token verification successful (token: {token[:8]}..., request_id: {approval_token.request_id})")
+        logger.debug(f"Legacy token verification successful (token: {token[:8]}..., request_id: {approval_token.request_id})")
         return VerificationResult(valid=True)
     
-    def generate_token(self, request_id: str, expires_in_seconds: float = 300.0) -> str:
+    def generate_token(self, request_id: str, expires_in_seconds: float = 300.0, actuator_id: Optional[str] = None) -> str:
         """
         Generate approval token for an approved request.
         
-        Creates a reusable token that can be used for actuator operations until expiration.
+        Creates a reusable JWT token that can be used for actuator operations until expiration.
         The token is tied to the approval request and inherits the request's approval status.
         
         Args:
             request_id: ID of the approval request (must exist and be approved)
             expires_in_seconds: Token expiration time in seconds (default: 300 = 5 minutes)
+            actuator_id: Optional actuator ID to determine required scopes
             
         Returns:
-            Approval token string (UUID format)
+            JWT approval token string
             
         Raises:
-            ValueError: If request_id not found or request is not approved
+            ValueError: If request_id not found, request is not approved, or secret key is missing
             
         Example:
             >>> request = approval_system.request_approval("create_file", {...}, "reason")
@@ -258,21 +363,96 @@ class ApprovalSystem:
                 f"Approve the request first by setting request.approved = True"
             )
         
-        # Generate token
-        token = str(uuid.uuid4())
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
+        # Get secret key for JWT generation
+        secret_key = os.environ.get("BROCA_TOKEN_SECRET")
+        if not secret_key:
+            logger.error("Token generation failed: BROCA_TOKEN_SECRET not set")
+            raise ValueError(
+                "BROCA_TOKEN_SECRET environment variable is required for token generation. "
+                "Set it in your environment or .env file."
+            )
         
+        # Determine scopes based on actuator_id (from request or parameter)
+        request_actuator_id = actuator_id or request.actuator_id
+        if request_actuator_id and request_actuator_id in self.ACTUATOR_SCOPE_MAP:
+            scopes = self.ACTUATOR_SCOPE_MAP[request_actuator_id]
+        else:
+            scopes = self.ACTUATOR_SCOPE_MAP.get("default", ["filesystem:write", "project:write", "memory:write"])
+        
+        # Get identity for token
+        identity = get_default_identity()
+        
+        # Generate JWT token with request_id in payload for traceability
+        token = self._generate_jwt_with_request_id(
+            sub=identity.get("sub", "broca-system"),
+            name=identity.get("name", "Broca System"),
+            scopes=scopes,
+            expiry_seconds=int(expires_in_seconds),
+            secret_key=secret_key,
+            request_id=request_id
+        )
+        
+        # Store minimal metadata for backward compatibility and tracking
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
         approval_token = ApprovalToken(
             token=token,
             request_id=request_id,
             expires_at=expires_at
         )
+        self.tokens[token] = approval_token  # Store for backward compatibility
         
-        self.tokens[token] = approval_token
         logger.info(
-            f"Generated approval token for request '{request_id}' "
-            f"(expires_at: {expires_at.isoformat()}, expires_in: {expires_in_seconds}s)"
+            f"Generated JWT approval token for request '{request_id}' "
+            f"(expires_at: {expires_at.isoformat()}, expires_in: {expires_in_seconds}s, "
+            f"scopes: {scopes})"
         )
+        return token
+    
+    def _generate_jwt_with_request_id(
+        self,
+        sub: str,
+        name: str,
+        scopes: List[str],
+        expiry_seconds: int,
+        secret_key: str,
+        request_id: str,
+        iss: str = "broca-token-v1",
+        aud: str = "broca-os"
+    ) -> str:
+        """
+        Generate JWT token with custom request_id claim.
+        
+        Similar to token_auth.generate_token but includes request_id in payload.
+        """
+        if isinstance(scopes, str):
+            scopes_list = [s.strip() for s in scopes.split(",") if s.strip()]
+        else:
+            scopes_list = list(scopes)
+        
+        iat = int(time_module.time())
+        exp = int(iat + int(expiry_seconds))
+        jti = uuid.uuid4().hex
+        
+        header = {"alg": "HS256", "typ": "JWT"}
+        payload = {
+            "sub": sub,
+            "name": name,
+            "scopes": scopes_list,
+            "iat": iat,
+            "exp": exp,
+            "jti": jti,
+            "iss": iss,
+            "aud": aud,
+            "request_id": request_id,  # Custom claim for traceability
+        }
+        
+        header_b64 = _b64url(json.dumps(header, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+        payload_b64 = _b64url(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+        signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
+        signature = hmac.new(secret_key.encode("utf-8"), signing_input, hashlib.sha256).digest()
+        signature_b64 = _b64url(signature)
+        
+        token = f"{header_b64}.{payload_b64}.{signature_b64}"
         return token
     
     def get_approval_request(self, request_id: str) -> Optional[ApprovalRequest]:

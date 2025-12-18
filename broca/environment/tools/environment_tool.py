@@ -489,7 +489,10 @@ class EnvironmentAccessTool:
         # Verify approval token if provided (and not in emergency, and operation requires approval)
         if requires_approval and approval_token and not is_emergency:
             logger.debug(f"Verifying approval token for actuator '{actuator_id}' operation '{operation}'")
-            verification = self.access_system.approval_system.verify_approval(approval_token)
+            verification = self.access_system.approval_system.verify_approval(
+                approval_token,
+                actuator_id=actuator_id
+            )
             if not verification.valid:
                 logger.warning(
                     f"Token verification failed for actuator '{actuator_id}' operation '{operation}': "
@@ -572,7 +575,8 @@ class EnvironmentAccessTool:
         request = self.access_system.approval_system.request_approval(
             operation=operation,
             parameters=parameters,
-            rationale=rationale or f"Actuator {actuator_id} operation {operation}"
+            rationale=rationale or f"Actuator {actuator_id} operation {operation}",
+            actuator_id=actuator_id
         )
         
         return {
@@ -613,11 +617,12 @@ class EnvironmentAccessTool:
         # Approve the request
         request.approved = True
         
-        # Generate approval token
+        # Generate approval token (pass actuator_id if available in request)
         try:
             token = self.access_system.approval_system.generate_token(
                 request_id=approval_request_id,
-                expires_in_seconds=300.0  # 5 minutes default
+                expires_in_seconds=300.0,  # 5 minutes default
+                actuator_id=request.actuator_id
             )
         except ValueError as e:
             return {"success": False, "error": str(e)}
@@ -675,11 +680,12 @@ class EnvironmentAccessTool:
         if not request.approved:
             return {"success": False, "error": "Approval request must be approved before generating token"}
         
-        # Generate token
+        # Generate token (pass actuator_id if available in request)
         try:
             token = self.access_system.approval_system.generate_token(
                 request_id=approval_request_id,
-                expires_in_seconds=300.0
+                expires_in_seconds=300.0,  # 5 minutes default
+                actuator_id=request.actuator_id
             )
         except ValueError as e:
             return {"success": False, "error": str(e)}
