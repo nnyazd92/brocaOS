@@ -126,13 +126,16 @@ class TestWorldStateAggregatorMemoryNamespaces:
             
             # Verify memory section exists
             assert "memory" in world_state
-            assert "namespace_hierarchy" in world_state["memory"]
+            assert "memory_index" in world_state["memory"]
             
-            # Verify hierarchy structure
-            hierarchy = world_state["memory"]["namespace_hierarchy"]
-            assert isinstance(hierarchy, dict)
-            assert "memory" in hierarchy
-            assert "user" in hierarchy
+            # Verify memory_index structure
+            memory_index = world_state["memory"]["memory_index"]
+            assert isinstance(memory_index, dict)
+            assert "root" in memory_index
+            assert "schema_version" in memory_index
+            assert "last_indexed" in memory_index
+            assert "fetch" in memory_index
+            assert memory_index["root"] == "broca/"
     
     def test_aggregator_works_without_memory_manager(self):
         """
@@ -176,14 +179,17 @@ class TestWorldStateAggregatorMemoryNamespaces:
             
             aggregator = WorldStateAggregator(memory_manager=memory_manager)
             
-            # Get hierarchy
-            hierarchy = aggregator.get_memory_namespace_hierarchy()
+            # Get memory index
+            info = aggregator.get_memory_namespace_hierarchy()
             
             # Verify structure
-            assert hierarchy.get("available") is True
-            assert "namespace_hierarchy" in hierarchy
-            assert "test" in hierarchy["namespace_hierarchy"]
-            assert hierarchy["namespace_hierarchy"]["test"]["children"]["namespace"]["children"]["example"]["is_leaf"] is True
+            assert info.get("available") is True
+            assert "memory_index" in info
+            assert "root" in info["memory_index"]
+            assert "schema_version" in info["memory_index"]
+            assert "last_indexed" in info["memory_index"]
+            assert "fetch" in info["memory_index"]
+            assert info["memory_index"]["root"] == "broca/"
     
     def test_get_memory_namespace_hierarchy_handles_missing_manager(self):
         """
@@ -248,8 +254,10 @@ class TestWorldStateMemorySection:
             # Verify memory section structure
             assert "memory" in world_state
             memory_section = world_state["memory"]
-            assert "namespace_hierarchy" in memory_section
-            assert isinstance(memory_section["namespace_hierarchy"], dict)
+            assert "memory_index" in memory_section
+            assert isinstance(memory_section["memory_index"], dict)
+            assert "root" in memory_section["memory_index"]
+            assert memory_section["memory_index"]["root"] == "broca/"
     
     def test_world_state_memory_section_matches_namespace_tree(self):
         """
@@ -284,11 +292,11 @@ class TestWorldStateMemorySection:
             aggregator = WorldStateAggregator(memory_manager=memory_manager)
             world_state = aggregator.aggregate()
             
-            # Verify hierarchy contains expected namespaces
-            hierarchy = world_state["memory"]["namespace_hierarchy"]
-            assert "memory" in hierarchy
-            assert "user" in hierarchy
-            assert "system" in hierarchy["memory"]["children"]
-            assert "analysis" in hierarchy["memory"]["children"]["system"]["children"]
-            assert "test" in hierarchy["memory"]["children"]["system"]["children"]
+            # Verify memory_index structure
+            memory_index = world_state["memory"]["memory_index"]
+            assert "root" in memory_index
+            assert "schema_version" in memory_index
+            assert "last_indexed" in memory_index
+            assert "fetch" in memory_index
+            assert memory_index["root"] == "broca/"
 

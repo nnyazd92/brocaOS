@@ -197,6 +197,7 @@ class OptimizationDaemon:
             tool_registry=tool_registry,
             memory_manager=self.memory_manager,
             directory_structure_generator=directory_structure_generator,
+            self_model_reduction_level=config.self_model.self_model_reduction_level,
         )
         
         # Create base system prompt for optimization daemon

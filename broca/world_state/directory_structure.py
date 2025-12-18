@@ -8,8 +8,11 @@ structure of a specified root path (e.g., /home/wizard/broca).
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,7 @@ class DirectoryStructureGenerator:
             root_path: Root directory path to scan (default: /home/wizard/broca)
         """
         self.root_path = Path(root_path)
+        self._last_scan: Optional[datetime] = None
         logger.debug(f"Initialized DirectoryStructureGenerator with root: {root_path}")
     
     def scan_directory(self) -> Tuple[List[Dict[str, str]], List[str]]:
@@ -187,8 +191,32 @@ class DirectoryStructureGenerator:
         try:
             files, directories = self.scan_directory()
             tree = self.build_directory_tree(files, directories)
+            self._last_scan = datetime.now(timezone.utc)
             return tree
         except Exception as e:
             logger.error(f"Error getting directory hierarchy: {e}", exc_info=True)
             return {}
+    
+    def get_directory_tree_hash(self) -> str:
+        """
+        Compute hash of directory tree structure.
+        
+        Returns:
+            SHA256 hex digest of the JSON-serialized directory tree
+        """
+        tree = self.get_directory_hierarchy()
+        tree_json = json.dumps(tree, sort_keys=True)
+        hash_obj = hashlib.sha256(tree_json.encode())
+        return hash_obj.hexdigest()
+    
+    def get_last_scan(self) -> Optional[str]:
+        """
+        Get last scan timestamp in ISO format.
+        
+        Returns:
+            ISO format timestamp string, or None if never scanned
+        """
+        if self._last_scan:
+            return self._last_scan.isoformat()
+        return None
 

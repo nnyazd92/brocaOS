@@ -9,3 +9,5 @@ __pycache__/
 memories.json
 memory_namespaces_index.md
 project_world_state.json
+.shutdown_persistence.json
+.shutdown_request

@@ -1,0 +1,21 @@
+BROCA_TOKEN_GUIDE.md
+- Purpose
+  - Document token issuance/validation, interoperable with BrocaOS gating.
+- Token format
+  - JWT-like, HS256 (HMAC-SHA256)
+  - Structure: header.payload.signature (base64url, no padding)
+- Claims (payload)
+  - sub, name, scopes, iat, exp, jti, iss, aud
+- Autofill (identity)
+  - Git config user.name/user.email first; fallback to BROCA_PROFILE.json if present
+- Secrets
+  - BROCA_TOKEN_SECRET via environment or .env (not stored in-house)
+- CLI
+  - broca-token generate with sane defaults
+- Validation flow
+  - Gate uses verify_token(secret_key) and checks scopes
+  - Outputs include an “Approval” line and token provenance (jti, exp)
+- Security/audit
+  - Short-lived tokens; logs for issuance and use
+- References to next steps
+  - Integrate with gating, add tests, add rotation plan

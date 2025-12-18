@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Dict, Any, List, Optional
 import logging
 import time
+import hashlib
 
 from . import Tool
 from ..config import config
@@ -217,6 +218,27 @@ class ToolRegistry:
             List of all registered tool instances
         """
         return list(self._tools.values())
+    
+    def get_registry_hash(self) -> str:
+        """
+        Compute hash of tool registry based on tool names.
+        
+        Returns:
+            SHA256 hex digest of sorted tool names
+        """
+        tool_names = sorted(self._tools.keys())
+        hash_obj = hashlib.sha256("|".join(tool_names).encode())
+        return hash_obj.hexdigest()
+    
+    def get_registry_version(self) -> str:
+        """
+        Get version string from registry hash.
+        
+        Returns:
+            Version string in format "v{first_8_chars_of_hash}"
+        """
+        hash_str = self.get_registry_hash()
+        return f"v{hash_str[:8]}"
     
     def to_openai_format(self) -> List[Dict[str, Any]]:
         """

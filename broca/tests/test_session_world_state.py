@@ -328,9 +328,13 @@ class TestSessionWorldState:
         # Create a mock internal sensing that would return behavioral_patterns
         mock_internal_sensing = Mock(spec=InternalSensingFramework)
         mock_internal_sensing.sample_internal_state.return_value = {
-            "physiology": {"metrics": {"processing_latency": 0.5}},
+            "computational": {
+                "computational_load": 0.09,
+                "memory_pressure": 0.59,
+                "processing_latency": 0.011,
+            },
             "cognition": {"metrics": {"confidence": 0.8}},
-            "affect": {"valence": 0.6},
+            "affective": {"valence": 0.6},
         }
         mock_internal_sensing.generate_interoceptive_report.return_value = "Test report"
         mock_internal_sensing.get_tool_statistics.return_value = {"memory": 5}
@@ -480,9 +484,11 @@ class TestSessionWorldState:
                     assert "memory" in parsed
                     memory = parsed["memory"]
                     
-                    # Verify namespace_hierarchy is included
-                    assert "namespace_hierarchy" in memory
-                    assert isinstance(memory["namespace_hierarchy"], dict)
+                    # Verify memory_index is included
+                    assert "memory_index" in memory
+                    assert isinstance(memory["memory_index"], dict)
+                    assert "root" in memory["memory_index"]
+                    assert memory["memory_index"]["root"] == "broca/"
                 finally:
                     memory_manager.close()
         except ImportError:

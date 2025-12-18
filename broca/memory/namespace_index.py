@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
+from datetime import datetime, timezone
 
 from .storage import MemoryStorage
 
@@ -32,6 +33,7 @@ class NamespaceIndexGenerator:
         """
         self.storage = storage
         self._cached_namespaces: Set[str] = set()
+        self._last_indexed: Optional[datetime] = None
     
     def get_all_namespaces(self) -> List[str]:
         """
@@ -198,8 +200,20 @@ class NamespaceIndexGenerator:
         try:
             namespaces = self.get_all_namespaces()
             tree = self.build_namespace_tree(namespaces)
+            self._last_indexed = datetime.now(timezone.utc)
             return tree
         except Exception as e:
             logger.error(f"Error getting namespace hierarchy: {e}", exc_info=True)
             return {}
+    
+    def get_last_indexed(self) -> Optional[str]:
+        """
+        Get last indexed timestamp in ISO format.
+        
+        Returns:
+            ISO format timestamp string, or None if never indexed
+        """
+        if self._last_indexed:
+            return self._last_indexed.isoformat()
+        return None
 

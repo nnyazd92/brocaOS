@@ -148,9 +148,9 @@ class TestREPLConversationFlow:
             
             main()
             
-            # Check that response was printed with "llm>" prefix
+            # Check that response was printed with "BrocaOS>" prefix
             print_calls = [str(call) for call in mock_print.call_args_list]
-            assert any("llm>" in call and "This is the assistant's response" in call 
+            assert any("BrocaOS>" in call and "This is the assistant's response" in call 
                       for call in print_calls)
 
 

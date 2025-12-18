@@ -33,7 +33,7 @@ class TestWorldStateFormatter:
             "internal_state": {
                 "interoceptive_report": "Current state: stable",
                 "tool_statistics": {"memory": 5, "terminal": 3},
-                "physiology": {"metrics": {"processing_latency": 0.5}},
+                "physiology": {"health": {"cpu_load": 0.09, "mem_pressure": 0.59, "latency_ms": 11}},
                 "cognition": {"metrics": {"confidence": 0.8, "uncertainty": 0.2}},
             },
             "project": {
@@ -44,6 +44,11 @@ class TestWorldStateFormatter:
                     "total_directories": 5,
                     "total_size": 1024,
                 },
+            },
+            "tools_registry": {
+                "version": "v12345678",
+                "hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+                "refresh_on_change": True
             },
             "tools": {
                 "count": 2,
@@ -176,7 +181,7 @@ class TestWorldStateFormatter:
             "internal_state": {
                 "interoceptive_report": "Current state: stable",
                 "tool_statistics": {"memory": 5, "terminal": 3},
-                "physiology": {"metrics": {"processing_latency": 0.5}},
+                "physiology": {"health": {"cpu_load": 0.09, "mem_pressure": 0.59, "latency_ms": 11}},
                 "cognition": {"metrics": {"confidence": 0.8}},
             },
         }
@@ -189,12 +194,22 @@ class TestWorldStateFormatter:
         parsed = json.loads(formatted)
         assert parsed["internal_state"]["interoceptive_report"] == "Current state: stable"
         assert parsed["internal_state"]["tool_statistics"]["memory"] == 5
-        assert parsed["internal_state"]["physiology"]["metrics"]["processing_latency"] == 0.5
+        assert parsed["internal_state"]["physiology"]["health"]["latency_ms"] == 11
     
     def test_format_tools(self):
         """Test formatting tools section as JSON."""
         world_state = {
             "timestamp": "2024-01-01T00:00:00Z",
+            "tools_registry": {
+                "version": "v12345678",
+                "hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+                "refresh_on_change": True
+            },
+            "tools_registry": {
+                "version": "v12345678",
+                "hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+                "refresh_on_change": True
+            },
             "tools": {
                 "count": 2,
                 "names": ["memory", "terminal"],
@@ -207,6 +222,8 @@ class TestWorldStateFormatter:
         
         # Should be valid JSON
         parsed = json.loads(formatted)
+        assert "tools_registry" in parsed
+        assert parsed["tools_registry"]["version"] == "v12345678"
         assert parsed["tools"]["count"] == 2
         assert "memory" in parsed["tools"]["names"]
         assert "terminal" in parsed["tools"]["names"]

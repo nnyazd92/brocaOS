@@ -25,6 +25,8 @@ class MemoryStorage:
     Provides CRUD operations and search capabilities for memories.
     """
     
+    SCHEMA_VERSION = "v0.1"
+    
     def __init__(self, db_path: str) -> None:
         """
         Initialize memory storage.
@@ -1109,6 +1111,15 @@ class MemoryStorage:
             metadata=metadata,
             created_at=created_at
         )
+    
+    def get_schema_version(self) -> str:
+        """
+        Get memory storage schema version.
+        
+        Returns:
+            Schema version string (e.g., "v0.1")
+        """
+        return self.SCHEMA_VERSION
     
     def __del__(self) -> None:
         """Cleanup on deletion."""

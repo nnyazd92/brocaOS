@@ -536,6 +536,7 @@ def main() -> None:
             tool_registry=tool_registry,
             memory_manager=memory_manager,
             directory_structure_generator=directory_structure_generator,
+            self_model_reduction_level=config.self_model.self_model_reduction_level,
         )
         
         session = ConversationSession(
@@ -586,10 +587,10 @@ def main() -> None:
             # Normal turn
             try:
                 reply = session.send(user_input)
-                print(f"llm> {reply}\n")
+                print(f"BrocaOS> {reply}\n")
             except Exception as e:
                 logger.error(f"Error in conversation turn: {e}", exc_info=True)
-                print(f"llm> Error: {str(e)}\n")
+                print(f"BrocaOS> Error: {str(e)}\n")
                 print("You can continue the conversation or use /reset to start fresh.\n")
     finally:
         # Ensure memory manager is closed and vector index is saved

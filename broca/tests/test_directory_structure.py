@@ -206,9 +206,11 @@ class TestWorldStateAggregatorBrocaHouse:
             
             world_state = aggregator.aggregate()
             
-            # Verify broca_house section exists
-            assert "broca_house" in world_state
-            assert "directory_hierarchy" in world_state["broca_house"]
+            # Verify repo section exists
+            assert "repo" in world_state
+            assert "root" in world_state["repo"]
+            assert "tree_hash" in world_state["repo"]
+            assert "last_scan" in world_state["repo"]
     
     def test_aggregator_works_without_generator(self):
         """
@@ -222,8 +224,8 @@ class TestWorldStateAggregatorBrocaHouse:
         
         world_state = aggregator.aggregate()
         
-        # Should not include broca_house section
-        assert "broca_house" not in world_state
+        # Should not include repo section
+        assert "repo" not in world_state
         
         # Should still include other sections
         assert "system" in world_state
@@ -252,7 +254,11 @@ class TestWorldStateAggregatorBrocaHouse:
             
             # Verify structure
             assert structure.get("available") is True
-            assert "directory_hierarchy" in structure
+            assert "repo" in structure
+            assert "root" in structure["repo"]
+            assert "tree_hash" in structure["repo"]
+            assert "last_scan" in structure["repo"]
+            assert "note" in structure
     
     def test_get_broca_house_structure_handles_missing_generator(self):
         """

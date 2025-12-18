@@ -417,6 +417,20 @@ class SelfModel:
         
         return "\n".join(lines)
     
+    def get_minimal_summary(self) -> str:
+        """
+        Get minimal summary: version, last updated, counts only.
+        
+        Returns:
+            Minimal string summary with just version, last updated, and counts
+        """
+        cap_count = len(self.capabilities)
+        kb_count = len(self.knowledge_boundaries)
+        const_count = len(self.constraints)
+        version = self.metadata.get('version', 'unknown')
+        last_updated = self.metadata.get('last_updated', 'unknown')
+        return f"Self-Model Summary: Version {version}, last updated {last_updated}. Contains {cap_count} capabilities, {kb_count} knowledge boundaries, {const_count} constraints."
+    
     @classmethod
     def create_default(cls) -> SelfModel:
         """
