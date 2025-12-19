@@ -374,3 +374,168 @@ class TestBackwardCompatibility:
         result = approval_system.verify_approval(old_token)
         assert result.valid is True
 
+
+class TestTokenSecretFromEnvFile:
+    """Test that tokens work when secret is only in .env file (not in environment)."""
+    
+    def test_token_generation_with_secret_in_env_file(self, monkeypatch):
+        """Test that token generation works when secret is only in .env file."""
+        # Remove from environment if present
+        monkeypatch.delenv("BROCA_TOKEN_SECRET", raising=False)
+        
+        # Create temporary directory with .env file
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            test_secret = "test_secret_from_env_file_12345"
+            env_file.write_text(f"BROCA_TOKEN_SECRET={test_secret}\n")
+            
+            # Change to the temporary directory so .env is found
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                
+                # Force reload of dotenv by calling load_dotenv with explicit path
+                from dotenv import load_dotenv
+                load_dotenv(dotenv_path=str(env_file), override=True)
+                
+                # Import after changing directory to ensure .env is loaded
+                from broca.token_auth.token import get_token_secret, generate_token
+                from broca.token_auth.defaults import get_default_identity
+                
+                # Should be able to get secret from .env
+                secret = get_token_secret()
+                assert secret == test_secret
+                
+                # Generate token using secret from .env
+                identity = get_default_identity()
+                token, payload = generate_token(
+                    sub=identity.get("sub", "test.user"),
+                    name=identity.get("name", "Test User"),
+                    scopes=["filesystem:write"],
+                    expiry_seconds=300,
+                    secret_key=secret
+                )
+                
+                # Verify token can be verified with the same secret
+                from broca.token_auth.token import verify_token
+                verified_payload = verify_token(token, secret)
+                assert verified_payload is not None
+                assert verified_payload["sub"] == identity.get("sub", "test.user")
+            finally:
+                os.chdir(original_cwd)
+                # Clean up environment
+                monkeypatch.delenv("BROCA_TOKEN_SECRET", raising=False)
+    
+    def test_approval_system_verification_with_secret_in_env_file(self, monkeypatch):
+        """Test that approval system can verify tokens when secret is only in .env file."""
+        # Remove from environment if present
+        monkeypatch.delenv("BROCA_TOKEN_SECRET", raising=False)
+        
+        # Create temporary directory with .env file
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            test_secret = "test_secret_from_env_file_67890"
+            env_file.write_text(f"BROCA_TOKEN_SECRET={test_secret}\n")
+            
+            # Change to the temporary directory so .env is found
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                
+                # Force reload of dotenv by calling load_dotenv with explicit path
+                from dotenv import load_dotenv
+                load_dotenv(dotenv_path=str(env_file), override=True)
+                
+                # Generate token first (using secret from .env)
+                from broca.token_auth.token import get_token_secret, generate_token
+                from broca.token_auth.defaults import get_default_identity
+                
+                secret = get_token_secret()
+                assert secret == test_secret
+                identity = get_default_identity()
+                token, payload = generate_token(
+                    sub=identity.get("sub", "test.user"),
+                    name=identity.get("name", "Test User"),
+                    scopes=["filesystem:write", "project:write", "memory:write"],
+                    expiry_seconds=300,
+                    secret_key=secret
+                )
+                
+                # Now verify using approval system (should load from .env)
+                approval_system = ApprovalSystem()
+                result = approval_system.verify_approval(token)
+                
+                assert result.valid is True
+                assert result.error is None
+            finally:
+                os.chdir(original_cwd)
+                # Clean up environment
+                monkeypatch.delenv("BROCA_TOKEN_SECRET", raising=False)
+    
+    def test_cli_token_works_with_approval_system_when_secret_in_env_file(self, monkeypatch):
+        """Test that CLI-generated tokens work with approval system when secret is only in .env."""
+        # Remove from environment if present
+        monkeypatch.delenv("BROCA_TOKEN_SECRET", raising=False)
+        
+        # Create temporary directory with .env file
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            test_secret = "test_secret_from_env_file_cli"
+            env_file.write_text(f"BROCA_TOKEN_SECRET={test_secret}\n")
+            
+            # Change to the temporary directory so .env is found
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                
+                # Force reload of dotenv by calling load_dotenv with explicit path
+                from dotenv import load_dotenv
+                load_dotenv(dotenv_path=str(env_file), override=True)
+                
+                # Generate token (simulating CLI generation)
+                from broca.token_auth.token import get_token_secret, generate_token
+                from broca.token_auth.defaults import get_default_identity
+                
+                secret = get_token_secret()
+                assert secret == test_secret
+                identity = get_default_identity()
+                cli_token, payload = generate_token(
+                    sub=identity.get("sub", "test.user"),
+                    name=identity.get("name", "Test User"),
+                    scopes=["filesystem:write", "project:write", "memory:write"],
+                    expiry_seconds=300,
+                    secret_key=secret
+                )
+                
+                # Use token with approval system (should load from .env)
+                tool = EnvironmentAccessTool()
+                
+                # Escalate to AUTONOMOUS
+                result = tool.execute(
+                    action="request_escalation",
+                    target_level="AUTONOMOUS",
+                    rationale="Test"
+                )
+                request_id = result["request_id"]
+                tool.execute(action="approve_escalation", request_id=request_id)
+                
+                # Use CLI-generated token in control_actuator
+                test_file = Path(tmpdir) / "test.txt"
+                result = tool.execute(
+                    action="control_actuator",
+                    actuator_id="filesystem_actuator",
+                    operation="create_file",
+                    parameters={
+                        "path": str(test_file),
+                        "content": "test content",
+                        "approval_token": cli_token
+                    }
+                )
+                
+                assert result["success"] is True
+                assert test_file.exists()
+            finally:
+                os.chdir(original_cwd)
+                # Clean up environment
+                monkeypatch.delenv("BROCA_TOKEN_SECRET", raising=False)
+

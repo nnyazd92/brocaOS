@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Iterator
 import httpx
 import logging
+import json
 
 from ..config import config
 
@@ -114,6 +115,108 @@ class DeepSeekClient:
         except httpx.RequestError as e:
             logger.error(
                 f"Network error during API request: {e}",
+                exc_info=True
+            )
+            raise ConnectionError(f"Network error: {e}") from e
+
+    def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> Iterator[str]:
+        """
+        Stream chat completion, yielding text chunks as they arrive.
+        
+        Args:
+            messages: List of message dictionaries
+            temperature: Optional temperature override
+            tools: Optional list of tools in OpenAI function calling format
+        
+        Yields:
+            Text chunks from the streaming response
+        
+        Note: This should only be used for final responses (no tool calls expected).
+        For requests with tools, use chat() instead and handle tool calls first.
+        """
+        temp = temperature if temperature is not None else self.temperature
+
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temp,
+            "stream": True,
+        }
+        
+        if tools:
+            payload["tools"] = tools
+
+        logger.debug(
+            "Sending streaming chat request",
+            extra={
+                "event": "llm_request_stream",
+                "model": self.model,
+                "temperature": temp,
+                "messages_count": len(messages),
+                "tools_count": len(tools) if tools else 0,
+                "last_user_message_preview": self._last_user_preview(messages),
+            },
+        )
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            # Make streaming request
+            with self._client.stream("POST", "/chat/completions", json=payload, headers=headers) as response:
+                response.raise_for_status()
+                
+                # Process streaming response (Server-Sent Events format)
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    
+                    # SSE format: "data: {...}" or "data: [DONE]"
+                    if line.startswith("data: "):
+                        data_str = line[6:]  # Remove "data: " prefix
+                        
+                        # Skip [DONE] message
+                        if data_str.strip() == "[DONE]":
+                            break
+                        
+                        try:
+                            data = json.loads(data_str)
+                            choices = data.get("choices", [])
+                            if choices and len(choices) > 0:
+                                delta = choices[0].get("delta", {})
+                                content = delta.get("content")
+                                if content:
+                                    yield content
+                        except json.JSONDecodeError:
+                            # Skip malformed JSON chunks
+                            continue
+            
+        except httpx.ReadTimeout as e:
+            logger.error(
+                f"API streaming request timed out after {self._client.timeout.read} seconds",
+                exc_info=True
+            )
+            raise TimeoutError(
+                f"API request timed out. The request took longer than {self._client.timeout.read} seconds. "
+                "This may happen with large conversations or when the API is slow. "
+                "Try reducing conversation history or increasing the timeout."
+            ) from e
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"API returned error status during streaming: {e.response.status_code}",
+                exc_info=True
+            )
+            raise  # Re-raise HTTP status errors (preserve existing behavior)
+        except httpx.RequestError as e:
+            logger.error(
+                f"Network error during API streaming request: {e}",
                 exc_info=True
             )
             raise ConnectionError(f"Network error: {e}") from e

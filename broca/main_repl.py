@@ -587,21 +587,13 @@ def main() -> None:
             # Normal turn
             try:
                 # Enable streaming by default (can be disabled via config)
-                # When streaming is used, the response is printed during streaming with "BrocaOS> " prefix
-                # When streaming is disabled or not available, send() returns the response and we print it here
+                # The session.send() method handles all printing:
+                # - When streaming is used, it prints during streaming with "BrocaOS> " prefix
+                # - When streaming is not used, it prints the response with "BrocaOS> " prefix
+                # So we don't need to print here - session.send() handles it all
                 stream_enabled = config.llm.streaming_enabled
                 reply = session.send(user_input, stream=stream_enabled)
-                
-                # If streaming was used, the response was already printed during send()
-                # If streaming was not used, we need to print it here
-                # We check config to determine if we should print (if streaming was enabled, assume it was used)
-                if not stream_enabled or not hasattr(session.llm, 'chat_stream'):
-                    # Streaming was disabled or not available, so we need to print the response
-                    print(f"BrocaOS> {reply}\n")
-                else:
-                    # Streaming was enabled, so it was likely used (response already printed)
-                    # Just add spacing
-                    print()
+                # Response is already printed by session.send(), no need to print again
             except Exception as e:
                 logger.error(f"Error in conversation turn: {e}", exc_info=True)
                 print(f"BrocaOS> Error: {str(e)}\n")

@@ -301,6 +301,69 @@ class TestREPLInitialization:
             assert any("BrocaOS REPL" in call for call in print_calls)
             assert any("/exit" in call or "exit" in call for call in print_calls)
             assert any("/reset" in call or "reset" in call for call in print_calls)
+    
+    @patch('builtins.input', side_effect=['Test message', '/exit'])
+    @patch('builtins.print')
+    def test_repl_no_console_logging_interference(self, mock_print, mock_input):
+        """
+        Test that console logging suppression prevents log messages from interfering with streaming.
+        
+        Rationale: Ensures warnings and errors don't appear in console output during REPL streaming,
+        preventing them from breaking the streaming display.
+        """
+        import logging
+        import sys
+        from io import StringIO
+        from broca.logging_config import setup_logging
+        from broca.config import LoggingConfig
+        
+        # Capture stderr to verify no log messages appear
+        stderr_capture = StringIO()
+        original_stderr = sys.stderr
+        sys.stderr = stderr_capture
+        
+        try:
+            # Setup logging with console suppression enabled (default)
+            root_logger = logging.getLogger()
+            root_logger.handlers.clear()
+            
+            # Temporarily modify config to ensure suppression is enabled
+            from broca import logging_config
+            original_config = logging_config.config
+            logging_config.config.logging = LoggingConfig(
+                level="INFO",
+                file_path="test_repl.log",
+                suppress_console_logging=True
+            )
+            
+            setup_logging()
+            
+            # Log warnings and errors that would normally interfere with streaming
+            logger = logging.getLogger("test.repl")
+            logger.warning("This warning should not appear in console")
+            logger.error("This error should not appear in console")
+            
+            # Flush handlers
+            for handler in root_logger.handlers:
+                handler.flush()
+            
+            # Verify nothing was written to stderr
+            stderr_content = stderr_capture.getvalue()
+            assert "This warning should not appear in console" not in stderr_content
+            assert "This error should not appear in console" not in stderr_content
+            
+            # Verify no console handlers exist (StreamHandler writing to stdout/stderr)
+            console_handlers = [
+                h for h in root_logger.handlers 
+                if isinstance(h, logging.StreamHandler) and h.stream in (sys.stdout, sys.stderr)
+            ]
+            assert len(console_handlers) == 0
+            
+            # Restore original config
+            logging_config.config = original_config
+        finally:
+            sys.stderr = original_stderr
+            root_logger.handlers.clear()
 
 
 class TestREPLComplexScenarios:

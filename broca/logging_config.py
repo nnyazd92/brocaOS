@@ -66,29 +66,51 @@ class JsonFormatter(logging.Formatter):
 
 def setup_logging() -> None:
     logger = logging.getLogger()
-    if logger.handlers:
-        # Already configured
-        return
-
     level = getattr(logging, config.logging.level.upper(), logging.INFO)
     logger.setLevel(level)
 
-    # Console handler (human-readable)
-    ch = logging.StreamHandler()
-    ch.setLevel(level)
-    ch_formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
-    ch.setFormatter(ch_formatter)
+    # Remove existing console handlers and reconfigure
+    # This ensures we always suppress INFO on console, even if logging was already set up
+    import sys
+    existing_console_handlers = [
+        h for h in logger.handlers 
+        if isinstance(h, logging.StreamHandler) and h.stream in (sys.stdout, sys.stderr)
+    ]
+    for handler in existing_console_handlers:
+        logger.removeHandler(handler)
 
-    # File handler (JSON)
-    fh = RotatingFileHandler(
-        config.logging.file_path,
-        maxBytes=5 * 1024 * 1024,
-        backupCount=3,
-        encoding="utf-8",
+    # Console handler (human-readable) - use stderr to avoid interfering with REPL output
+    # Only create console handler if console logging is not suppressed
+    if not config.logging.suppress_console_logging:
+        # Suppress INFO level logs on console to keep output clean - only show WARNING and above
+        ch = logging.StreamHandler(sys.stderr)
+        ch.setLevel(logging.WARNING)  # Only warnings and errors to console
+        ch_formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+        ch.setFormatter(ch_formatter)
+        logger.addHandler(ch)
+
+    # File handler (JSON) - captures all logs including INFO
+    # Only add if we don't already have a file handler
+    has_file_handler = any(
+        isinstance(h, RotatingFileHandler) for h in logger.handlers
     )
-    fh.setLevel(level)
-    fh_formatter = JsonFormatter()
-    fh.setFormatter(fh_formatter)
-
-    logger.addHandler(ch)
-    logger.addHandler(fh)
+    if not has_file_handler:
+        fh = RotatingFileHandler(
+            config.logging.file_path,
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+        )
+        fh.setLevel(level)  # Use configured level (usually INFO)
+        fh_formatter = JsonFormatter()
+        fh.setFormatter(fh_formatter)
+        logger.addHandler(fh)
+    
+    # Configure httpx logger specifically - set to WARNING level to suppress HTTP request logs
+    # These logs interfere with REPL output and are not needed for normal operation
+    httpx_logger = logging.getLogger("httpx")
+    httpx_logger.setLevel(logging.WARNING)  # Only show warnings and errors, not INFO requests
+    
+    # Also configure httpcore (httpx's underlying library) if it exists
+    httpcore_logger = logging.getLogger("httpcore")
+    httpcore_logger.setLevel(logging.WARNING)

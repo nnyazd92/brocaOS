@@ -3,23 +3,10 @@ import json
 import os
 import time
 from . import token as token_mod
+from .token import get_token_secret
 from .defaults import get_default_identity, default_scopes, default_expiry_seconds
 
-def _load_dotenv():
-    dotenv_path = ".env"
-    if not os.path.exists(dotenv_path):
-        return
-    with open(dotenv_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            if k not in os.environ:
-                os.environ[k] = v
-
 def main():
-    _load_dotenv()
     parser = argparse.ArgumentParser(prog="broca-token", add_help=True)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -40,11 +27,12 @@ def main():
     identity = get_default_identity()
     sub = args.sub or identity.get("sub")
     name = args.name or identity.get("name", "")
-    secret_key = os.environ.get("BROCA_TOKEN_SECRET")
-
-    if not secret_key:
-        # Try to load from .env (already loaded into env by _load_dotenv)
-        secret_key = os.environ.get("BROCA_TOKEN_SECRET")
+    
+    try:
+        secret_key = get_token_secret()
+    except ValueError as e:
+        print(json.dumps({"error": str(e)}, indent=2), flush=True)
+        return
 
     scopes = []
     if args.scopes:

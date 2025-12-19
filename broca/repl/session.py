@@ -3,8 +3,17 @@ from __future__ import annotations
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 import logging
 import uuid
+import time
+import sys
 from datetime import datetime, timezone
 from ..llm import create_llm_client, LLMClient
+
+# Try to import termios for terminal control (Unix only)
+try:
+    import termios
+    HAS_TERMIOS = True
+except ImportError:
+    HAS_TERMIOS = False
 
 if TYPE_CHECKING:
     from ..storage import ConversationStorage
@@ -208,15 +217,12 @@ class ConversationSession:
             
             try:
                 # Determine if we should use streaming
-                # Stream on first iteration only if no tools are available (we can't detect tool calls from stream easily)
-                # OR on final response after tool calls (when we know there are no more tool calls)
+                # We can always stream if streaming is enabled and the LLM supports it
+                # Even with tools, we can stream - we'll check for tool calls after the stream completes
+                # Streaming with tools: The API will still stream content, and tool calls can be detected from finish_reason
                 use_streaming = (
                     stream 
                     and hasattr(self.llm, 'chat_stream')
-                    and (
-                        (iterations == 1 and not tools) or  # First iteration, no tools available
-                        (iterations > 1 and had_tool_calls)  # After tool calls, final response
-                    )
                 )
                 
                 if use_streaming:
@@ -224,28 +230,74 @@ class ConversationSession:
                     assistant_text = ""
                     print("BrocaOS> ", end="", flush=True)
                     
+                    # Get streaming delay from config
+                    from ..config import config
+                    streaming_delay = config.llm.streaming_delay
+                    
+                    # Try to flush any pending input before streaming starts
+                    # This prevents interference from any characters already typed
                     try:
+                        import select
+                        if HAS_TERMIOS and sys.stdin.isatty() and select.select([sys.stdin], [], [], 0)[0]:
+                            # Discard any pending input
+                            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+                    except (ImportError, termios.error, OSError, AttributeError):
+                        # If select or termios flush not available, just continue
+                        # This is a best-effort attempt to prevent input interference
+                        pass
+                    
+                    try:
+                        # Stream the response - works even with tools available
+                        # If tools are used, the stream will yield empty/minimal content, and we'll detect tool_calls after
                         if tools:
                             stream_gen = self.llm.chat_stream(self.messages, tools=tools)
                         else:
                             stream_gen = self.llm.chat_stream(self.messages)
                         
+                        # Collect streaming chunks and print them immediately as they arrive
+                        chunk_count = 0
                         for chunk in stream_gen:
+                            chunk_count += 1
                             assistant_text += chunk
                             print(chunk, end="", flush=True)
+                            
+                            # Apply delay between chunks if configured
+                            if streaming_delay > 0:
+                                time.sleep(streaming_delay)
                         
-                        print()  # New line after streaming
+                        # Always print newline after streaming, even if no chunks were received
+                        print("", flush=True)  # New line after streaming
                         used_streaming = True
                         
+                        # If no chunks were received, log a warning
+                        if chunk_count == 0 and tools:
+                            logger.debug("Streaming completed but no content chunks received (possible tool calls)")
+                        
                         # Build response dict for compatibility with existing code
+                        # Note: If tool calls were made, assistant_text will be empty/minimal
+                        # We'll detect tool_calls from a separate check after streaming
                         response = {
                             "choices": [{
                                 "message": {
-                                    "content": assistant_text,
+                                    "content": assistant_text if assistant_text else None,
                                     "role": "assistant"
                                 }
                             }]
                         }
+                        
+                        # If we streamed but got no/minimal content and tools are available,
+                        # make a non-streaming call to get tool_calls properly
+                        # This handles the case where LLM chose to use tools instead of responding
+                        if tools and (not assistant_text or len(assistant_text.strip()) < 10):
+                            logger.debug("Streamed response had minimal content with tools available, checking for tool_calls")
+                            # Make a non-streaming call to check for tool_calls
+                            non_stream_response = self.llm.chat(self.messages, tools=tools)
+                            tool_calls_from_response = self.llm.extract_tool_calls(non_stream_response)
+                            if tool_calls_from_response:
+                                # Update response with tool_calls
+                                response["choices"][0]["message"]["tool_calls"] = tool_calls_from_response
+                                response["choices"][0]["message"]["content"] = None  # No content when tool_calls exist
+                                assistant_text = None  # Clear assistant_text since we have tool_calls
                     except Exception as e:
                         # Fall back to non-streaming on error
                         logger.warning(f"Streaming failed, falling back to non-streaming: {e}", exc_info=True)
@@ -254,8 +306,11 @@ class ConversationSession:
                             response = self.llm.chat(self.messages, tools=tools)
                         else:
                             response = self.llm.chat(self.messages)
+                    finally:
+                        # No terminal settings to restore since we only flushed input
+                        pass
                 else:
-                    # Non-streaming mode (for tool calls or when streaming disabled)
+                    # Non-streaming mode (when streaming disabled)
                     if tools:
                         response = self.llm.chat(self.messages, tools=tools)
                     else:
@@ -316,6 +371,10 @@ class ConversationSession:
                     )
                 except Exception as e:
                     logger.debug(f"Error tracking processing depth: {e}", exc_info=True)
+
+            # If we didn't stream and got a non-streaming response, extract assistant text
+            if not used_streaming and assistant_text is None:
+                assistant_text = self.llm.extract_assistant_content(response) or ""
 
             if tool_calls and self.tool_registry:
                 # Mark that we've had tool calls
@@ -405,8 +464,26 @@ class ConversationSession:
                             break
 
                 # Extract assistant text - if we used streaming, it's already in assistant_text
-                if not used_streaming or assistant_text is None:
+                # But make sure we have it even if streaming was used (fallback)
+                if assistant_text is None:
                     assistant_text = self.llm.extract_assistant_content(response) or ""
+                
+                # Ensure response is always printed
+                if used_streaming:
+                    # If we streamed, content was already printed chunk by chunk
+                    # But if assistant_text is empty or None, we still printed "BrocaOS> " so add newline
+                    # (The newline is already printed in streaming loop, but ensure it's there)
+                    if not assistant_text or not assistant_text.strip():
+                        # Empty response after streaming - we already printed "BrocaOS> " but no content
+                        # The newline was already printed, so we're done
+                        pass
+                    # Otherwise streaming already printed everything including newline
+                else:
+                    # Non-streaming: print with prompt
+                    if assistant_text:
+                        print(f"BrocaOS> {assistant_text}\n", end="", flush=True)
+                    else:
+                        print("BrocaOS> \n", end="", flush=True)  # Empty response
 
                 # Instrumentation: Record metrics from response
                 if (

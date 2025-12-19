@@ -13,6 +13,7 @@ class LLMConfig(BaseModel):
     temperature: float = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.3"))
     timeout: float = float(os.getenv("DEEPSEEK_TIMEOUT", "300.0"))  # Default 5 minutes
     streaming_enabled: bool = os.getenv("BROCA_STREAMING_ENABLED", "true").lower() == "true"
+    streaming_delay: float = float(os.getenv("BROCA_STREAMING_DELAY", "0.02"))  # Delay between chunks in seconds (default 20ms)
     
     def __init__(self, **kwargs):
         # Get provider first
@@ -55,6 +56,7 @@ class LoggingConfig(BaseModel):
     file_path: str = os.getenv("BROCA_LOG_FILE", "broca_repl.log")
     log_tool_schemas: bool = os.getenv("BROCA_LOG_TOOL_SCHEMAS", "false").lower() == "true"
     log_tool_results_full: bool = os.getenv("BROCA_LOG_TOOL_RESULTS_FULL", "false").lower() == "true"
+    suppress_console_logging: bool = os.getenv("BROCA_SUPPRESS_CONSOLE_LOGGING", "true").lower() == "true"
 
 
 class StorageConfig(BaseModel):

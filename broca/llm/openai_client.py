@@ -190,7 +190,9 @@ class OpenAIClient:
             for chunk in stream:
                 if chunk.choices and len(chunk.choices) > 0:
                     delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
+                    # Check if delta has content attribute and it's not None/empty
+                    # delta.content can be None for chunks that don't contain text (e.g., tool calls, finish reason)
+                    if hasattr(delta, 'content') and delta.content is not None and delta.content:
                         yield delta.content
             
         except APITimeoutError as e:

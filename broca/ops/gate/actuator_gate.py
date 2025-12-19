@@ -7,6 +7,7 @@ issued by the Broca token service (HS256/HMAC).
 
 import os
 from broca.token_auth import verify_token
+from broca.token_auth.token import get_token_secret
 
 def authorize_action(action, token=None, required_scopes=None, secret_key=None, iss="broca-token-v1", aud="broca-os"):
     """
@@ -26,7 +27,10 @@ def authorize_action(action, token=None, required_scopes=None, secret_key=None, 
         return False, "Missing authorization token for write/action"
 
     if not secret_key:
-        secret_key = os.environ.get("BROCA_TOKEN_SECRET")
+        try:
+            secret_key = get_token_secret()
+        except ValueError:
+            return False, "BROCA_TOKEN_SECRET not found in environment or .env file"
 
     try:
         payload = verify_token(token, secret_key, iss=iss, aud=aud)

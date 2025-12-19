@@ -6,6 +6,40 @@ import hmac
 import hashlib
 import os
 
+def get_token_secret() -> str:
+    """
+    Get BROCA_TOKEN_SECRET from environment or .env file.
+    
+    Loads the secret from os.environ first. If not found, attempts to load
+    from .env file using python-dotenv. This ensures consistent secret loading
+    across all token operations (CLI, approval system, actuator gate).
+    
+    Returns:
+        The secret key string, or empty string if not found
+        
+    Raises:
+        ValueError: If secret is not found in environment or .env file
+    """
+    secret_key = os.environ.get("BROCA_TOKEN_SECRET")
+    
+    if not secret_key:
+        # Try loading from .env file using python-dotenv
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            secret_key = os.environ.get("BROCA_TOKEN_SECRET")
+        except ImportError:
+            # python-dotenv not available, but that's okay if secret is in env
+            pass
+    
+    if not secret_key:
+        raise ValueError(
+            "BROCA_TOKEN_SECRET not found in environment or .env file. "
+            "Set BROCA_TOKEN_SECRET in your environment or .env file."
+        )
+    
+    return secret_key
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 

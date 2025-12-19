@@ -259,9 +259,9 @@ class TestSetupLogging:
     
     def test_setup_logging_creates_handlers(self, temp_log_file: str, monkeypatch: pytest.MonkeyPatch):
         """
-        Test that setup_logging creates both console and file handlers.
+        Test that setup_logging creates both console and file handlers when console logging is not suppressed.
         
-        Rationale: Ensures logging is properly configured with all required handlers.
+        Rationale: Ensures logging is properly configured with all required handlers when console logging is enabled.
         """
         monkeypatch.setenv("BROCA_LOG_FILE", temp_log_file)
         monkeypatch.setenv("BROCA_LOG_LEVEL", "INFO")
@@ -275,14 +275,34 @@ class TestSetupLogging:
         root_logger = logging.getLogger()
         root_logger.handlers.clear()
         
+        # Explicitly disable console suppression to test backward compatibility
+        from broca.config import LoggingConfig
+        original_config = logging_config.config
+        logging_config.config.logging = LoggingConfig(
+            level="INFO",
+            file_path=temp_log_file,
+            suppress_console_logging=False
+        )
+        
         logging_config.setup_logging()
         
         handlers = root_logger.handlers
         assert len(handlers) >= 2
         
-        handler_types = [type(h).__name__ for h in handlers]
-        assert "StreamHandler" in handler_types
-        assert "RotatingFileHandler" in handler_types
+        # Check for console handler (StreamHandler writing to stdout/stderr)
+        import sys
+        console_handlers = [
+            h for h in handlers 
+            if isinstance(h, logging.StreamHandler) and h.stream in (sys.stdout, sys.stderr)
+        ]
+        assert len(console_handlers) > 0
+        
+        # Check for file handler
+        file_handlers = [h for h in handlers if isinstance(h, RotatingFileHandler)]
+        assert len(file_handlers) > 0
+        
+        # Restore original config
+        logging_config.config = original_config
     
     def test_setup_logging_console_handler_config(self, temp_log_file: str, monkeypatch: pytest.MonkeyPatch):
         """
@@ -299,14 +319,23 @@ class TestSetupLogging:
         root_logger = logging.getLogger()
         root_logger.handlers.clear()
         
-        # Setup logging with DEBUG level via config
+        # Setup logging with DEBUG level via config and explicitly disable console suppression
         from broca.config import LoggingConfig
         original_config = logging_config.config
-        logging_config.config.logging = LoggingConfig(level="DEBUG", file_path=temp_log_file)
+        logging_config.config.logging = LoggingConfig(
+            level="DEBUG", 
+            file_path=temp_log_file,
+            suppress_console_logging=False
+        )
         
         logging_config.setup_logging()
         
-        console_handlers = [h for h in root_logger.handlers if isinstance(h, logging.StreamHandler)]
+        # Check for console handler (StreamHandler writing to stdout/stderr)
+        import sys
+        console_handlers = [
+            h for h in root_logger.handlers 
+            if isinstance(h, logging.StreamHandler) and h.stream in (sys.stdout, sys.stderr)
+        ]
         assert len(console_handlers) > 0
         
         console_handler = console_handlers[0]
@@ -458,6 +487,183 @@ class TestSetupLogging:
         with open(temp_log_file, 'r', encoding='utf-8') as f:
             content = f.read()
             assert "测试 🎉" in content
+        
+        # Restore original config
+        logging_config.config = original_config
+    
+    def test_setup_logging_suppresses_console_when_enabled(self, temp_log_file: str, monkeypatch: pytest.MonkeyPatch):
+        """
+        Test that console handler is not created when suppress_console_logging is True.
+        
+        Rationale: Ensures console logging can be suppressed to prevent interference with streaming output.
+        """
+        import importlib
+        from broca import logging_config
+        importlib.reload(logging_config)
+        
+        root_logger = logging.getLogger()
+        root_logger.handlers.clear()
+        
+        # Update config to suppress console logging
+        from broca.config import LoggingConfig
+        original_config = logging_config.config
+        logging_config.config.logging = LoggingConfig(
+            level="INFO", 
+            file_path=temp_log_file,
+            suppress_console_logging=True
+        )
+        
+        logging_config.setup_logging()
+        
+        # Check that no console handler (StreamHandler writing to stdout/stderr) exists
+        import sys
+        console_handlers = [
+            h for h in root_logger.handlers 
+            if isinstance(h, logging.StreamHandler) and h.stream in (sys.stdout, sys.stderr)
+        ]
+        assert len(console_handlers) == 0
+        
+        # But file handler should still exist
+        file_handlers = [h for h in root_logger.handlers if isinstance(h, RotatingFileHandler)]
+        assert len(file_handlers) > 0
+        
+        # Restore original config
+        logging_config.config = original_config
+    
+    def test_setup_logging_creates_console_when_not_suppressed(self, temp_log_file: str, monkeypatch: pytest.MonkeyPatch):
+        """
+        Test that console handler is created when suppress_console_logging is False.
+        
+        Rationale: Ensures backward compatibility when console logging is not suppressed.
+        """
+        import importlib
+        from broca import logging_config
+        importlib.reload(logging_config)
+        
+        root_logger = logging.getLogger()
+        root_logger.handlers.clear()
+        
+        # Update config to not suppress console logging
+        from broca.config import LoggingConfig
+        original_config = logging_config.config
+        logging_config.config.logging = LoggingConfig(
+            level="INFO", 
+            file_path=temp_log_file,
+            suppress_console_logging=False
+        )
+        
+        logging_config.setup_logging()
+        
+        # Check that console handler exists (StreamHandler writing to stdout/stderr)
+        import sys
+        console_handlers = [
+            h for h in root_logger.handlers 
+            if isinstance(h, logging.StreamHandler) and h.stream in (sys.stdout, sys.stderr)
+        ]
+        assert len(console_handlers) > 0
+        
+        # File handler should also exist
+        file_handlers = [h for h in root_logger.handlers if isinstance(h, RotatingFileHandler)]
+        assert len(file_handlers) > 0
+        
+        # Restore original config
+        logging_config.config = original_config
+    
+    def test_suppress_console_logging_still_logs_to_file(self, temp_log_file: str, monkeypatch: pytest.MonkeyPatch):
+        """
+        Test that logs still go to file when console logging is suppressed.
+        
+        Rationale: Ensures file logging continues to work even when console is suppressed.
+        """
+        import importlib
+        from broca import logging_config
+        importlib.reload(logging_config)
+        
+        root_logger = logging.getLogger()
+        root_logger.handlers.clear()
+        
+        # Update config to suppress console logging
+        from broca.config import LoggingConfig
+        original_config = logging_config.config
+        logging_config.config.logging = LoggingConfig(
+            level="INFO", 
+            file_path=temp_log_file,
+            suppress_console_logging=True
+        )
+        
+        logging_config.setup_logging()
+        
+        # Log a test message
+        logger = logging.getLogger("test.file_logging")
+        logger.info("Test message for file logging")
+        logger.warning("Test warning for file logging")
+        
+        # Flush handlers to ensure writes complete
+        for handler in root_logger.handlers:
+            handler.flush()
+        
+        # Read back and verify logs are in file
+        with open(temp_log_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+            assert "Test message for file logging" in content
+            assert "Test warning for file logging" in content
+        
+        # Restore original config
+        logging_config.config = original_config
+    
+    def test_warnings_not_printed_to_console_when_suppressed(self, temp_log_file: str, monkeypatch: pytest.MonkeyPatch):
+        """
+        Test that warnings are not printed to console when console logging is suppressed.
+        
+        Rationale: Ensures warnings don't interfere with streaming output when console logging is suppressed.
+        """
+        import importlib
+        import sys
+        from io import StringIO
+        from broca import logging_config
+        importlib.reload(logging_config)
+        
+        root_logger = logging.getLogger()
+        root_logger.handlers.clear()
+        
+        # Update config to suppress console logging
+        from broca.config import LoggingConfig
+        original_config = logging_config.config
+        logging_config.config.logging = LoggingConfig(
+            level="INFO", 
+            file_path=temp_log_file,
+            suppress_console_logging=True
+        )
+        
+        logging_config.setup_logging()
+        
+        # Capture stderr to verify no warnings are printed
+        stderr_capture = StringIO()
+        original_stderr = sys.stderr
+        sys.stderr = stderr_capture
+        
+        try:
+            # Log warnings and errors
+            logger = logging.getLogger("test.warnings")
+            logger.warning("This warning should not appear in console")
+            logger.error("This error should not appear in console")
+            
+            # Flush handlers
+            for handler in root_logger.handlers:
+                handler.flush()
+            
+            # Check that nothing was written to stderr
+            stderr_content = stderr_capture.getvalue()
+            assert "This warning should not appear in console" not in stderr_content
+            assert "This error should not appear in console" not in stderr_content
+            
+            # But verify they are in the file
+            with open(temp_log_file, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+                assert "This warning should not appear in console" in file_content
+                assert "This error should not appear in console" in file_content
+        finally:
+            sys.stderr = original_stderr
         
         # Restore original config
         logging_config.config = original_config

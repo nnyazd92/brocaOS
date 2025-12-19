@@ -22,7 +22,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 
-from broca.token_auth.token import verify_token as verify_jwt_token
+from broca.token_auth.token import verify_token as verify_jwt_token, get_token_secret
 from broca.token_auth.defaults import get_default_identity
 import json
 import time as time_module
@@ -243,12 +243,13 @@ class ApprovalSystem:
         Returns:
             VerificationResult
         """
-        secret_key = os.environ.get("BROCA_TOKEN_SECRET")
-        if not secret_key:
-            logger.warning("BROCA_TOKEN_SECRET not set, cannot verify JWT token")
+        try:
+            secret_key = get_token_secret()
+        except ValueError as e:
+            logger.warning(f"BROCA_TOKEN_SECRET not available: {str(e)}")
             return VerificationResult(
                 valid=False,
-                error="JWT token verification requires BROCA_TOKEN_SECRET environment variable"
+                error="JWT token verification requires BROCA_TOKEN_SECRET environment variable or .env file"
             )
         
         try:
@@ -364,13 +365,14 @@ class ApprovalSystem:
             )
         
         # Get secret key for JWT generation
-        secret_key = os.environ.get("BROCA_TOKEN_SECRET")
-        if not secret_key:
-            logger.error("Token generation failed: BROCA_TOKEN_SECRET not set")
+        try:
+            secret_key = get_token_secret()
+        except ValueError as e:
+            logger.error(f"Token generation failed: {str(e)}")
             raise ValueError(
-                "BROCA_TOKEN_SECRET environment variable is required for token generation. "
+                "BROCA_TOKEN_SECRET is required for token generation. "
                 "Set it in your environment or .env file."
-            )
+            ) from e
         
         # Determine scopes based on actuator_id (from request or parameter)
         request_actuator_id = actuator_id or request.actuator_id
