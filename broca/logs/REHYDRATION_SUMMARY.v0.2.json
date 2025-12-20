@@ -21,5 +21,13 @@
     ]
   },
   "persistence_enabled": true,
-  "timestamp": "2025-12-20T06:16:22.417314Z"
+  "timestamp": "2025-12-20T06:16:22.417314Z",
+  "re_signed": {
+    "signed_at": "2025-12-20T06:44:28.952857Z",
+    "provenance": {
+      "written_at": "2025-12-20T06:44:28.953083Z",
+      "actor": "assistant",
+      "used_provenance": "file:.temporary_token.txt"
+    }
+  }
 }
