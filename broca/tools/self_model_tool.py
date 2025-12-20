@@ -170,6 +170,12 @@ class QuerySelfModelTool:
                             loaded = self.storage.load()
                             if getattr(loaded, 'epistemic_layer', None):
                                 self.self_model.epistemic_layer = loaded.epistemic_layer
+                                return {
+                                    "success": True,
+                                    "aspect": "epistemic",
+                                    "epistemic_layer": self.self_model.epistemic_layer.to_dict(),
+                                    "message": "Epistemic layer loaded from storage"
+                                }
                     except Exception:
                         pass
 
