@@ -1,37 +1,52 @@
-# REHYDRATION_SUMMARY.v0.2 - (fixed scaffold)
+# REHYDRATION_SUMMARY.v0.2 - shutdown sync
 
-Run time (UTC): 2025-12-20T04:55:47.231293+00:00
+Run time (UTC): 2025-12-20T05:21:26.920291+00:00
 
 PERSISTENCE GATE:
-- payload_present: True
-- hmac_present: True
-- persistence_enabled: True
-- created_by: nick.yazdani
-- jti: cb80b07534064b7283c2695fd3461b63
-- exp: 1766264433
-
-POINTERS & ARTIFACTS:
-- pointer: {
-  "current_session_summary": "/home/wizard/broca/self_models/self-20251219T222315Z.json",
-  "other_pointers": [],
-  "created_by": "wizard",
-  "persistence_source": "/home/wizard/Documents/Code/BrocaOS/.shutdown_persistence.json",
-  "timestamp": "2025-12-19T22:32:08Z"
-}
-- artifact: docs/external_artifacts/home_wizard_broca/artifacts/REHYDRATION_SUMMARY.v0.2.md
-- artifact: docs/external_artifacts/home_wizard_broca/artifacts/REHYDRATION_SUMMARY.v0.2.md.provenance.json
-- artifact: docs/external_artifacts/home_wizard_broca/artifacts/summaries/session-2025-12-19T21:16:42Z.json
-- artifact: docs/external_artifacts/home_wizard_broca/artifacts/summaries/session-2025-12-19T21:16:42Z.json.provenance.json
-
-MEMORY & INDEX SUMMARY:
 - mem_db_exists: True
-- mem_db_size: 3805184
-- vec_index_exists: True
-- vec_index_size: 540717
 - memories_count: 88
+- vec_index_exists: True
 
-CONSISTENCY CHECK:
-- ok: True
+ARTIFACTS:
+- docs/external_artifacts/home_wizard_broca/ARTIFACT_MAP.json (size=1296)
+- docs/external_artifacts/home_wizard_broca/ARTIFACT_MAP.json.bak_1765862365 (size=866)
+- docs/external_artifacts/home_wizard_broca/ARTIFACT_MAP.json.bak_1765862365.provenance.json (size=461)
+- docs/external_artifacts/home_wizard_broca/ARTIFACT_MAP.json.provenance.json (size=431)
+- docs/external_artifacts/home_wizard_broca/BROCA_CAPABILITY_INTERPLAY.md (size=7790)
+- docs/external_artifacts/home_wizard_broca/BROCA_CAPABILITY_INTERPLAY.md.provenance.json (size=456)
+- docs/external_artifacts/home_wizard_broca/BROCA_OPERATORS_GUIDE.md (size=14093)
+- docs/external_artifacts/home_wizard_broca/BROCA_OPERATORS_GUIDE.md.bak_1765950756 (size=9955)
+- docs/external_artifacts/home_wizard_broca/BROCA_OPERATORS_GUIDE.md.bak_1765950756.provenance.json (size=476)
+- docs/external_artifacts/home_wizard_broca/BROCA_OPERATORS_GUIDE.md.provenance.json (size=447)
+- docs/external_artifacts/home_wizard_broca/BROCA_ORIGIN_STORY.md (size=3768)
+- docs/external_artifacts/home_wizard_broca/BROCA_ORIGIN_STORY.md.provenance.json (size=440)
+- docs/external_artifacts/home_wizard_broca/BROCA_SYSTEM_REPORT.md (size=10774)
+- docs/external_artifacts/home_wizard_broca/BROCA_SYSTEM_REPORT.md.provenance.json (size=443)
+- docs/external_artifacts/home_wizard_broca/README.md (size=3825)
+- docs/external_artifacts/home_wizard_broca/artifacts/REHYDRATION_SUMMARY.v0.2.md (size=853)
+- docs/external_artifacts/home_wizard_broca/artifacts/REHYDRATION_SUMMARY.v0.2.md.provenance.json (size=471)
+- docs/external_artifacts/home_wizard_broca/artifacts/summaries/session-2025-12-19T21:16:42Z.json (size=251)
+- docs/external_artifacts/home_wizard_broca/artifacts/summaries/session-2025-12-19T21:16:42Z.json.provenance.json (size=503)
+- docs/external_artifacts/home_wizard_broca/bootup/__pycache__/rehydration.fixed.cpython-313.pyc (size=14729)
+- docs/external_artifacts/home_wizard_broca/bootup/rehydration.fixed.py (size=10069)
+- docs/external_artifacts/home_wizard_broca/bootup/rehydration.py (size=3432)
+- docs/external_artifacts/home_wizard_broca/bootup/rehydration.py.provenance.json (size=440)
+- docs/external_artifacts/home_wizard_broca/broca.artifacts (size=693)
+- docs/external_artifacts/home_wizard_broca/broca.artifacts.provenance.json (size=427)
+- docs/external_artifacts/home_wizard_broca/broca.session.pointer (size=271)
+- docs/external_artifacts/home_wizard_broca/broca.session.pointer.provenance.json (size=439)
+- docs/external_artifacts/home_wizard_broca/scripts/apply_policy_sync.py (size=13373)
+- docs/external_artifacts/home_wizard_broca/scripts/apply_policy_sync.py.provenance.json (size=455)
+- docs/external_artifacts/home_wizard_broca/scripts/generate_self_model.py (size=8672)
+- docs/external_artifacts/home_wizard_broca/scripts/generate_self_model.py.provenance.json (size=457)
+- docs/external_artifacts/home_wizard_broca/scripts/manual_shutdown.py (size=6650)
+- docs/external_artifacts/home_wizard_broca/scripts/manual_shutdown.py.provenance.json (size=449)
+- docs/external_artifacts/home_wizard_broca/self_models/self-20251219T222315Z.json (size=4583)
+- docs/external_artifacts/home_wizard_broca/self_models/self-20251219T222315Z.json.provenance.json (size=474)
 
-NEXT STEPS:
-- Provide Plan + Approval and actuator provenance to perform state-changing writes.
+IDENTITY:
+- identity_path: /home/wizard/Documents/Code/BrocaOS/docs/identity/IDENTITY.v0.1.json
+- signed_by: env.BROCA_TOKEN_SECRET
+
+AUDIT:
+- git_commit: 01eece356f0981a902d2772f8f163102d0b91620
