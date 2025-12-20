@@ -691,7 +691,7 @@ class WorldStateAggregator:
                     "tree_hash": tree_hash,
                     "last_scan": generator.get_last_scan()
                 },
-                "note": "Use terminal to list files; never rely on stale tree."
+                "note": "Use a file-listing tool to inspect the directory tree; never rely on stale tree."
             }
         except Exception as e:
             logger.warning(f"Error getting repo pointer: {e}", exc_info=True)
