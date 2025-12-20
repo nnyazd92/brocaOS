@@ -170,10 +170,20 @@ class QuerySelfModelTool:
                             loaded = self.storage.load()
                             if getattr(loaded, 'epistemic_layer', None):
                                 self.self_model.epistemic_layer = loaded.epistemic_layer
+                                # Build contexts and counts the same way as the normal path
+                                from broca.self_model.epistemic.engine import MetacognitiveEngine
+                                epistemic_engine = MetacognitiveEngine(epistemic_layer=self.self_model.epistemic_layer)
+                                all_contexts = {}
+                                for kid in self.self_model.epistemic_layer.knowledge_sources.keys():
+                                    context = epistemic_engine.get_epistemic_context(kid)
+                                    if context:
+                                        all_contexts[kid] = context
                                 return {
                                     "success": True,
                                     "aspect": "epistemic",
                                     "epistemic_layer": self.self_model.epistemic_layer.to_dict(),
+                                    "knowledge_contexts": all_contexts,
+                                    "total_knowledge_items": len(all_contexts),
                                     "message": "Epistemic layer loaded from storage"
                                 }
                     except Exception:
