@@ -164,6 +164,15 @@ class QuerySelfModelTool:
             elif aspect == "epistemic":
                 # Return only epistemic metadata
                 if not self.self_model.epistemic_layer:
+                    # Attempt to lazy-load epistemic layer from storage if available
+                    try:
+                        if hasattr(self.storage, 'load'):
+                            loaded = self.storage.load()
+                            if getattr(loaded, 'epistemic_layer', None):
+                                self.self_model.epistemic_layer = loaded.epistemic_layer
+                    except Exception:
+                        pass
+
                     return {
                         "success": True,
                         "aspect": "epistemic",
