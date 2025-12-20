@@ -78,8 +78,10 @@ class JSONFileStorage:
             os.replace(tmp_path, file_path)
             logger.debug(f"Saved conversation {session_id} to {file_path}")
             
-        except (OSError, IOError, json.JSONEncodeError) as e:
+        except (OSError, IOError, TypeError, ValueError) as e:
             logger.error(f"Failed to save conversation {session_id}: {e}")
+            # json.JSONEncodeError does not exist in the stdlib json module; catch
+            # TypeError/ValueError which are raised on non-serializable objects.
             # Clean up temp file if it exists
             if 'tmp_path' in locals():
                 try:
