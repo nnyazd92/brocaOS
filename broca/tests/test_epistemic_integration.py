@@ -245,7 +245,6 @@ class TestEpistemicSelfModelIntegration:
         """Test QuerySelfModelTool returns epistemic context."""
         from broca.self_model.model import SelfModel
         from broca.self_model.storage import SelfModelSQLiteStorage
-        from broca.self_model.layer import ConsistencyLayer
         from broca.tools.self_model_tool import QuerySelfModelTool
         
         # Create self-model with epistemic layer
@@ -260,13 +259,12 @@ class TestEpistemicSelfModelIntegration:
         source = SourceMetadata(source_type=SourceType.USER_PROVIDED)
         epistemic.add_knowledge_source(knowledge_id, source)
         
-        # Create consistency layer and tool
+        # Create tool directly with self_model and storage
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = SelfModelSQLiteStorage(db_path=os.path.join(tmpdir, "test.db"))
             storage.save(self_model)
             
-            consistency_layer = ConsistencyLayer(self_model, storage)
-            tool = QuerySelfModelTool(consistency_layer)
+            tool = QuerySelfModelTool(self_model, storage)
             
             # Query with epistemic aspect
             result = tool.execute(aspect="epistemic")
@@ -277,34 +275,13 @@ class TestEpistemicSelfModelIntegration:
 
 
 class TestEpistemicConsistencyIntegration:
-    """Test epistemic integration with consistency layer."""
+    """Test epistemic integration (consistency layer removed)."""
     
+    @pytest.mark.skip(reason="Consistency checking has been removed")
     def test_consistency_layer_records_violations(self):
         """Test ConsistencyLayer records violations as epistemic events."""
-        from broca.self_model.model import SelfModel
-        from broca.self_model.storage import SelfModelSQLiteStorage
-        from broca.self_model.layer import ConsistencyLayer
-        
-        # Create self-model with epistemic layer
-        epistemic = EpistemicLayer()
-        self_model = SelfModel(
-            capabilities=["Python programming"],
-            epistemic_layer=epistemic
-        )
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            storage = SelfModelSQLiteStorage(db_path=os.path.join(tmpdir, "test.db"))
-            storage.save(self_model)
-            
-            consistency_layer = ConsistencyLayer(self_model, storage)
-            
-            # Check a response (this will trigger epistemic tracking if violations occur)
-            response, was_updated, result = consistency_layer.check_response(
-                "I can program in Python"
-            )
-            
-            # Check that epistemic layer can track events
-            assert self_model.epistemic_layer is not None
+        # This test is skipped because consistency checking has been removed
+        pass
 
 
 class TestMetacognitiveEngineCreationAndSharing:

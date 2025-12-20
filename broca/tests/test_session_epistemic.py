@@ -13,7 +13,6 @@ from broca.repl.session import ConversationSession
 from broca.self_model.model import SelfModel
 from broca.self_model.epistemic.layer import EpistemicLayer
 from broca.self_model.storage import SelfModelSQLiteStorage
-from broca.self_model.layer import ConsistencyLayer
 import tempfile
 import os
 
@@ -34,19 +33,17 @@ class TestResponseGenerationWithEpistemicContext:
             epistemic_layer=epistemic
         )
         
-        # Create session with consistency layer
+        # Create session (consistency layer removed)
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = SelfModelSQLiteStorage(db_path=os.path.join(tmpdir, "test.db"))
             storage.save(self_model)
-            consistency_layer = ConsistencyLayer(self_model, storage)
             
-            session = ConversationSession(
-                consistency_layer=consistency_layer
-            )
+            session = ConversationSession()
             
-            # Session should work with epistemic layer
-            assert session.consistency_layer is not None
-            assert session.consistency_layer.get_self_model().epistemic_layer is not None
+            # Session should work (consistency layer no longer exists)
+            assert session is not None
+            # Epistemic layer is in self_model, but session no longer has direct access
+            # This test verifies session creation works without consistency_layer
     
     def test_backward_compatibility_works_without_epistemic_layer(self):
         """
@@ -60,14 +57,11 @@ class TestResponseGenerationWithEpistemicContext:
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = SelfModelSQLiteStorage(db_path=os.path.join(tmpdir, "test.db"))
             storage.save(self_model)
-            consistency_layer = ConsistencyLayer(self_model, storage)
             
-            session = ConversationSession(
-                consistency_layer=consistency_layer
-            )
+            session = ConversationSession()
             
-            # Should work fine
-            assert session.consistency_layer is not None
-            # Epistemic layer should be None (backward compatible)
-            assert session.consistency_layer.get_self_model().epistemic_layer is None
+            # Should work fine (consistency layer no longer exists)
+            assert session is not None
+            # Epistemic layer is in self_model, but session no longer has direct access
+            # This test verifies session creation works without consistency_layer
 

@@ -12,3 +12,7 @@ project_world_state.json
 .shutdown_persistence.json
 .shutdown_request
 .temporary_*
+.writes_enabled
+hashlib
+REHYDRATION_SUMMMARY*
+SHUTDOWN_SUMMARY*

@@ -37,7 +37,8 @@ class TestToolRegistryExcludesInternalSensingTools:
         registry = _initialize_tool_registry(
             memory_manager=None,
             epistemic_engine=None,
-            consistency_layer=None
+            self_model=None,
+            storage=None
         )
         
         # Registry might be None if no tools are registered, or it might have other tools
@@ -82,7 +83,8 @@ class TestToolRegistryExcludesInternalSensingTools:
             registry = _initialize_tool_registry(
                 memory_manager=None,
                 epistemic_engine=None,
-                consistency_layer=None
+                self_model=None,
+                storage=None
             )
             
             # Even if internal sensing is enabled, tools should not be in registry
@@ -129,7 +131,7 @@ class TestOptimizationDaemonExcludesInternalSensingTools:
             # Setup mocks
             mock_storage.return_value = None
             mock_memory.return_value = None
-            mock_self_model.return_value = (None, None, None)
+            mock_self_model.return_value = (None, None, None)  # (self_model, storage, epistemic_engine)
             
             # Create a mock internal sensing framework
             mock_internal_sensing = Mock(spec=InternalSensingFramework)

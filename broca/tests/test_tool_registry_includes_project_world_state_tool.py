@@ -44,7 +44,8 @@ class TestToolRegistryIncludesProjectWorldStateTool:
             registry = _initialize_tool_registry(
                 memory_manager=None,
                 epistemic_engine=None,
-                consistency_layer=None
+                self_model=None,
+                storage=None
             )
             
             # Registry should have project world state tool
@@ -100,7 +101,8 @@ class TestToolRegistryIncludesProjectWorldStateTool:
             registry = _initialize_tool_registry(
                 memory_manager=None,
                 epistemic_engine=None,
-                consistency_layer=None
+                self_model=None,
+                storage=None
             )
             
             # Tool should be in registry

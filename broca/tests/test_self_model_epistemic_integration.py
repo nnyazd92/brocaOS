@@ -281,7 +281,7 @@ class TestEpistemicLayerAutoInitialization:
                 
                 # Initialize self-model (should auto-initialize epistemic layer)
                 # Pass db_path directly to avoid config issues
-                consistency_layer, loaded_model, epistemic_engine = _initialize_self_model(storage_path_override=db_path)
+                loaded_model, storage, epistemic_engine = _initialize_self_model(storage_path_override=db_path)
                 
                 # Verify epistemic layer was initialized
                 assert loaded_model is not None
@@ -352,7 +352,7 @@ class TestEpistemicLayerAutoInitialization:
                 
                 # Initialize self-model (should NOT auto-initialize epistemic layer)
                 # Pass db_path and enable_epistemic directly to avoid config issues
-                consistency_layer, loaded_model, epistemic_engine = _initialize_self_model(
+                loaded_model, storage, epistemic_engine = _initialize_self_model(
                     storage_path_override=db_path,
                     enable_epistemic_override=False
                 )
@@ -415,7 +415,7 @@ class TestEpistemicLayerAutoInitialization:
                 
                 # Initialize self-model (should preserve existing epistemic layer)
                 # Pass db_path directly to avoid config issues
-                consistency_layer, loaded_model, epistemic_engine = _initialize_self_model(storage_path_override=db_path)
+                loaded_model, storage, epistemic_engine = _initialize_self_model(storage_path_override=db_path)
                 
                 # Verify epistemic layer was preserved
                 assert loaded_model is not None
@@ -468,7 +468,7 @@ class TestEpistemicLayerAutoInitialization:
                 
                 # Initialize self-model (first backfill)
                 # Pass db_path directly to avoid config issues
-                consistency_layer, loaded_model, epistemic_engine = _initialize_self_model(storage_path_override=db_path)
+                loaded_model, storage, epistemic_engine = _initialize_self_model(storage_path_override=db_path)
                 
                 # Count knowledge items after first backfill
                 from broca.self_model.epistemic.ids import generate_capability_id
@@ -505,9 +505,6 @@ class TestQuerySelfModelEpistemicLoading:
         Rationale: Ensures query tool can access epistemic data even if it wasn't loaded initially.
         """
         from broca.self_model.storage import create_storage
-        from broca.self_model.layer import ConsistencyLayer
-        from broca.self_model.consistency import ConsistencyChecker
-        from broca.self_model.updater import SelfModelUpdater
         from broca.tools.self_model_tool import QuerySelfModelTool
         from broca.self_model.epistemic.layer import EpistemicLayer
         from broca.self_model.epistemic.engine import MetacognitiveEngine
@@ -539,18 +536,8 @@ class TestQuerySelfModelEpistemicLoading:
         # Manually set epistemic_layer to None to simulate the problem
         loaded_model.epistemic_layer = None
         
-        # Create consistency layer with the model that has None epistemic_layer
-        checker = ConsistencyChecker()
-        updater = SelfModelUpdater()
-        consistency_layer = ConsistencyLayer(
-            self_model=loaded_model,
-            storage=storage,
-            checker=checker,
-            updater=updater
-        )
-        
-        # Create query tool
-        query_tool = QuerySelfModelTool(consistency_layer)
+        # Create query tool directly with self_model and storage
+        query_tool = QuerySelfModelTool(loaded_model, storage)
         
         # Query epistemic aspect - should load epistemic_layer on demand
         result = query_tool.execute(aspect="epistemic")
@@ -560,8 +547,8 @@ class TestQuerySelfModelEpistemicLoading:
         assert result.get("epistemic_layer") is not None
         assert result.get("total_knowledge_items", 0) > 0
         
-        # Verify the self-model in consistency layer now has epistemic_layer
-        updated_model = consistency_layer.get_self_model()
+        # Verify the self-model now has epistemic_layer (reload from storage)
+        updated_model = storage.load()
         assert updated_model.epistemic_layer is not None
         assert updated_model.epistemic_layer.has_knowledge(knowledge_id)
     
@@ -599,31 +586,12 @@ class TestQuerySelfModelEpistemicLoading:
         
         storage.save(self_model)
         
-        # Load model and set epistemic_layer to None
+        # Load model - epistemic_layer should be loaded from storage
         loaded_model = storage.load()
-        loaded_model.epistemic_layer = None
         
-        # Create consistency layer
-        checker = ConsistencyChecker()
-        updater = SelfModelUpdater()
-        consistency_layer = ConsistencyLayer(
-            self_model=loaded_model,
-            storage=storage,
-            checker=checker,
-            updater=updater
-        )
-        
-        # Initially, epistemic_layer is None in the loaded_model
-        assert loaded_model.epistemic_layer is None
-        
-        # After accessing via get_self_model(), epistemic_layer should be loaded (lazy load)
-        refreshed_model = consistency_layer.get_self_model()
-        # After fix: should have epistemic_layer loaded from database
-        assert refreshed_model.epistemic_layer is not None
-        assert refreshed_model.epistemic_layer.has_knowledge(knowledge_id)
-        
-        # Verify it's the same instance (lazy loading updated the model)
-        assert refreshed_model is consistency_layer.self_model
+        # Epistemic layer should be loaded from database
+        assert loaded_model.epistemic_layer is not None
+        assert loaded_model.epistemic_layer.has_knowledge(knowledge_id)
     
     def test_epistemic_layer_loaded_on_demand(self, tmp_path):
         """
@@ -669,26 +637,12 @@ class TestQuerySelfModelEpistemicLoading:
         
         storage.save(self_model)
         
-        # Load model and remove epistemic_layer
+        # Load model - epistemic_layer should be loaded from storage
         loaded_model = storage.load()
-        loaded_model.epistemic_layer = None
         
-        # Create consistency layer
-        checker = ConsistencyChecker()
-        updater = SelfModelUpdater()
-        consistency_layer = ConsistencyLayer(
-            self_model=loaded_model,
-            storage=storage,
-            checker=checker,
-            updater=updater
-        )
-        
-        # Access self-model - should trigger lazy load
-        model = consistency_layer.get_self_model()
-        
-        # After fix: epistemic_layer should be loaded with all knowledge items
-        assert model.epistemic_layer is not None
-        assert len(model.epistemic_layer.knowledge_sources) == 2
-        assert model.epistemic_layer.has_knowledge(knowledge_id1)
-        assert model.epistemic_layer.has_knowledge(knowledge_id2)
+        # Epistemic layer should be loaded with all knowledge items
+        assert loaded_model.epistemic_layer is not None
+        assert len(loaded_model.epistemic_layer.knowledge_sources) == 2
+        assert loaded_model.epistemic_layer.has_knowledge(knowledge_id1)
+        assert loaded_model.epistemic_layer.has_knowledge(knowledge_id2)
 

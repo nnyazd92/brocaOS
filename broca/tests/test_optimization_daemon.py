@@ -787,9 +787,10 @@ class TestOptimizationDaemonToolAccess:
             # Setup mocks
             mock_storage.return_value = None
             mock_memory.return_value = None
-            # Create a mock consistency layer for self-model
-            mock_consistency_layer = Mock()
-            mock_self_model.return_value = (mock_consistency_layer, None, None)
+            # Create a mock self_model and storage for self-model
+            mock_self_model_instance = Mock()
+            mock_storage_instance = Mock()
+            mock_self_model.return_value = (mock_self_model_instance, mock_storage_instance, None)
             mock_sensing.return_value = None
             mock_env.return_value = None
             

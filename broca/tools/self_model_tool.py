@@ -9,7 +9,10 @@ from typing import Dict, Any, List, Optional
 
 from . import Tool
 from ..self_model.model import SelfModel
-from ..self_model.layer import ConsistencyLayer
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..self_model.storage import SelfModelSQLiteStorage
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +27,18 @@ class QuerySelfModelTool:
     
     def __init__(
         self,
-        consistency_layer: ConsistencyLayer,
+        self_model: SelfModel,
+        storage: Any,
     ) -> None:
         """
         Initialize the query self-model tool.
         
         Args:
-            consistency_layer: ConsistencyLayer instance with access to self-model
+            self_model: SelfModel instance
+            storage: Storage instance for self-model
         """
-        self.consistency_layer = consistency_layer
+        self.self_model = self_model
+        self.storage = storage
         logger.info("Initialized QuerySelfModelTool")
     
     @property
@@ -80,27 +86,25 @@ class QuerySelfModelTool:
             Dictionary with self-model information
         """
         try:
-            self_model = self.consistency_layer.get_self_model()
-            
             if aspect == "all":
                 result = {
                     "success": True,
-                    "self_model": self_model.to_dict(),
-                    "summary": self_model.get_summary(),
+                    "self_model": self.self_model.to_dict(),
+                    "summary": self.self_model.get_summary(),
                 }
                 
                 # Add epistemic context if available
-                if self_model.epistemic_layer:
+                if self.self_model.epistemic_layer:
                     try:
                         from broca.self_model.epistemic.ids import generate_capability_id
                         from broca.self_model.epistemic.engine import MetacognitiveEngine
                         
                         # Create epistemic engine if not available
-                        epistemic_engine = MetacognitiveEngine(epistemic_layer=self_model.epistemic_layer)
+                        epistemic_engine = MetacognitiveEngine(epistemic_layer=self.self_model.epistemic_layer)
                         
                         # Get epistemic context for capabilities
                         epistemic_context = {}
-                        for capability in self_model.capabilities:
+                        for capability in self.self_model.capabilities:
                             # Extract text from capability dict (capabilities are stored as dicts with "text" and "source")
                             capability_text = capability.get("text", str(capability)) if isinstance(capability, dict) else str(capability)
                             kid = generate_capability_id(capability_text)
@@ -123,7 +127,7 @@ class QuerySelfModelTool:
                 return {
                     "success": True,
                     "aspect": "capabilities",
-                    "capabilities": self_model.capabilities,
+                    "capabilities": self.self_model.capabilities,
                 }
             elif aspect == "preferences":
                 # Note: preferences attribute was removed from SelfModel - return empty dict for backward compatibility
@@ -136,13 +140,13 @@ class QuerySelfModelTool:
                 return {
                     "success": True,
                     "aspect": "knowledge_boundaries",
-                    "knowledge_boundaries": self_model.knowledge_boundaries,
+                    "knowledge_boundaries": self.self_model.knowledge_boundaries,
                 }
             elif aspect == "constraints":
                 return {
                     "success": True,
                     "aspect": "constraints",
-                    "constraints": self_model.constraints,
+                    "constraints": self.self_model.constraints,
                 }
             elif aspect == "behavioral_patterns":
                 # Note: behavioral_patterns attribute was removed from SelfModel - return empty list for backward compatibility
@@ -155,11 +159,11 @@ class QuerySelfModelTool:
                 return {
                     "success": True,
                     "aspect": "metadata",
-                    "metadata": self_model.metadata,
+                    "metadata": self.self_model.metadata,
                 }
             elif aspect == "epistemic":
                 # Return only epistemic metadata
-                if not self_model.epistemic_layer:
+                if not self.self_model.epistemic_layer:
                     return {
                         "success": True,
                         "aspect": "epistemic",
@@ -169,11 +173,11 @@ class QuerySelfModelTool:
                 
                 try:
                     from broca.self_model.epistemic.engine import MetacognitiveEngine
-                    epistemic_engine = MetacognitiveEngine(epistemic_layer=self_model.epistemic_layer)
+                    epistemic_engine = MetacognitiveEngine(epistemic_layer=self.self_model.epistemic_layer)
                     
                     # Get epistemic context for all knowledge items
                     all_contexts = {}
-                    for kid in self_model.epistemic_layer.knowledge_sources.keys():
+                    for kid in self.self_model.epistemic_layer.knowledge_sources.keys():
                         context = epistemic_engine.get_epistemic_context(kid)
                         if context:
                             all_contexts[kid] = context
@@ -181,7 +185,7 @@ class QuerySelfModelTool:
                     return {
                         "success": True,
                         "aspect": "epistemic",
-                        "epistemic_layer": self_model.epistemic_layer.to_dict(),
+                        "epistemic_layer": self.self_model.epistemic_layer.to_dict(),
                         "knowledge_contexts": all_contexts,
                         "total_knowledge_items": len(all_contexts)
                     }
@@ -270,15 +274,18 @@ class UpdateSelfModelTool:
     
     def __init__(
         self,
-        consistency_layer: ConsistencyLayer,
+        self_model: SelfModel,
+        storage: Any,
     ) -> None:
         """
         Initialize the update self-model tool.
         
         Args:
-            consistency_layer: ConsistencyLayer instance with access to self-model
+            self_model: SelfModel instance
+            storage: Storage instance for self-model
         """
-        self.consistency_layer = consistency_layer
+        self.self_model = self_model
+        self.storage = storage
         logger.info("Initialized UpdateSelfModelTool")
     
     @property
@@ -357,23 +364,23 @@ class UpdateSelfModelTool:
             Dictionary with update result
         """
         try:
-            current_model = self.consistency_layer.get_self_model()
-            
             # Create updated model using updater
             from ..self_model.updater import SelfModelUpdater
             updater = SelfModelUpdater()
-            updated_model = updater.apply_updates(current_model, updates)
+            updated_model = updater.apply_updates(self.self_model, updates)
             
             # Update metadata
             from datetime import datetime, timezone
-            updated_model.metadata["version"] = current_model.metadata.get("version", 1) + 1
+            updated_model.metadata["version"] = self.self_model.metadata.get("version", 1) + 1
             updated_model.metadata["last_updated"] = datetime.now(timezone.utc).isoformat()
             updated_model.metadata["update_reason"] = "manual_update"
             if rationale:
                 updated_model.metadata["update_rationale"] = rationale
             
-            # Update through consistency layer (which will save)
-            self.consistency_layer.update_self_model(updated_model)
+            # Save updated model
+            self.storage.save(updated_model)
+            # Update local reference
+            self.self_model = updated_model
             
             return {
                 "success": True,

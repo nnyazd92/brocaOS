@@ -13,6 +13,11 @@ from datetime import datetime
 from . import Tool
 from ..memory.manager import MemoryManager
 from ..memory import RelationType, SourceType, SourceMetadata
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..self_model.model import SelfModel
+    from ..self_model.storage import SelfModelSQLiteStorage
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +33,8 @@ class StoreMemoryTool:
         self,
         memory_manager: MemoryManager,
         epistemic_engine: Optional[Any] = None,
-        consistency_layer: Optional[Any] = None
+        self_model: Optional["SelfModel"] = None,
+        storage: Optional[Any] = None
     ) -> None:
         """
         Initialize the store memory tool.
@@ -36,11 +42,13 @@ class StoreMemoryTool:
         Args:
             memory_manager: MemoryManager instance
             epistemic_engine: Optional MetacognitiveEngine for epistemic tracking
-            consistency_layer: Optional ConsistencyLayer for saving self-model after memory storage
+            self_model: Optional SelfModel instance for saving after memory storage
+            storage: Optional storage instance for saving self-model
         """
         self.memory_manager = memory_manager
         self.epistemic_engine = epistemic_engine
-        self.consistency_layer = consistency_layer
+        self.self_model = self_model
+        self.storage = storage
         logger.info("Initialized StoreMemoryTool")
     
     @property
@@ -194,14 +202,13 @@ class StoreMemoryTool:
                         )
                     )
                     
-                    # Save self-model if consistency_layer is available and mapping was created
-                    if self.consistency_layer and epistemic_result and self.epistemic_engine:
+                    # Save self-model if self_model and storage are available and mapping was created
+                    if self.self_model and self.storage and epistemic_result and self.epistemic_engine:
                         try:
                             # Verify mapping was created
                             if self.epistemic_engine.epistemic_layer.get_knowledge_id_for_memory(memory_id):
                                 # Save self-model to persist the mapping
-                                self_model = self.consistency_layer.get_self_model()
-                                self.consistency_layer.update_self_model(self_model)
+                                self.storage.save(self.self_model)
                                 logger.debug(f"Saved self-model after memory storage to persist memory-knowledge mapping for memory {memory_id}")
                         except Exception as e:
                             logger.warning(f"Failed to save self-model after memory storage: {e}", exc_info=True)
