@@ -1,6 +1,33 @@
 {
-  "original_path": "/home/wizard/Documents/Code/BrocaOS/docs/external_artifacts/home_wizard_broca/ARTIFACT_MAP.json",
-  "imported_path": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/ARTIFACT_MAP.json",
-  "imported_at": "2025-12-20T05:38:28.316811+00:00",
-  "sha256": "bd96f05dffed7bd2d83f0bc00910ba4d897040e6516caac42f5c4c0225cec404"
+  "action": "artifact_map_rewrite_and_sync",
+  "timestamp": "2025-12-21T10:22:20+1100",
+  "old_house": "/home/wizard/broca",
+  "new_house": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts",
+  "copied_count": 6,
+  "copied": [
+    {
+      "src": "/home/wizard/broca/BROCA_ORIGIN_STORY.md",
+      "dst": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/BROCA_ORIGIN_STORY.md"
+    },
+    {
+      "src": "/home/wizard/broca/BROCA_SYSTEM_REPORT.md",
+      "dst": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/BROCA_SYSTEM_REPORT.md"
+    },
+    {
+      "src": "/home/wizard/broca/BROCA_CAPABILITY_INTERPLAY.md",
+      "dst": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/BROCA_CAPABILITY_INTERPLAY.md"
+    },
+    {
+      "src": "/home/wizard/broca/logs/sessions/2025-12-17/SESSION_2025-12-17T23-32-55Z.md",
+      "dst": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/logs/sessions/2025-12-17/SESSION_2025-12-17T23-32-55Z.md"
+    },
+    {
+      "src": "/home/wizard/broca/logs/shutdown/SHUTDOWN_REPORT_2025-12-17T23-32-55Z.md",
+      "dst": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/logs/shutdown/SHUTDOWN_REPORT_2025-12-17T23-32-55Z.md"
+    },
+    {
+      "src": "/home/wizard/broca/logs/shutdown/SHUTDOWN_COMPLETE_20251217T233255Z.md",
+      "dst": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/logs/shutdown/SHUTDOWN_COMPLETE_20251217T233255Z.md"
+    }
+  ]
 }

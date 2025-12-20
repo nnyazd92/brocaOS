@@ -36,8 +36,8 @@
   },
   "signature_meta": {
     "algorithm": "HMAC-SHA256",
-    "signature_b64url": "UHbfWUyvQdEOOb9exkFKj-CXJQ9E_r72eRP-sdOgrZ4",
-    "canonicalization": "json.dumps(..., separators=(\",\",\" :\"), sort_keys=True)"
+    "signature_b64url": "_eqQPY9Oqqp7jhcnDJ0zPFS8io6WCin3VSELskHWjnE",
+    "canonicalization": "json.dumps(..., separators=(',',':'), sort_keys=True)"
   },
   "audit": [
     {
