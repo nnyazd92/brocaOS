@@ -58,6 +58,7 @@ def mock_llm_client(mock_llm_response: Dict[str, Any]) -> Mock:
     mock_client = Mock(spec=DeepSeekClient)
     mock_client.chat.return_value = mock_llm_response
     mock_client.extract_assistant_content = DeepSeekClient.extract_assistant_content
+    mock_client.extract_tool_calls = DeepSeekClient.extract_tool_calls
     return mock_client
 
 

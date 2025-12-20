@@ -63,33 +63,44 @@ class JSONFileStorage:
             **metadata
         }
         
+        tmp_path = None
         try:
-            # Atomic write: create a temp file securely using mkstemp, write and fsync,
-            # then atomically replace the target. This is more robust than NamedTemporaryFile
-            # when directory cleanup or external factors can remove the temp file.
-            fd, tmp_path = tempfile.mkstemp(suffix='.tmp', dir=str(self.storage_path))
-            try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as tmp_file:
-                    json.dump(data, tmp_file, indent=2, ensure_ascii=False)
-                    tmp_file.flush()
-                    os.fsync(tmp_file.fileno())
-
-                # Atomic rename
-                os.replace(tmp_path, file_path)
-                logger.debug(f"Saved conversation {session_id} to {file_path}")
-            finally:
-                # If tmp_path still exists (e.g., on failure), ensure it's removed
-                if os.path.exists(tmp_path) and not file_path.exists():
-                    try:
-                        os.unlink(tmp_path)
-                    except OSError:
-                        pass
+            # Atomic write: create a temp file, write data, then atomically replace the target.
+            # Using NamedTemporaryFile(delete=False) ensures the file persists after the context
+            # manager exits, allowing us to verify it exists before the atomic rename.
+            # Ensure storage_path is absolute and exists
+            storage_dir = self.storage_path.resolve()
+            storage_dir.mkdir(parents=True, exist_ok=True)
+            
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                dir=str(storage_dir),
+                delete=False,
+                suffix='.tmp',
+                encoding='utf-8'
+            ) as tmp_file:
+                tmp_path = tmp_file.name
+                json.dump(data, tmp_file, indent=2, ensure_ascii=False)
+                tmp_file.flush()
+                # Ensure data is written to disk
+                os.fsync(tmp_file.fileno())
+            
+            # Verify temp file exists before atomic rename
+            # Note: tmp_path is set before the context exits, so it should always be valid
+            if not tmp_path:
+                raise OSError(f"Temporary file path was not set")
+            if not os.path.exists(tmp_path):
+                raise OSError(f"Temporary file {tmp_path} was not created or does not exist")
+            
+            # Atomic rename
+            os.replace(tmp_path, str(file_path))
+            logger.debug(f"Saved conversation {session_id} to {file_path}")
         except (OSError, IOError, TypeError, ValueError) as e:
             logger.error(f"Failed to save conversation {session_id}: {e}")
             # json.JSONEncodeError does not exist in the stdlib json module; catch
             # TypeError/ValueError which are raised on non-serializable objects.
             # Clean up temp file if it exists
-            if 'tmp_path' in locals():
+            if 'tmp_path' in locals() and os.path.exists(tmp_path):
                 try:
                     os.unlink(tmp_path)
                 except OSError:

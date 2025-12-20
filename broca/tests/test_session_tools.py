@@ -364,6 +364,10 @@ class TestConversationSessionToolStorage:
             )
             session.send("Test")
             
+            # Give background threads time to complete
+            import time
+            time.sleep(0.1)
+            
             # Load from storage and verify tool messages
             result = storage.load_conversation("test-session")
             assert result is not None

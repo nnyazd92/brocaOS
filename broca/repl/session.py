@@ -217,13 +217,11 @@ class ConversationSession:
                 # Even with tools, we can stream - we'll check for tool calls after the stream completes
                 # Streaming with tools: The API will still stream content, and tool calls can be detected from finish_reason
                 # Determine whether this particular LLM call should include tools.
-                # For all iterations while tools exist, prefer non-streaming llm.chat()
-                # to reliably detect tool_calls. Only after a non-streaming call
-                # returns with no tool_calls should we attempt a single final
-                # streaming llm.chat_stream() call to deliver the assistant output.
+                # Enable streaming if available - the code handles tool_calls detection
+                # from streaming responses (see lines 291-300 below for fallback logic).
                 tools_for_call = tools
                 can_stream = stream and hasattr(self.llm, "chat_stream")
-                use_streaming = False
+                use_streaming = can_stream
                 
                 if use_streaming:
                     # Streaming mode - try streaming first

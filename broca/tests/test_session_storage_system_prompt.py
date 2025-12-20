@@ -47,6 +47,10 @@ class TestSystemPromptStorageInteroperability:
             # Send a message to trigger save
             session.send("Hello")
             
+            # Give background threads time to complete (save happens in background thread)
+            import time
+            time.sleep(0.1)
+            
             # Load the saved conversation
             result = storage.load_conversation(session.session_id)
             assert result is not None
@@ -92,6 +96,10 @@ class TestSystemPromptStorageInteroperability:
             )
             session1.send("Test")
             
+            # Give background threads time to complete
+            import time
+            time.sleep(0.1)
+            
             # Load the session
             session2 = ConversationSession.load_from_storage(
                 session_id=session1.session_id,
@@ -127,6 +135,10 @@ class TestSystemPromptStorageInteroperability:
             )
             
             session.send("Hello")
+            
+            # Give background threads time to complete
+            import time
+            time.sleep(0.1)
             
             # Should save successfully
             result = storage.load_conversation(session.session_id)
@@ -169,6 +181,11 @@ class TestSystemPromptStorageInteroperability:
             
             # Save and check metadata
             session.send("Test")
+            
+            # Give background threads time to complete
+            import time
+            time.sleep(0.1)
+            
             result = storage.load_conversation(session.session_id)
             assert result is not None
             
@@ -276,4 +293,5 @@ def mock_llm_client():
     mock = Mock(spec=DeepSeekClient)
     mock.chat.return_value = build_llm_response(content="Test response")
     mock.extract_assistant_content = DeepSeekClient.extract_assistant_content
+    mock.extract_tool_calls = DeepSeekClient.extract_tool_calls
     return mock

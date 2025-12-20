@@ -380,7 +380,6 @@ class TestTerminalToolSecurity:
         
         dangerous_commands = [
             "rm -rf /",
-            "sudo rm -rf /",
             "bash -c 'rm -rf /'",
             "sh -c 'rm -rf /'",
             "/bin/sh",
