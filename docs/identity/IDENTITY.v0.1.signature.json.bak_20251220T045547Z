@@ -1,0 +1,6 @@
+{
+  "signature_b64url": "Ze_JSy3lTPPzru2IA7joITXZ5CaaqA66i3BLj3q89k4",
+  "algorithm": "HMAC-SHA256",
+  "signed_at": "2025-12-20T01:02:37.033913+00:00",
+  "signer": "file:.temporary_token.txt"
+}
