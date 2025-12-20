@@ -1,6 +1,6 @@
 {
   "schema": "REHYDRATION_SUMMARY.v0.2",
-  "boot_ts": "2025-12-20T20:05:19+1100",
+  "boot_ts": "2025-12-20T20:04:15+1100",
   "operator": "wizard",
   "approval": "COMMENCE BOOT UP PROTOCOL, WRITES ENABLED (user directive)",
   "token_provenance": {
@@ -22,12 +22,36 @@
       "name": "Nick Yazdani"
     },
     "jwt_errors": [
-      "invalid or expired"
-    ]
+      "token_expired"
+    ],
+    "verification_method": "HS256 HMAC with env secret"
   },
   "identity": {
     "path": "docs/identity/IDENTITY.v0.1.json",
     "sidecar": "docs/identity/IDENTITY.v0.1.signature.json",
+    "verification_attempts": [
+      {
+        "method": "HMAC-SHA256(identity_without_signature_meta, canon-sort-keys)",
+        "compare_to": "identity.signature_meta.signature_b64url",
+        "calc_b64url": "WcBCRKksi1qCaStmOiroK7Td_9JmhDoAvJxM3B4W01I",
+        "expected_b64url": "jNFbyUaLip4M8x3T2rbPYnpIKbQD_4TlKPBKPduPxrM",
+        "ok": false
+      },
+      {
+        "method": "HMAC-SHA256(identity_without_signature_meta)->compare_to_sidecar",
+        "compare_to": "sidecar.signature_b64url",
+        "calc_b64url": "WcBCRKksi1qCaStmOiroK7Td_9JmhDoAvJxM3B4W01I",
+        "expected_b64url": "wIuhJUB1ainbwICDwNLNx-UT-pyeYCOXlOJii2BaDyE",
+        "ok": false
+      },
+      {
+        "method": "HMAC-SHA256(raw_identity_file_bytes)->compare_to_sidecar",
+        "compare_to": "sidecar.signature_b64url",
+        "calc_b64url": "rKNJ2XI2qb9r6tIbI_1Z5MlIXD6ZyLp18XxCC5Uo8So",
+        "expected_b64url": "wIuhJUB1ainbwICDwNLNx-UT-pyeYCOXlOJii2BaDyE",
+        "ok": false
+      }
+    ],
     "verified": false
   },
   "pointers_validated": {
@@ -35,37 +59,43 @@
       "path": "/home/wizard/Documents/Code/BrocaOS/memories.db",
       "exists": true,
       "is_dir": false,
-      "size": 3813376
+      "size": 3813376,
+      "sha256": "3bbbadb4c3c42eecb273b13f00c4b814dbdfb4c5ec899077841aaf05364da775"
     },
     "vector_index": {
       "path": "/home/wizard/Documents/Code/BrocaOS/memories.faiss",
       "exists": true,
       "is_dir": false,
-      "size": 540717
+      "size": 540717,
+      "sha256": "19cbf89d483f55887bbf49a778105b4b81a916df115b242042a4370a9a8dc2aa"
     },
     "self_model_db": {
       "path": "/home/wizard/Documents/Code/BrocaOS/self_model.db",
       "exists": true,
       "is_dir": false,
-      "size": 14069760
+      "size": 14069760,
+      "sha256": "8a40096a4ff294cddf454a338c19b35be7bb4d80e709c916763d8136dae7b13f"
     },
     "artifacts_root": {
       "path": "/home/wizard/Documents/Code/BrocaOS/docs/external_artifacts/home_wizard_broca",
       "exists": false,
       "is_dir": false,
-      "size": null
+      "size": null,
+      "sha256": null
     },
     "memory_namespace_index": {
       "path": "/home/wizard/Documents/Code/BrocaOS/memory_namespaces_index.md",
       "exists": true,
       "is_dir": false,
-      "size": 897
+      "size": 897,
+      "sha256": "ddd6cf0a4b21163962eb53e9ee50369cd4dec46f9de71c4b2d73b6cf928b2b2c"
     },
     "rehydration_summary": {
       "path": "/home/wizard/Documents/Code/BrocaOS/docs/protocols/REHYDRATION_SUMMARY.v0.2.md",
       "exists": true,
       "is_dir": false,
-      "size": 1391
+      "size": 4626,
+      "sha256": "bd760822d5ece5df662948cff334228d3386bab00b5ebe4360781528627f5cbd"
     }
   },
   "persistence_enabled": false,
