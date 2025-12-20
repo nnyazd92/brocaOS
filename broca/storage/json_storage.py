@@ -64,20 +64,26 @@ class JSONFileStorage:
         }
         
         try:
-            # Atomic write: write to temp file first, then rename
-            with tempfile.NamedTemporaryFile(
-                mode='w',
-                dir=self.storage_path,
-                delete=False,
-                suffix='.tmp'
-            ) as tmp_file:
-                json.dump(data, tmp_file, indent=2, ensure_ascii=False)
-                tmp_path = tmp_file.name
-            
-            # Atomic rename
-            os.replace(tmp_path, file_path)
-            logger.debug(f"Saved conversation {session_id} to {file_path}")
-            
+            # Atomic write: create a temp file securely using mkstemp, write and fsync,
+            # then atomically replace the target. This is more robust than NamedTemporaryFile
+            # when directory cleanup or external factors can remove the temp file.
+            fd, tmp_path = tempfile.mkstemp(suffix='.tmp', dir=str(self.storage_path))
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as tmp_file:
+                    json.dump(data, tmp_file, indent=2, ensure_ascii=False)
+                    tmp_file.flush()
+                    os.fsync(tmp_file.fileno())
+
+                # Atomic rename
+                os.replace(tmp_path, file_path)
+                logger.debug(f"Saved conversation {session_id} to {file_path}")
+            finally:
+                # If tmp_path still exists (e.g., on failure), ensure it's removed
+                if os.path.exists(tmp_path) and not file_path.exists():
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
         except (OSError, IOError, TypeError, ValueError) as e:
             logger.error(f"Failed to save conversation {session_id}: {e}")
             # json.JSONEncodeError does not exist in the stdlib json module; catch
