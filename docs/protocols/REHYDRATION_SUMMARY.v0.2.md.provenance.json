@@ -1,5 +1,6 @@
 {
-  "written_at": "2025-12-20T05:21:26.921049+00:00",
-  "actor": "assistant",
-  "used_provenance": "env.BROCA_TOKEN_SECRET"
+  "original_path": "/home/wizard/Documents/Code/BrocaOS/docs/external_artifacts/home_wizard_broca/artifacts/REHYDRATION_SUMMARY.v0.2.md",
+  "merged_into": "/home/wizard/Documents/Code/BrocaOS/docs/protocols/REHYDRATION_SUMMARY.v0.2.md",
+  "backup": "/home/wizard/Documents/Code/BrocaOS/docs/protocols/REHYDRATION_SUMMARY.v0.2.md.bak_20251220T053828Z",
+  "merged_at": "2025-12-20T05:38:28.318491+00:00"
 }

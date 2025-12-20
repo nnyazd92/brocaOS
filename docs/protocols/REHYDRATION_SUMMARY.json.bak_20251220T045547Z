@@ -1,0 +1,46 @@
+{
+  "persistence_enabled": true,
+  "shutdown_payload_summary": {
+    "created_by": "nick.yazdani",
+    "jti": "cb80b07534064b7283c2695fd3461b63",
+    "iat": 1766178033,
+    "exp": 1766264433,
+    "notes": "Enables gated persistence for BrocaOS rehydration v0.2",
+    "persistence_enabled": true
+  },
+  "hmac_verification": {
+    "expected_hmac": "l39aKAAby4QXwbxSmPP-jfGQCEgRo1d1tLGQLhc7pYk",
+    "verified": true,
+    "used_candidate": "env.BROCA_TOKEN_SECRET"
+  },
+  "token_provenance": {
+    "file_path": ".temporary_token.txt",
+    "env_var": "BROCA_TOKEN_SECRET",
+    "token_meta": {
+      "top_level_keys": [
+        "token",
+        "payload"
+      ],
+      "payload.jti": "9ca34ed97a064b03936d5b2b8aa4e316",
+      "payload.exp": 1766187801,
+      "payload.scopes": [
+        "filesystem:write",
+        "project:write",
+        "memory:write"
+      ],
+      "env_var_present": true
+    }
+  },
+  "artifacts_found": [
+    "broca"
+  ],
+  "actions_taken": [
+    "verified_hmac"
+  ],
+  "identity": {
+    "path": "docs/identity/IDENTITY.v0.1.json",
+    "identity_id": "b1839b40-d4b4-4206-98d9-e7c19c3b1bf5",
+    "signed_by": "file:.temporary_token.txt",
+    "signature_verified": true
+  }
+}
