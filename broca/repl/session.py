@@ -487,6 +487,12 @@ class ConversationSession:
                 self.messages.append({"role": "assistant", "content": assistant_text})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
 
+                # Persist immediately so callers (and tests) can observe saved state
+                try:
+                    self._save_conversation()
+                except Exception:
+                    pass
+
                 # Return immediately after streaming - do heavy post-processing in background
                 # This prevents blocking the user from seeing the response
                 try:
