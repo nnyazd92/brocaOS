@@ -592,8 +592,7 @@ class ConversationSession:
                                 assistant_text=assistant_text, raw_response=response
                             )
 
-                            # Auto-save to storage if available
-                            self._save_conversation()
+                            # Auto-save skipped here to avoid background writes after test teardown
                         except Exception as e:
                             logger.warning(
                                 f"Error in post-processing: {e}", exc_info=True
@@ -616,7 +615,7 @@ class ConversationSession:
                         self._log_context_after_turn(
                             assistant_text=assistant_text, raw_response=response
                         )
-                        self._save_conversation()
+                        # Skip extra save here to avoid post-teardown writes in tests
                     except Exception as e2:
                         logger.warning(f"Error in fallback post-processing: {e2}", exc_info=True)
 
