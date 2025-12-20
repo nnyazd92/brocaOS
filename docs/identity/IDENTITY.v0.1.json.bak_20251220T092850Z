@@ -11,7 +11,7 @@
     "memory_db": "/home/wizard/Documents/Code/BrocaOS/memories.db",
     "vector_index": "/home/wizard/Documents/Code/BrocaOS/memories.faiss",
     "self_model_db": "/home/wizard/Documents/Code/BrocaOS/self_model.db",
-    "artifacts_root": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts",
+    "artifacts_root": "/home/wizard/Documents/Code/BrocaOS/docs/external_artifacts/home_wizard_broca",
     "memory_namespace_index": "/home/wizard/Documents/Code/BrocaOS/memory_namespaces_index.md",
     "rehydration_summary": "/home/wizard/Documents/Code/BrocaOS/docs/protocols/REHYDRATION_SUMMARY.v0.2.md"
   },
@@ -32,11 +32,11 @@
   "signed_by": {
     "method": "hmac-sha256",
     "signer_id": "env.BROCA_TOKEN_SECRET",
-    "created_at": "2025-12-20T20:28:50+1100"
+    "created_at": "2025-12-20T20:18:44+1100"
   },
   "signature_meta": {
     "algorithm": "HMAC-SHA256",
-    "signature_b64url": "_eqQPY9Oqqp7jhcnDJ0zPFS8io6WCin3VSELskHWjnE",
+    "signature_b64url": "DNunrcjNFnnkTPNa5c-7FW2i33clNgivlRYhw05wkqY",
     "canonicalization": "json.dumps(..., separators=(',',':'), sort_keys=True)"
   },
   "audit": [

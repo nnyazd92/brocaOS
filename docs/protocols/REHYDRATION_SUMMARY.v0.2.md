@@ -1,5 +1,5 @@
 # Rehydration Summary v0.2
-- boot_ts: 2025-12-20T20:20:02+1100
+- boot_ts: 2025-12-20T20:28:50+1100
 - operator: wizard
 - persistence_enabled: True (writes-enabled)
 ## Token
@@ -13,7 +13,7 @@
 - memory_db: exists=True size=3813376 path=/home/wizard/Documents/Code/BrocaOS/memories.db
 - vector_index: exists=True size=540717 path=/home/wizard/Documents/Code/BrocaOS/memories.faiss
 - self_model_db: exists=True size=14069760 path=/home/wizard/Documents/Code/BrocaOS/self_model.db
-- artifacts_root: exists=False size=None path=/home/wizard/Documents/Code/BrocaOS/docs/external_artifacts/home_wizard_broca
+- artifacts_root: exists=True size=None path=/home/wizard/Documents/Code/BrocaOS/docs/artifacts
 - memory_namespace_index: exists=True size=897 path=/home/wizard/Documents/Code/BrocaOS/memory_namespaces_index.md
 - rehydration_summary: exists=True size=1391 path=/home/wizard/Documents/Code/BrocaOS/docs/protocols/REHYDRATION_SUMMARY.v0.2.md
 ## Steps
