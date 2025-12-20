@@ -1,19 +1,19 @@
 {
   "schema": "REHYDRATION_SUMMARY.v0.2",
-  "boot_ts": "2025-12-20T20:05:19+1100",
+  "boot_ts": "2025-12-20T20:20:02+1100",
   "operator": "wizard",
   "approval": "COMMENCE BOOT UP PROTOCOL, WRITES ENABLED (user directive)",
   "token_provenance": {
     "source": ".temporary_token.txt",
     "env_secret": "BROCA_TOKEN_SECRET",
-    "jwt_valid": false,
+    "jwt_valid": true,
     "jwt_claims": {
-      "jti": "aea27ee824d14d3fa0d56aae35e73287",
+      "jti": "5fd9bbd0c06946abace081d1f199f207",
       "sub": "nick.yazdani",
       "aud": "broca-os",
       "iss": "broca-token-v1",
-      "exp": 1766221310,
-      "iat": 1766221010,
+      "exp": 1766229434,
+      "iat": 1766222234,
       "scopes": [
         "filesystem:write",
         "project:write",
@@ -21,14 +21,12 @@
       ],
       "name": "Nick Yazdani"
     },
-    "jwt_errors": [
-      "invalid or expired"
-    ]
+    "jwt_errors": []
   },
   "identity": {
     "path": "docs/identity/IDENTITY.v0.1.json",
     "sidecar": "docs/identity/IDENTITY.v0.1.signature.json",
-    "verified": false
+    "verified": true
   },
   "pointers_validated": {
     "memory_db": {
@@ -68,10 +66,10 @@
       "size": 1391
     }
   },
-  "persistence_enabled": false,
-  "gating_posture": "sandboxed",
+  "persistence_enabled": true,
+  "gating_posture": "writes-enabled",
   "steps_status": {
-    "load_persistence_gate": "failed",
+    "load_persistence_gate": "ok",
     "hydrate_pointers_and_artifacts": "ok",
     "hydrate_memory_graph": "minimal_sanity_ok_no_mutation",
     "verify_self_consistency": "basic_checks_ok",

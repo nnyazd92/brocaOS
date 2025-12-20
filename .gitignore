@@ -15,4 +15,4 @@ project_world_state.json
 .writes_enabled
 hashlib
 REHYDRATION_SUMMMARY*
-SHUTDOWN_SUMMARY*
+SHUTDOWN_SUMMARY*.temporary_token.txt
