@@ -1,5 +1,5 @@
 # Rehydration Summary v0.2
-- boot_ts: 2025-12-20T20:28:50+1100
+- boot_ts: 2025-12-20T21:44:54+1100
 - operator: wizard
 - persistence_enabled: True (writes-enabled)
 ## Token
@@ -16,10 +16,9 @@
 - artifacts_root: exists=True size=None path=/home/wizard/Documents/Code/BrocaOS/docs/artifacts
 - memory_namespace_index: exists=True size=897 path=/home/wizard/Documents/Code/BrocaOS/memory_namespaces_index.md
 - rehydration_summary: exists=True size=1391 path=/home/wizard/Documents/Code/BrocaOS/docs/protocols/REHYDRATION_SUMMARY.v0.2.md
-## Steps
-- load_persistence_gate: ok
-- hydrate_pointers_and_artifacts: ok
-- hydrate_memory_graph: minimal_sanity_ok_no_mutation
-- verify_self_consistency: basic_checks_ok
-- build_rehydration_summary: ok
-- boot_banner: ok
+## Memory status
+- total: 88 with_embedding: 88 without_embedding: 0
+## Vector index status
+- path: /home/wizard/Documents/Code/BrocaOS/memories.faiss exists: True size: 540717
+## Temporal validation
+- ran: True consistent: True
