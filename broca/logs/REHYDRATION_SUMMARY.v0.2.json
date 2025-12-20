@@ -1,0 +1,25 @@
+{
+  "identity_checks": {
+    "docs/identity/IDENTITY.v0.1.json": {
+      "exists": true,
+      "size": 1773,
+      "sha256": "7a39f236a2a7c26ac19a73c028ca85e08732354f9827115966f00b0380f5d24f"
+    },
+    "docs/identity/IDENTITY.v0.1.json.signature.json": {
+      "exists": false
+    }
+  },
+  "token_provenance": {
+    "provenance": "file:.temporary_token.txt",
+    "jti": "581417111e7a45c19c544394b5cfcf01",
+    "sub": "nick.yazdani",
+    "exp": 1766211436,
+    "scopes": [
+      "filesystem:write",
+      "project:write",
+      "memory:write"
+    ]
+  },
+  "persistence_enabled": true,
+  "timestamp": "2025-12-20T06:16:22.417314Z"
+}
