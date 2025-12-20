@@ -29,5 +29,27 @@
       "actor": "assistant",
       "used_provenance": "file:.temporary_token.txt"
     }
+  },
+  "hydration_completed": {
+    "timestamp": "2025-12-20T06:45:15.667807Z",
+    "actions": [
+      {
+        "wrote": "broca/logs/boot_2025-12-20T064515667807Z.log"
+      },
+      {
+        "ensured_sqlite": "/home/wizard/Documents/Code/BrocaOS/memories.db"
+      },
+      {
+        "touched": "/home/wizard/Documents/Code/BrocaOS/memories.faiss"
+      },
+      {
+        "ensured_sqlite": "/home/wizard/Documents/Code/BrocaOS/self_model.db"
+      }
+    ],
+    "files_hashed": {
+      "/home/wizard/Documents/Code/BrocaOS/memories.db": "3bbbadb4c3c42eecb273b13f00c4b814dbdfb4c5ec899077841aaf05364da775",
+      "/home/wizard/Documents/Code/BrocaOS/memories.faiss": "19cbf89d483f55887bbf49a778105b4b81a916df115b242042a4370a9a8dc2aa",
+      "/home/wizard/Documents/Code/BrocaOS/self_model.db": "8a40096a4ff294cddf454a338c19b35be7bb4d80e709c916763d8136dae7b13f"
+    }
   }
 }
