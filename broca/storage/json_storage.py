@@ -68,7 +68,8 @@ class JSONFileStorage:
             # Use a deterministic temp file path in the same directory as the target file.
             storage_dir = self.storage_path.resolve()
             storage_dir.mkdir(parents=True, exist_ok=True)
-            tmp_path = storage_dir / f".{session_id}.json.tmp"
+            import time, secrets
+            tmp_path = storage_dir / f'.{session_id}.{secrets.token_hex(8)}.{time.monotonic_ns()}.tmp'
             
             # Write JSON to temporary file
             with open(tmp_path, 'w', encoding='utf-8') as tmp_file:
