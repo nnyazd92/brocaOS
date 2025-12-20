@@ -35,9 +35,6 @@ from .memory.vector_index import VectorIndex
 from .memory.embeddings import EmbeddingService
 from .memory.manager import MemoryManager
 from .self_model.model import SelfModel
-from .self_model.consistency import ConsistencyChecker
-from .self_model.updater import SelfModelUpdater
-from .self_model.layer import ConsistencyLayer
 from .tools.self_model_tool import QuerySelfModelTool
 from .internal_sensing.framework import InternalSensingFramework
 from .repl.session import ConversationSession
@@ -100,7 +97,7 @@ class OptimizationDaemon:
         self.memory_manager = _initialize_memory_manager()
         
         # Initialize self-model system
-        consistency_layer, self_model, epistemic_engine = _initialize_self_model()
+        self_model, storage, epistemic_engine = _initialize_self_model()
         
         # Initialize internal sensing system
         internal_sensing = _initialize_internal_sensing()
@@ -112,7 +109,8 @@ class OptimizationDaemon:
         tool_registry = _initialize_tool_registry(
             memory_manager=self.memory_manager,
             epistemic_engine=epistemic_engine,
-            consistency_layer=consistency_layer
+            self_model=self_model,
+            storage=storage
         )
         
         # Remove restricted tools from daemon (safety restriction for autonomous operation)
@@ -143,9 +141,9 @@ class OptimizationDaemon:
         
         # Register self-model query tool if self-model system is enabled
         # Note: UpdateSelfModelTool is NOT registered in autonomous mode for safety
-        if consistency_layer and tool_registry:
+        if self_model and storage and tool_registry:
             try:
-                query_tool = QuerySelfModelTool(consistency_layer)
+                query_tool = QuerySelfModelTool(self_model, storage)
                 tool_registry.register_tool(query_tool)
                 logger.info("Registered self-model query tool (update tool excluded in autonomous mode)")
             except Exception as e:
@@ -215,7 +213,6 @@ class OptimizationDaemon:
             system_prompt=system_prompt,
             storage=storage,
             tool_registry=tool_registry,
-            consistency_layer=consistency_layer,
             internal_sensing_framework=internal_sensing,
             world_state_aggregator=world_state_aggregator,
         )

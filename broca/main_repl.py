@@ -1,6 +1,7 @@
 import sys
 import readline  # optional, for nicer REPL on Unix
 import logging
+from typing import TYPE_CHECKING, Any
 from .logging_config import setup_logging
 from .repl.session import ConversationSession
 from .config import config
@@ -18,12 +19,12 @@ from .memory.vector_index import VectorIndex
 from .memory.embeddings import EmbeddingService
 from .memory.manager import MemoryManager
 from .self_model.model import SelfModel
-from .self_model.consistency import ConsistencyChecker
-from .self_model.updater import SelfModelUpdater
-from .self_model.layer import ConsistencyLayer
 from .tools.self_model_tool import QuerySelfModelTool
 from .internal_sensing.framework import InternalSensingFramework
 from .world_state.aggregator import WorldStateAggregator
+
+if TYPE_CHECKING:
+    from .self_model.storage import SelfModelSQLiteStorage
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,8 @@ def _initialize_memory_manager() -> MemoryManager | None:
 def _initialize_tool_registry(
     memory_manager: MemoryManager | None = None,
     epistemic_engine: "MetacognitiveEngine | None" = None,
-    consistency_layer: "ConsistencyLayer | None" = None
+    self_model: SelfModel | None = None,
+    storage: Any = None
 ) -> ToolRegistry | None:
     """
     Initialize tool registry and register available tools.
@@ -98,7 +100,8 @@ def _initialize_tool_registry(
     Args:
         memory_manager: Optional MemoryManager instance for memory tools
         epistemic_engine: Optional MetacognitiveEngine instance for epistemic tracking
-        consistency_layer: Optional ConsistencyLayer for saving self-model after memory storage
+        self_model: Optional SelfModel instance for self-model tools
+        storage: Optional storage instance for saving self-model
     
     Returns:
         ToolRegistry instance if successfully initialized, None otherwise.
@@ -124,7 +127,8 @@ def _initialize_tool_registry(
                 store_tool = StoreMemoryTool(
                     memory_manager, 
                     epistemic_engine=epistemic_engine,
-                    consistency_layer=consistency_layer
+                    self_model=self_model,
+                    storage=storage
                 )
                 retrieve_tool = RetrieveMemoriesTool(memory_manager, epistemic_engine=epistemic_engine)
                 delete_tool = DeleteMemoryTool(memory_manager)
@@ -295,7 +299,7 @@ def _backfill_epistemic_layer(
 def _initialize_self_model(
     storage_path_override: str | None = None,
     enable_epistemic_override: bool | None = None
-) -> tuple[ConsistencyLayer | None, SelfModel | None, "MetacognitiveEngine | None"]:
+) -> tuple[SelfModel | None, Any, "MetacognitiveEngine | None"]:
     """
     Initialize self-model system if enabled.
     
@@ -304,7 +308,7 @@ def _initialize_self_model(
         enable_epistemic_override: Optional override for enable_epistemic config (for testing)
     
     Returns:
-        Tuple of (ConsistencyLayer instance or None, SelfModel instance or None, MetacognitiveEngine or None)
+        Tuple of (SelfModel instance or None, storage instance or None, MetacognitiveEngine or None)
     """
     if not config.self_model.enabled:
         logger.debug("Self-model system is disabled")
@@ -372,27 +376,8 @@ def _initialize_self_model(
                 except Exception as e:
                     logger.warning(f"Failed to create MetacognitiveEngine: {e}", exc_info=True)
         
-        # Initialize checker and updater with optional custom prompts
-        checker = ConsistencyChecker(
-            check_prompt_template=config.self_model.consistency_check_prompt
-        )
-        updater = SelfModelUpdater(
-            update_prompt_template=config.self_model.update_prompt
-        )
-        
-        # Create consistency layer
-        consistency_layer = ConsistencyLayer(
-            self_model=self_model,
-            storage=storage,
-            checker=checker,
-            updater=updater,
-            strict_mode=config.self_model.strict_mode,
-            auto_update=config.self_model.auto_update,
-            max_iterations=config.self_model.max_iterations,
-        )
-        
         logger.info("Initialized self-model system")
-        return consistency_layer, self_model, epistemic_engine
+        return self_model, storage, epistemic_engine
         
     except Exception as e:
         logger.warning(f"Failed to initialize self-model system: {e}, continuing without it", exc_info=True)
@@ -482,7 +467,7 @@ def main() -> None:
     memory_manager = _initialize_memory_manager()
     
     # Initialize self-model system
-    consistency_layer, self_model, epistemic_engine = _initialize_self_model()
+    self_model, storage, epistemic_engine = _initialize_self_model()
     
     # Initialize internal sensing system
     internal_sensing = _initialize_internal_sensing()
@@ -491,17 +476,18 @@ def main() -> None:
     environment_system = _initialize_environment_system()
     
     try:
-        # Initialize tool registry (with memory manager, epistemic engine, and consistency layer if available)
+        # Initialize tool registry (with memory manager, epistemic engine, self_model and storage if available)
         tool_registry = _initialize_tool_registry(
             memory_manager=memory_manager,
             epistemic_engine=epistemic_engine,
-            consistency_layer=consistency_layer
+            self_model=self_model,
+            storage=storage
         )
         
         # Register self-model tools if self-model system is enabled
-        if consistency_layer and tool_registry:
+        if self_model and storage and tool_registry:
             try:
-                query_tool = QuerySelfModelTool(consistency_layer)
+                query_tool = QuerySelfModelTool(self_model, storage)
                 tool_registry.register_tool(query_tool)
                 logger.info("Registered self-model query tool")
             except Exception as e:
@@ -543,7 +529,6 @@ def main() -> None:
             system_prompt=None,
             storage=storage,
             tool_registry=tool_registry,
-            consistency_layer=consistency_layer,
             internal_sensing_framework=internal_sensing,
             world_state_aggregator=world_state_aggregator,
         )
@@ -552,7 +537,7 @@ def main() -> None:
         storage_status = "enabled" if storage else "disabled"
         tools_status = "enabled" if tool_registry else "disabled"
         memory_status = "enabled" if memory_manager else "disabled"
-        self_model_status = "enabled" if consistency_layer else "disabled"
+        self_model_status = "enabled" if self_model else "disabled"
         sensing_status = "enabled" if internal_sensing else "disabled"
         print(f"BrocaOS REPL ({provider_name} backend). Storage: {storage_status}, Tools: {tools_status}, Memory: {memory_status}, Self-Model: {self_model_status}, Internal Sensing: {sensing_status}. Type /exit to quit, /reset to clear context.\n")
 
@@ -577,7 +562,6 @@ def main() -> None:
                     system_prompt=None,
                     storage=storage,
                     tool_registry=tool_registry,
-                    consistency_layer=consistency_layer,
                     internal_sensing_framework=internal_sensing,
                     world_state_aggregator=world_state_aggregator,
                 )
