@@ -65,48 +65,34 @@ class JSONFileStorage:
         
         tmp_path = None
         try:
-            # Atomic write: create a temp file, write data, then atomically replace the target.
-            # Using NamedTemporaryFile(delete=False) ensures the file persists after the context
-            # manager exits, allowing us to verify it exists before the atomic rename.
-            # Ensure storage_path is absolute and exists
+            # Use a deterministic temp file path in the same directory as the target file.
             storage_dir = self.storage_path.resolve()
             storage_dir.mkdir(parents=True, exist_ok=True)
+            tmp_path = storage_dir / f".{session_id}.json.tmp"
             
-            with tempfile.NamedTemporaryFile(
-                mode='w',
-                dir=str(storage_dir),
-                delete=False,
-                suffix='.tmp',
-                encoding='utf-8'
-            ) as tmp_file:
-                tmp_path = tmp_file.name
+            # Write JSON to temporary file
+            with open(tmp_path, 'w', encoding='utf-8') as tmp_file:
                 json.dump(data, tmp_file, indent=2, ensure_ascii=False)
                 tmp_file.flush()
-                # Ensure data is written to disk
                 os.fsync(tmp_file.fileno())
             
-            # Verify temp file exists before atomic rename
-            # Note: tmp_path is set before the context exits, so it should always be valid
-            if not tmp_path:
-                raise OSError(f"Temporary file path was not set")
-            if not os.path.exists(tmp_path):
+            # Ensure temp file exists
+            if not tmp_path.exists():
                 raise OSError(f"Temporary file {tmp_path} was not created or does not exist")
             
-            # Atomic rename
-            os.replace(tmp_path, str(file_path))
+            # Atomic replace
+            os.replace(str(tmp_path), str(file_path))
             logger.debug(f"Saved conversation {session_id} to {file_path}")
         except (OSError, IOError, TypeError, ValueError) as e:
             logger.error(f"Failed to save conversation {session_id}: {e}")
-            # json.JSONEncodeError does not exist in the stdlib json module; catch
-            # TypeError/ValueError which are raised on non-serializable objects.
-            # Clean up temp file if it exists
-            if 'tmp_path' in locals() and os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+            # Clean up temp file if present
+            try:
+                if tmp_path and Path(tmp_path).exists():
+                    Path(tmp_path).unlink()
+            except Exception:
+                pass
             raise
-    
+
     def load_conversation(self, session_id: str) -> Optional[Dict[str, Any]]:
         """
         Load a conversation from a JSON file.
