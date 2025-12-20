@@ -1,0 +1,21 @@
+{
+  "artifacts": [
+    {
+      "id": "self-20251219T222315Z.json",
+      "type": "self-model-snapshot",
+      "path": "/home/wizard/broca/self_models/self-20251219T222315Z.json",
+      "created_by": "wizard",
+      "timestamp": "2025-12-19T22:32:08Z",
+      "sha256": "ca6ac6385712416fcc037da149d422078d4c19e1b243d48583f6989daa1f4f41"
+    },
+    {
+      "id": "session-2025-12-19T21:16:42Z",
+      "type": "session-summary",
+      "path": "/home/wizard/broca/artifacts/summaries/session-2025-12-19T21:16:42Z.json",
+      "created_by": "nick.yazdani",
+      "timestamp": "2025-12-19T21:16:42Z",
+      "sha256": null,
+      "notes": "Automatic pointer/index created per user request"
+    }
+  ]
+}
