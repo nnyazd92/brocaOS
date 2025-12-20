@@ -1,0 +1,29 @@
+{
+  "generated_at": "2025-12-20T04:55:47.232404+00:00",
+  "persistence": {
+    "payload_present": true,
+    "hmac_present": true,
+    "persistence_enabled": true,
+    "created_by": "nick.yazdani",
+    "jti": "cb80b07534064b7283c2695fd3461b63",
+    "exp": 1766264433
+  },
+  "pointer": "{\n  \"current_session_summary\": \"/home/wizard/broca/self_models/self-20251219T222315Z.json\",\n  \"other_pointers\": [],\n  \"created_by\": \"wizard\",\n  \"persistence_source\": \"/home/wizard/Documents/Code/BrocaOS/.shutdown_persistence.json\",\n  \"timestamp\": \"2025-12-19T22:32:08Z\"\n}",
+  "artifacts": [
+    "docs/external_artifacts/home_wizard_broca/artifacts/REHYDRATION_SUMMARY.v0.2.md",
+    "docs/external_artifacts/home_wizard_broca/artifacts/REHYDRATION_SUMMARY.v0.2.md.provenance.json",
+    "docs/external_artifacts/home_wizard_broca/artifacts/summaries/session-2025-12-19T21:16:42Z.json",
+    "docs/external_artifacts/home_wizard_broca/artifacts/summaries/session-2025-12-19T21:16:42Z.json.provenance.json"
+  ],
+  "memory": {
+    "mem_db_exists": true,
+    "mem_db_size": 3805184,
+    "vec_index_exists": true,
+    "vec_index_size": 540717,
+    "memories_count": 88
+  },
+  "consistency": {
+    "ok": true,
+    "note": "SelfModel loader not available; skipped detailed check"
+  }
+}

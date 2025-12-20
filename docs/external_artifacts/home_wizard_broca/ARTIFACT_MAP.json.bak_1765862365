@@ -1,0 +1,23 @@
+{
+  "timestamp": "2025-12-16T02:56:33Z",
+  "project_root": "/home/wizard/Documents/Code/BrocaOS",
+  "house": "/home/wizard/broca",
+  "key_artifacts": {
+    "origin": "/home/wizard/broca/BROCA_ORIGIN_STORY.md",
+    "system_report": "/home/wizard/broca/BROCA_SYSTEM_REPORT.md",
+    "memories_db": "/home/wizard/Documents/Code/BrocaOS/memories.db",
+    "memories_index": "/home/wizard/Documents/Code/BrocaOS/memories.faiss",
+    "self_model_db": "/home/wizard/Documents/Code/BrocaOS/self_model.db",
+    "namespace_index": "/home/wizard/Documents/Code/BrocaOS/memory_namespaces_index.md",
+    "logs": "/home/wizard/Documents/Code/BrocaOS/broca_repl.log",
+    "env_file": "/home/wizard/Documents/Code/BrocaOS/.env"
+  },
+  "tools": [
+    "terminal",
+    "memory",
+    "version_control",
+    "project_world_state",
+    "environment_access",
+    "web_search(optional)"
+  ]
+}
