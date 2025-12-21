@@ -1,0 +1,48 @@
+{
+  "protocol_version": "v0.3",
+  "timestamp": "2025-12-21T22:58:41Z",
+  "boot_snapshot_commit": "185ed3132c685741bfe2b0d7539cf73cc539fc5c",
+  "identity_verification": {
+    "status": "overridden",
+    "reason": "Operator override accepted: identity signature sidecar indicated PENDING_NO_SECRET but operator approved enabling persistence.",
+    "signature_file": "docs/identity/IDENTITY.v0.1.signature.json",
+    "token_provenance_in_identity": {
+      "type": "file",
+      "location": ".temporary_token.txt",
+      "jti_in_identity": "ed11248c0db44abd9ed01c908c9eb227"
+    },
+    "approval_token_verified": true,
+    "approval_token_provided_from": ".temporary_token.txt",
+    "override": {
+      "operator": "wizard",
+      "statement": "I, wizard, approve overriding identity verification for this boot and enabling persistence.",
+      "timestamp": "2025-12-21T22:58:41Z"
+    }
+  },
+  "session_pointer": "docs/artifacts/broca.session.pointer",
+  "loaded_session_summary": {
+    "session_id": "session-2025-12-21T07:52:10Z",
+    "boot_jti": "ed11248c0db44abd9ed01c908c9eb227",
+    "boot_operator": "wizard",
+    "next_session_notes": "Address world state initialization failures: 1) Fix SelfModel constructor compatibility, 2) Fix MemoryManager dependency injection, 3) Correct directory structure path, 4) Add initialization validation."
+  },
+  "persistence_enabled": true,
+  "memory_files": {
+    "memories.db": true,
+    "memories.faiss": true,
+    "self_model.db": true
+  },
+  "actions_taken": [
+    "Created pre-boot git snapshot (commit 185ed3132c685741bfe2b0d7539cf73cc539fc5c)",
+    "Built and persisted project world state (docs/.project_world_state.json)",
+    "Loaded session pointer and session summary",
+    "Loaded identity artifact and signature sidecar",
+    "Operator override accepted; persistence enabled"
+  ],
+  "next_steps": [
+    "Hydrate memory graph (reads) and validate indexes",
+    "If memory components require migrations, coordinate changes with operator",
+    "Consider providing HMAC secret and re-signing identity artifact for canonical verification"
+  ],
+  "notes": "Persistence enabled by operator override. Actuator token provenance: .temporary_token.txt"
+}
