@@ -4,7 +4,7 @@
   "name": "BrocaOS-identity",
   "version": "0.1.1",
   "created_at": "2025-12-20T05:21:26.919055+00:00",
-  "last_updated_at": "2025-12-20T05:21:26.919075+00:00",
+  "last_updated_at": "2025-12-21T07:54:16.952811+00:00",
   "created_by": "wizard",
   "description": "Shutdown sync identity",
   "pointers": {
@@ -13,7 +13,8 @@
     "self_model_db": "/home/wizard/Documents/Code/BrocaOS/self_model.db",
     "artifacts_root": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts",
     "memory_namespace_index": "/home/wizard/Documents/Code/BrocaOS/memory_namespaces_index.md",
-    "rehydration_summary": "/home/wizard/Documents/Code/BrocaOS/docs/protocols/REHYDRATION_SUMMARY.v0.2.md"
+    "rehydration_summary": "/home/wizard/Documents/Code/BrocaOS/docs/protocols/REHYDRATION_SUMMARY.v0.2.md",
+    "session_summary": "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T07:52:10Z.json"
   },
   "memory_namespace_index_summary": {
     "namespace_counts": {
@@ -25,18 +26,25 @@
   "capabilities_pointer": null,
   "token_provenance": [
     {
-      "type": "env",
-      "location": "BROCA_TOKEN_SECRET"
+      "type": "file",
+      "location": ".temporary_token.txt",
+      "jti": "ed11248c0db44abd9ed01c908c9eb227",
+      "exp": 1766301877,
+      "scopes": [
+        "filesystem:write",
+        "project:write",
+        "memory:write"
+      ]
     }
   ],
   "signed_by": {
     "method": "hmac-sha256",
-    "signer_id": "env.BROCA_TOKEN_SECRET",
-    "created_at": "2025-12-20T20:28:50+1100"
+    "signer_id": "file:.temporary_token.txt (jti=ed11248c0db44abd9ed01c908c9eb227)",
+    "created_at": "2025-12-21T18:54:16"
   },
   "signature_meta": {
     "algorithm": "HMAC-SHA256",
-    "signature_b64url": "UHbfWUyvQdEOOb9exkFKj-CXJQ9E_r72eRP-sdOgrZ4",
+    "signature_b64url": "Ak5-FbG21svbxuk7aoC_cWk5Q-iq2nJIef5q2-FGDsg",
     "canonicalization": "json.dumps(..., separators=(\",\",\" :\"), sort_keys=True)"
   },
   "audit": [
@@ -46,6 +54,20 @@
       "actor": "assistant",
       "notes": "Shutdown sync executed",
       "git_commit": "01eece356f0981a902d2772f8f163102d0b91620"
+    },
+    {
+      "ts": "2025-12-21T13:12:13.234575",
+      "action": "shutdown_sync_with_session",
+      "actor": "assistant",
+      "notes": "Session summary /home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T13:08:02Z.json added, signed with token 4570536644bb4f30b3fb150129b6586a",
+      "git_commit": "N/A"
+    },
+    {
+      "ts": "2025-12-21T07:54:16.952811+00:00",
+      "action": "shutdown_sync_with_session",
+      "actor": "assistant",
+      "notes": "Session summary /home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T07:52:10Z.json added, signed with token ed11248c0db44abd9ed01c908c9eb227",
+      "git_commit": "N/A"
     }
   ]
 }

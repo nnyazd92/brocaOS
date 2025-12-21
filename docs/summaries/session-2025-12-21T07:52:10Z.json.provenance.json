@@ -1,0 +1,11 @@
+{
+  "created_by": "BrocaOS",
+  "created_at": "2025-12-21T07:52:10.887165+00:00",
+  "token_jti": "ed11248c0db44abd9ed01c908c9eb227",
+  "token_scopes": [
+    "filesystem:write",
+    "project:write",
+    "memory:write"
+  ],
+  "signature_method": "HMAC-SHA256 (future)"
+}

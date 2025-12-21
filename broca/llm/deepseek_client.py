@@ -63,7 +63,7 @@ class DeepSeekClient:
             for i, msg in enumerate(cleaned_messages):
                 if msg.get("role") == "assistant" and msg.get("tool_calls"):
                     has_reasoning = "reasoning_content" in msg
-                    logger.warning(
+                    logger.debug(
                         f"Assistant message at index {i} with tool_calls: reasoning_content={'present' if has_reasoning else 'MISSING'}",
                         extra={
                             "event": "assistant_message_check",

@@ -1,7 +1,12 @@
 {
-  "current_session_summary": "/home/wizard/broca/self_models/self-20251219T222315Z.json",
-  "other_pointers": [],
+  "current_session_summary": "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T07:52:10Z.json",
+  "previous_summaries": [
+    "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-19T21:16:42Z.json",
+    "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T13:08:02Z.json"
+  ],
   "created_by": "wizard",
   "persistence_source": "/home/wizard/Documents/Code/BrocaOS/.shutdown_persistence.json",
-  "timestamp": "2025-12-19T22:32:08Z"
+  "identity_pointer": "/home/wizard/Documents/Code/BrocaOS/docs/identity/IDENTITY.v0.1.json",
+  "timestamp": "2025-12-21T07:53:03.102360+00:00",
+  "boot_jti": "ed11248c0db44abd9ed01c908c9eb227"
 }

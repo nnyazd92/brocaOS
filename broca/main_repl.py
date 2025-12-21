@@ -1,6 +1,7 @@
 import sys
 import readline  # optional, for nicer REPL on Unix
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from .logging_config import setup_logging
 from .repl.session import ConversationSession
@@ -460,20 +461,44 @@ def _initialize_internal_sensing() -> InternalSensingFramework | None:
 def main() -> None:
     setup_logging()
 
+    # Detect workspace root (parent of broca package directory)
+    workspace_root = Path(__file__).parent.parent.resolve()
+    logger.info(f"Detected workspace root: {workspace_root}")
+
     # Initialize storage
     conversation_storage = _initialize_storage()
+    if conversation_storage:
+        logger.info("✓ Conversation storage initialized successfully")
+    else:
+        logger.warning("✗ Conversation storage initialization failed or disabled")
     
     # Initialize memory manager
     memory_manager = _initialize_memory_manager()
+    if memory_manager:
+        logger.info("✓ Memory manager initialized successfully")
+    else:
+        logger.warning("✗ Memory manager initialization failed or disabled - will not be included in world state")
     
     # Initialize self-model system
     self_model, self_model_storage, epistemic_engine = _initialize_self_model()
+    if self_model:
+        logger.info("✓ Self-model initialized successfully")
+    else:
+        logger.warning("✗ Self-model initialization failed or disabled - will not be included in world state")
     
     # Initialize internal sensing system
     internal_sensing = _initialize_internal_sensing()
+    if internal_sensing:
+        logger.info("✓ Internal sensing framework initialized successfully")
+    else:
+        logger.warning("✗ Internal sensing framework initialization failed or disabled - will not be included in world state")
     
     # Initialize environment access system
     environment_system = _initialize_environment_system()
+    if environment_system:
+        logger.info("✓ Environment access system initialized successfully")
+    else:
+        logger.debug("Environment access system disabled or failed to initialize")
     
     try:
         # Initialize tool registry (with memory manager, epistemic engine, self_model and storage if available)
@@ -483,6 +508,10 @@ def main() -> None:
             self_model=self_model,
             storage=self_model_storage
         )
+        if tool_registry:
+            logger.info("✓ Tool registry initialized successfully")
+        else:
+            logger.warning("✗ Tool registry initialization failed or disabled")
         
         # Register self-model tools if self-model system is enabled
         if self_model and self_model_storage and tool_registry:
@@ -506,14 +535,32 @@ def main() -> None:
             except Exception as e:
                 logger.warning(f"Failed to register environment access tool: {e}", exc_info=True)
         
-        # Create directory structure generator for Broca house
+        # Create directory structure generator for workspace
         directory_structure_generator = None
         try:
             from .world_state.directory_structure import DirectoryStructureGenerator
-            directory_structure_generator = DirectoryStructureGenerator(root_path="/home/wizard/broca")
-            logger.info("Initialized directory structure generator for Broca house")
+            directory_structure_generator = DirectoryStructureGenerator(root_path=str(workspace_root))
+            logger.info(f"✓ Directory structure generator initialized successfully for workspace: {workspace_root}")
         except Exception as e:
-            logger.warning(f"Failed to initialize directory structure generator: {e}", exc_info=True)
+            logger.warning(f"✗ Failed to initialize directory structure generator: {e} - will not be included in world state", exc_info=True)
+        
+        # Log world state component summary before creating aggregator
+        components_summary = []
+        if internal_sensing:
+            components_summary.append("internal_sensing")
+        if self_model:
+            components_summary.append("self_model")
+        if tool_registry:
+            components_summary.append("tool_registry")
+        if memory_manager:
+            components_summary.append("memory_manager")
+        if directory_structure_generator:
+            components_summary.append("directory_structure")
+        
+        logger.info(
+            f"World state aggregator will include: {', '.join(components_summary) if components_summary else 'system_info only'}. "
+            f"Reduction level: {config.self_model.self_model_reduction_level}"
+        )
         
         # Create world state aggregator
         world_state_aggregator = WorldStateAggregator(
