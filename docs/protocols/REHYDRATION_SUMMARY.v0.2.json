@@ -1,0 +1,60 @@
+{
+  "boot_ts": "2025-12-21T12:01:11.716494",
+  "operator": "wizard",
+  "persistence_enabled": true,
+  "writes_enabled": true,
+  "override_reason": "Operator-approved identity verification override",
+  "token": {
+    "source": ".temporary_token.txt",
+    "verified": true,
+    "jti": "c6136f2c84204c06bd7e39b28679ae39",
+    "exp": 1766279046,
+    "scopes": [
+      "filesystem:write",
+      "project:write",
+      "memory:write"
+    ],
+    "sub": "nick.yazdani",
+    "name": "Nick Yazdani"
+  },
+  "identity_verification": {
+    "identity_path": "/home/wizard/Documents/Code/BrocaOS/docs/identity/IDENTITY.v0.1.json",
+    "sidecar": "/home/wizard/Documents/Code/BrocaOS/docs/identity/IDENTITY.v0.1.signature.json",
+    "verified_with_env": false,
+    "verified_with_override": true,
+    "signature_matches": "UHbfWUyvQdEOOb9exkFKj-CXJQ9E_r72eRP-sdOgrZ4",
+    "override_token": "c6136f2c84204c06bd7e39b28679ae39"
+  },
+  "pointers": {
+    "memory_db": {
+      "exists": true,
+      "path": "/home/wizard/Documents/Code/BrocaOS/memories.db",
+      "size": 3813376
+    },
+    "vector_index": {
+      "exists": true,
+      "path": "/home/wizard/Documents/Code/BrocaOS/memories.faiss",
+      "size": 540717
+    },
+    "self_model_db": {
+      "exists": true,
+      "path": "/home/wizard/Documents/Code/BrocaOS/self_model.db",
+      "size": 14069760
+    },
+    "artifacts_root": {
+      "exists": true,
+      "path": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts",
+      "size": null
+    },
+    "memory_namespace_index": {
+      "exists": true,
+      "path": "/home/wizard/Documents/Code/BrocaOS/memory_namespaces_index.md",
+      "size": 897
+    },
+    "rehydration_summary": {
+      "exists": true,
+      "path": "/home/wizard/Documents/Code/BrocaOS/docs/protocols/REHYDRATION_SUMMARY.v0.2.md",
+      "size": 1740
+    }
+  }
+}

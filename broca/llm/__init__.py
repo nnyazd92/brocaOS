@@ -27,6 +27,7 @@ class LLMClient(Protocol):
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        reasoning_content: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Send a chat completion request and return the raw JSON response.
@@ -35,6 +36,7 @@ class LLMClient(Protocol):
             messages: List of message dictionaries with 'role' and 'content' keys
             temperature: Optional temperature override
             tools: Optional list of tools in OpenAI function calling format
+            reasoning_content: Optional reasoning_content for deepseek-reasoner model
             
         Returns:
             Raw API response dictionary

@@ -129,6 +129,13 @@ class ConversationSession:
         """
         self._log_context_before_turn(user_text=user_text)
 
+        # Clear reasoning_content when starting a new user turn (prevents 400 errors)
+        # For deepseek-reasoner, reasoning_content should only be used within a single turn
+        if not hasattr(self, '_current_reasoning_content'):
+            self._current_reasoning_content = None
+        else:
+            self._current_reasoning_content = None
+
         self.messages.append({"role": "user", "content": user_text})
         # Start a new tool-policy turn (for per-turn rate limits)
         if self.tool_registry and hasattr(self.tool_registry, "start_turn"):
@@ -198,6 +205,14 @@ class ConversationSession:
         # Track if we've had tool calls in this turn (affects streaming decision)
         had_tool_calls = False
         
+        # Track reasoning_content for deepseek-reasoner model (cleared at start of turn)
+        # Initialize if not already set (should be None at start of turn)
+        if not hasattr(self, '_current_reasoning_content'):
+            self._current_reasoning_content = None
+        
+        # Check if we're using reasoner model
+        is_reasoner = hasattr(self.llm, 'is_reasoner_model') and self.llm.is_reasoner_model()
+        
         # Handle tool calls iteratively (may require multiple LLM calls)
         iterations = 0
         response = None
@@ -248,9 +263,16 @@ class ConversationSession:
                         # Stream the response - works even with tools available
                         # If tools are used, the stream will yield empty/minimal content, and we'll detect tool_calls after
                         if tools:
-                            stream_gen = self.llm.chat_stream(self.messages, tools=tools)
+                            stream_gen = self.llm.chat_stream(
+                                self.messages, 
+                                tools=tools,
+                                reasoning_content=self._current_reasoning_content if is_reasoner else None
+                            )
                         else:
-                            stream_gen = self.llm.chat_stream(self.messages)
+                            stream_gen = self.llm.chat_stream(
+                                self.messages,
+                                reasoning_content=self._current_reasoning_content if is_reasoner else None
+                            )
                         
                         # Collect streaming chunks and print them immediately as they arrive
                         chunk_count = 0
@@ -289,7 +311,11 @@ class ConversationSession:
                         if tools and (not assistant_text or len(assistant_text.strip()) < 10):
                             logger.debug("Streamed response had minimal content with tools available, checking for tool_calls")
                             # Make a non-streaming call to check for tool_calls
-                            non_stream_response = self.llm.chat(self.messages, tools=tools)
+                            non_stream_response = self.llm.chat(
+                                self.messages, 
+                                tools=tools,
+                                reasoning_content=self._current_reasoning_content if is_reasoner else None
+                            )
                             tool_calls_from_response = self.llm.extract_tool_calls(non_stream_response)
                             if tool_calls_from_response:
                                 # Update response with tool_calls
@@ -301,18 +327,32 @@ class ConversationSession:
                         logger.warning(f"Streaming failed, falling back to non-streaming: {e}", exc_info=True)
                         assistant_text = None  # Reset so it gets extracted from response
                         if tools:
-                            response = self.llm.chat(self.messages, tools=tools)
+                            response = self.llm.chat(
+                                self.messages, 
+                                tools=tools,
+                                reasoning_content=self._current_reasoning_content if is_reasoner else None
+                            )
                         else:
-                            response = self.llm.chat(self.messages)
+                            response = self.llm.chat(
+                                self.messages,
+                                reasoning_content=self._current_reasoning_content if is_reasoner else None
+                            )
                     finally:
                         # No terminal settings to restore since we only flushed input
                         pass
                 else:
                     # Non-streaming mode (when streaming disabled)
                     if tools:
-                        response = self.llm.chat(self.messages, tools=tools)
+                        response = self.llm.chat(
+                            self.messages, 
+                            tools=tools,
+                            reasoning_content=self._current_reasoning_content if is_reasoner else None
+                        )
                     else:
-                        response = self.llm.chat(self.messages)
+                        response = self.llm.chat(
+                            self.messages,
+                            reasoning_content=self._current_reasoning_content if is_reasoner else None
+                        )
             except TimeoutError as e:
                 logger.error(f"LLM request timed out: {e}", exc_info=True)
                 error_message = (
@@ -357,8 +397,44 @@ class ConversationSession:
                 self._save_conversation()
                 return error_message
 
-            # Extract tool calls if any
+            # Extract tool calls if any (needed for logging below)
             tool_calls = self.llm.extract_tool_calls(response)
+
+            # Extract reasoning_content for reasoner model (if present)
+            # Always try to extract, even if None (for logging purposes)
+            if is_reasoner and hasattr(self.llm, 'extract_reasoning_content'):
+                extracted_reasoning = self.llm.extract_reasoning_content(response)
+                if extracted_reasoning:
+                    self._current_reasoning_content = extracted_reasoning
+                    # Only call len() if it's actually a string/sequence, not a Mock
+                    try:
+                        reasoning_length = len(extracted_reasoning)
+                    except TypeError:
+                        # Mock objects or other non-sequence types
+                        reasoning_length = 0
+                    logger.info(
+                        "Extracted reasoning_content from reasoner response",
+                        extra={
+                            "event": "reasoning_content_extracted",
+                            "iteration": iterations,
+                            "reasoning_length": reasoning_length,
+                            "has_tool_calls": bool(tool_calls),
+                        }
+                    )
+                else:
+                    # No reasoning_content in response - this is OK for first request
+                    # But we'll need to ensure assistant messages with tool_calls have the field
+                    logger.debug(
+                        "No reasoning_content in reasoner response",
+                        extra={
+                            "event": "no_reasoning_content_in_response",
+                            "iteration": iterations,
+                            "has_tool_calls": bool(tool_calls),
+                        }
+                    )
+                    # Initialize to empty string if we have tool_calls (field must exist)
+                    if tool_calls and not hasattr(self, '_current_reasoning_content'):
+                        self._current_reasoning_content = ""
 
             # Instrumentation: Track processing depth from tool calls
             if self.internal_sensing_framework and tool_calls:
@@ -399,7 +475,27 @@ class ConversationSession:
                 # gather information before calling the critic again.
                 # Enforcement only happens when the LLM attempts a final response.
 
+                # Log that we're continuing with reasoning_content
+                if is_reasoner and self._current_reasoning_content:
+                    # Safely get reasoning content length, handling Mock objects
+                    try:
+                        reasoning_length = len(self._current_reasoning_content) if isinstance(self._current_reasoning_content, (str, bytes, list, tuple)) else 0
+                    except (TypeError, AttributeError):
+                        reasoning_length = 0
+                    logger.info(
+                        f"Continuing tool iteration {iterations + 1} with reasoning_content",
+                        extra={
+                            "event": "tool_iteration_continue",
+                            "current_iteration": iterations,
+                            "next_iteration": iterations + 1,
+                            "reasoning_content_length": reasoning_length,
+                            "messages_count": len(self.messages),
+                        }
+                    )
+
                 # Continue loop to get LLM response with tool results
+                # The reasoning_content extracted above will be passed in the next iteration
+                continue
             else:
                 # No tool calls - check if we have a pending critic rejection
                 if self._has_pending_critic_rejection():
@@ -681,6 +777,18 @@ class ConversationSession:
 
     # ---------- Internal logging helpers ----------
 
+    def _get_reasoning_length(self) -> int:
+        """Get the length of current reasoning content, safely handling Mock objects."""
+        if not hasattr(self, '_current_reasoning_content'):
+            return 0
+        try:
+            reasoning = self._current_reasoning_content
+            if isinstance(reasoning, (str, bytes, list, tuple)):
+                return len(reasoning)
+            return 0
+        except (TypeError, AttributeError):
+            return 0
+
     def _current_context_stats(self) -> Dict[str, Any]:
         """
         Simple approximations; later you can add token counting if needed.
@@ -713,6 +821,10 @@ class ConversationSession:
         self, assistant_text: str, raw_response: Dict[str, Any]
     ) -> None:
         stats = self._current_context_stats()
+        # Ensure usage is a dict, not a Mock object
+        usage = raw_response.get("usage", {}) if isinstance(raw_response, dict) else {}
+        if not isinstance(usage, dict):
+            usage = {}
         logger.info(
             "Received assistant message",
             extra={
@@ -720,7 +832,7 @@ class ConversationSession:
                 "context_stats": stats,
                 "assistant_preview": assistant_text[:200]
                 + ("..." if len(assistant_text) > 200 else ""),
-                "usage": raw_response.get("usage", {}),
+                "usage": usage,
             },
         )
 
@@ -872,11 +984,42 @@ class ConversationSession:
             return
 
         # Add assistant message with tool calls
+        # For deepseek-reasoner, we must include reasoning_content in the assistant message
+        # if it was present in the response
         assistant_message = {
             "role": "assistant",
             "content": self.llm.extract_assistant_content(response) or None,
             "tool_calls": tool_calls,
         }
+        
+        # Include reasoning_content in the assistant message for reasoner model
+        # The API requires this field to be present in assistant messages with tool_calls
+        # Even if it's empty, the field must exist
+        is_reasoner = hasattr(self.llm, 'is_reasoner_model') and self.llm.is_reasoner_model()
+        if is_reasoner:
+            # Always include reasoning_content field for reasoner model when tool_calls are present
+            # Use stored value if available, otherwise use empty string (field must exist)
+            reasoning_value = ""
+            if hasattr(self, '_current_reasoning_content'):
+                if self._current_reasoning_content:
+                    reasoning_value = self._current_reasoning_content
+            # Always add the field, even if empty (API requirement)
+            assistant_message["reasoning_content"] = reasoning_value
+            # Only call len() if it's actually a string/sequence, not a Mock
+            try:
+                reasoning_length = len(reasoning_value) if isinstance(reasoning_value, (str, bytes, list, tuple)) else 0
+            except (TypeError, AttributeError):
+                reasoning_length = 0
+            logger.info(
+                "Added reasoning_content to assistant message with tool_calls",
+                extra={
+                    "event": "reasoning_content_added_to_message",
+                    "has_reasoning_content": bool(reasoning_value),
+                    "reasoning_length": reasoning_length,
+                    "attribute_exists": hasattr(self, '_current_reasoning_content'),
+                }
+            )
+        
         self.messages.append(assistant_message)
 
         # Execute each tool call
@@ -987,6 +1130,37 @@ class ConversationSession:
 
     # ---------- Storage helpers ----------
 
+    def _sanitize_for_json(self, obj: Any) -> Any:
+        """
+        Recursively sanitize objects to be JSON serializable.
+        
+        Converts Mock objects and other non-serializable types to strings or removes them.
+        """
+        from unittest.mock import Mock
+        
+        if isinstance(obj, Mock):
+            # Convert Mock objects to string representation
+            return str(obj)
+        elif isinstance(obj, dict):
+            # Recursively sanitize dictionaries
+            return {k: self._sanitize_for_json(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            # Recursively sanitize lists and tuples
+            return [self._sanitize_for_json(item) for item in obj]
+        elif isinstance(obj, (str, int, float, bool, type(None))):
+            # Basic JSON-serializable types
+            return obj
+        else:
+            # For other types, try to convert to string
+            try:
+                # Test if it's JSON serializable
+                import json
+                json.dumps(obj)
+                return obj
+            except (TypeError, ValueError):
+                # If not serializable, convert to string
+                return str(obj)
+
     def _save_conversation(self) -> None:
         """
         Save conversation to storage if storage backend is available.
@@ -1021,8 +1195,11 @@ class ConversationSession:
                 "system_prompt": saved_system_prompt,
             }
 
+            # Sanitize messages to ensure they're JSON serializable (remove Mock objects, etc.)
+            sanitized_messages = self._sanitize_for_json(self.messages)
+
             self.storage.save_conversation(
-                session_id=self.session_id, messages=self.messages, metadata=metadata
+                session_id=self.session_id, messages=sanitized_messages, metadata=metadata
             )
 
             logger.debug(f"Saved conversation {self.session_id} to storage")

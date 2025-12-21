@@ -53,7 +53,7 @@ class TestFullConversationFlow:
         # First turn
         session.send("Hello")
         assert len(request_history) == 1
-        assert len(request_history[0]) == 3  # system, user, assistant
+        assert len(request_history[0]) == 2  # system, user (assistant message is in response, not request)
         assert request_history[0][0]["role"] == "system"
         assert request_history[0][1]["role"] == "user"
         assert request_history[0][1]["content"] == "Hello"
@@ -61,7 +61,7 @@ class TestFullConversationFlow:
         # Second turn - should include full history
         session.send("What did I just say?")
         assert len(request_history) == 2
-        assert len(request_history[1]) == 5  # system, user, assistant, user, assistant
+        assert len(request_history[1]) == 4  # system, user (turn 1), assistant (turn 1), user (turn 2)
         assert request_history[1][0]["role"] == "system"
         assert request_history[1][3]["content"] == "What did I just say?"
     

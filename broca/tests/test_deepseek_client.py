@@ -383,3 +383,363 @@ class TestDeepSeekClientTimeout:
         with pytest.raises(httpx.HTTPStatusError):
             client.chat(messages)
 
+
+class TestDeepSeekClientReasonerSupport:
+    """Test deepseek-reasoner model support."""
+    
+    def test_is_reasoner_model_true(self):
+        """
+        Test that is_reasoner_model returns True for deepseek-reasoner.
+        
+        Rationale: Ensures reasoner model detection works correctly.
+        """
+        client = DeepSeekClient(model="deepseek-reasoner")
+        assert client.is_reasoner_model() is True
+    
+    def test_is_reasoner_model_false(self):
+        """
+        Test that is_reasoner_model returns False for other models.
+        
+        Rationale: Ensures non-reasoner models are not detected as reasoner.
+        """
+        client = DeepSeekClient(model="deepseek-chat")
+        assert client.is_reasoner_model() is False
+        
+        client2 = DeepSeekClient(model="gpt-4")
+        assert client2.is_reasoner_model() is False
+    
+    def test_extract_reasoning_content_present(self):
+        """
+        Test extracting reasoning_content from response when present.
+        
+        Rationale: Ensures reasoning_content extraction works correctly.
+        """
+        response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "Final answer",
+                    "reasoning_content": "Let me think step by step..."
+                }
+            }]
+        }
+        
+        reasoning = DeepSeekClient.extract_reasoning_content(response)
+        assert reasoning == "Let me think step by step..."
+    
+    def test_extract_reasoning_content_missing(self):
+        """
+        Test extracting reasoning_content when not present.
+        
+        Rationale: Ensures method handles missing reasoning_content gracefully.
+        """
+        response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "Final answer"
+                }
+            }]
+        }
+        
+        reasoning = DeepSeekClient.extract_reasoning_content(response)
+        assert reasoning is None
+    
+    def test_extract_reasoning_content_malformed_response(self):
+        """
+        Test extracting reasoning_content from malformed response.
+        
+        Rationale: Ensures method handles malformed responses gracefully.
+        """
+        # Missing choices
+        response = {}
+        reasoning = DeepSeekClient.extract_reasoning_content(response)
+        assert reasoning is None
+        
+        # Missing message
+        response = {"choices": [{}]}
+        reasoning = DeepSeekClient.extract_reasoning_content(response)
+        assert reasoning is None
+        
+        # Empty choices
+        response = {"choices": []}
+        reasoning = DeepSeekClient.extract_reasoning_content(response)
+        assert reasoning is None
+    
+    def test_clean_messages_for_reasoner_removes_reasoning_content(self):
+        """
+        Test that clean_messages_for_reasoner removes reasoning_content from final responses.
+        
+        Rationale: Ensures old reasoning_content is removed from final responses to prevent 400 errors.
+        """
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi", "reasoning_content": "Old reasoning"},
+            {"role": "user", "content": "How are you?"}
+        ]
+        
+        cleaned = DeepSeekClient.clean_messages_for_reasoner(messages)
+        
+        assert len(cleaned) == 3
+        assert cleaned[0] == {"role": "user", "content": "Hello"}
+        assert cleaned[1] == {"role": "assistant", "content": "Hi"}
+        assert "reasoning_content" not in cleaned[1]  # Final response should not have it
+        assert cleaned[2] == {"role": "user", "content": "How are you?"}
+    
+    def test_clean_messages_for_reasoner_keeps_reasoning_content_with_tool_calls(self):
+        """
+        Test that clean_messages_for_reasoner keeps reasoning_content in assistant messages with tool_calls.
+        
+        Rationale: Assistant messages with tool_calls MUST have reasoning_content (API requirement).
+        """
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": "call_1"}],
+                "reasoning_content": "I need to use a tool"
+            },
+            {"role": "tool", "name": "test", "content": "Result"},
+            {"role": "assistant", "content": "Final", "reasoning_content": "Old reasoning"}
+        ]
+        
+        cleaned = DeepSeekClient.clean_messages_for_reasoner(messages)
+        
+        assert len(cleaned) == 4
+        # Assistant with tool_calls should KEEP reasoning_content
+        assert cleaned[1]["role"] == "assistant"
+        assert "tool_calls" in cleaned[1]
+        assert "reasoning_content" in cleaned[1]
+        assert cleaned[1]["reasoning_content"] == "I need to use a tool"
+        
+        # Final assistant response should NOT have reasoning_content
+        assert cleaned[3]["role"] == "assistant"
+        assert "reasoning_content" not in cleaned[3]
+    
+    def test_clean_messages_for_reasoner_no_reasoning_content(self):
+        """
+        Test that clean_messages_for_reasoner works when no reasoning_content present.
+        
+        Rationale: Ensures method works correctly even when no cleaning needed.
+        """
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi"}
+        ]
+        
+        cleaned = DeepSeekClient.clean_messages_for_reasoner(messages)
+        
+        assert cleaned == messages
+        assert len(cleaned) == 2
+    
+    def test_clean_messages_for_reasoner_preserves_other_fields(self):
+        """
+        Test that clean_messages_for_reasoner preserves other message fields.
+        
+        Rationale: Ensures only reasoning_content from final responses is removed, other fields remain.
+        Note: Assistant messages with tool_calls MUST keep reasoning_content (API requirement).
+        """
+        # Test with tool_calls - should KEEP reasoning_content
+        messages_with_tools = [
+            {
+                "role": "assistant",
+                "content": None,
+                "reasoning_content": "Reasoning",
+                "tool_calls": [{"id": "call_1"}]
+            }
+        ]
+        
+        cleaned = DeepSeekClient.clean_messages_for_reasoner(messages_with_tools)
+        
+        assert len(cleaned) == 1
+        assert cleaned[0]["role"] == "assistant"
+        assert cleaned[0]["tool_calls"] == [{"id": "call_1"}]
+        assert "reasoning_content" in cleaned[0]  # Should be KEPT when tool_calls present
+        assert cleaned[0]["reasoning_content"] == "Reasoning"
+        
+        # Test without tool_calls - should REMOVE reasoning_content
+        messages_final = [
+            {
+                "role": "assistant",
+                "content": "Response",
+                "reasoning_content": "Reasoning"
+            }
+        ]
+        
+        cleaned_final = DeepSeekClient.clean_messages_for_reasoner(messages_final)
+        
+        assert len(cleaned_final) == 1
+        assert cleaned_final[0]["role"] == "assistant"
+        assert cleaned_final[0]["content"] == "Response"
+        assert "reasoning_content" not in cleaned_final[0]  # Should be REMOVED from final response
+    
+    def test_chat_with_reasoning_content_for_reasoner(self, mock_httpx_client: Mock):
+        """
+        Test that chat() includes reasoning_content in payload for reasoner model.
+        
+        Rationale: Ensures reasoning_content is sent when provided for reasoner model.
+        """
+        client = DeepSeekClient(
+            api_key="test-key",
+            base_url="https://test.api.com/v1",
+            model="deepseek-reasoner",
+            temperature=0.5
+        )
+        client._client = mock_httpx_client
+        
+        messages = create_message_list(user_messages=["Hello"])
+        response = client.chat(messages, reasoning_content="Previous reasoning step")
+        
+        call_args = mock_httpx_client.post.call_args
+        payload = call_args[1]["json"]
+        assert payload["reasoning_content"] == "Previous reasoning step"
+    
+    def test_chat_without_reasoning_content_for_reasoner(self, mock_httpx_client: Mock):
+        """
+        Test that chat() works without reasoning_content for reasoner model.
+        
+        Rationale: Ensures reasoner model works for initial requests without reasoning_content.
+        """
+        client = DeepSeekClient(
+            api_key="test-key",
+            base_url="https://test.api.com/v1",
+            model="deepseek-reasoner",
+            temperature=0.5
+        )
+        client._client = mock_httpx_client
+        
+        messages = create_message_list(user_messages=["Hello"])
+        response = client.chat(messages)
+        
+        call_args = mock_httpx_client.post.call_args
+        payload = call_args[1]["json"]
+        assert "reasoning_content" not in payload
+    
+    def test_chat_cleans_messages_for_reasoner(self, mock_httpx_client: Mock):
+        """
+        Test that chat() cleans messages to remove old reasoning_content.
+        
+        Rationale: Ensures old reasoning_content is removed to prevent 400 errors.
+        """
+        client = DeepSeekClient(
+            api_key="test-key",
+            base_url="https://test.api.com/v1",
+            model="deepseek-reasoner",
+            temperature=0.5
+        )
+        client._client = mock_httpx_client
+        
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi", "reasoning_content": "Old reasoning"}
+        ]
+        response = client.chat(messages)
+        
+        call_args = mock_httpx_client.post.call_args
+        payload = call_args[1]["json"]
+        cleaned_messages = payload["messages"]
+        
+        # Verify reasoning_content was removed
+        assert len(cleaned_messages) == 2
+        assert "reasoning_content" not in cleaned_messages[1]
+        assert cleaned_messages[1]["content"] == "Hi"
+    
+    def test_chat_ignores_reasoning_content_for_non_reasoner(self, mock_httpx_client: Mock):
+        """
+        Test that chat() ignores reasoning_content for non-reasoner models.
+        
+        Rationale: Ensures reasoning_content is only used for reasoner model.
+        """
+        client = DeepSeekClient(
+            api_key="test-key",
+            base_url="https://test.api.com/v1",
+            model="deepseek-chat",
+            temperature=0.5
+        )
+        client._client = mock_httpx_client
+        
+        messages = create_message_list(user_messages=["Hello"])
+        response = client.chat(messages, reasoning_content="Some reasoning")
+        
+        call_args = mock_httpx_client.post.call_args
+        payload = call_args[1]["json"]
+        assert "reasoning_content" not in payload
+    
+    def test_validate_message_interleaving_valid(self):
+        """
+        Test that validate_message_interleaving returns True for properly interleaved messages.
+        
+        Rationale: Ensures validation passes for correctly formatted messages.
+        """
+        messages = [
+            {"role": "system", "content": "System prompt"},
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi"},
+            {"role": "user", "content": "How are you?"}
+        ]
+        
+        assert DeepSeekClient.validate_message_interleaving(messages) is True
+    
+    def test_validate_message_interleaving_with_tools(self):
+        """
+        Test that validate_message_interleaving works with tool messages.
+        
+        Rationale: Ensures tool messages don't interfere with interleaving validation.
+        """
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "call_1"}]},
+            {"role": "tool", "name": "test_tool", "content": "Result"},
+            {"role": "assistant", "content": "Final answer"}
+        ]
+        
+        assert DeepSeekClient.validate_message_interleaving(messages) is True
+    
+    def test_validate_message_interleaving_consecutive_user(self):
+        """
+        Test that validate_message_interleaving detects consecutive user messages.
+        
+        Rationale: Ensures validation catches invalid message sequences.
+        """
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "user", "content": "How are you?"}
+        ]
+        
+        assert DeepSeekClient.validate_message_interleaving(messages) is False
+    
+    def test_validate_message_interleaving_consecutive_assistant(self):
+        """
+        Test that validate_message_interleaving detects consecutive assistant messages.
+        
+        Rationale: Ensures validation catches invalid message sequences.
+        """
+        messages = [
+            {"role": "assistant", "content": "First"},
+            {"role": "assistant", "content": "Second"}
+        ]
+        
+        assert DeepSeekClient.validate_message_interleaving(messages) is False
+    
+    def test_validate_message_interleaving_empty(self):
+        """
+        Test that validate_message_interleaving handles empty message list.
+        
+        Rationale: Ensures validation works with edge cases.
+        """
+        assert DeepSeekClient.validate_message_interleaving([]) is True
+    
+    def test_validate_message_interleaving_only_system(self):
+        """
+        Test that validate_message_interleaving works with only system messages.
+        
+        Rationale: Ensures system messages don't trigger validation errors.
+        """
+        messages = [
+            {"role": "system", "content": "System 1"},
+            {"role": "system", "content": "System 2"}
+        ]
+        
+        assert DeepSeekClient.validate_message_interleaving(messages) is True
+

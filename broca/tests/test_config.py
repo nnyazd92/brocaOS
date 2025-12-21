@@ -26,11 +26,17 @@ class TestLLMConfig:
         # Test that we can instantiate with defaults
         from broca.config import LLMConfig
         
-        # Temporarily clear provider env var to test defaults
+        # Temporarily clear env vars to test defaults
         import os
         original_provider = os.environ.get("BROCA_LLM_PROVIDER")
+        original_model = os.environ.get("DEEPSEEK_MODEL")
+        original_broca_model = os.environ.get("BROCA_LLM_MODEL")
         if "BROCA_LLM_PROVIDER" in os.environ:
             del os.environ["BROCA_LLM_PROVIDER"]
+        if "DEEPSEEK_MODEL" in os.environ:
+            del os.environ["DEEPSEEK_MODEL"]
+        if "BROCA_LLM_MODEL" in os.environ:
+            del os.environ["BROCA_LLM_MODEL"]
         
         try:
             config_obj = LLMConfig()
@@ -44,9 +50,13 @@ class TestLLMConfig:
             assert isinstance(config_obj.temperature, float)
             assert 0.0 <= config_obj.temperature <= 2.0  # Reasonable range
         finally:
-            # Restore original env var
+            # Restore original env vars
             if original_provider is not None:
                 os.environ["BROCA_LLM_PROVIDER"] = original_provider
+            if original_model is not None:
+                os.environ["DEEPSEEK_MODEL"] = original_model
+            if original_broca_model is not None:
+                os.environ["BROCA_LLM_MODEL"] = original_broca_model
     
     def test_env_var_api_key(self, monkeypatch: pytest.MonkeyPatch):
         """

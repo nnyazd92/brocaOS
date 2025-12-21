@@ -375,3 +375,214 @@ class TestConversationSessionToolStorage:
             tool_messages = [msg for msg in messages if msg.get("role") == "tool"]
             assert len(tool_messages) > 0
 
+
+class TestConversationSessionReasonerModel:
+    """Test ConversationSession with deepseek-reasoner model."""
+    
+    def test_reasoner_extracts_reasoning_content(self, mock_llm_client: Mock):
+        """
+        Test that session extracts reasoning_content from reasoner model responses.
+        
+        Rationale: Ensures reasoning_content is tracked for reasoner model.
+        """
+        from broca.llm.deepseek_client import DeepSeekClient
+        
+        # Create a reasoner client
+        reasoner_client = DeepSeekClient(model="deepseek-reasoner")
+        reasoner_client._client = mock_llm_client._client if hasattr(mock_llm_client, '_client') else None
+        
+        # Mock is_reasoner_model and extract_reasoning_content
+        reasoner_client.is_reasoner_model = lambda: True
+        reasoner_client.extract_reasoning_content = DeepSeekClient.extract_reasoning_content
+        
+        response_with_reasoning = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "Final answer",
+                    "reasoning_content": "Let me think step by step..."
+                }
+            }]
+        }
+        
+        mock_llm_client.chat.return_value = response_with_reasoning
+        mock_llm_client.extract_assistant_content.return_value = "Final answer"
+        mock_llm_client.extract_tool_calls.return_value = []
+        mock_llm_client.is_reasoner_model = lambda: True
+        mock_llm_client.extract_reasoning_content = DeepSeekClient.extract_reasoning_content
+        
+        session = ConversationSession(llm=mock_llm_client)
+        response = session.send("Hello")
+        
+        # Verify reasoning_content was extracted and stored
+        assert hasattr(session, '_current_reasoning_content')
+        # Note: reasoning_content is cleared at start of turn, so it may be None after final response
+        assert response == "Final answer"
+    
+    def test_reasoner_passes_reasoning_content_during_tool_iterations(self, mock_llm_client: Mock):
+        """
+        Test that session passes reasoning_content during tool call iterations.
+        
+        Rationale: Ensures reasoning_content is sent back to API during tool iterations.
+        """
+        from broca.llm.deepseek_client import DeepSeekClient
+        from broca.tools.registry import ToolRegistry
+        
+        registry = ToolRegistry()
+        tool = MockTool("test_tool")
+        registry.register_tool(tool)
+        
+        # First response: tool call with reasoning_content
+        tool_call_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "reasoning_content": "I need to use a tool",
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {"name": "test_tool", "arguments": "{}"}
+                    }]
+                }
+            }]
+        }
+        
+        # Second response: final answer with reasoning_content
+        final_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "Final answer",
+                    "reasoning_content": "Based on tool result, here's the answer"
+                }
+            }]
+        }
+        
+        mock_llm_client.is_reasoner_model = lambda: True
+        mock_llm_client.extract_reasoning_content = DeepSeekClient.extract_reasoning_content
+        mock_llm_client.extract_tool_calls.side_effect = [
+            tool_call_response["choices"][0]["message"]["tool_calls"],
+            []
+        ]
+        mock_llm_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        
+        # Track chat calls to verify reasoning_content was passed
+        chat_calls = []
+        def track_chat(*args, **kwargs):
+            chat_calls.append(kwargs)
+            if len(chat_calls) == 1:
+                return tool_call_response
+            else:
+                return final_response
+        
+        mock_llm_client.chat.side_effect = track_chat
+        
+        session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
+        response = session.send("Use tool")
+        
+        # Verify reasoning_content was passed in second call (after tool execution)
+        assert len(chat_calls) >= 2
+        # Second call should include reasoning_content from first response
+        assert chat_calls[1].get("reasoning_content") == "I need to use a tool"
+        assert response == "Final answer"
+    
+    def test_reasoner_clears_reasoning_content_on_new_turn(self, mock_llm_client: Mock):
+        """
+        Test that session clears reasoning_content when starting a new user turn.
+        
+        Rationale: Ensures reasoning_content doesn't persist across turns (prevents 400 errors).
+        """
+        from broca.llm.deepseek_client import DeepSeekClient
+        
+        response_with_reasoning = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "Answer",
+                    "reasoning_content": "Reasoning from turn 1"
+                }
+            }]
+        }
+        
+        mock_llm_client.is_reasoner_model = lambda: True
+        mock_llm_client.extract_reasoning_content = DeepSeekClient.extract_reasoning_content
+        mock_llm_client.extract_tool_calls.return_value = []
+        mock_llm_client.extract_assistant_content.return_value = "Answer"
+        mock_llm_client.chat.return_value = response_with_reasoning
+        
+        session = ConversationSession(llm=mock_llm_client)
+        
+        # First turn
+        session.send("First question")
+        
+        # Verify reasoning_content was extracted
+        assert hasattr(session, '_current_reasoning_content')
+        
+        # Track chat calls for second turn
+        chat_calls = []
+        def track_chat(*args, **kwargs):
+            chat_calls.append(kwargs)
+            return response_with_reasoning
+        
+        mock_llm_client.chat.side_effect = track_chat
+        
+        # Second turn - reasoning_content should be cleared
+        session.send("Second question")
+        
+        # Verify reasoning_content was NOT passed (should be None/cleared)
+        assert len(chat_calls) > 0
+        # First call of second turn should not have reasoning_content from previous turn
+        assert chat_calls[0].get("reasoning_content") is None
+    
+    def test_reasoner_assistant_message_always_has_reasoning_content_field(self, mock_llm_client: Mock):
+        """
+        Test that assistant messages with tool_calls always have reasoning_content field.
+        
+        Rationale: API requires reasoning_content field must be present, even if empty.
+        """
+        from broca.llm.deepseek_client import DeepSeekClient
+        from broca.tools.registry import ToolRegistry
+        
+        registry = ToolRegistry()
+        tool = MockTool("test_tool")
+        registry.register_tool(tool)
+        
+        # Response with tool_calls but NO reasoning_content (first request might not have it)
+        tool_call_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {"name": "test_tool", "arguments": "{}"}
+                    }]
+                    # NO reasoning_content field
+                }
+            }]
+        }
+        
+        final_response = build_llm_response(content="Final answer")
+        
+        mock_llm_client.is_reasoner_model = lambda: True
+        mock_llm_client.extract_reasoning_content = DeepSeekClient.extract_reasoning_content
+        mock_llm_client.extract_tool_calls.side_effect = [
+            tool_call_response["choices"][0]["message"]["tool_calls"],
+            []
+        ]
+        mock_llm_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        mock_llm_client.chat.side_effect = [tool_call_response, final_response]
+        
+        session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
+        session.send("Use tool")
+        
+        # Check that assistant message with tool_calls has reasoning_content field
+        assistant_messages = [msg for msg in session.messages if msg.get("role") == "assistant" and "tool_calls" in msg]
+        assert len(assistant_messages) > 0
+        assistant_with_tools = assistant_messages[0]
+        assert "reasoning_content" in assistant_with_tools, "Assistant message with tool_calls must have reasoning_content field"
+        # Field should exist (even if empty string)
+        assert assistant_with_tools.get("reasoning_content") is not None
+

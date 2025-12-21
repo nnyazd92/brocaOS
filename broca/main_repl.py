@@ -461,13 +461,13 @@ def main() -> None:
     setup_logging()
 
     # Initialize storage
-    storage = _initialize_storage()
+    conversation_storage = _initialize_storage()
     
     # Initialize memory manager
     memory_manager = _initialize_memory_manager()
     
     # Initialize self-model system
-    self_model, storage, epistemic_engine = _initialize_self_model()
+    self_model, self_model_storage, epistemic_engine = _initialize_self_model()
     
     # Initialize internal sensing system
     internal_sensing = _initialize_internal_sensing()
@@ -481,13 +481,13 @@ def main() -> None:
             memory_manager=memory_manager,
             epistemic_engine=epistemic_engine,
             self_model=self_model,
-            storage=storage
+            storage=self_model_storage
         )
         
         # Register self-model tools if self-model system is enabled
-        if self_model and storage and tool_registry:
+        if self_model and self_model_storage and tool_registry:
             try:
-                query_tool = QuerySelfModelTool(self_model, storage)
+                query_tool = QuerySelfModelTool(self_model, self_model_storage)
                 tool_registry.register_tool(query_tool)
                 logger.info("Registered self-model query tool")
             except Exception as e:
@@ -527,14 +527,14 @@ def main() -> None:
         
         session = ConversationSession(
             system_prompt=None,
-            storage=storage,
+            storage=conversation_storage,
             tool_registry=tool_registry,
             internal_sensing_framework=internal_sensing,
             world_state_aggregator=world_state_aggregator,
         )
 
         provider_name = config.llm.provider.upper()
-        storage_status = "enabled" if storage else "disabled"
+        storage_status = "enabled" if conversation_storage else "disabled"
         tools_status = "enabled" if tool_registry else "disabled"
         memory_status = "enabled" if memory_manager else "disabled"
         self_model_status = "enabled" if self_model else "disabled"
@@ -560,7 +560,7 @@ def main() -> None:
                 # Note: Memories persist across resets
                 session = ConversationSession(
                     system_prompt=None,
-                    storage=storage,
+                    storage=conversation_storage,
                     tool_registry=tool_registry,
                     internal_sensing_framework=internal_sensing,
                     world_state_aggregator=world_state_aggregator,
