@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from ..internal_sensing.framework import InternalSensingFramework
     from ..world_state.aggregator import WorldStateAggregator
     from ..world_state.formatter import WorldStateFormatter
+    from ..summarization.event_logger import EventLogger
+    from ..summarization.manager import SummarizationManager
 
 # Import response analyzer for instrumentation
 try:
@@ -84,6 +86,34 @@ class ConversationSession:
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = self.created_at
         self._max_tool_iterations = 100
+        
+        # Initialize summarization components if enabled
+        self._event_logger = None
+        self._summarization_manager = None
+        from ..config import config
+        if config.summarization.enabled:
+            try:
+                from ..summarization.event_logger import EventLogger
+                from ..summarization.storage import SummaryStorage
+                from ..summarization.manager import SummarizationManager
+                
+                event_log_dir = config.summarization.event_log_path
+                summary_path = config.summarization.summary_path
+                
+                self._event_logger = EventLogger(log_dir=event_log_dir)
+                summary_storage = SummaryStorage(summary_path=summary_path)
+                self._summarization_manager = SummarizationManager(
+                    event_logger=self._event_logger,
+                    summary_storage=summary_storage,
+                    trigger_turns=config.summarization.trigger_turns,
+                    trigger_token_threshold=config.summarization.trigger_token_threshold
+                )
+                logger.debug("Summarization enabled for session")
+            except Exception as e:
+                logger.warning(f"Failed to initialize summarization: {e}", exc_info=True)
+        
+        # Track turns for summarization triggers
+        self._turns_since_last_summary = 0
 
         # Initialize formatter for world state
         if world_state_aggregator:
@@ -135,6 +165,13 @@ class ConversationSession:
             self._current_reasoning_content = None
         else:
             self._current_reasoning_content = None
+
+        # Log user message event
+        if self._event_logger:
+            try:
+                self._event_logger.log_user_message(self.session_id, user_text)
+            except Exception as e:
+                logger.warning(f"Failed to log user message event: {e}", exc_info=True)
 
         self.messages.append({"role": "user", "content": user_text})
         # Start a new tool-policy turn (for per-turn rate limits)
@@ -579,9 +616,36 @@ class ConversationSession:
                     else:
                         print("BrocaOS> \n", end="", flush=True)  # Empty response
 
+                # Log assistant message event
+                if self._event_logger:
+                    try:
+                        self._event_logger.log_assistant_message(self.session_id, assistant_text)
+                    except Exception as e:
+                        logger.warning(f"Failed to log assistant message event: {e}", exc_info=True)
+
                 # Add message to conversation history immediately
                 self.messages.append({"role": "assistant", "content": assistant_text})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
+                
+                # Increment turn counter and trigger summarization if needed
+                self._turns_since_last_summary += 1
+                if self._summarization_manager:
+                    try:
+                        self._summarization_manager.maybe_summarize(
+                            self.session_id,
+                            self.messages,
+                            self._turns_since_last_summary
+                        )
+                        # Reset counter after summarization (even if it didn't trigger)
+                        # This prevents rapid re-triggering
+                        if self._summarization_manager.should_summarize(
+                            self.session_id,
+                            self.messages,
+                            self._turns_since_last_summary
+                        ):
+                            self._turns_since_last_summary = 0
+                    except Exception as e:
+                        logger.warning(f"Failed to trigger summarization: {e}", exc_info=True)
 
                 # Persist immediately so callers (and tests) can observe saved state
                 try:
@@ -838,7 +902,7 @@ class ConversationSession:
 
     def _update_system_prompt(self) -> None:
         """
-        Update system prompt with current world state.
+        Update system prompt with current world state and session summary.
 
         Aggregates world state from all available sources and updates
         the system message in the conversation. If no system message exists,
@@ -846,7 +910,8 @@ class ConversationSession:
 
         The system prompt consists of:
         1. Base system prompt (if configured) - user-defined invariants
-        2. Formatted world state JSON - dynamic content with consistent structure
+        2. Session summary context (if summarization enabled) - rolling summary
+        3. Formatted world state JSON - dynamic content with consistent structure
         """
         if not self.world_state_aggregator or not self._world_state_formatter:
             return
@@ -858,15 +923,37 @@ class ConversationSession:
             # Format world state for prompt
             formatted_world_state = self._world_state_formatter.format(world_state)
 
-            # Combine base prompt and world state
+            # Combine base prompt, summary context, and world state
             parts = []
             if self.base_system_prompt:
                 parts.append(self.base_system_prompt)
+            
+            # Add summary context if summarization is enabled
+            if self._summarization_manager:
+                try:
+                    from ..summarization.prompt_builder import PromptBuilder
+                    from ..config import config
+                    
+                    prompt_builder = PromptBuilder(
+                        summary_storage=self._summarization_manager.summary_storage,
+                        last_turns_count=config.summarization.last_turns_count
+                    )
+                    # Get summary context (without base system prompt to avoid duplication)
+                    summary_context = prompt_builder.build_context(
+                        self.session_id,
+                        self.messages,
+                        system_prompt=None
+                    )
+                    if summary_context and summary_context.strip():
+                        parts.append(summary_context)
+                except Exception as e:
+                    logger.debug(f"Failed to add summary context to prompt: {e}", exc_info=True)
+            
             if formatted_world_state:
                 parts.append(formatted_world_state)
 
-            # Join with double newline if both parts exist, otherwise just use the non-empty part
-            if len(parts) == 2:
+            # Join with double newline if multiple parts exist
+            if len(parts) > 1:
                 complete_prompt = "\n\n".join(parts)
             elif len(parts) == 1:
                 complete_prompt = parts[0]
@@ -881,7 +968,7 @@ class ConversationSession:
                 # Create new system message at the beginning
                 self.messages.insert(0, {"role": "system", "content": complete_prompt})
 
-            logger.debug("Updated system prompt with current world state")
+            logger.debug("Updated system prompt with current world state and summary context")
 
         except Exception as e:
             logger.warning(
@@ -1048,8 +1135,44 @@ class ConversationSession:
             )
 
             try:
+                # Log tool call event
+                if self._event_logger:
+                    try:
+                        self._event_logger.log_tool_call(
+                            self.session_id,
+                            tool_name,
+                            arguments,
+                            tool_call_id=tool_call_id
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to log tool call event: {e}", exc_info=True)
+                
                 tool_result = self.tool_registry.execute_tool_call(tool_call)
                 self.messages.append(tool_result)
+                
+                # Log tool result event
+                if self._event_logger:
+                    try:
+                        # Extract result content (may be a dict or string)
+                        result_content = tool_result.get("content", "")
+                        if isinstance(result_content, str):
+                            # Try to parse as JSON if possible
+                            try:
+                                import json
+                                result_dict = json.loads(result_content)
+                            except (json.JSONDecodeError, TypeError):
+                                result_dict = {"content": result_content}
+                        else:
+                            result_dict = result_content if isinstance(result_content, dict) else {"content": str(result_content)}
+                        
+                        self._event_logger.log_tool_result(
+                            self.session_id,
+                            tool_name,
+                            result_dict,
+                            tool_call_id=tool_call_id
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to log tool result event: {e}", exc_info=True)
 
                 # Instrumentation: Record tool usage and reasoning
                 if self.internal_sensing_framework:

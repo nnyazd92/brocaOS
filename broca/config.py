@@ -149,6 +149,17 @@ class OptimizationConfig(BaseModel):
     reports_file_path: str = os.getenv("BROCA_OPTIMIZATION_REPORTS_FILE", "data/optimization_reports.json")
 
 
+class SummarizationConfig(BaseModel):
+    enabled: bool = os.getenv("BROCA_SUMMARIZATION_ENABLED", "true").lower() == "true"
+    event_log_path: str = os.getenv("BROCA_EVENT_LOG_PATH", "conversations/events")
+    summary_path: str = os.getenv("BROCA_SUMMARY_PATH", "docs/summaries")
+    trigger_turns: int = int(os.getenv("BROCA_SUMMARIZATION_TRIGGER_TURNS", "5"))
+    trigger_token_threshold: float = float(os.getenv("BROCA_SUMMARIZATION_TOKEN_THRESHOLD", "0.4"))
+    max_summary_tokens: int = int(os.getenv("BROCA_SUMMARIZATION_MAX_TOKENS", "1200"))
+    max_block_tokens: int = int(os.getenv("BROCA_SUMMARIZATION_MAX_BLOCK_TOKENS", "200"))
+    last_turns_count: int = int(os.getenv("BROCA_SUMMARIZATION_LAST_TURNS", "3"))
+
+
 class BrocaConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     logging: LoggingConfig = LoggingConfig()
@@ -159,6 +170,7 @@ class BrocaConfig(BaseModel):
     internal_sensing: InternalSensingConfig = InternalSensingConfig()
     environment: EnvironmentConfig = EnvironmentConfig()
     optimization: OptimizationConfig = OptimizationConfig()
+    summarization: SummarizationConfig = SummarizationConfig()
 
 
 config = BrocaConfig()

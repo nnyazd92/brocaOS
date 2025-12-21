@@ -31,7 +31,8 @@ class TestFullConversationFlow:
         
         def proper_response(*args, **kwargs):
             messages = kwargs["json"]["messages"]
-            request_history.append(messages)
+            # Make a copy to avoid reference issues (messages list gets modified after response)
+            request_history.append([msg.copy() for msg in messages])
             response_obj = Mock()
             response_obj.raise_for_status = Mock()
             response_obj.json.return_value = build_llm_response(
