@@ -301,13 +301,13 @@ class ConversationSession:
                         # If tools are used, the stream will yield empty/minimal content, and we'll detect tool_calls after
                         if tools:
                             stream_gen = self.llm.chat_stream(
-                                self.messages, 
+                                self._get_messages_for_llm(), 
                                 tools=tools,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None
                             )
                         else:
                             stream_gen = self.llm.chat_stream(
-                                self.messages,
+                                self._get_messages_for_llm(),
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None
                             )
                         
@@ -349,7 +349,7 @@ class ConversationSession:
                             logger.debug("Streamed response had minimal content with tools available, checking for tool_calls")
                             # Make a non-streaming call to check for tool_calls
                             non_stream_response = self.llm.chat(
-                                self.messages, 
+                                self._get_messages_for_llm(), 
                                 tools=tools,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None
                             )
@@ -365,13 +365,13 @@ class ConversationSession:
                         assistant_text = None  # Reset so it gets extracted from response
                         if tools:
                             response = self.llm.chat(
-                                self.messages, 
+                                self._get_messages_for_llm(), 
                                 tools=tools,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None
                             )
                         else:
                             response = self.llm.chat(
-                                self.messages,
+                                self._get_messages_for_llm(),
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None
                             )
                     finally:
@@ -381,13 +381,13 @@ class ConversationSession:
                     # Non-streaming mode (when streaming disabled)
                     if tools:
                         response = self.llm.chat(
-                            self.messages, 
+                            self._get_messages_for_llm(), 
                             tools=tools,
                             reasoning_content=self._current_reasoning_content if is_reasoner else None
                         )
                     else:
                         response = self.llm.chat(
-                            self.messages,
+                            self._get_messages_for_llm(),
                             reasoning_content=self._current_reasoning_content if is_reasoner else None
                         )
             except TimeoutError as e:
@@ -899,6 +899,67 @@ class ConversationSession:
                 "usage": usage,
             },
         )
+
+    def _get_messages_for_llm(self) -> List[Dict[str, Any]]:
+        """
+        Get messages to send to LLM, filtering to last K turns when summarization is enabled.
+        
+        When summarization is enabled and a summary exists, returns only:
+        - System message (at index 0)
+        - Last K turns (user/assistant pairs, where K = config.summarization.last_turns_count)
+        
+        When summarization is disabled or no summary exists, returns full message history.
+        
+        Returns:
+            Filtered message list for LLM calls
+        """
+        # If summarization not enabled, return full messages
+        if not self._summarization_manager:
+            return self.messages
+        
+        # Check if summary exists for this session
+        try:
+            summary = self._summarization_manager.summary_storage.load_session_summary(self.session_id)
+            if not summary:
+                # No summary exists yet, return full messages
+                return self.messages
+        except Exception as e:
+            logger.debug(f"Error checking for summary, using full messages: {e}")
+            return self.messages
+        
+        # Summary exists - filter to system message + last K turns
+        from ..config import config
+        last_turns_count = config.summarization.last_turns_count
+        
+        # Get system message (if exists)
+        system_message = None
+        if self.messages and self.messages[0].get("role") == "system":
+            system_message = self.messages[0]
+        
+        # Get last K turns (non-system messages)
+        # Filter out system messages to get conversation turns
+        non_system_messages = [m for m in self.messages if m.get("role") != "system"]
+        
+        # Each turn = user + assistant (and possibly tool calls/results)
+        # Get last K turns worth of messages
+        # Estimate: each turn is typically 2-4 messages (user, assistant, possibly tool_call, tool_result)
+        # To be safe, take last K*2 messages as a conservative estimate for K turns
+        turns_to_keep = last_turns_count * 2
+        start_idx = max(0, len(non_system_messages) - turns_to_keep)
+        last_turns = non_system_messages[start_idx:]
+        
+        # Reconstruct message list: system message (if exists) + last turns
+        filtered_messages = []
+        if system_message:
+            filtered_messages.append(system_message)
+        filtered_messages.extend(last_turns)
+        
+        logger.debug(
+            f"Filtered messages for LLM: {len(filtered_messages)} messages "
+            f"(full history: {len(self.messages)} messages, keeping last {last_turns_count} turns)"
+        )
+        
+        return filtered_messages
 
     def _update_system_prompt(self) -> None:
         """
