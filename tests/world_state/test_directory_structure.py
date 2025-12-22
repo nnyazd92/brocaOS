@@ -41,5 +41,5 @@ def test_include_hidden_flag(tmp_path: Path):
     gen = DirectoryStructureGenerator(str(root))
     gen.include_hidden = True
     files, dirs = gen.scan_directory()
-    assert ".hidden" in [Path(p)[-1] if isinstance(Path(p), list) else Path(p)[-1] for p in [f["path"] for f in files]]
+    assert any(Path(f["path"]).name == ".hidden" for f in files)
 
