@@ -7,6 +7,7 @@ import time
 import sys
 from datetime import datetime, timezone
 from ..llm import create_llm_client, LLMClient
+from .response_guard import ensure_non_empty
 
 # Try to import termios for terminal control (Unix only)
 try:
@@ -773,7 +774,27 @@ class ConversationSession:
                     except Exception as e2:
                         logger.warning(f"Error in fallback post-processing: {e2}", exc_info=True)
 
-                return assistant_text
+                # --- response-guard: ensure the assistant never returns an empty string ---
+                try:
+                    assistant_msg = next((m for m in reversed(self.messages) if m.get("role") == "assistant"), None)
+                    trace_id = getattr(self, "_current_response_id", None) or None
+                    if assistant_msg is None:
+                        final_reply = ensure_non_empty(None, trace_id=trace_id)
+                        self.messages.append({"role": "assistant", "content": final_reply})
+                    else:
+                        content = assistant_msg.get("content", "")
+                        final_reply = ensure_non_empty(content, trace_id=trace_id)
+                        if final_reply != content:
+                            assistant_msg["content"] = final_reply
+                            logger.info("Injected fallback assistant reply due to empty content (TraceID=%s)", trace_id)
+                except Exception as _e:
+                    import uuid
+                    trace = getattr(self, "_current_response_id", None) or str(uuid.uuid4())
+                    fallback = ensure_non_empty(None, trace_id=trace)
+                    self.messages.append({"role": "assistant", "content": fallback})
+                    final_reply = fallback
+
+                return final_reply
 
         # Max iterations reached
         logger.warning(
