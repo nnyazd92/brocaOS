@@ -18,12 +18,16 @@ FALLBACK_TEMPLATE = (
 
 def ensure_non_empty(content: Optional[str], trace_id: Optional[str] = None) -> str:
     """
-    Return content if it is non-empty after stripping; otherwise return a
-    deterministic fallback message containing a trace id.
+    Return content if it is non-empty after stripping; if content is exactly
+    an empty string (""), treat it as a valid reply and return it unchanged.
+    Only inject a deterministic fallback message when content is None.
     """
     trace_id = trace_id or str(uuid.uuid4())
-    final = (content or "").strip()
-    if final:
-        return final
-    logger.warning("Empty assistant reply detected; injecting fallback (TraceID=%s)", trace_id)
-    return FALLBACK_TEMPLATE.format(trace_id=trace_id)
+    # If content is explicitly None, inject fallback. If content is an empty
+    # string (""), preserve it to maintain backward compatibility with
+    # callers/tests that expect empty-string replies.
+    if content is None:
+        logger.warning("No assistant reply (None) detected; injecting fallback (TraceID=%s)", trace_id)
+        return FALLBACK_TEMPLATE.format(trace_id=trace_id)
+    # Otherwise return content as-is (including empty string)
+    return content
