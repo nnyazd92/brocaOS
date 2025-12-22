@@ -71,6 +71,19 @@ class RelationshipManager:
         if target_memory is None:
             raise ValueError(f"Target memory {target_id} not found")
         
+        # Avoid inserting duplicate relationships: check if identical relationship exists
+        existing = self.storage.get_relationships(
+            source_id=source_id,
+            target_id=target_id,
+            relation_type=relation_type
+        )
+        if existing:
+            # If an identical relationship exists, return its id (first match)
+            logger.info(
+                f"Relationship already exists {source_id} -> {target_id} ({relation_type.value}), skipping insert"
+            )
+            return existing[0].id
+
         # Create relationship record
         relationship = RelationshipRecord(
             source_id=source_id,
