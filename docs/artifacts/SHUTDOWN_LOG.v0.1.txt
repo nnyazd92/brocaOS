@@ -10,3 +10,5 @@ Actions:
 - Persistence left in current state
 
 End of log
+
+Note: Session summary created for continuity: /home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T00:41:55+00:00.json

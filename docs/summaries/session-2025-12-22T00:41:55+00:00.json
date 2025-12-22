@@ -1,0 +1,20 @@
+{
+  "schema_version": "v0.1",
+  "session_id": "session-2025-12-22T00:41:55+00:00",
+  "boot_jti": "ed11248c0db44abd9ed01c908c9eb227",
+  "boot_operator": "wizard",
+  "session_start": "2025-12-22T00:41:55+00:00",
+  "session_end": "2025-12-22T00:41:55+00:00",
+  "key_actions": [
+    "Shutdown performed; summarization attempted"
+  ],
+  "outcome_summary": "Final summary produced for continuity. Persistence state retained.",
+  "memory_changes": {
+    "added": 0,
+    "updated": 0,
+    "deleted": 0
+  },
+  "next_session_notes": "Continue from shutdown state. See REHYDRATION_SUMMARY and SHUTDOWN_STATE for provenance.",
+  "created_by": "assistant",
+  "timestamp": "2025-12-22T00:41:55+00:00"
+}
