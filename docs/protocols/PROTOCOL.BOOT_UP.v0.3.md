@@ -111,4 +111,19 @@ Rehydration summary additions
 - next_session_notes: "notes from previous session"
 - session_history_count: number of previous summaries available
 
+
+
+Shutdown (required sub-steps) - integrated persistence continuity
+- On shutdown, the system MUST create and persist a session summary to ensure next-boot continuity. These steps must be performed atomically as part of the shutdown protocol:
+  1) Finalize current session summary: run summarization for any pending events and produce a SessionSummary JSON with header, summary_blocks, evidence, and confidence.
+  2) Write session summary to docs/summaries/session-<ISO>.json using SummaryStorage._atomic_write and create a backup of any existing summary for that revision.
+  3) Update docs/artifacts/broca.session.pointer: set current_session_summary to the newly written summary path and prepend prior pointer to previous_summaries (retain up to 10 entries).
+  4) Update REHYDRATION_SUMMARY (or SHUTDOWN_STATE) to include session_summary_created metadata and actuator token provenance.
+  5) Record shutdown actions in SHUTDOWN_LOG with timestamps and operator/actuator provenance.
+
+Rationale:
+- Ensures the Boot-Up protocol can always locate a valid session summary on next boot without operator intervention.
+- Prevents continuity gaps caused by missed shutdown steps.
+- Records provenance for auditability and safe overrides.
+
 End - PROTOCOL.BOOT_UP.v0.3.md
