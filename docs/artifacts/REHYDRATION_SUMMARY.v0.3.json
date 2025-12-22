@@ -21,7 +21,7 @@
   },
   "session_pointer": "docs/artifacts/broca.session.pointer",
   "loaded_session_summary": {
-    "session_id": "session-2025-12-21T07:52:10Z",
+    "session_id": "session-2025-12-22T00:41:55+00:00",
     "boot_jti": "ed11248c0db44abd9ed01c908c9eb227",
     "boot_operator": "wizard",
     "next_session_notes": "Address world state initialization failures: 1) Fix SelfModel constructor compatibility, 2) Fix MemoryManager dependency injection, 3) Correct directory structure path, 4) Add initialization validation."
@@ -37,12 +37,19 @@
     "Built and persisted project world state (docs/.project_world_state.json)",
     "Loaded session pointer and session summary",
     "Loaded identity artifact and signature sidecar",
-    "Operator override accepted; persistence enabled"
+    "Operator override accepted; persistence enabled",
+    "Created session summary for continuity and updated session pointer"
   ],
   "next_steps": [
     "Hydrate memory graph (reads) and validate indexes",
     "If memory components require migrations, coordinate changes with operator",
     "Consider providing HMAC secret and re-signing identity artifact for canonical verification"
   ],
-  "notes": "Persistence enabled by operator override. Actuator token provenance: .temporary_token.txt"
+  "notes": "Persistence enabled by operator override. Actuator token provenance: .temporary_token.txt",
+  "session_summary_created": {
+    "path": "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T00:41:55+00:00.json",
+    "created_at": "2025-12-22T00:47:41.342025+00:00",
+    "created_by": "assistant",
+    "actuator_token_provenance": ".temporary_token.txt"
+  }
 }
