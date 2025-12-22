@@ -1,0 +1,35 @@
+{
+  "schema_version": "v0.1",
+  "session_id": "session-2025-12-22T02:14:36Z",
+  "boot_jti": "6b761cbbdd614d9c81011c24d54bcd3a",
+  "boot_operator": "Nick Yazdani",
+  "session_start": "2025-12-22T00:57:13Z",
+  "session_end": "2025-12-22T02:14:36Z",
+  "key_actions": [
+    "boot (created BOOT_MARKER.txt)",
+    "project world state scan",
+    "ephemeral notes written to /tmp/broca_world_state_investigation",
+    "modified broca/world_state/directory_structure.py",
+    "added tests and CI for world_state",
+    "created PR #6",
+    "merged branch into main (per operator)"
+  ],
+  "outcome_summary": "Shutdown initiated by operator. Changes persisted and PR merged to main.",
+  "memory_changes": {
+    "added": 0,
+    "updated": 0,
+    "deleted": 0
+  },
+  "artifact_summary": {
+    "broca_files": 752,
+    "broca_size_bytes": 15770974,
+    "docs_files": 99,
+    "docs_size_bytes": 4588243
+  },
+  "repo_snapshot": {
+    "commit": "e6fa8f09aec1782db1f3c47b34bd386834ad8b6d"
+  },
+  "next_session_notes": "",
+  "created_by": "Nick Yazdani",
+  "timestamp": "2025-12-22T02:14:36Z"
+}

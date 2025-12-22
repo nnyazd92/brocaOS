@@ -1,0 +1,23 @@
+{
+  "schema_version": "v0.1",
+  "session_id": "session-2025-12-22T06:09:04Z",
+  "boot_jti": "ed11248c0db44abd9ed01c908c9eb227",
+  "boot_operator": "wizard",
+  "session_start": "2025-12-22T06:09:04Z",
+  "session_end": "2025-12-22T06:09:04Z",
+  "key_actions": [
+    "Boot protocol executed: identity verified and persistence enabled",
+    "Rehydration summary written: docs/REHYDRATION_SUMMARY.v0.3.json",
+    "Memory-graph hydrated: stored session & identity memories",
+    "Generated personalized Khayyám-style gift files in /tmp (khayyam_gift_*)"
+  ],
+  "outcome_summary": "Session finalized for shutdown. Persistence retained. Personalization artifacts created for operator.",
+  "memory_changes": {
+    "added": 2,
+    "updated": 0,
+    "deleted": 0
+  },
+  "next_session_notes": "Resume with persisted memory graph and artifacts. Operator may resume or request ORP for self-model changes.",
+  "created_by": "assistant",
+  "timestamp": "2025-12-22T06:09:04Z"
+}

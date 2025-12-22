@@ -81,13 +81,16 @@ class DirectoryStructureGenerator:
         try:
             for item in sorted(current_path.iterdir()):
                 try:
-                    # Skip hidden files and directories (starting with '.')
-                    if item.name.startswith('.'):
+                    # Skip hidden files and directories (starting with '.') unless include_hidden is True
+                    if item.name.startswith('.') and not self.include_hidden:
                         continue
                     
                     item_rel_path = rel_path / item.name if rel_path else Path(item.name)
                     
                     if item.is_dir():
+                        # Skip ignored directories (e.g., __pycache__) by default
+                        if item.name in self.ignore_dirs:
+                            continue
                         # Add directory to list
                         directories.append(str(item_rel_path).replace('\\', '/'))
                         # Recursively scan subdirectory

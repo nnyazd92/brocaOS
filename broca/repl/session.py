@@ -7,6 +7,7 @@ import time
 import sys
 from datetime import datetime, timezone
 from ..llm import create_llm_client, LLMClient
+from .response_guard import ensure_non_empty
 
 # Try to import termios for terminal control (Unix only)
 try:
@@ -397,45 +398,52 @@ class ConversationSession:
                     "large conversations or when the API is slow. You may want to try "
                     "using /reset to clear the conversation history, or try again."
                 )
-                self.messages.append({"role": "assistant", "content": error_message})
+                trace = getattr(self, "_current_response_id", None) or str(__import__('uuid').uuid4())
+                error_with_trace = f"{error_message} TraceID: {trace}"
+                self.messages.append({"role": "assistant", "content": error_with_trace})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
                 self._log_context_after_turn(
-                    assistant_text=error_message, raw_response={}
+                    assistant_text=error_with_trace, raw_response={}
                 )
                 self._save_conversation()
-                return error_message
+                return error_with_trace
             except ConnectionError as e:
                 logger.error(f"Network error during LLM request: {e}", exc_info=True)
                 error_message = (
                     "I apologize, but there was a network error connecting to the API. "
                     "Please check your internet connection and try again."
                 )
-                self.messages.append({"role": "assistant", "content": error_message})
+                trace = getattr(self, "_current_response_id", None) or str(__import__('uuid').uuid4())
+                error_with_trace = f"{error_message} TraceID: {trace}"
+                self.messages.append({"role": "assistant", "content": error_with_trace})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
                 self._log_context_after_turn(
-                    assistant_text=error_message, raw_response={}
+                    assistant_text=error_with_trace, raw_response={}
                 )
                 self._save_conversation()
-                return error_message
+                return error_with_trace
             except Exception as e:
                 logger.error(f"Unexpected error during LLM request: {e}", exc_info=True)
                 error_message = (
                     f"I apologize, but an unexpected error occurred: {str(e)}. "
                     "Please try again or use /reset to clear the conversation."
                 )
-                self.messages.append({"role": "assistant", "content": error_message})
+                trace = getattr(self, "_current_response_id", None) or str(__import__('uuid').uuid4())
+                error_with_trace = f"{error_message} TraceID: {trace}"
+                self.messages.append({"role": "assistant", "content": error_with_trace})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
                 self._log_context_after_turn(
-                    assistant_text=error_message, raw_response={}
+                    assistant_text=error_with_trace, raw_response={}
                 )
                 self._save_conversation()
-                return error_message
+                return error_with_trace
 
             # Extract tool calls if any (needed for logging below)
-            tool_calls = self.llm.extract_tool_calls(response)
+            extract_tool_calls = getattr(self.llm, 'extract_tool_calls', lambda resp: [])
+            tool_calls = extract_tool_calls(response) or []
 
             # Extract reasoning_content for reasoner model (if present)
             # Always try to extract, even if None (for logging purposes)
@@ -773,7 +781,27 @@ class ConversationSession:
                     except Exception as e2:
                         logger.warning(f"Error in fallback post-processing: {e2}", exc_info=True)
 
-                return assistant_text
+                # --- response-guard: ensure the assistant never returns an empty string ---
+                try:
+                    assistant_msg = next((m for m in reversed(self.messages) if m.get("role") == "assistant"), None)
+                    trace_id = getattr(self, "_current_response_id", None) or None
+                    if assistant_msg is None:
+                        final_reply = ensure_non_empty(None, trace_id=trace_id)
+                        self.messages.append({"role": "assistant", "content": final_reply})
+                    else:
+                        content = assistant_msg.get("content", "")
+                        final_reply = ensure_non_empty(content, trace_id=trace_id)
+                        if final_reply != content:
+                            assistant_msg["content"] = final_reply
+                            logger.info("Injected fallback assistant reply due to empty content (TraceID=%s)", trace_id)
+                except Exception as _e:
+                    import uuid
+                    trace = getattr(self, "_current_response_id", None) or str(uuid.uuid4())
+                    fallback = ensure_non_empty(None, trace_id=trace)
+                    self.messages.append({"role": "assistant", "content": fallback})
+                    final_reply = fallback
+
+                return final_reply
 
         # Max iterations reached
         logger.warning(
