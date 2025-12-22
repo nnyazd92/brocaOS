@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/summarization/token_estimator.py
+# hypothesis_version: 6.148.7
+
+[0.1, 0.8, 'content', 'name', 'role', 'tool_call_id', 'tool_calls']

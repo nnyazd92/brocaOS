@@ -92,3 +92,47 @@ def estimate_prompt_tokens(
     
     return total
 
+
+def truncate_tool_result(tool_result: Dict[str, Any], max_size: int) -> Dict[str, Any]:
+    """
+    Truncate tool result content if too large.
+    
+    Preserves structure and metadata while truncating content. Keeps first 80% and
+    last 10% of content with a truncation marker in between.
+    
+    Args:
+        tool_result: Tool result dictionary with 'content' field
+        max_size: Maximum size in characters for the content
+        
+    Returns:
+        Tool result with truncated content if needed, otherwise unchanged
+    """
+    if not isinstance(tool_result, dict):
+        return tool_result
+    
+    content = tool_result.get("content", "")
+    if not isinstance(content, str):
+        return tool_result
+    
+    if len(content) <= max_size:
+        return tool_result
+    
+    # Calculate sizes for prefix and suffix
+    # Keep first 80% and last 10% of max_size
+    prefix_size = int(max_size * 0.8)
+    suffix_size = int(max_size * 0.1)
+    
+    # Extract prefix and suffix
+    prefix = content[:prefix_size]
+    suffix = content[-suffix_size:] if len(content) > suffix_size else ""
+    
+    # Create truncation marker
+    truncated_chars = len(content) - max_size
+    truncation_marker = f"\n\n... [truncated {truncated_chars} characters] ...\n\n"
+    
+    # Combine with truncation marker
+    truncated_content = f"{prefix}{truncation_marker}{suffix}"
+    
+    # Return new dict with truncated content, preserving all other fields
+    return {**tool_result, "content": truncated_content}
+
