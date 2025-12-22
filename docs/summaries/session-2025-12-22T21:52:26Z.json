@@ -1,0 +1,22 @@
+{
+  "schema_version": "v0.1",
+  "session_id": "session-2025-12-22T21:52:26Z",
+  "boot_jti": "f24d4d1f57ad4bfbbcb7c3ee8123a379",
+  "boot_operator": "Nick Yazdani",
+  "session_start": "2025-12-22T21:52:26Z",
+  "session_end": "2025-12-22T21:52:26Z",
+  "key_actions": [
+    "Shutdown protocol initiated by operator",
+    "Persisted session summary and updated session pointer",
+    "Recorded actuator token provenance and verification"
+  ],
+  "outcome_summary": "Session persisted for shutdown",
+  "memory_changes": {
+    "added": 0,
+    "updated": 0,
+    "deleted": 0
+  },
+  "next_session_notes": "No-op",
+  "created_by": "assistant",
+  "timestamp": "2025-12-22T21:52:26Z"
+}

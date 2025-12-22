@@ -1,10 +1,7 @@
 {
-  "schema_version": "v0.1",
-  "shutdown_time": "2025-12-22T06:09:04Z",
-  "session_summary": "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T06:09:04Z.json",
-  "session_summary_created": true,
-  "actuator_token_provenance": ".temporary_token.txt",
-  "actuator_token_jti": "d4ce2d7dab0848df97d330efd10f5fd8",
-  "repo_commit": "e6fa8f09aec1782db1f3c47b34bd386834ad8b6d",
-  "created_by": "assistant"
+  "shutdown_time": "2025-12-22T21:52:26Z",
+  "session_summary_created": "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T21:52:26Z.json",
+  "actuator_token_provenance": "/home/wizard/Documents/Code/BrocaOS/.temporary_token.txt",
+  "actuator_token_jti": "f24d4d1f57ad4bfbbcb7c3ee8123a379",
+  "actuator_token_verified": true
 }
