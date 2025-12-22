@@ -1,0 +1,11 @@
+{
+  "actuator_token_provenance": ".temporary_token.txt",
+  "token_jti": "6b761cbbdd614d9c81011c24d54bcd3a",
+  "token_iat": 1766369475,
+  "token_exp": 1766369775,
+  "token_scopes": [
+    "filesystem:write",
+    "project:write",
+    "memory:write"
+  ]
+}

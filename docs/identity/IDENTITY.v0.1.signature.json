@@ -1,8 +1,1 @@
-{
-  "signature_b64url": "PENDING_NO_SECRET",
-  "algorithm": "HMAC-SHA256",
-  "signed_at": "2025-12-21T07:58:07.750572+00:00",
-  "signed_by": "file:.temporary_token.txt (jti=ed11248c0db44abd9ed01c908c9eb227)",
-  "canonical_hash": "18385cbeaae84001a4fb9177fed53c89fae1a7185d44614b3b9cb91a31f40dc0",
-  "notes": "Signature pending - HMAC secret not available. Identity updated and content hash computed."
-}
+{"algorithm": "HMAC-SHA256", "signature": "cfdfec2aadcc98de28fca7b21f6a0ea274fa0347b2d28ac62aad36dd86202273"}
