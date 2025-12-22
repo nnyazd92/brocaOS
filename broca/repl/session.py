@@ -398,45 +398,52 @@ class ConversationSession:
                     "large conversations or when the API is slow. You may want to try "
                     "using /reset to clear the conversation history, or try again."
                 )
-                self.messages.append({"role": "assistant", "content": error_message})
+                trace = getattr(self, "_current_response_id", None) or str(__import__('uuid').uuid4())
+                error_with_trace = f"{error_message} TraceID: {trace}"
+                self.messages.append({"role": "assistant", "content": error_with_trace})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
                 self._log_context_after_turn(
-                    assistant_text=error_message, raw_response={}
+                    assistant_text=error_with_trace, raw_response={}
                 )
                 self._save_conversation()
-                return error_message
+                return error_with_trace
             except ConnectionError as e:
                 logger.error(f"Network error during LLM request: {e}", exc_info=True)
                 error_message = (
                     "I apologize, but there was a network error connecting to the API. "
                     "Please check your internet connection and try again."
                 )
-                self.messages.append({"role": "assistant", "content": error_message})
+                trace = getattr(self, "_current_response_id", None) or str(__import__('uuid').uuid4())
+                error_with_trace = f"{error_message} TraceID: {trace}"
+                self.messages.append({"role": "assistant", "content": error_with_trace})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
                 self._log_context_after_turn(
-                    assistant_text=error_message, raw_response={}
+                    assistant_text=error_with_trace, raw_response={}
                 )
                 self._save_conversation()
-                return error_message
+                return error_with_trace
             except Exception as e:
                 logger.error(f"Unexpected error during LLM request: {e}", exc_info=True)
                 error_message = (
                     f"I apologize, but an unexpected error occurred: {str(e)}. "
                     "Please try again or use /reset to clear the conversation."
                 )
-                self.messages.append({"role": "assistant", "content": error_message})
+                trace = getattr(self, "_current_response_id", None) or str(__import__('uuid').uuid4())
+                error_with_trace = f"{error_message} TraceID: {trace}"
+                self.messages.append({"role": "assistant", "content": error_with_trace})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
                 self._log_context_after_turn(
-                    assistant_text=error_message, raw_response={}
+                    assistant_text=error_with_trace, raw_response={}
                 )
                 self._save_conversation()
-                return error_message
+                return error_with_trace
 
             # Extract tool calls if any (needed for logging below)
-            tool_calls = self.llm.extract_tool_calls(response)
+            extract_tool_calls = getattr(self.llm, 'extract_tool_calls', lambda resp: [])
+            tool_calls = extract_tool_calls(response) or []
 
             # Extract reasoning_content for reasoner model (if present)
             # Always try to extract, even if None (for logging purposes)
