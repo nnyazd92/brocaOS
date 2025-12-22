@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/summarization/validation.py
+# hypothesis_version: 6.148.7
+
+[0.0, 5.0, 'compression_ratio', 'content', 'event_id', 'has_drift', 'meets_threshold', 'missing_event_ids', 'raw_tokens', 'summary_tokens', 'tool_args', 'tool_result', 'total_evidence_items', 'valid', 'verified_items']

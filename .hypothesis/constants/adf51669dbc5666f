@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/sensors/filesystem_sensor.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.9, 1.0, 100, '*', 'directory_count', 'directory_structure', 'disk_usage', 'error', 'file_changes', 'file_count', 'files_added', 'files_removed', 'filesystem', 'free_bytes', 'monitored_path', 'path_exists', 'permission_changes', 'total_bytes', 'total_entries', 'usage_percent', 'used_bytes']

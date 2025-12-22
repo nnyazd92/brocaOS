@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/tools/critic.py
+# hypothesis_version: 6.148.7
+
+['\n\nViolations found:', 'ACCEPTED', 'Context:', 'REJECTED', '```', '```json', 'accepted', 'additionalProperties', 'constraint', 'constraints', 'content', 'critic', 'description', 'error', 'execution_error', 'feedback', 'input_validation', 'json_parse_error', 'metadata', 'object', 'properties', 'required', 'response_format', 'role', 'string', 'system', 'system_error', 'type', 'unknown', 'user', 'validation_error', 'violations', 'world_state']

@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/migrate_to_sqlite.py
+# hypothesis_version: 6.148.7
+
+['--json-path', '--no-backup', '--sqlite-path', '.json.backup', '__main__', 'model', 'self_model.db', 'self_model.json', 'store_true', 'version']

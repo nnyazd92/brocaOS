@@ -257,4 +257,91 @@ class EventLogger:
         if not events:
             return None
         return events[-1].get("event_id")
+    
+    def get_event_ids_set(self, session_id: str) -> set[str]:
+        """
+        Get all event IDs as a set for efficient membership testing.
+        
+        This method is more efficient than get_events() when you only need
+        to check if event IDs exist, as it avoids loading full event data.
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            Set of event ID strings
+        """
+        log_file = self._get_log_file(session_id)
+        
+        if not log_file.exists():
+            return set()
+        
+        event_ids = set()
+        with open(log_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        event = json.loads(line)
+                        event_id = event.get("event_id")
+                        if event_id:
+                            event_ids.add(event_id)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse event line: {e}")
+        
+        return event_ids
+    
+    def get_event_ids_after(
+        self,
+        session_id: str,
+        after_event_id: Optional[str]
+    ) -> set[str]:
+        """
+        Get event IDs added after a specific event ID.
+        
+        This method is optimized for incremental validation scenarios where
+        you only need to check event IDs for events added after a certain point.
+        
+        Args:
+            session_id: Session identifier
+            after_event_id: Event ID to start after (None returns all event IDs)
+            
+        Returns:
+            Set of event ID strings for events after the specified event ID
+        """
+        if after_event_id is None:
+            # Return all event IDs if None
+            return self.get_event_ids_set(session_id)
+        
+        log_file = self._get_log_file(session_id)
+        
+        if not log_file.exists():
+            return set()
+        
+        event_ids = set()
+        found_reference = False
+        
+        with open(log_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        event = json.loads(line)
+                        event_id = event.get("event_id")
+                        
+                        if event_id == after_event_id:
+                            found_reference = True
+                            # Don't include the reference event itself
+                            continue
+                        
+                        if event_id and found_reference:
+                            event_ids.add(event_id)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse event line: {e}")
+        
+        # If reference event not found, return all event IDs (backward compatibility)
+        if not found_reference:
+            return self.get_event_ids_set(session_id)
+        
+        return event_ids
 

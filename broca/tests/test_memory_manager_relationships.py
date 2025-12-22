@@ -119,15 +119,17 @@ class TestMemoryManagerRelationshipMethods:
         
         memory_manager.link_memories(mem_id1, mem_id2, RelationType.SUPPORTS)
         
-        # Verify exists
-        assert len(memory_manager.get_related_memories(mem_id1)) == 1
+        # Verify exists (filter by SUPPORTS to avoid counting auto-detected relationships)
+        related = memory_manager.get_related_memories(mem_id1, relation_types=[RelationType.SUPPORTS])
+        assert len(related) == 1
         
         # Unlink
         success = memory_manager.unlink_memories(mem_id1, mem_id2)
         assert success is True
         
-        # Verify removed
-        assert len(memory_manager.get_related_memories(mem_id1)) == 0
+        # Verify removed (filter by SUPPORTS to avoid counting auto-detected relationships)
+        related = memory_manager.get_related_memories(mem_id1, relation_types=[RelationType.SUPPORTS])
+        assert len(related) == 0
     
     @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")
     def test_get_related_memories(self, memory_manager):

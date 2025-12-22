@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/memory/conflict/logger.py
+# hypothesis_version: 6.148.7
+
+['action', 'archived', 'auto_resolved', 'by_type', 'conflict_log_id', 'evidence', 'id', 'kept', 'memory_id', 'merged', 'rationale', 'resolution_action', 'resolution_rationale', 'semantic', 'timestamp', 'total_conflicts', 'user_resolved']

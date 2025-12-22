@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/epistemic/models.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1.0, 'InferenceNode', 'confidence', 'consensus_strength', 'dependent_knowledge', 'emergent_pattern', 'external_source', 'inf', 'logical_inference', 'memory_retrieval', 'necessity', 'overall_confidence', 'predictive_accuracy', 'retrieval_frequency', 'similarity_clusters', 'strength', 'supporting_knowledge', 'system_default', 'type', 'user_provided']

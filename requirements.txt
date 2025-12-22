@@ -13,3 +13,5 @@ sqlite-database
 psutil
 nltk
 textblob
+mutmut
+hypothesis

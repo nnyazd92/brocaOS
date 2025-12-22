@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/access_control.py
+# hypothesis_version: 6.148.7
+
+['approve_escalation', 'control_actuator', 'downgrade_access', 'filesystem', 'get_access_level', 'get_audit_log', 'list_actuators', 'list_sensors', 'network', 'process', 'read_sensor', 'request_escalation', 'system', 'user_activity']

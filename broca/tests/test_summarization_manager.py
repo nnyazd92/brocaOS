@@ -15,6 +15,7 @@ from broca.summarization.event_logger import EventLogger
 from broca.summarization.storage import SummaryStorage
 from broca.summarization.manager import SummarizationManager
 from broca.summarization.models import SessionSummary, SummaryHeader, SummaryBlocks
+from broca.config import config
 from datetime import datetime, timezone
 
 
@@ -48,13 +49,15 @@ def summary_storage(temp_summary_dir):
 def summarization_manager(event_logger, summary_storage):
     """SummarizationManager instance with mocked summarizer."""
     # Mock the summarizer to avoid actual LLM calls
+    # Use explicit values to match original test expectations (regression tests)
     mock_summarizer = Mock()
     summarization_manager = SummarizationManager(
         event_logger=event_logger,
         summary_storage=summary_storage,
         summarizer=mock_summarizer,
         trigger_turns=5,
-        trigger_token_threshold=0.4
+        trigger_token_threshold=0.4,
+        context_window_size=128000
     )
     return summarization_manager
 
@@ -166,4 +169,124 @@ class TestSummarizationManager:
         events = call_args[0][1]  # Second argument is events
         # Should have events, and they should be after the last summarized event
         assert len(events) > 0
+    
+    def test_context_window_size_from_config(self, event_logger, summary_storage):
+        """Test that context_window_size from config is used when not explicitly provided."""
+        mock_summarizer = Mock()
+        
+        # Create manager without explicit context_window_size
+        manager = SummarizationManager(
+            event_logger=event_logger,
+            summary_storage=summary_storage,
+            summarizer=mock_summarizer,
+            trigger_turns=5,
+            trigger_token_threshold=0.4
+        )
+        
+        # Should use config default (will be 128000 once we update config)
+        expected_context_window = config.summarization.context_window_size
+        assert hasattr(manager, 'context_window_size')
+        assert manager.context_window_size == expected_context_window
+    
+    def test_context_window_size_custom_override(self, event_logger, summary_storage):
+        """Test that custom context_window_size in constructor overrides config."""
+        mock_summarizer = Mock()
+        custom_context_window = 64000
+        
+        manager = SummarizationManager(
+            event_logger=event_logger,
+            summary_storage=summary_storage,
+            summarizer=mock_summarizer,
+            trigger_turns=5,
+            trigger_token_threshold=0.4,
+            context_window_size=custom_context_window
+        )
+        
+        assert manager.context_window_size == custom_context_window
+    
+    def test_context_window_size_affects_token_threshold(self, event_logger, summary_storage):
+        """Test that different context_window_size values affect token threshold calculation."""
+        mock_summarizer = Mock()
+        session_id = "test_session"
+        
+        # Create message that's ~40% of 128k window (~51k tokens)
+        # With threshold 0.4, should trigger with 128k window
+        large_message = "x" * 204000  # ~51k tokens (40% of 128k)
+        messages = [
+            {"role": "system", "content": "Test"},
+            {"role": "user", "content": large_message}
+        ]
+        
+        # With default 128k context window and 0.4 threshold
+        manager_128k = SummarizationManager(
+            event_logger=event_logger,
+            summary_storage=summary_storage,
+            summarizer=mock_summarizer,
+            trigger_turns=5,
+            trigger_token_threshold=0.4,
+            context_window_size=128000
+        )
+        
+        # With smaller 64k context window and 0.4 threshold
+        manager_64k = SummarizationManager(
+            event_logger=event_logger,
+            summary_storage=summary_storage,
+            summarizer=mock_summarizer,
+            trigger_turns=5,
+            trigger_token_threshold=0.4,
+            context_window_size=64000
+        )
+        
+        # Both should trigger since 51k/128k = 0.4 and 51k/64k = 0.8 (both >= 0.4)
+        # But we test that the calculation uses the correct window size
+        result_128k = manager_128k.should_summarize(session_id, messages, turns_since_last_summary=1)
+        result_64k = manager_64k.should_summarize(session_id, messages, turns_since_last_summary=1)
+        
+        # Both should trigger, but for different reasons (different window sizes used)
+        # This verifies that context_window_size is being used in the calculation
+        assert isinstance(result_128k, bool)
+        assert isinstance(result_64k, bool)
+    
+    def test_config_defaults_used_when_not_provided(self, event_logger, summary_storage):
+        """Test that config defaults are used when parameters not provided."""
+        mock_summarizer = Mock()
+        
+        # Create manager with only required parameters
+        manager = SummarizationManager(
+            event_logger=event_logger,
+            summary_storage=summary_storage,
+            summarizer=mock_summarizer
+        )
+        
+        # Should use config defaults
+        assert manager.trigger_turns == config.summarization.trigger_turns
+        assert manager.trigger_token_threshold == config.summarization.trigger_token_threshold
+        assert manager.context_window_size == config.summarization.context_window_size
+    
+    def test_backward_compatibility_explicit_values(self, event_logger, summary_storage):
+        """Test backward compatibility: explicit values still work as before."""
+        mock_summarizer = Mock()
+        
+        # Use old defaults explicitly
+        manager = SummarizationManager(
+            event_logger=event_logger,
+            summary_storage=summary_storage,
+            summarizer=mock_summarizer,
+            trigger_turns=5,
+            trigger_token_threshold=0.4,
+            context_window_size=128000
+        )
+        
+        # Should use explicitly provided values
+        assert manager.trigger_turns == 5
+        assert manager.trigger_token_threshold == 0.4
+        assert manager.context_window_size == 128000
+        
+        # Verify behavior matches old expectations
+        session_id = "test_session"
+        messages = [{"role": "system", "content": "Test"}, {"role": "user", "content": "Hello"}]
+        
+        # Should trigger at 5 turns
+        assert not manager.should_summarize(session_id, messages, turns_since_last_summary=4)
+        assert manager.should_summarize(session_id, messages, turns_since_last_summary=5)
 

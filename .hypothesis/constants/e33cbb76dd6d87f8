@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/llm/openai_client.py
+# hypothesis_version: 6.148.7
+
+[0.0, 200, '...', 'Sending chat request', 'choices', 'choices_count', 'content', 'event', 'gpt-5', 'llm_request', 'llm_request_stream', 'llm_response', 'message', 'messages', 'messages_count', 'model', 'o1', 'role', 'stream', 'temperature', 'tool_calls', 'tools', 'tools_count', 'usage', 'user']

@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/tools/json_repair.py
+# hypothesis_version: 6.148.7
+
+[' (error here)', '"', '"}', ',', ',(\\s*[}\\]])', ':', ':,}', 'Expecting', 'Suggestions:\n', 'Unterminated', 'Unterminated string', '\\', '\\1', ']', '^', '{', '}']

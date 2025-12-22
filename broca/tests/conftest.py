@@ -160,3 +160,154 @@ def normal_tools_mode(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, 
     monkeypatch.setenv("BROCA_TOOLS_MODE", "normal")
     yield
 
+
+# Summarizer test fixtures
+
+@pytest.fixture
+def sample_events() -> list[Dict[str, Any]]:
+    """
+    Sample event list for summarizer testing.
+    
+    Returns a list of typical conversation events with event_ids.
+    """
+    return [
+        {"event_id": "evt_1", "type": "user_message", "content": "Hello, I need help with Python"},
+        {"event_id": "evt_2", "type": "assistant_message", "content": "I'd be happy to help! What do you need?"},
+        {"event_id": "evt_3", "type": "tool_call", "tool_name": "code_search", "tool_args": {"query": "python function"}},
+        {"event_id": "evt_4", "type": "tool_result", "tool_name": "code_search", "tool_result": {"results": ["func1", "func2"]}},
+        {"event_id": "evt_5", "type": "user_message", "content": "Thank you!"}
+    ]
+
+
+@pytest.fixture
+def large_event_list() -> list[Dict[str, Any]]:
+    """
+    Large event list for testing with many events.
+    
+    Returns a list of 50+ events for stress testing.
+    """
+    events = []
+    for i in range(50):
+        events.append({
+            "event_id": f"evt_{i}",
+            "type": "user_message" if i % 2 == 0 else "assistant_message",
+            "content": f"Message {i}: " + "x" * 100  # Long content
+        })
+    return events
+
+
+@pytest.fixture
+def minimal_summary_dict() -> Dict[str, Any]:
+    """
+    Minimal valid summary dictionary.
+    
+    Returns the smallest valid summary structure for testing.
+    """
+    return {
+        "summary_patch": {
+            "current_goal": "Test goal",
+            "what_we_built": [],
+            "open_questions": [],
+            "constraints": [],
+            "next_steps": []
+        },
+        "extracted": {},
+        "bookkeeping": {"new_last_summarized_event_id": "evt_1"}
+    }
+
+
+@pytest.fixture
+def large_summary_dict() -> Dict[str, Any]:
+    """
+    Large summary dictionary for testing token limits.
+    
+    Returns a summary that exceeds typical token limits.
+    """
+    large_text = "x" * 5000  # Very long text
+    return {
+        "summary_patch": {
+            "current_goal": large_text,
+            "what_we_built": [large_text[:1000]] * 20,
+            "open_questions": [large_text[:1000]] * 20,
+            "constraints": [large_text[:1000]] * 10,
+            "next_steps": [large_text[:1000]] * 20
+        },
+        "extracted": {
+            "facts_added": [
+                {"text": large_text[:500], "confidence": "high", "event_ids": [f"evt_{i}"]}
+                for i in range(30)
+            ],
+            "decisions_added": [
+                {"text": large_text[:500], "reasoning": large_text[:500], "event_ids": [f"evt_{i}"]}
+                for i in range(30, 40)
+            ],
+            "tasks_added": [
+                {"id": f"task_{i}", "description": large_text[:500], "event_ids": [f"evt_{i}"]}
+                for i in range(40, 50)
+            ]
+        },
+        "bookkeeping": {"new_last_summarized_event_id": "evt_50"}
+    }
+
+
+@pytest.fixture
+def mock_llm_response_json() -> Dict[str, Any]:
+    """
+    Mock LLM response as JSON string content.
+    
+    Returns a typical summary response that an LLM would return.
+    """
+    return {
+        "summary_patch": {
+            "current_goal": "Implement comprehensive testing",
+            "what_we_built": ["Test framework", "Mock fixtures"],
+            "open_questions": ["Should we add more tests?"],
+            "constraints": ["Must maintain backward compatibility"],
+            "next_steps": ["Run mutation testing", "Check coverage"]
+        },
+        "extracted": {
+            "facts_added": [
+                {"text": "Testing is important", "confidence": "high", "event_ids": ["evt_1", "evt_2"]}
+            ],
+            "decisions_added": [
+                {"text": "Use TDD approach", "reasoning": "Better code quality", "event_ids": ["evt_3"]}
+            ],
+            "tasks_added": [
+                {"id": "task_1", "description": "Write tests", "event_ids": ["evt_4"]}
+            ]
+        },
+        "bookkeeping": {"new_last_summarized_event_id": "evt_5"}
+    }
+
+
+@pytest.fixture
+def mock_llm_response_markdown() -> str:
+    """
+    Mock LLM response wrapped in markdown code blocks.
+    
+    Returns a JSON response wrapped in ```json code fences.
+    """
+    json_content = {
+        "summary_patch": {"current_goal": "Test goal"},
+        "extracted": {},
+        "bookkeeping": {"new_last_summarized_event_id": "evt_1"}
+    }
+    import json
+    return f"```json\n{json.dumps(json_content)}\n```"
+
+
+@pytest.fixture
+def mock_llm_response_with_trailing() -> str:
+    """
+    Mock LLM response with trailing text after JSON.
+    
+    Returns a JSON response followed by explanatory text.
+    """
+    json_content = {
+        "summary_patch": {"current_goal": "Test goal"},
+        "extracted": {},
+        "bookkeeping": {"new_last_summarized_event_id": "evt_1"}
+    }
+    import json
+    return json.dumps(json_content) + "\n\nThis is a valid JSON response above."
+

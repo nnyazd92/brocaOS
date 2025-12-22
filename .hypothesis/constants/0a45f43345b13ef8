@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/main_repl.py
+# hypothesis_version: 6.148.7
+
+['\nExiting.', '/exit', '/quit', '/reset', 'Bye.', 'MetacognitiveEngine', 'No tools registered', '[context reset]', '__main__', 'directory_structure', 'disabled', 'enabled', 'internal_sensing', 'json', 'memory_manager', 'self_model', 'sqlite', 'text', 'tool_registry', 'value', 'you> ']

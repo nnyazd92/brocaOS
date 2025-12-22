@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/tools/terminal.py
+# hypothesis_version: 6.148.7
+
+[300, '.', '..', '/', '<<', 'Directory not found', 'File not found', 'Path is not a file', 'Unknown error', '\\', 'bytes_written', 'command', 'content', 'default', 'description', 'directory', 'error', 'file', 'files', 'integer', 'maximum', 'minimum', 'name', 'object', 'path', 'properties', 'r', 'required', 'returncode', 'size', 'stderr', 'stdout', 'string', 'success', 'terminal', 'timeout', 'type', 'unknown', 'utf-8', 'w', 'working_dir']

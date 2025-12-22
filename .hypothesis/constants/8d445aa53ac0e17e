@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/internal_sensing/affective_state.py
+# hypothesis_version: 6.148.7
+
+[-1.0, 0.0, 0.5, 1.0, 'arousal', 'assistant', 'attention_allocation', 'certainty_affect', 'coherence_pleasure', 'conceptual_coherence', 'confidence_level', 'content', 'curiosity_drive', 'frustration', 'level', 'motivational_drives', 'role', 'satisfaction', 'task_id', 'timestamp', 'type', 'uncertainty_tracking', 'user', 'valence']

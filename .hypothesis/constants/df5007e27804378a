@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/internal_sensing/computational_physiology.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.1, 0.3, 0.5, 0.8, 1.0, 2.0, 100.0, 3600.0, 8760.0, 10000.0, 100, 1024, '/', 'available', 'baseline', 'buffers', 'bytes_recv_rate', 'bytes_sent_rate', 'cached', 'computational_load', 'context_switches', 'cpu_frequency', 'cpu_per_core', 'cpu_statistics', 'cpu_times', 'disk_io', 'disk_usage_root', 'energy_efficiency', 'idle', 'interrupts', 'iowait', 'irq', 'memory_breakdown', 'memory_pressure', 'network_io', 'nice', 'packets_recv', 'packets_sent', 'process_count', 'processing_latency', 'read_count', 'read_rate', 'shared', 'soft_interrupts', 'softirq', 'swap_usage', 'system', 'system_uptime', 'timestamp', 'total', 'type', 'used', 'user', 'user_count', 'value', 'write_count', 'write_rate']

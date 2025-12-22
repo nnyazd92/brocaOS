@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/internal_sensing/framework.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1.0, -100, 100, 'cognitive', 'frequency', 'parameters', 'pattern', 'reasoning', 'result', 'source', 'timestamp', 'tool', 'tool_name', 'tool_usage', 'type']

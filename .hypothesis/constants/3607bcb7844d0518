@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/safety/audit.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1.0, '+00:00', 'Z', 'all_time', 'high_frequency', 'message', 'operation', 'result', 'severity', 'started_at', 'success', 'timestamp', 'type', 'user_id', 'warning']

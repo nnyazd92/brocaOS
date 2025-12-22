@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/tools/sandbox.py
+# hypothesis_version: 6.148.7
+
+[300, '-', '--', '..', '/', '/home/wizard/broca', '<<', 'Unknown error', '\\', 'bash', 'cat', 'cd', 'chgrp', 'chmod', 'chown', 'command', 'cp', 'curl', 'default', 'description', 'doas', 'echo', 'error', 'find', 'fish', 'grep', 'head', 'integer', 'ls', 'maximum', 'minimum', 'mkdir', 'mv', 'nc', 'netcat', 'object', 'printf', 'properties', 'pwd', 'python', 'python3', 'required', 'returncode', 'rm', 'sandbox', 'scp', 'sh', 'ssh', 'stderr', 'stdout', 'string', 'su', 'success', 'sudo', 'tail', 'timeout', 'touch', 'type', 'unknown', 'wget', 'working_dir', 'zsh']

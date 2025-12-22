@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/summarization/retrieval.py
+# hypothesis_version: 6.148.7
+
+[0.5, 'event_ids', 'id', 'tags', 'text', 'timestamp']

@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/source.py
+# hypothesis_version: 6.148.7
+
+['+00:00', 'Z', 'llm_inference', 'memory', 'memory_id', 'metadata', 'system_default', 'timestamp', 'type', 'unknown', 'user_input']

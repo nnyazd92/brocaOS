@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/logging_config.py
+# hypothesis_version: 6.148.7
+
+[1024, '_', 'args', 'created', 'exc_info', 'exc_text', 'filename', 'funcName', 'httpcore', 'httpx', 'level', 'levelname', 'levelno', 'lineno', 'logger', 'message', 'module', 'msecs', 'msg', 'name', 'pathname', 'process', 'processName', 'relativeCreated', 'stack_info', 'thread', 'threadName', 'utf-8']

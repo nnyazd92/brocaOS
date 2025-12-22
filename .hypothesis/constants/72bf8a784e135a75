@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/memory/temporal.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1.0, 3600, 86400, '(\\d+)\\s+days?\\s+ago', '(\\d+)\\s+hours?\\s+ago', '(\\d+)\\s+weeks?\\s+ago', '1 day', '1 day ago', '1 hour', '1 hour ago', '1 minute', '1 minute ago', 'UTC', 'a few seconds', 'age_days', 'age_human', 'created_at', 'created_date', 'created_time', 'is_recent_24h', 'is_recent_7d', 'just now', 'last_used_at', 'last_used_days', 'now', 'timezone', 'today', 'yesterday']

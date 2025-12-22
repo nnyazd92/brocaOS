@@ -228,4 +228,122 @@ class TestEventLogger:
         events = event_logger.get_events_after(session_id, "nonexistent_id")
         # Should return all events if event_id not found
         assert len(events) >= 1
+    
+    def test_get_event_ids_set(self, event_logger):
+        """Test getting event IDs as a set for efficient membership testing."""
+        session_id = "test_session_123"
+        
+        event_id1 = event_logger.log_user_message(session_id, "First")
+        event_id2 = event_logger.log_user_message(session_id, "Second")
+        event_id3 = event_logger.log_assistant_message(session_id, "Response")
+        
+        event_ids_set = event_logger.get_event_ids_set(session_id)
+        
+        assert isinstance(event_ids_set, set)
+        assert len(event_ids_set) == 3
+        assert event_id1 in event_ids_set
+        assert event_id2 in event_ids_set
+        assert event_id3 in event_ids_set
+    
+    def test_get_event_ids_set_empty(self, event_logger):
+        """Test getting event IDs set for empty session."""
+        session_id = "empty_session"
+        event_ids_set = event_logger.get_event_ids_set(session_id)
+        
+        assert isinstance(event_ids_set, set)
+        assert len(event_ids_set) == 0
+    
+    def test_get_event_ids_set_nonexistent_session(self, event_logger):
+        """Test getting event IDs set for non-existent session."""
+        event_ids_set = event_logger.get_event_ids_set("nonexistent_session")
+        
+        assert isinstance(event_ids_set, set)
+        assert len(event_ids_set) == 0
+    
+    def test_get_event_ids_set_excludes_none(self, event_logger, temp_event_log_dir):
+        """Test that get_event_ids_set excludes events without event_id."""
+        session_id = "test_session_123"
+        
+        # Create events normally
+        event_id1 = event_logger.log_user_message(session_id, "First")
+        
+        # Manually write an event without event_id (corrupted entry)
+        log_file = Path(temp_event_log_dir) / f"{session_id}_raw.jsonl"
+        with open(log_file, 'a') as f:
+            f.write(json.dumps({"type": "corrupted", "content": "no event_id"}) + '\n')
+        
+        event_ids_set = event_logger.get_event_ids_set(session_id)
+        
+        # Should only include event_id1, not the corrupted entry
+        assert event_id1 in event_ids_set
+        assert len(event_ids_set) == 1
+    
+    def test_get_event_ids_after(self, event_logger):
+        """Test getting event IDs added after a specific event ID."""
+        session_id = "test_session_123"
+        
+        event_id1 = event_logger.log_user_message(session_id, "First")
+        event_id2 = event_logger.log_user_message(session_id, "Second")
+        event_id3 = event_logger.log_user_message(session_id, "Third")
+        
+        event_ids_set = event_logger.get_event_ids_after(session_id, event_id1)
+        
+        assert isinstance(event_ids_set, set)
+        assert event_id1 not in event_ids_set  # Should not include the reference event
+        assert event_id2 in event_ids_set
+        assert event_id3 in event_ids_set
+        assert len(event_ids_set) == 2
+    
+    def test_get_event_ids_after_none(self, event_logger):
+        """Test getting event IDs after None (should return all event IDs)."""
+        session_id = "test_session_123"
+        
+        event_id1 = event_logger.log_user_message(session_id, "First")
+        event_id2 = event_logger.log_user_message(session_id, "Second")
+        
+        event_ids_set = event_logger.get_event_ids_after(session_id, None)
+        
+        assert isinstance(event_ids_set, set)
+        assert event_id1 in event_ids_set
+        assert event_id2 in event_ids_set
+        assert len(event_ids_set) == 2
+    
+    def test_get_event_ids_after_empty(self, event_logger):
+        """Test getting event IDs after event ID when no events exist."""
+        session_id = "empty_session"
+        event_ids_set = event_logger.get_event_ids_after(session_id, "some_id")
+        
+        assert isinstance(event_ids_set, set)
+        assert len(event_ids_set) == 0
+    
+    def test_get_event_ids_after_nonexistent_event_id(self, event_logger):
+        """Test getting event IDs after non-existent event ID."""
+        session_id = "test_session_123"
+        
+        event_id1 = event_logger.log_user_message(session_id, "First")
+        event_id2 = event_logger.log_user_message(session_id, "Second")
+        
+        # Should return all events if after_event_id not found
+        event_ids_set = event_logger.get_event_ids_after(session_id, "nonexistent_id")
+        
+        assert isinstance(event_ids_set, set)
+        assert event_id1 in event_ids_set
+        assert event_id2 in event_ids_set
+        assert len(event_ids_set) == 2
+    
+    def test_get_event_ids_after_last_event(self, event_logger):
+        """Test getting event IDs after the last event (should return empty set)."""
+        session_id = "test_session_123"
+        
+        event_id1 = event_logger.log_user_message(session_id, "First")
+        event_id2 = event_logger.log_user_message(session_id, "Second")
+        
+        # Get the last event ID
+        events = event_logger.get_events(session_id)
+        last_event_id = events[-1]["event_id"]
+        
+        event_ids_set = event_logger.get_event_ids_after(session_id, last_event_id)
+        
+        assert isinstance(event_ids_set, set)
+        assert len(event_ids_set) == 0
 

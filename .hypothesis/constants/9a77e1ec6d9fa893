@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/actuators/approval.py
+# hypothesis_version: 6.148.7
+
+[b'=', 300.0, ',', '.', ':', 'Broca System', 'HS256', 'JWT', 'Token is required', 'alg', 'ascii', 'aud', 'broca-os', 'broca-system', 'broca-token-v1', 'change', 'default', 'delete', 'exp', 'filesystem:write', 'filesystem_actuator', 'high', 'iat', 'iss', 'jti', 'low', 'medium', 'memory:write', 'modify', 'name', 'project:write', 'remove', 'request_id', 'requires_approval', 'risk_level', 'scopes', 'sub', 'typ', 'utf-8']

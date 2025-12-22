@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/storage.py
+# hypothesis_version: 6.148.7
+
+['.json', '.tmp', 'archived_at', 'capabilities', 'constraints', 'count', 'created_at', 'creation_event', 'current', 'epistemic_layer', 'evolution', 'id', 'inference_node', 'json', 'knowledge_boundaries', 'knowledge_id', 'last_saved', 'last_updated', 'max_version', 'memory_id', 'metadata', 'metrics', 'model', 'model_dump', 'model_id', 'new_evidence', 'r', 'self_model.db', 'self_model.json', 'source_metadata', 'source_type', 'sqlite', 'timestamp', 'tmp_path', 'utf-8', 'verification_record', 'version', 'version_history', 'w']

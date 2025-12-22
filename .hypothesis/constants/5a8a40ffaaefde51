@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/memory/relationships.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.7, 0.85, 1.0, '.', '...', 'auto_detected', 'both', 'detection_method', 'edges', 'id', 'importance', 'namespace', 'namespace_hierarchy', 'nodes', 'source', 'strength', 'target', 'text', 'type']

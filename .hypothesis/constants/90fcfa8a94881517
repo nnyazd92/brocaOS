@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/epistemic/engine.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.3, 0.5, 0.7, 'confidence', 'confidence_metrics', 'confirmed', 'evidence_update', 'has_evolution', 'initial_confidence', 'initial_source', 'knowledge_id', 'modified', 'refuted', 'source', 'timestamp', 'uncertainty', 'verification_count']

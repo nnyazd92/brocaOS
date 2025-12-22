@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/sensors/__init__.py
+# hypothesis_version: 6.148.7
+
+['FileSystemSensor', 'NetworkSensor', 'ProcessSensor', 'Sensor', 'SensorCapabilities', 'SensorNetworkManager', 'SensorReading', 'SystemSensor', 'UserActivitySensor']

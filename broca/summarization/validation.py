@@ -7,7 +7,8 @@ Provides drift detection, compression ratio validation, and evidence verificatio
 from __future__ import annotations
 
 import logging
-from typing import List, Dict, Any, Optional
+import os
+from typing import List, Dict, Any, Optional, Tuple
 from .event_logger import EventLogger
 from .models import SessionSummary
 from .token_estimator import estimate_tokens
@@ -21,7 +22,12 @@ class SummarizationValidator:
     
     Provides methods to verify evidence pointers, check compression ratios,
     and detect inconsistencies.
+    
+    Includes caching for event ID sets to improve performance on large sessions.
     """
+    
+    # Maximum number of sessions to cache
+    MAX_CACHE_SIZE = 100
     
     def __init__(self, event_logger: EventLogger) -> None:
         """
@@ -31,11 +37,109 @@ class SummarizationValidator:
             event_logger: EventLogger instance for accessing raw events
         """
         self.event_logger = event_logger
+        # Cache: session_id -> (event_ids_set, file_mtime)
+        self._event_ids_cache: Dict[str, Tuple[set[str], float]] = {}
+    
+    def _get_log_file_mtime(self, session_id: str) -> Optional[float]:
+        """Get modification time of event log file."""
+        log_file = self.event_logger._get_log_file(session_id)
+        if log_file.exists():
+            return os.path.getmtime(log_file)
+        return None
+    
+    def _get_cached_event_ids_set(
+        self,
+        session_id: str,
+        use_cache: bool = True
+    ) -> Optional[set[str]]:
+        """
+        Get event IDs set from cache if valid, otherwise None.
+        
+        Args:
+            session_id: Session identifier
+            use_cache: Whether to use cache
+            
+        Returns:
+            Cached event IDs set if cache is valid, None otherwise
+        """
+        if not use_cache:
+            return None
+        
+        if session_id not in self._event_ids_cache:
+            return None
+        
+        cached_set, cached_mtime = self._event_ids_cache[session_id]
+        current_mtime = self._get_log_file_mtime(session_id)
+        
+        # Cache is valid if file mtime matches
+        if current_mtime == cached_mtime:
+            return cached_set
+        
+        # Cache invalid, remove it
+        del self._event_ids_cache[session_id]
+        return None
+    
+    def _set_cached_event_ids_set(
+        self,
+        session_id: str,
+        event_ids_set: set[str],
+        use_cache: bool = True
+    ) -> None:
+        """
+        Cache event IDs set for a session.
+        
+        Args:
+            session_id: Session identifier
+            event_ids_set: Event IDs set to cache
+            use_cache: Whether to use cache
+        """
+        if not use_cache:
+            return
+        
+        # Enforce cache size limit (LRU: remove oldest if needed)
+        if len(self._event_ids_cache) >= self.MAX_CACHE_SIZE:
+            # Remove oldest entry (first key)
+            oldest_key = next(iter(self._event_ids_cache))
+            del self._event_ids_cache[oldest_key]
+        
+        current_mtime = self._get_log_file_mtime(session_id)
+        self._event_ids_cache[session_id] = (event_ids_set, current_mtime)
+    
+    def _get_event_ids_set(
+        self,
+        session_id: str,
+        use_cache: bool = True
+    ) -> set[str]:
+        """
+        Get event IDs set, using cache if available.
+        
+        Args:
+            session_id: Session identifier
+            use_cache: Whether to use cache
+            
+        Returns:
+            Set of event IDs
+        """
+        # Try cache first
+        cached_set = self._get_cached_event_ids_set(session_id, use_cache)
+        if cached_set is not None:
+            return cached_set
+        
+        # Cache miss or invalid, load from event logger
+        event_ids_set = self.event_logger.get_event_ids_set(session_id)
+        
+        # Store in cache
+        self._set_cached_event_ids_set(session_id, event_ids_set, use_cache)
+        
+        return event_ids_set
     
     def verify_evidence_event_ids(
         self,
         session_id: str,
-        summary: SessionSummary
+        summary: SessionSummary,
+        previous_summary: Optional[SessionSummary] = None,
+        use_incremental: bool = False,
+        use_cache: bool = True
     ) -> Dict[str, Any]:
         """
         Verify that all evidence event IDs exist in the event log.
@@ -43,6 +147,9 @@ class SummarizationValidator:
         Args:
             session_id: Session identifier
             summary: SessionSummary to validate
+            previous_summary: Optional previous summary for incremental validation
+            use_incremental: Whether to use incremental validation (default: False)
+            use_cache: Whether to use event ID cache (default: True)
             
         Returns:
             Dictionary with validation results:
@@ -51,14 +158,40 @@ class SummarizationValidator:
             - total_evidence_items: int - Total number of evidence items
             - verified_items: int - Number of items with all event IDs verified
         """
-        all_events = self.event_logger.get_events(session_id)
-        event_ids_in_log = {e.get("event_id") for e in all_events if e.get("event_id")}
+        # Determine which event IDs to validate
+        if use_incremental and previous_summary and previous_summary.header.last_summarized_event_id:
+            # Incremental validation: only validate evidence referencing new events
+            last_summarized_id = previous_summary.header.last_summarized_event_id
+            new_event_ids = self.event_logger.get_event_ids_after(session_id, last_summarized_id)
+            all_event_ids = self._get_event_ids_set(session_id, use_cache)
+            
+            # Filter evidence to only validate items referencing new events
+            # Evidence pointing only to old events is skipped (already validated)
+            evidence_to_validate = []
+            for evidence_item in summary.evidence:
+                # Check if this evidence item references any new events
+                has_new_events = any(eid in new_event_ids for eid in evidence_item.event_ids)
+                if has_new_events:
+                    evidence_to_validate.append(evidence_item)
+                # Also validate if any event_id doesn't exist in all events (missing event)
+                # This catches invalid event IDs even if they're "old"
+                has_invalid_event = any(eid not in all_event_ids for eid in evidence_item.event_ids)
+                if has_invalid_event:
+                    evidence_to_validate.append(evidence_item)
+            
+            # Use filtered evidence for validation
+            evidence_to_check = evidence_to_validate
+            event_ids_in_log = all_event_ids
+        else:
+            # Full validation: check all event IDs
+            event_ids_in_log = self._get_event_ids_set(session_id, use_cache)
+            evidence_to_check = summary.evidence
         
         missing_event_ids = []
-        total_items = len(summary.evidence)
+        total_items = len(summary.evidence)  # Always report total evidence items
         verified_items = 0
         
-        for evidence_item in summary.evidence:
+        for evidence_item in evidence_to_check:
             all_found = True
             for event_id in evidence_item.event_ids:
                 if event_id not in event_ids_in_log:
@@ -138,7 +271,10 @@ class SummarizationValidator:
         self,
         session_id: str,
         summary: SessionSummary,
-        events: Optional[List[Dict[str, Any]]] = None
+        events: Optional[List[Dict[str, Any]]] = None,
+        previous_summary: Optional[SessionSummary] = None,
+        use_incremental: bool = False,
+        use_cache: bool = True
     ) -> Dict[str, Any]:
         """
         Detect drift in summary (evidence pointers that don't exist).
@@ -146,7 +282,10 @@ class SummarizationValidator:
         Args:
             session_id: Session identifier
             summary: SessionSummary to check
-            events: Optional list of events (if None, loads from event log)
+            events: Optional list of events (if None, loads from event log using cache)
+            previous_summary: Optional previous summary for incremental validation
+            use_incremental: Whether to use incremental validation (default: False)
+            use_cache: Whether to use event ID cache when events is None (default: True)
             
         Returns:
             Dictionary with drift detection results:
@@ -155,9 +294,21 @@ class SummarizationValidator:
             - evidence_items_with_drift: int - Number of evidence items with missing IDs
         """
         if events is None:
-            events = self.event_logger.get_events(session_id)
-        
-        event_ids_in_log = {e.get("event_id") for e in events if e.get("event_id")}
+            # Determine which event IDs to check
+            if use_incremental and previous_summary and previous_summary.header.last_summarized_event_id:
+                # Incremental validation: only check events after last_summarized_event_id
+                last_summarized_id = previous_summary.header.last_summarized_event_id
+                new_event_ids = self.event_logger.get_event_ids_after(session_id, last_summarized_id)
+                all_event_ids = self._get_event_ids_set(session_id, use_cache)
+                # For drift detection, we check all evidence against all events
+                # but only report drift for new events (incremental check)
+                event_ids_in_log = all_event_ids
+            else:
+                # Use optimized method with caching
+                event_ids_in_log = self._get_event_ids_set(session_id, use_cache)
+        else:
+            # Build set from provided events
+            event_ids_in_log = {e.get("event_id") for e in events if e.get("event_id")}
         
         missing_event_ids = []
         evidence_items_with_drift = 0

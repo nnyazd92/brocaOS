@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/sensors/system_sensor.py
+# hypothesis_version: 6.148.7
+
+[0.1, 0.95, 10.0, '/', '__version__', 'bytes_recv', 'bytes_sent', 'cpu_usage', 'disk_free', 'disk_io', 'disk_total', 'disk_usage', 'memory_available', 'memory_total', 'memory_usage', 'network_traffic', 'packets_recv', 'packets_sent', 'process_count', 'psutil not available', 'psutil_version', 'system', 'unknown']

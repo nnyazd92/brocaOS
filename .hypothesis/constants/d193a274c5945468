@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/ops/gate/actuator_gate.py
+# hypothesis_version: 6.148.7
+
+['authorize_action', 'broca-os', 'broca-token-v1', 'exp', 'jti', 'read', 'read_file', 'read_memory', 'scopes']

@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/safety/constraints.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1.0, '1h', '24h', '5m', '; ', 'actuator', 'actuator_power', 'allowed_sensor_types', 'cooling_period', 'data_retention_limit', 'file', 'geofencing', 'inf', 'max_actuator_power', 'max_sampling_rate', 'operation_type', 'process', 'read_sensor', 'sampling_rate', 'sensor_type', 'system', 'temporal_limits']

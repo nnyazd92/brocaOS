@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/epistemic/storage.py
+# hypothesis_version: 6.148.7
+
+['.tmp', 'creation_event', 'knowledge_evolution', 'last_saved', 'new_evidence', 'r', 'timestamp', 'tmp_path', 'utf-8', 'verification_history', 'w']

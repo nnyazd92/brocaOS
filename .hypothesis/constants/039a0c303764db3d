@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/llm/__init__.py
+# hypothesis_version: 6.148.7
+
+['api_key', 'base_url', 'deepseek', 'model', 'openai', 'temperature', 'timeout']

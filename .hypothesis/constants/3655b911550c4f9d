@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/memory/embeddings.py
+# hypothesis_version: 6.148.7
+
+[1536, 'Text cannot be empty', 'embedding', 'embedding_dimension', 'embedding_model']

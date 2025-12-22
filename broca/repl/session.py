@@ -653,129 +653,123 @@ class ConversationSession:
                 except Exception:
                     pass
 
-                # Return immediately after streaming - do heavy post-processing in background
-                # This prevents blocking the user from seeing the response
-                try:
-                    # Use threading to do post-processing without blocking
-                    import threading
-                    
-                    def do_post_processing():
-                        try:
-                            # Instrumentation: Record metrics from response
-                            if (
-                                self.internal_sensing_framework
-                                and ResponseAnalyzer
-                                and assistant_text
-                            ):
-                                try:
-                                    # Use the stored response_id instead of recalculating
-                                    response_id = getattr(
-                                        self,
-                                        "_current_response_id",
-                                        f"response_{len(self.messages)}",
-                                    )
-
-                                    # Record latency
-                                    latency = self.internal_sensing_framework.interoception.physiology._record_operation_end(
-                                        response_id
-                                    )
-                                    if latency is not None and latency > 0:
-                                        normalized_latency = self.internal_sensing_framework.interoception.physiology._normalize_latency(
-                                            latency
-                                        )
-                                        if normalized_latency is not None:
-                                            self.internal_sensing_framework.interoception.physiology.metrics[
-                                                "processing_latency"
-                                            ] = normalized_latency
-
-                                    # Estimate confidence from response
-                                    confidence = ResponseAnalyzer.estimate_confidence(
-                                        assistant_text
-                                    )
-                                    if confidence is not None:
-                                        self.internal_sensing_framework.interoception.cognition.record_confidence(
-                                            response_id, confidence
-                                        )
-
-                                    # Detect uncertainty
-                                    uncertainty = ResponseAnalyzer.detect_uncertainty(
-                                        assistant_text
-                                    )
-                                    if uncertainty is not None:
-                                        self.internal_sensing_framework.interoception.cognition.record_uncertainty(
-                                            response_id, uncertainty
-                                        )
-
-                                    # Compute valence and arousal
-                                    # Use conversation history for valence (excluding system prompts)
-                                    # Include current assistant response in history
-                                    conversation_messages = self.messages + [
-                                        {"role": "assistant", "content": assistant_text}
-                                    ]
-                                    self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
-                                        conversation_messages
-                                    )
-
-                                    arousal = ResponseAnalyzer.compute_arousal(assistant_text)
-                                    if arousal is not None:
-                                        self.internal_sensing_framework.interoception.affect.compute_arousal(
-                                            arousal
-                                        )
-
-                                    # Update affective states from cognitive
-                                    self.internal_sensing_framework.interoception.affect.update_from_cognitive(
-                                        self.internal_sensing_framework.interoception.cognition
-                                    )
-
-                                    # Record reasoning step
-                                    self.internal_sensing_framework.interoception.cognition.record_reasoning_step(
-                                        f"step_{response_id}",
-                                        {
-                                            "premise": user_text[:100] if self.messages else "",
-                                            "conclusion": assistant_text[:100],
-                                            "confidence": confidence,
-                                        },
-                                    )
-
-                                    # Sample internal state after recomputing valence
-                                    # Force a fresh sample by resetting last sample time to ensure updated valence is included
-                                    self.internal_sensing_framework._last_sample_time = 0.0
-                                    self.internal_sensing_framework.sample_internal_state()
-
-                                except Exception as e:
-                                    logger.warning(
-                                        f"Error in response instrumentation: {e}", exc_info=True
-                                    )
-
-                            # Log context after turn
-                            self._log_context_after_turn(
-                                assistant_text=assistant_text, raw_response=response
-                            )
-
-                            # Auto-save skipped here to avoid background writes after test teardown
-                        except Exception as e:
-                            logger.warning(
-                                f"Error in post-processing: {e}", exc_info=True
-                            )
-                    
-                    # Start post-processing in background thread
-                    thread = threading.Thread(target=do_post_processing, daemon=True)
-                    thread.start()
-                except Exception as e:
-                    # Fallback: do it synchronously if threading fails
-                    logger.warning(f"Failed to start background thread, doing post-processing synchronously: {e}", exc_info=True)
+                # Do post-processing (instrumentation and logging)
+                # For streaming: run in background to avoid blocking
+                # For non-streaming: run synchronously to ensure state is updated before return (important for tests)
+                def do_post_processing():
                     try:
+                        # Instrumentation: Record metrics from response
                         if (
                             self.internal_sensing_framework
                             and ResponseAnalyzer
                             and assistant_text
                         ):
-                            # Minimal instrumentation only
-                            pass
+                            try:
+                                # Use the stored response_id instead of recalculating
+                                response_id = getattr(
+                                    self,
+                                    "_current_response_id",
+                                    f"response_{len(self.messages)}",
+                                )
+
+                                # Record latency
+                                latency = self.internal_sensing_framework.interoception.physiology._record_operation_end(
+                                    response_id
+                                )
+                                if latency is not None and latency > 0:
+                                    normalized_latency = self.internal_sensing_framework.interoception.physiology._normalize_latency(
+                                        latency
+                                    )
+                                    if normalized_latency is not None:
+                                        self.internal_sensing_framework.interoception.physiology.metrics[
+                                            "processing_latency"
+                                        ] = normalized_latency
+
+                                # Estimate confidence from response
+                                confidence = ResponseAnalyzer.estimate_confidence(
+                                    assistant_text
+                                )
+                                if confidence is not None:
+                                    self.internal_sensing_framework.interoception.cognition.record_confidence(
+                                        response_id, confidence
+                                    )
+
+                                # Detect uncertainty
+                                uncertainty = ResponseAnalyzer.detect_uncertainty(
+                                    assistant_text
+                                )
+                                if uncertainty is not None:
+                                    self.internal_sensing_framework.interoception.cognition.record_uncertainty(
+                                        response_id, uncertainty
+                                    )
+
+                                # Compute valence and arousal
+                                # Use conversation history for valence (excluding system prompts)
+                                # Include current assistant response in history
+                                conversation_messages = self.messages + [
+                                    {"role": "assistant", "content": assistant_text}
+                                ]
+                                self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
+                                    conversation_messages
+                                )
+
+                                arousal = ResponseAnalyzer.compute_arousal(assistant_text)
+                                if arousal is not None:
+                                    self.internal_sensing_framework.interoception.affect.compute_arousal(
+                                        arousal
+                                    )
+
+                                # Update affective states from cognitive
+                                self.internal_sensing_framework.interoception.affect.update_from_cognitive(
+                                    self.internal_sensing_framework.interoception.cognition
+                                )
+
+                                # Record reasoning step
+                                self.internal_sensing_framework.interoception.cognition.record_reasoning_step(
+                                    f"step_{response_id}",
+                                    {
+                                        "premise": user_text[:100] if self.messages else "",
+                                        "conclusion": assistant_text[:100],
+                                        "confidence": confidence,
+                                    },
+                                )
+
+                                # Sample internal state after recomputing valence
+                                # Force a fresh sample by resetting last sample time to ensure updated valence is included
+                                self.internal_sensing_framework._last_sample_time = 0.0
+                                self.internal_sensing_framework.sample_internal_state()
+
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error in response instrumentation: {e}", exc_info=True
+                                )
+
+                        # Log context after turn
                         self._log_context_after_turn(
                             assistant_text=assistant_text, raw_response=response
                         )
-                        # Skip extra save here to avoid post-teardown writes in tests
+
+                        # Auto-save skipped here to avoid background writes after test teardown
+                    except Exception as e:
+                        logger.warning(
+                            f"Error in post-processing: {e}", exc_info=True
+                        )
+                
+                try:
+                    if used_streaming:
+                        # For streaming: run in background thread to avoid blocking
+                        import threading
+                        thread = threading.Thread(target=do_post_processing, daemon=True)
+                        thread.start()
+                    else:
+                        # For non-streaming: run synchronously to ensure state is updated before return
+                        # This is important for tests that check state immediately after send()
+                        do_post_processing()
+                except Exception as e:
+                    # Fallback: do it synchronously if threading fails
+                    logger.warning(f"Failed to start background thread, doing post-processing synchronously: {e}", exc_info=True)
+                    try:
+                        do_post_processing()
                     except Exception as e2:
                         logger.warning(f"Error in fallback post-processing: {e2}", exc_info=True)
 

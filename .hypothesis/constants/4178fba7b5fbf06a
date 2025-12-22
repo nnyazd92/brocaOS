@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/token_auth/token.py
+# hypothesis_version: 6.148.7
+
+[b'=', ',', '.', ':', '=', 'BROCA_TOKEN_SECRET', 'HS256', 'Invalid token format', 'JWT', 'Token has expired', 'alg', 'ascii', 'aud', 'broca-os', 'broca-token-v1', 'exp', 'iat', 'iss', 'jti', 'name', 'scopes', 'sub', 'typ', 'utf-8']

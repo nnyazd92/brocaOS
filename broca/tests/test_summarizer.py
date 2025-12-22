@@ -111,4 +111,312 @@ class TestSummarizer:
         
         # Items should be limited
         assert len(result["summary_patch"]["what_we_built"]) <= 10
+    
+    # Issue 1: Retry Validation Bug Tests
+    def test_retry_with_feedback_validates_with_original_events(self, summarizer, mock_llm_client):
+        """Test that retry validation uses original events list, not empty list."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Hello"},
+            {"event_id": "evt_2", "type": "assistant_message", "content": "Hi"}
+        ]
+        
+        # First response with invalid event_id
+        first_result = {
+            "summary_patch": {"current_goal": "Test goal"},
+            "extracted": {
+                "facts_added": [{"text": "Fact", "confidence": "high", "event_ids": ["nonexistent"]}]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_2"}
+        }
+        
+        # Retry response with valid event_id
+        retry_response = '{"summary_patch": {"current_goal": "Test goal"}, "extracted": {"facts_added": [{"text": "Fact", "confidence": "high", "event_ids": ["evt_1"]}]}, "bookkeeping": {"new_last_summarized_event_id": "evt_2"}}'
+        
+        validation_result = {"valid": False, "errors": ["facts_added item has invalid event_ids: ['nonexistent']"]}
+        original_prompt = "Test prompt"
+        messages = [{"role": "system", "content": "test"}, {"role": "user", "content": original_prompt}]
+        
+        mock_llm_client.chat.return_value = {"choices": [{"message": {"content": retry_response}}]}
+        mock_llm_client.extract_assistant_content.return_value = retry_response
+        
+        # This should validate with events, not empty list
+        result = summarizer._retry_with_feedback(first_result, validation_result, original_prompt, messages, events)
+        
+        # Should succeed because retry has valid event_id
+        assert result is not None
+        assert result["extracted"]["facts_added"][0]["event_ids"] == ["evt_1"]
+    
+    def test_retry_with_feedback_rejects_invalid_event_ids(self, summarizer, mock_llm_client):
+        """Test that retry correctly rejects invalid event_ids when using original events."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Hello"}
+        ]
+        
+        first_result = {
+            "summary_patch": {"current_goal": "Test goal"},
+            "extracted": {
+                "facts_added": [{"text": "Fact", "confidence": "high", "event_ids": []}]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_1"}
+        }
+        
+        # Retry still has invalid event_id
+        retry_response = '{"summary_patch": {"current_goal": "Test goal"}, "extracted": {"facts_added": [{"text": "Fact", "confidence": "high", "event_ids": ["still_invalid"]}]}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}'
+        
+        validation_result = {"valid": False, "errors": ["facts_added item missing event_ids"]}
+        original_prompt = "Test prompt"
+        messages = [{"role": "system", "content": "test"}, {"role": "user", "content": original_prompt}]
+        
+        mock_llm_client.chat.return_value = {"choices": [{"message": {"content": retry_response}}]}
+        mock_llm_client.extract_assistant_content.return_value = retry_response
+        
+        result = summarizer._retry_with_feedback(first_result, validation_result, original_prompt, messages, events)
+        
+        # Should fail because retry still has invalid event_id
+        assert result is None
+    
+    # Issue 2: Fragile JSON Parsing Tests
+    def test_parse_json_response_with_trailing_text(self, summarizer):
+        """Test parsing JSON with trailing text after closing brace."""
+        json_with_trailing = '{"summary_patch": {}, "extracted": {}, "bookkeeping": {}} This is trailing text that should be ignored'
+        
+        result = summarizer._parse_json_response(json_with_trailing)
+        assert result is not None
+        assert "summary_patch" in result
+        assert "extracted" in result
+        assert "bookkeeping" in result
+    
+    def test_parse_json_response_with_leading_text(self, summarizer):
+        """Test parsing JSON with leading text before opening brace."""
+        json_with_leading = 'Here is some leading text {"summary_patch": {}, "extracted": {}, "bookkeeping": {}}'
+        
+        result = summarizer._parse_json_response(json_with_leading)
+        assert result is not None
+        assert "summary_patch" in result
+    
+    def test_parse_json_response_with_imbalanced_braces_in_strings(self, summarizer):
+        """Test parsing JSON with braces inside string values."""
+        json_with_braces_in_string = '{"summary_patch": {"current_goal": "This has {braces} in it"}, "extracted": {}, "bookkeeping": {}}'
+        
+        result = summarizer._parse_json_response(json_with_braces_in_string)
+        assert result is not None
+        assert result["summary_patch"]["current_goal"] == "This has {braces} in it"
+    
+    def test_parse_json_response_multiple_objects_extracts_largest(self, summarizer):
+        """Test parsing when multiple JSON objects exist, extracts largest balanced."""
+        # Two JSON objects, second is larger
+        multiple_json = '{"small": "object"} {"summary_patch": {"current_goal": "test"}, "extracted": {"facts_added": []}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}'
+        
+        result = summarizer._parse_json_response(multiple_json)
+        assert result is not None
+        # Should extract the larger object
+        assert "summary_patch" in result
+        assert "extracted" in result
+        assert "bookkeeping" in result
+    
+    def test_parse_json_response_code_fence_with_trailing_text(self, summarizer):
+        """Test parsing JSON in code fences with trailing text."""
+        markdown_with_trailing = """```json
+{"summary_patch": {}, "extracted": {}, "bookkeeping": {}}
+```
+This is trailing text after the code fence"""
+        
+        result = summarizer._parse_json_response(markdown_with_trailing)
+        assert result is not None
+        assert "summary_patch" in result
+    
+    def test_parse_json_response_malformed_returns_none(self, summarizer):
+        """Test that malformed JSON returns None gracefully."""
+        malformed = '{"summary_patch": {, "extracted": {}, "bookkeeping": {}}'  # Missing key after {
+        
+        result = summarizer._parse_json_response(malformed)
+        assert result is None
+    
+    def test_parse_json_response_escaped_braces_in_strings(self, summarizer):
+        """Test parsing JSON with escaped braces in string values."""
+        json_with_escaped = '{"summary_patch": {"current_goal": "This has \\"quotes\\" and {braces}"}, "extracted": {}, "bookkeeping": {}}'
+        
+        result = summarizer._parse_json_response(json_with_escaped)
+        assert result is not None
+        assert result["summary_patch"]["current_goal"] == 'This has "quotes" and {braces}'
+    
+    def test_parse_json_response_nested_objects(self, summarizer):
+        """Test parsing deeply nested JSON structures."""
+        nested_json = '{"summary_patch": {"current_goal": "test", "nested": {"deep": {"value": 123}}}, "extracted": {}, "bookkeeping": {}}'
+        
+        result = summarizer._parse_json_response(nested_json)
+        assert result is not None
+        assert result["summary_patch"]["nested"]["deep"]["value"] == 123
+    
+    def test_parse_json_response_unicode_characters(self, summarizer):
+        """Test parsing JSON with unicode characters."""
+        unicode_json = '{"summary_patch": {"current_goal": "测试 🚀 ñáéíóú"}, "extracted": {}, "bookkeeping": {}}'
+        
+        result = summarizer._parse_json_response(unicode_json)
+        assert result is not None
+        assert "测试" in result["summary_patch"]["current_goal"]
+    
+    def test_extract_largest_json_object_handles_multiple_objects(self, summarizer):
+        """Test that _extract_largest_json_object correctly identifies largest object."""
+        # Three objects, middle one is largest
+        large_value = "x" * 100
+        content = f'{{"small": "1"}} {{"summary_patch": {{"current_goal": "test", "large": "{large_value}"}}, "extracted": {{}}, "bookkeeping": {{}}}} {{"tiny": "2"}}'
+        
+        result = summarizer._extract_largest_json_object(content)
+        assert result is not None
+        parsed = json.loads(result)
+        assert "summary_patch" in parsed
+    
+    def test_extract_largest_json_object_empty_string(self, summarizer):
+        """Test _extract_largest_json_object with empty string."""
+        result = summarizer._extract_largest_json_object("")
+        assert result is None
+    
+    def test_extract_largest_json_object_no_braces(self, summarizer):
+        """Test _extract_largest_json_object with no JSON objects."""
+        result = summarizer._extract_largest_json_object("This is just text with no JSON")
+        assert result is None
+    
+    def test_extract_largest_json_object_imbalanced_braces(self, summarizer):
+        """Test _extract_largest_json_object with imbalanced braces."""
+        content = '{"valid": "object"} {"invalid": {unclosed'
+        result = summarizer._extract_largest_json_object(content)
+        # Should extract the valid object, ignore the invalid one
+        assert result is not None
+        parsed = json.loads(result)
+        assert parsed["valid"] == "object"
+    
+    # Issue 3: Missing event_id Hard Validation Tests
+    def test_validate_missing_event_ids_facts_added(self, summarizer):
+        """Test that missing event_ids in facts_added triggers hard error."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Hello"}
+        ]
+        
+        result = {
+            "summary_patch": {"current_goal": "Test goal"},
+            "extracted": {
+                "facts_added": [{"text": "Fact without event_ids", "confidence": "high"}]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_1"}
+        }
+        
+        validation = summarizer._validate_summarization_result(result, events)
+        assert validation["valid"] is False
+        errors = validation.get("errors", [])
+        assert len(errors) > 0
+        # Should have specific error about missing event_ids
+        assert any("missing event_ids" in error.lower() for error in errors)
+        assert any("facts_added" in error for error in errors)
+    
+    def test_validate_missing_event_ids_decisions_added(self, summarizer):
+        """Test that missing event_ids in decisions_added triggers hard error."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Hello"}
+        ]
+        
+        result = {
+            "summary_patch": {"current_goal": "Test goal"},
+            "extracted": {
+                "decisions_added": [{"text": "Decision without event_ids", "reasoning": "test"}]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_1"}
+        }
+        
+        validation = summarizer._validate_summarization_result(result, events)
+        assert validation["valid"] is False
+        errors = validation.get("errors", [])
+        assert any("missing event_ids" in error.lower() for error in errors)
+        assert any("decisions_added" in error for error in errors)
+    
+    def test_validate_missing_event_ids_tasks_added(self, summarizer):
+        """Test that missing event_ids in tasks_added triggers hard error."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Hello"}
+        ]
+        
+        result = {
+            "summary_patch": {"current_goal": "Test goal"},
+            "extracted": {
+                "tasks_added": [{"id": "task_1", "description": "Task without event_ids"}]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_1"}
+        }
+        
+        validation = summarizer._validate_summarization_result(result, events)
+        assert validation["valid"] is False
+        errors = validation.get("errors", [])
+        assert any("missing event_ids" in error.lower() for error in errors)
+        assert any("tasks_added" in error for error in errors)
+    
+    def test_validate_missing_event_ids_error_includes_example_format(self, summarizer):
+        """Test that missing event_ids error includes example format."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Hello"}
+        ]
+        
+        result = {
+            "summary_patch": {"current_goal": "Test goal"},
+            "extracted": {
+                "facts_added": [{"text": "Fact", "confidence": "high"}]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_1"}
+        }
+        
+        validation = summarizer._validate_summarization_result(result, events)
+        assert validation["valid"] is False
+        errors = validation.get("errors", [])
+        # Error should include example format
+        error_text = " ".join(errors)
+        assert "event_ids" in error_text
+        # Should mention the required format
+        assert "format" in error_text.lower() or "required" in error_text.lower()
+    
+    # Issue 3: Bookkeeping Field Naming Tests
+    def test_bookkeeping_uses_new_last_summarized_event_id(self, summarizer, mock_llm_client):
+        """Test that bookkeeping consistently uses new_last_summarized_event_id."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Hello"},
+            {"event_id": "evt_2", "type": "assistant_message", "content": "Hi"}
+        ]
+        
+        # Response with both fields (should standardize on new_last_summarized_event_id)
+        response_json = {
+            "summary_patch": {"current_goal": "Test"},
+            "extracted": {},
+            "bookkeeping": {
+                "last_summarized_event_id": "evt_1",
+                "new_last_summarized_event_id": "evt_2"
+            }
+        }
+        
+        mock_llm_client.chat.return_value = {"choices": [{"message": {"content": json.dumps(response_json)}}]}
+        mock_llm_client.extract_assistant_content.return_value = json.dumps(response_json)
+        
+        result = summarizer.summarize_delta("session_1", events)
+        
+        # Should have new_last_summarized_event_id
+        assert result is not None
+        assert "bookkeeping" in result
+        assert "new_last_summarized_event_id" in result["bookkeeping"]
+        assert result["bookkeeping"]["new_last_summarized_event_id"] == "evt_2"
+    
+    def test_validate_bookkeeping_requires_new_last_summarized_event_id(self, summarizer):
+        """Test that validation requires new_last_summarized_event_id in bookkeeping."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Hello"}
+        ]
+        
+        # Missing new_last_summarized_event_id
+        result = {
+            "summary_patch": {"current_goal": "Test"},
+            "extracted": {},
+            "bookkeeping": {
+                "last_summarized_event_id": "evt_1"  # Missing new_last_summarized_event_id
+            }
+        }
+        
+        validation = summarizer._validate_summarization_result(result, events)
+        assert validation["valid"] is False
+        assert any("new_last_summarized_event_id" in error for error in validation.get("errors", []))
 

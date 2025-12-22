@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/epistemic/ids.py
+# hypothesis_version: 6.148.7
+
+['behavioral_pattern', 'capability', 'category', 'constraint', 'content', 'context', 'knowledge_boundary', 'preference', 'utf-8']

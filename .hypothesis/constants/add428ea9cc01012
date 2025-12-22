@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/summarization/summarizer.py
+# hypothesis_version: 6.148.7
+
+[0.2, 0.3, 0.5, 0.7, 0.8, 1.0, 200, 500, 1200, '"', '...', '\\', '```', '```json', 'assistant_message', 'bookkeeping', 'constraints', 'content', 'current_goal', 'decisions_added', 'description', 'errors', 'event_id', 'event_ids', 'evt_1', 'evt_2', 'extracted', 'facts_added', 'missing event_ids', 'next_steps', 'open_questions', 'reasoning', 'role', 'summary_patch', 'system', 'tasks_added', 'text', 'tool_args', 'tool_call', 'tool_name', 'tool_result', 'type', 'unknown', 'user', 'user_message', 'valid', 'what_we_built', '{', '}']

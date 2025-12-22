@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/sensors/user_activity_sensor.py
+# hypothesis_version: 6.148.7
+
+[0.85, 2.0, '__version__', 'active_sessions', 'current_users', 'host', 'psutil not available', 'psutil_version', 'session_durations', 'started', 'started_iso', 'terminal', 'unknown', 'user_activity', 'user_process_counts', 'username', 'users', 'users_api_available']

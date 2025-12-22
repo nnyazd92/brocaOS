@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/token_auth/__init__.py
+# hypothesis_version: 6.148.7
+
+['default_scopes', 'generate_token', 'get_default_identity', 'get_token_secret', 'verify_token']

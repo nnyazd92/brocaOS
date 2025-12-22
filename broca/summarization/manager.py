@@ -42,8 +42,9 @@ class SummarizationManager:
         event_logger: EventLogger,
         summary_storage: SummaryStorage,
         summarizer: Optional[Summarizer] = None,
-        trigger_turns: int = 5,
-        trigger_token_threshold: float = 0.4
+        trigger_turns: Optional[int] = None,
+        trigger_token_threshold: Optional[float] = None,
+        context_window_size: Optional[int] = None
     ) -> None:
         """
         Initialize summarization manager.
@@ -52,8 +53,9 @@ class SummarizationManager:
             event_logger: EventLogger instance
             summary_storage: SummaryStorage instance
             summarizer: Optional Summarizer instance (creates default if not provided)
-            trigger_turns: Number of turns before triggering summarization
-            trigger_token_threshold: Token usage threshold (0.0-1.0) to trigger summarization
+            trigger_turns: Number of turns before triggering summarization (defaults to config)
+            trigger_token_threshold: Token usage threshold (0.0-1.0) to trigger summarization (defaults to config)
+            context_window_size: Context window size in tokens (defaults to config)
         """
         self.event_logger = event_logger
         self.summary_storage = summary_storage
@@ -62,12 +64,14 @@ class SummarizationManager:
             max_block_tokens=config.summarization.max_block_tokens
         )
         self.validator = SummarizationValidator(event_logger)
-        self.trigger_turns = trigger_turns
-        self.trigger_token_threshold = trigger_token_threshold
+        self.trigger_turns = trigger_turns if trigger_turns is not None else config.summarization.trigger_turns
+        self.trigger_token_threshold = trigger_token_threshold if trigger_token_threshold is not None else config.summarization.trigger_token_threshold
+        self.context_window_size = context_window_size if context_window_size is not None else config.summarization.context_window_size
         
         logger.debug(
-            f"Initialized SummarizationManager: trigger_turns={trigger_turns}, "
-            f"trigger_token_threshold={trigger_token_threshold}"
+            f"Initialized SummarizationManager: trigger_turns={self.trigger_turns}, "
+            f"trigger_token_threshold={self.trigger_token_threshold}, "
+            f"context_window_size={self.context_window_size}"
         )
     
     def should_summarize(
@@ -97,10 +101,8 @@ class SummarizationManager:
         # including system prompt, world state, etc.
         estimated_tokens = estimate_messages_tokens(messages)
         
-        # Rough estimate: assume context window of 128k tokens
         # Threshold is percentage of context window
-        context_window_size = 128000  # Typical for modern models
-        token_usage = estimated_tokens / context_window_size
+        token_usage = estimated_tokens / self.context_window_size
         
         if token_usage >= self.trigger_token_threshold:
             logger.debug(

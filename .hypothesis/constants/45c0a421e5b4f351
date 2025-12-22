@@ -1,0 +1,4 @@
+# file: /home/wizard/Documents/Code/BrocaOS/broca/summarization/event_logger.py
+# hypothesis_version: 6.148.7
+
+['a', 'assistant', 'assistant_message', 'content', 'event_id', 'r', 'role', 'sha256', 'tool_args', 'tool_call', 'tool_call_id', 'tool_name', 'tool_result', 'ts', 'type', 'user', 'user_message', 'utf-8']
