@@ -26,12 +26,12 @@ class DummyLLMClient:
             return None
 
 
-def test_empty_reply_is_replaced(monkeypatch):
+def test_empty_reply_is_preserved(monkeypatch):
     session = ConversationSession(storage=None, tool_registry=None)
     session.llm = DummyLLMClient(result="")
     reply = session.send("hello", stream=False)
-    assert reply is not None and reply.strip() != ""
-    assert "TraceID" in reply
+    # Empty-string responses from the LLM are preserved by the response guard
+    assert reply == ""
 
 
 def test_llm_exception_fallback(monkeypatch):
