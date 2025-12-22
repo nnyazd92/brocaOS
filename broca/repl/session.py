@@ -329,6 +329,11 @@ class ConversationSession:
                         
                         # Always print newline after streaming, even if no chunks were received
                         print("", flush=True)  # New line after streaming
+                        # If streaming produced no visible content (no chunks or only whitespace),
+                        # normalize assistant_text to None so the response-guard will inject
+                        # a deterministic fallback reply instead of returning an empty string.
+                        if chunk_count == 0 or (isinstance(assistant_text, str) and assistant_text.strip() == ""):
+                            assistant_text = None
                         used_streaming = True
                         
                         # If no chunks were received, log a warning

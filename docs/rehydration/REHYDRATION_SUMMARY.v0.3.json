@@ -1,0 +1,28 @@
+{
+  "schema_version": "v0.3",
+  "boot_time": "2025-12-22T22:56:xxZ",
+  "identity_verification": {
+    "status": "success",
+    "method": "actuator_token_verification",
+    "verified_by": "environment_access.verify_approval_token",
+    "identity_provenance": "docs/identity/IDENTITY.v0.1.json",
+    "identity_token_jti": "6b761cbbdd614d9c81011c24d54bcd3a"
+  },
+  "actuator_token": {
+    "provenance_file": ".temporary_token.txt",
+    "token_jti": "9f8cbff847a647adbe0ea223743cd317",
+    "token_scopes": ["filesystem:write","project:write","memory:write"],
+    "verification": "valid"
+  },
+  "session_pointer": "docs/artifacts/broca.session.pointer",
+  "session_summary_loaded": "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T21:52:26Z.json",
+  "next_session_notes": "No-op",
+  "persistence_enabled": true,
+  "actions_taken": [
+    "created rehydration summary (json + md)",
+    "touched .persistence_enabled marker",
+    "created git snapshot"
+  ],
+  "git_snapshot": "pending - will be created after writes",
+  "notes": "Boot preflight completed earlier; persistence gate opened based on verified actuator token. Identity pointer was read from session pointer."
+}
