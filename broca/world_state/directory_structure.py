@@ -34,6 +34,14 @@ class DirectoryStructureGenerator:
         """
         self.root_path = Path(root_path)
         self._last_scan: Optional[datetime] = None
+        # Default ignore patterns for directories and files to avoid scanning
+        # common build/artifact and binary directories.
+        self.ignore_dirs = set(["__pycache__", ".git", "build", "dist", "artifacts"])
+        # Optional flag to include hidden files if explicitly requested
+        self.include_hidden = False
+        # Maximum file size (bytes) to consider for prompt-sized outputs; larger
+        # files will be skipped when producing prompt-ready file lists.
+        self.max_text_file_size = 10 * 1024 * 1024  # 10 MB
         logger.debug(f"Initialized DirectoryStructureGenerator with root: {root_path}")
     
     def scan_directory(self) -> Tuple[List[Dict[str, str]], List[str]]:
