@@ -2735,7 +2735,7 @@ class Summarizer:
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(temperature=0.3)
+            response = self.llm.chat(temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
