@@ -419,4 +419,100 @@ This is trailing text after the code fence"""
         validation = summarizer._validate_summarization_result(result, events)
         assert validation["valid"] is False
         assert any("new_last_summarized_event_id" in error for error in validation.get("errors", []))
+    
+    # Task completion prompt validation tests
+    def test_system_prompt_includes_task_completion_guidance(self, summarizer, mock_llm_client):
+        """Test that system prompt contains task completion instructions."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Test"}
+        ]
+        
+        # Mock LLM to capture messages
+        captured_messages = []
+        def capture_messages(messages, **kwargs):
+            captured_messages.extend(messages)
+            return {"choices": [{"message": {"content": '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}"}}]}
+        
+        mock_llm_client.chat.side_effect = capture_messages
+        mock_llm_client.extract_assistant_content.return_value = '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}'
+        
+        summarizer.summarize_delta("session_1", events)
+        
+        # Find system message
+        system_message = next((m for m in captured_messages if m.get("role") == "system"), None)
+        assert system_message is not None
+        system_content = system_message.get("content", "")
+        
+        # Verify task completion keywords are present
+        assert "task" in system_content.lower()
+        assert "completed" in system_content.lower() or "complete" in system_content.lower()
+        assert "next_steps" in system_content.lower() or "next steps" in system_content.lower()
+        assert "tasks_updated" in system_content.lower() or "tasks updated" in system_content.lower()
+    
+    def test_user_prompt_includes_previous_next_steps(self, summarizer, mock_llm_client):
+        """Test that previous summary context includes next_steps."""
+        events = [
+            {"event_id": "evt_2", "type": "user_message", "content": "Test"}
+        ]
+        
+        previous_summary = SessionSummary(
+            header=SummaryHeader(
+                session_id="session_1",
+                created_at="2024-01-01T00:00:00Z",
+                last_updated_at="2024-01-01T00:00:00Z",
+                last_summarized_event_id="evt_1",
+                revision=0
+            ),
+            summary_blocks=SummaryBlocks(
+                current_goal="Test goal",
+                next_steps=["Step 1", "Step 2", "Step 3"]
+            )
+        )
+        
+        # Mock LLM to capture messages
+        captured_messages = []
+        def capture_messages(messages, **kwargs):
+            captured_messages.extend(messages)
+            return {"choices": [{"message": {"content": '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_2"}}"}}]}
+        
+        mock_llm_client.chat.side_effect = capture_messages
+        mock_llm_client.extract_assistant_content.return_value = '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_2"}}'
+        
+        summarizer.summarize_delta("session_1", events, previous_summary)
+        
+        # Find user message
+        user_message = next((m for m in captured_messages if m.get("role") == "user"), None)
+        assert user_message is not None
+        user_content = user_message.get("content", "")
+        
+        # Verify next_steps from previous summary are included
+        assert "Next steps" in user_content or "next_steps" in user_content
+        assert "Step 1" in user_content or "Step 2" in user_content
+    
+    def test_user_prompt_contains_task_completion_rules(self, summarizer, mock_llm_client):
+        """Test that user prompt has explicit task completion rules."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Test"}
+        ]
+        
+        # Mock LLM to capture messages
+        captured_messages = []
+        def capture_messages(messages, **kwargs):
+            captured_messages.extend(messages)
+            return {"choices": [{"message": {"content": '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}"}}]}
+        
+        mock_llm_client.chat.side_effect = capture_messages
+        mock_llm_client.extract_assistant_content.return_value = '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}'
+        
+        summarizer.summarize_delta("session_1", events)
+        
+        # Find user message
+        user_message = next((m for m in captured_messages if m.get("role") == "user"), None)
+        assert user_message is not None
+        user_content = user_message.get("content", "")
+        
+        # Verify task completion rules are present
+        assert "TASK MANAGEMENT" in user_content or "task completion" in user_content.lower() or "task" in user_content.lower()
+        assert "completed" in user_content.lower() or "complete" in user_content.lower()
+        assert "tasks_updated" in user_content or "tasks updated" in user_content.lower()
 

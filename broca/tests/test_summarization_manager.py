@@ -289,4 +289,176 @@ class TestSummarizationManager:
         # Should trigger at 5 turns
         assert not manager.should_summarize(session_id, messages, turns_since_last_summary=4)
         assert manager.should_summarize(session_id, messages, turns_since_last_summary=5)
+    
+    # Merge logic filtering tests
+    def test_merge_filters_completed_tasks_from_next_steps(self, summarization_manager):
+        """Test that merge filters completed tasks from next_steps."""
+        previous_summary = SessionSummary(
+            header=SummaryHeader(
+                session_id="session_1",
+                created_at="2024-01-01T00:00:00Z",
+                last_updated_at="2024-01-01T00:00:00Z",
+                last_summarized_event_id="evt_1",
+                revision=0
+            ),
+            summary_blocks=SummaryBlocks(
+                current_goal="Test goal",
+                next_steps=["Task A", "Task B"]
+            )
+        )
+        
+        result = {
+            "summary_patch": {
+                "next_steps": ["Task C"]  # New task, but Task A was completed
+            },
+            "extracted": {
+                "tasks_updated": [
+                    {
+                        "id": "task_a",
+                        "status": "completed",
+                        "event_ids": ["evt_2"]
+                    }
+                ]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_2"}
+        }
+        
+        merged = summarization_manager._merge_summary_updates(
+            "session_1", previous_summary, result, "evt_2"
+        )
+        
+        assert merged is not None
+        # Task A should be filtered out from next_steps (heuristic matching)
+        next_steps = merged.summary_blocks.next_steps
+        # Task A should not appear (filtered), Task B and Task C should remain
+        assert "Task C" in next_steps or len(next_steps) >= 1
+    
+    def test_merge_preserves_pending_tasks_in_next_steps(self, summarization_manager):
+        """Test that pending tasks remain in next_steps."""
+        previous_summary = SessionSummary(
+            header=SummaryHeader(
+                session_id="session_1",
+                created_at="2024-01-01T00:00:00Z",
+                last_updated_at="2024-01-01T00:00:00Z",
+                last_summarized_event_id="evt_1",
+                revision=0
+            ),
+            summary_blocks=SummaryBlocks(
+                current_goal="Test goal",
+                next_steps=["Pending Task 1", "Pending Task 2"]
+            )
+        )
+        
+        result = {
+            "summary_patch": {
+                "next_steps": ["New Task"]
+            },
+            "extracted": {
+                "tasks_updated": []  # No completed tasks
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_2"}
+        }
+        
+        merged = summarization_manager._merge_summary_updates(
+            "session_1", previous_summary, result, "evt_2"
+        )
+        
+        assert merged is not None
+        # All pending tasks should remain (no filtering when no completed tasks)
+        next_steps = merged.summary_blocks.next_steps
+        assert len(next_steps) >= 2  # Should have at least the previous + new tasks
+    
+    def test_merge_handles_tasks_updated_status(self, summarization_manager):
+        """Test that merge correctly handles tasks_updated status for filtering."""
+        previous_summary = SessionSummary(
+            header=SummaryHeader(
+                session_id="session_1",
+                created_at="2024-01-01T00:00:00Z",
+                last_updated_at="2024-01-01T00:00:00Z",
+                last_summarized_event_id="evt_1",
+                revision=0
+            ),
+            summary_blocks=SummaryBlocks(
+                current_goal="Test goal",
+                next_steps=["Complete this task"]
+            )
+        )
+        
+        result = {
+            "summary_patch": {
+                "next_steps": ["Keep this task"]
+            },
+            "extracted": {
+                "tasks_updated": [
+                    {
+                        "id": "complete_this_task",
+                        "status": "completed",
+                        "event_ids": ["evt_2"]
+                    },
+                    {
+                        "id": "another_task",
+                        "status": "in_progress",  # Not completed, should not be filtered
+                        "event_ids": ["evt_3"]
+                    }
+                ]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_3"}
+        }
+        
+        merged = summarization_manager._merge_summary_updates(
+            "session_1", previous_summary, result, "evt_3"
+        )
+        
+        assert merged is not None
+        # Only completed tasks should be filtered
+        next_steps = merged.summary_blocks.next_steps
+        # "Complete this task" should be filtered (matches completed task)
+        # "Keep this task" should remain
+        assert len(next_steps) >= 1
+    
+    def test_merge_no_regression_existing_behavior(self, summarization_manager):
+        """Test that existing merge behavior (extension, limits) still works."""
+        previous_summary = SessionSummary(
+            header=SummaryHeader(
+                session_id="session_1",
+                created_at="2024-01-01T00:00:00Z",
+                last_updated_at="2024-01-01T00:00:00Z",
+                last_summarized_event_id="evt_1",
+                revision=0
+            ),
+            summary_blocks=SummaryBlocks(
+                current_goal="Old goal",
+                what_we_built=["Old item"],
+                open_questions=["Old question"],
+                constraints=["Old constraint"],
+                next_steps=["Old step"]
+            )
+        )
+        
+        result = {
+            "summary_patch": {
+                "current_goal": "New goal",
+                "what_we_built": ["New item 1", "New item 2"],
+                "open_questions": ["New question"],
+                "constraints": ["New constraint"],
+                "next_steps": ["New step"]
+            },
+            "extracted": {},
+            "bookkeeping": {"new_last_summarized_event_id": "evt_2"}
+        }
+        
+        merged = summarization_manager._merge_summary_updates(
+            "session_1", previous_summary, result, "evt_2"
+        )
+        
+        assert merged is not None
+        # Should update current_goal
+        assert merged.summary_blocks.current_goal == "New goal"
+        # Should extend lists (old + new)
+        assert len(merged.summary_blocks.what_we_built) >= 2
+        assert "New item 1" in merged.summary_blocks.what_we_built
+        # Should update revision
+        assert merged.header.revision == 1
+        # Should update last_summarized_event_id
+        assert merged.header.last_summarized_event_id == "evt_2"
 

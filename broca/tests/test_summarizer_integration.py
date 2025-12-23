@@ -332,4 +332,244 @@ class TestIntegration:
         
         # Should return None, not crash
         assert result is None
+    
+    # Task completion integration tests
+    def test_completed_task_removed_from_next_steps(self, summarizer, mock_llm_client):
+        """Test that task marked completed in tasks_updated should not appear in next_steps."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Let's build a feature"},
+            {"event_id": "evt_2", "type": "assistant_message", "content": "I'll start building"},
+            {"event_id": "evt_3", "type": "tool_call", "tool_name": "write_file", "tool_args": {"path": "feature.py"}},
+            {"event_id": "evt_4", "type": "tool_result", "tool_name": "write_file", "tool_result": {"success": True}},
+            {"event_id": "evt_5", "type": "assistant_message", "content": "Feature built successfully!"}
+        ]
+        
+        # LLM response should mark task as completed and NOT include it in next_steps
+        response_json = {
+            "summary_patch": {
+                "current_goal": "Build a feature",
+                "what_we_built": ["Built feature.py"],
+                "open_questions": [],
+                "constraints": [],
+                "next_steps": []  # Should be empty since task was completed
+            },
+            "extracted": {
+                "tasks_added": [],
+                "tasks_updated": [
+                    {
+                        "id": "task_build_feature",
+                        "status": "completed",
+                        "event_ids": ["evt_3", "evt_4", "evt_5"]
+                    }
+                ]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_5"}
+        }
+        
+        mock_llm_client.chat.return_value = {"choices": [{"message": {"content": json.dumps(response_json)}}]}
+        mock_llm_client.extract_assistant_content.return_value = json.dumps(response_json)
+        
+        result = summarizer.summarize_delta("session_1", events)
+        
+        assert result is not None
+        # Completed task should NOT be in next_steps
+        assert "task_build_feature" not in str(result.get("summary_patch", {}).get("next_steps", []))
+        # Task should be marked as completed
+        assert any(
+            t.get("status") == "completed" 
+            for t in result.get("extracted", {}).get("tasks_updated", [])
+        )
+    
+    def test_summarize_with_completed_task_in_previous_summary(self, summarizer, mock_llm_client):
+        """Test previous summary has task in next_steps, events show completion, new summary should exclude it."""
+        previous_summary = SessionSummary(
+            header=SummaryHeader(
+                session_id="session_1",
+                created_at="2024-01-01T00:00:00Z",
+                last_updated_at="2024-01-01T00:00:00Z",
+                last_summarized_event_id="evt_1",
+                revision=0
+            ),
+            summary_blocks=SummaryBlocks(
+                current_goal="Build a feature",
+                next_steps=["Build the feature", "Test the feature"]  # Task that will be completed
+            )
+        )
+        
+        events = [
+            {"event_id": "evt_2", "type": "tool_call", "tool_name": "write_file", "tool_args": {"path": "feature.py"}},
+            {"event_id": "evt_3", "type": "tool_result", "tool_name": "write_file", "tool_result": {"success": True}},
+            {"event_id": "evt_4", "type": "assistant_message", "content": "Feature built and tested successfully!"}
+        ]
+        
+        # LLM should recognize the task from previous next_steps is now completed
+        response_json = {
+            "summary_patch": {
+                "current_goal": "Build a feature",
+                "what_we_built": ["Built and tested feature.py"],
+                "open_questions": [],
+                "constraints": [],
+                "next_steps": []  # Should exclude "Build the feature" since it's completed
+            },
+            "extracted": {
+                "tasks_updated": [
+                    {
+                        "id": "task_build_feature",
+                        "status": "completed",
+                        "event_ids": ["evt_2", "evt_3", "evt_4"]
+                    }
+                ]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_4"}
+        }
+        
+        mock_llm_client.chat.return_value = {"choices": [{"message": {"content": json.dumps(response_json)}}]}
+        mock_llm_client.extract_assistant_content.return_value = json.dumps(response_json)
+        
+        result = summarizer.summarize_delta("session_1", events, previous_summary)
+        
+        assert result is not None
+        # Completed task from previous next_steps should NOT appear in new next_steps
+        next_steps = result.get("summary_patch", {}).get("next_steps", [])
+        assert "Build the feature" not in next_steps
+        # Task should be marked completed
+        assert any(
+            t.get("status") == "completed" 
+            for t in result.get("extracted", {}).get("tasks_updated", [])
+        )
+    
+    def test_completed_task_moved_to_what_we_built(self, summarizer, mock_llm_client):
+        """Test that completed deliverables should appear in what_we_built."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Create a new API endpoint"},
+            {"event_id": "evt_2", "type": "tool_call", "tool_name": "write_file", "tool_args": {"path": "api.py"}},
+            {"event_id": "evt_3", "type": "tool_result", "tool_name": "write_file", "tool_result": {"success": True}},
+            {"event_id": "evt_4", "type": "assistant_message", "content": "API endpoint created successfully"}
+        ]
+        
+        response_json = {
+            "summary_patch": {
+                "current_goal": "Create API endpoint",
+                "what_we_built": ["Created new API endpoint in api.py"],  # Completed deliverable
+                "open_questions": [],
+                "constraints": [],
+                "next_steps": []
+            },
+            "extracted": {
+                "tasks_updated": [
+                    {
+                        "id": "task_create_endpoint",
+                        "status": "completed",
+                        "event_ids": ["evt_2", "evt_3", "evt_4"]
+                    }
+                ]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_4"}
+        }
+        
+        mock_llm_client.chat.return_value = {"choices": [{"message": {"content": json.dumps(response_json)}}]}
+        mock_llm_client.extract_assistant_content.return_value = json.dumps(response_json)
+        
+        result = summarizer.summarize_delta("session_1", events)
+        
+        assert result is not None
+        # Completed deliverable should be in what_we_built
+        what_we_built = result.get("summary_patch", {}).get("what_we_built", [])
+        assert len(what_we_built) > 0
+        assert "API endpoint" in str(what_we_built)
+    
+    def test_multiple_tasks_some_completed(self, summarizer, mock_llm_client):
+        """Test multiple tasks, some completed, verify correct filtering."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Build feature A and feature B"},
+            {"event_id": "evt_2", "type": "tool_call", "tool_name": "write_file", "tool_args": {"path": "feature_a.py"}},
+            {"event_id": "evt_3", "type": "tool_result", "tool_name": "write_file", "tool_result": {"success": True}},
+            {"event_id": "evt_4", "type": "assistant_message", "content": "Feature A done, starting Feature B"}
+        ]
+        
+        response_json = {
+            "summary_patch": {
+                "current_goal": "Build feature A and feature B",
+                "what_we_built": ["Built feature_a.py"],
+                "open_questions": [],
+                "constraints": [],
+                "next_steps": ["Build feature B"]  # Only pending task
+            },
+            "extracted": {
+                "tasks_added": [
+                    {"id": "task_feature_b", "description": "Build feature B", "event_ids": ["evt_1"]}
+                ],
+                "tasks_updated": [
+                    {
+                        "id": "task_feature_a",
+                        "status": "completed",
+                        "event_ids": ["evt_2", "evt_3"]
+                    }
+                ]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_4"}
+        }
+        
+        mock_llm_client.chat.return_value = {"choices": [{"message": {"content": json.dumps(response_json)}}]}
+        mock_llm_client.extract_assistant_content.return_value = json.dumps(response_json)
+        
+        result = summarizer.summarize_delta("session_1", events)
+        
+        assert result is not None
+        # Completed task should NOT be in next_steps
+        next_steps = result.get("summary_patch", {}).get("next_steps", [])
+        assert "feature A" not in str(next_steps).lower() or "feature_a" not in str(next_steps).lower()
+        # Pending task should be in next_steps
+        assert "feature B" in str(next_steps) or "feature_b" in str(next_steps).lower()
+        # Completed task should be in tasks_updated
+        tasks_updated = result.get("extracted", {}).get("tasks_updated", [])
+        assert any(t.get("id") == "task_feature_a" and t.get("status") == "completed" for t in tasks_updated)
+    
+    def test_task_completion_with_evidence_event_ids(self, summarizer, mock_llm_client):
+        """Test that completed task has proper event_ids in tasks_updated."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Fix the bug"},
+            {"event_id": "evt_2", "type": "tool_call", "tool_name": "read_file", "tool_args": {"path": "bug.py"}},
+            {"event_id": "evt_3", "type": "tool_result", "tool_name": "read_file", "tool_result": {"content": "..."}},
+            {"event_id": "evt_4", "type": "tool_call", "tool_name": "write_file", "tool_args": {"path": "bug.py"}},
+            {"event_id": "evt_5", "type": "tool_result", "tool_name": "write_file", "tool_result": {"success": True}},
+            {"event_id": "evt_6", "type": "assistant_message", "content": "Bug fixed!"}
+        ]
+        
+        response_json = {
+            "summary_patch": {
+                "current_goal": "Fix the bug",
+                "what_we_built": ["Fixed bug in bug.py"],
+                "open_questions": [],
+                "constraints": [],
+                "next_steps": []
+            },
+            "extracted": {
+                "tasks_updated": [
+                    {
+                        "id": "task_fix_bug",
+                        "status": "completed",
+                        "event_ids": ["evt_2", "evt_4", "evt_5", "evt_6"]  # Multiple evidence events
+                    }
+                ]
+            },
+            "bookkeeping": {"new_last_summarized_event_id": "evt_6"}
+        }
+        
+        mock_llm_client.chat.return_value = {"choices": [{"message": {"content": json.dumps(response_json)}}]}
+        mock_llm_client.extract_assistant_content.return_value = json.dumps(response_json)
+        
+        result = summarizer.summarize_delta("session_1", events)
+        
+        assert result is not None
+        tasks_updated = result.get("extracted", {}).get("tasks_updated", [])
+        assert len(tasks_updated) > 0
+        completed_task = next((t for t in tasks_updated if t.get("status") == "completed"), None)
+        assert completed_task is not None
+        # Verify event_ids are present and valid
+        event_ids = completed_task.get("event_ids", [])
+        assert len(event_ids) > 0
+        # Verify event_ids exist in events
+        event_ids_set = {e.get("event_id") for e in events}
+        assert all(eid in event_ids_set for eid in event_ids)
 
