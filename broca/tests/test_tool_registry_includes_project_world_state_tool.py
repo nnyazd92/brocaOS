@@ -33,7 +33,6 @@ class TestToolRegistryIncludesProjectWorldStateTool:
             mock_config.tools.enable_web_search = False
             mock_config.tools.enable_terminal = False
             mock_config.tools.enable_critic = False
-            mock_config.tools.enable_version_control = False
             mock_config.tools.enable_project_world_state = True
             mock_config.tools.project_world_state_path = tmpdir
             mock_config.tools.project_world_state_file = str(Path(tmpdir) / "state.json")
@@ -90,7 +89,6 @@ class TestToolRegistryIncludesProjectWorldStateTool:
             mock_config.tools.enable_web_search = False
             mock_config.tools.enable_terminal = False
             mock_config.tools.enable_critic = False
-            mock_config.tools.enable_version_control = False
             mock_config.tools.enable_project_world_state = True
             mock_config.tools.project_world_state_path = tmpdir
             mock_config.tools.project_world_state_file = str(Path(tmpdir) / "state.json")

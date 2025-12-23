@@ -2,11 +2,11 @@
 Artifact: BrocaOS capability interplay vs a vanilla GPT-5
 
 1) Executive summary
-- What is “better”: Not raw reasoning gains, but reliable, auditable, and compounding work on your local machine through the synergy of tools (filesystem, version control, world-state mapping, memory graph, approval tokens) and governance (plans, provenance, constrained novelty, human-in-the-loop).
+- What is "better": Not raw reasoning gains, but reliable, auditable, and compounding work on your local machine through the synergy of tools (filesystem, world-state mapping, memory graph, approval tokens) and governance (plans, provenance, constrained novelty, human-in-the-loop).
 - Core advantages:
   - Continuity that survives context resets via artifacts and memory indices (not just chat history).
   - Verifiable, auditable state changes enforced by Plan/Approval/token provenance.
-  - Safer, reversible edits through version-control snapshots and world-state awareness before actions.
+  - Safer, reversible edits through git commands (via terminal) and world-state awareness before actions.
   - Project-level awareness (maps, reports, indices) that Broca maintains and references to avoid redo.
   - Local leverage: can read, analyze, and plan around your actual files and directories, not just pasted snippets.
 - Tradeoffs: Slightly more overhead (plans, approvals), and Broca avoids acting without tokens; Broca does not magically exceed a top-tier model’s raw reasoning but channels it into repeatable, recoverable operations.
@@ -16,7 +16,7 @@ Artifact: BrocaOS capability interplay vs a vanilla GPT-5
   - Local filesystem access or persistent project artifacts on your machine.
   - Explicit governance: no enforced Plan/Approval or tokenized actuation.
   - Built-in artifact-first continuity (no house directory, no artifact map).
-  - Local version control integration and safety checks.
+  - Local git integration via terminal tool for safety checks.
   - Structured memory graph with explicit provenance.
 - This analysis compares BrocaOS-as-a-system (LLM + tools + protocols) vs a single LLM endpoint.
 
@@ -30,8 +30,7 @@ Artifact: BrocaOS capability interplay vs a vanilla GPT-5
   - Memory graph with typed links enables durable recall and cross-referencing beyond the chat context.
 - Toolchain synergy (explicit functionality)
   - project_world_state: Builds and updates a structural view of the project for global awareness (files, layout, recency). This reduces blind edits and supports targeted refactors.
-  - version_control: Takes safe snapshots before risky operations, checks for danger, and surfaces recovery paths, enabling reversible, auditable changes.
-  - terminal: Executes reads and (with approvals+tokens via policy) writes. Used for listing, grepping, and verifying state before acting.
+  - terminal: Executes reads and (with approvals+tokens via policy) writes. Used for listing, grepping, verifying state, and running git commands before acting.
   - environment_access: Token-based actuator pathway with audit log; aligns actions with approvals and provenance requirements.
   - memory tools: Store, retrieve, link, and update memories with explicit namespaces and provenance. These memories point to artifacts and decisions, not just raw text.
   - multi_tool parallelism: Retrieve world state and memories concurrently to propose precise, context-rich plans faster.
@@ -42,7 +41,7 @@ Artifact: BrocaOS capability interplay vs a vanilla GPT-5
 - Reliable continuity and compounding context
   - Broca creates and maintains durable artifacts (reports, maps, indices), then references them to avoid re-discovery and rework. A vanilla LLM’s context evaporates with the session.
 - Verifiable and reversible operations
-  - Plans + approvals + tokens + version-control snapshots mean edits are inspectable and reversible. A vanilla LLM provides suggestions but cannot guarantee a safe, audited execution trail on your machine.
+  - Plans + approvals + tokens + git snapshots (via terminal) mean edits are inspectable and reversible. A vanilla LLM provides suggestions but cannot guarantee a safe, audited execution trail on your machine.
 - Global project awareness
   - project_world_state lets Broca orient before acting, making proposals that reflect the real layout, freshness, and scale of your code/docs. A vanilla LLM sees only what you paste.
 - Governance as product quality
@@ -78,7 +77,7 @@ Artifact: BrocaOS capability interplay vs a vanilla GPT-5
 - Expect Broca to:
   - Offer a Plan with explicit assumptions and safety steps before acting.
   - Request approvals and echo token provenance for any writes.
-  - Use world state and version control to reduce risk and enable rollbacks.
+  - Use world state and git commands (via terminal) to reduce risk and enable rollbacks.
   - Create and reference durable artifacts that accumulate value across sessions.
   - Record memory pointers with provenance so you can rediscover decisions and artifacts later.
 - Do not expect:

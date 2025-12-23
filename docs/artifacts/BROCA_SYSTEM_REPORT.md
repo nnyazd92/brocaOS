@@ -13,7 +13,7 @@ Generator: BrocaOS (this system)
 
 BrocaOS is a local, artifact-first cognitive architecture that fuses:
 - an LLM interface (OpenAI/DeepSeek clients),
-- a structured tool ecosystem (terminal, memory, version-control, project world state, environment access),
+- a structured tool ecosystem (terminal, memory, project world state, environment access),
 - a persistent memory stack (SQLite + FAISS),
 - a self-model with a consistency layer and epistemic engine,
 - internal sensing (computational/affective/cognitive telemetry), and
@@ -37,9 +37,8 @@ Artifacts (files, memories) are the continuity substrate; human-in-the-loop gove
 3) Tooling Subsystem
 - Registry: broca/tools/registry.py exposes tools to the LLM and validates calls.
 - Built-in tools (conditionally registered via config):
-  - terminal: arbitrary shell commands with output capture.
+  - terminal: arbitrary shell commands with output capture (including git commands).
   - memory tools: store/retrieve/update/link/get-related with dedup, conflicts, relationships.
-  - version_control: safe git ops (status, snapshot, backups, danger checks, recovery).
   - project_world_state: scans a project tree and summarizes structure + metadata.
   - environment_access: sensors/actuators with access levels and approval workflow.
   - web_search: Tavily-backed search (if API key provided).
@@ -82,7 +81,7 @@ Artifacts (files, memories) are the continuity substrate; human-in-the-loop gove
 ### Configuration (broca/config.py)
 - Centralizes configuration via environment variables (.env supported with python-dotenv). Key sections:
   - LLM: provider (deepseek|openai), api_base/key, model, temperature, timeout.
-  - Tools: enable flags; version control repo path; world-state root/path/limits; terminal enabled flag.
+  - Tools: enable flags; world-state root/path/limits; terminal enabled flag.
   - Memory: DB path, FAISS index path, embedding service config (api_base/key/model/dimension).
   - Self-Model: enabled flag, storage type (SQLite recommended), strict_mode, auto_update, max_iterations, consistency/update prompts, epistemic enable flags.
   - Internal Sensing: enable flags and sampling/window settings.
@@ -119,9 +118,6 @@ Notes:
 
 ### World State
 - Aggregates only available sections to keep prompts clean. Includes system info (platform, Python version, working dir), self-model summary, tool inventory, memory namespace tree, and internal sensing state when enabled.
-
-### Version Control Tool
-- Safe wrappers over git for: status, snapshot (commit), emergency_backup, danger checks, recovery options, and arbitrary commands (run_git). Intended to precede any cleanup/refactor flows.
 
 ---
 

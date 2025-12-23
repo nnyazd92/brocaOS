@@ -283,33 +283,6 @@ class TestToolDescriptionFormatter:
         
         assert "Running critic check" in description
     
-    def test_version_control_description(self):
-        """Test version control tool description formatting."""
-        if ToolDescriptionFormatter is None:
-            pytest.skip("ToolDescriptionFormatter not yet implemented")
-        
-        formatter = ToolDescriptionFormatter()
-        tool_name = "version_control"
-        arguments = {"action": "commit"}
-        
-        description = formatter.format(tool_name, arguments)
-        
-        assert "Version control" in description
-        assert "commit" in description
-    
-    def test_version_control_no_action(self):
-        """Test version control tool without action."""
-        if ToolDescriptionFormatter is None:
-            pytest.skip("ToolDescriptionFormatter not yet implemented")
-        
-        formatter = ToolDescriptionFormatter()
-        tool_name = "version_control"
-        arguments = {}
-        
-        description = formatter.format(tool_name, arguments)
-        
-        assert "Version control" in description
-    
     def test_project_world_state_description(self):
         """Test project world state tool description formatting."""
         if ToolDescriptionFormatter is None:

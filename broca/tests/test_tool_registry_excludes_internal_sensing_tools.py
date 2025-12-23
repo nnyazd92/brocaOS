@@ -30,7 +30,6 @@ class TestToolRegistryExcludesInternalSensingTools:
         mock_config.tools.enable_web_search = False
         mock_config.tools.enable_terminal = False
         mock_config.tools.enable_critic = False
-        mock_config.tools.enable_version_control = False
         mock_config.tools.enable_project_world_state = False
         
         # Initialize registry (without memory manager, epistemic engine, etc.)
@@ -74,7 +73,6 @@ class TestToolRegistryExcludesInternalSensingTools:
             mock_config.tools.enable_web_search = False
             mock_config.tools.enable_terminal = False
             mock_config.tools.enable_critic = False
-            mock_config.tools.enable_version_control = False
             mock_config.tools.enable_project_world_state = False
             
             internal_sensing = _initialize_internal_sensing()

@@ -16,7 +16,6 @@
   "tools": [
     "terminal",
     "memory",
-    "version_control",
     "project_world_state",
     "environment_access",
     "web_search(optional)"
