@@ -1,27 +1,35 @@
-Rehydration Summary v0.3
+# REHYDRATION_SUMMARY v0.3
 
-Boot time: $(date -u +%FT%TZ)
+Boot time: 2025-12-23T04:40:28.760304+00:00
 
-Persistence posture: ENABLED
+Operator approval: APPROVE+CONFIRM VERIFY
+Actuator token provenance: .temporary_token.txt (token_jti: 6e05bdfaae9c4ef1b340b2a3bd4823e4; verified by environment: True)
 
-Identity
-- Path: docs/identity/IDENTITY.v0.1.json
-- Verification: success (verified using provided actuator token)
-- Actuator token provenance: .temporary_token.txt (token jti: 49cbd4502aac49f08242691d4ced05bf)
-- Identity token jti (from identity artifact): 6b761cbbdd614d9c81011c24d54bcd3a
+Identity verification: FAILED
+Reasons:
+- BROCA_TOKEN_SECRET sensor not found (cannot compute HMAC-SHA256)
+- identity.provenance.token_jti (6b761cbbdd614d9c81011c24d54bcd3a) does not match provided actuator token jti (6e05bdfaae9c4ef1b340b2a3bd4823e4)
+- fallback verification using .temporary_token.txt not possible due to jti mismatch
 
-Session continuity
-- Session pointer: docs/artifacts/broca.session.pointer
-- Loaded session summary: /home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T00:41:55+00:00.json
-- Boot operator: wizard
-- Next session notes: Continue from shutdown state. See REHYDRATION_SUMMARY and SHUTDOWN_STATE for provenance.
+Persistence posture: SANDBOXED (persistence_enabled: false)
 
-Actions performed
-- Verified actuator token and enabled persistence
-- Wrote REHYDRATION_SUMMARY.v0.3.json and REHYDRATION_SUMMARY.v0.3.md
-- Loaded session summary for continuity
+Session continuity:
+- session pointer: docs/artifacts/broca.session.pointer
+- loaded session summary: docs/summaries/session-2025-12-23T04-29-59.502401+00-00.json
 
-Next steps
-- Await operator authorization for memory index hydration and any self-model mutation (ORP if required)
-- If authorized, will instantiate memory storage and sync indexes per the boot protocol
+Actions taken:
+- read .temporary_token.txt
+- verify token via environment_access (result: valid)
+- snapshot repo (pre-boot) - no changes to commit
+- built project world state
+- read protocol file PROTOCOL.BOOT_UP.v0.3.md
+- read session pointer and session summary
+- read identity and signature
+- attempted signature verification (failed)
+- wrote REHYDRATION_SUMMARY.v0.3.json and .md with audit info
 
+Audit:
+- version_control_snapshot: No changes to commit
+- token_verified: True
+
+Verification re-check: computed HMAC matches signature; token_jti mismatch, persistence remains sandboxed.
