@@ -1,0 +1,22 @@
+{
+  "schema_version": "v0.1",
+  "session_id": "session-2025-12-23T23:00:30Z",
+  "boot_jti": "d74ad3764fc644e882cc424b56a387b7",
+  "boot_operator": "nick.yazdani",
+  "session_start": "2025-12-23T23:00:30Z",
+  "session_end": "2025-12-23T23:00:30Z",
+  "key_actions": [
+    "Verified actuator token via environment_access.verify_approval_token",
+    "Wrote minimal shutdown persistence (.shutdown_persistence.json)",
+    "Wrote shutdown marker and state (docs/SHUTDOWN_MARKER.txt, docs/SHUTDOWN_STATE.v0.1.json)"
+  ],
+  "outcome_summary": "Minimal SDP v0.3-compliant shutdown initiated, with persistence, marker, and state artifacts written.",
+  "memory_changes": {
+    "added": 0,
+    "updated": 0,
+    "deleted": 0
+  },
+  "next_session_notes": "Next session should review caching integration plan, formalize SessionSummary schema, and extend shutdown flow for memory sync and pointer provenance logs.",
+  "created_by": "assistant",
+  "timestamp": "2025-12-23T23:00:30Z"
+}

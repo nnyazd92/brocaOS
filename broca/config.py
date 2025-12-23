@@ -160,6 +160,28 @@ class SummarizationConfig(BaseModel):
     max_tool_result_size: int = int(os.getenv("BROCA_MAX_TOOL_RESULT_SIZE", "50000"))  # Maximum tool result size in characters (~12.5K tokens)
 
 
+class CacheConfig(BaseModel):
+    """Configuration for LLM cache behaviour (TTL, size limits, etc.).
+
+    These defaults are chosen to be conservative but safe for a long-running
+    BrocaOS instance:
+    - Default TTL: 7 days for stale detection/eviction.
+    - Default max_rows: 20k entries, which keeps the SQLite file modest in size
+      while allowing substantial reuse.
+
+    Both can be overridden via environment variables if needed.
+    """
+
+    llm_cache_ttl_seconds: int = int(
+        os.getenv("BROCA_LLM_CACHE_TTL_SECONDS", str(7 * 24 * 3600))
+    )
+    llm_cache_max_rows: int = int(
+        os.getenv("BROCA_LLM_CACHE_MAX_ROWS", "20000")
+    )
+
+
+
+
 class ReplColorConfig(BaseModel):
     """Configuration for REPL color profiles."""
     profile: str = os.getenv("BROCA_REPL_COLOR_PROFILE", "default")  # "default", "dark", "light", or "custom"
@@ -170,6 +192,7 @@ class ReplColorConfig(BaseModel):
 
 
 class BrocaConfig(BaseModel):
+    cache: CacheConfig = CacheConfig()
     llm: LLMConfig = LLMConfig()
     logging: LoggingConfig = LoggingConfig()
     storage: StorageConfig = StorageConfig()

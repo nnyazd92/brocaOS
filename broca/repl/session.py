@@ -60,7 +60,21 @@ class ConversationSession:
         base_system_prompt: Optional[str] = None,
         color_manager: Optional[Any] = None,
     ) -> None:
-        self.llm = llm or create_llm_client()
+        # If an LLM client is provided, use it directly.
+        # Otherwise, if a world_state_aggregator is available, wrap the
+        # underlying client with a world-state-aware caching layer.
+        if llm is not None:
+            self.llm = llm
+        else:
+            if world_state_aggregator is not None:
+                from ..llm import create_cached_llm_client
+                self.llm = create_cached_llm_client(
+                    scope="broca:repl_interactive",
+                    world_state_aggregator=world_state_aggregator,
+                )
+            else:
+                from ..llm import create_llm_client
+                self.llm = create_llm_client()
         self.messages: List[Dict[str, str]] = []
         self.storage = storage
         self.tool_registry = tool_registry
@@ -68,6 +82,10 @@ class ConversationSession:
         self.world_state_aggregator = world_state_aggregator
         self.session_id = session_id or str(uuid.uuid4())
         self.system_prompt = system_prompt
+
+        # World-state hash tracking for system prompt / caching
+        self._last_world_state_hash: Optional[str] = None
+        self._last_world_state_raw: Optional[dict] = None
 
         # Get base system prompt from parameter, system_prompt, or config
         # Track whether base_system_prompt was explicitly provided
@@ -315,6 +333,14 @@ class ConversationSession:
                 can_stream = stream and hasattr(self.llm, "chat_stream")
                 use_streaming = can_stream
                 
+                # Log streaming decision for debugging
+                if stream and not hasattr(self.llm, "chat_stream"):
+                    logger.debug(f"Streaming requested but LLM client doesn't support chat_stream method")
+                elif stream and can_stream:
+                    logger.debug(f"Streaming enabled for this LLM call (iteration {iterations})")
+                elif not stream:
+                    logger.debug(f"Streaming disabled (stream={stream})")
+                
                 if use_streaming:
                     # Streaming mode - try streaming first
                     assistant_text = ""
@@ -341,6 +367,8 @@ class ConversationSession:
                         # If tools are used, the stream will yield empty/minimal content, and we'll detect tool_calls after
                         messages_for_llm = self._get_messages_for_llm()
                         messages_for_llm = self._validate_message_size(messages_for_llm)
+                        
+                        logger.debug(f"Starting streaming request (iteration {iterations}, has_tools={bool(tools)})")
                         
                         if tools:
                             stream_gen = self.llm.chat_stream(
@@ -378,6 +406,8 @@ class ConversationSession:
                             # Apply delay between chunks if configured
                             if streaming_delay > 0:
                                 time.sleep(streaming_delay)
+                        
+                        logger.debug(f"Streaming completed: {chunk_count} chunks received, prompt_printed={prompt_printed}")
                         
                         # Only print newline if we actually printed content
                         if prompt_printed:
@@ -426,7 +456,16 @@ class ConversationSession:
                                 assistant_text = None  # Clear assistant_text since we have tool_calls
                     except Exception as e:
                         # Fall back to non-streaming on error
-                        logger.warning(f"Streaming failed, falling back to non-streaming: {e}", exc_info=True)
+                        logger.warning(
+                            f"Streaming failed, falling back to non-streaming: {e}",
+                            exc_info=True,
+                            extra={
+                                "event": "streaming_failed",
+                                "iteration": iterations,
+                                "error_type": type(e).__name__,
+                                "error_message": str(e)
+                            }
+                        )
                         assistant_text = None  # Reset so it gets extracted from response
                         messages_for_llm = self._get_messages_for_llm()
                         messages_for_llm = self._validate_message_size(messages_for_llm)
@@ -1724,13 +1763,22 @@ class ConversationSession:
                 tool_result = self.tool_registry.execute_tool_call(tool_call)
                 
                 # Determine if tool call was successful
+                # Use _success field if available (from raw result), otherwise fall back to content parsing
                 tool_success = True
                 if isinstance(tool_result, dict):
-                    content = tool_result.get("content", "")
-                    if isinstance(content, str):
-                        content_lower = content.lower()
-                        if "error" in content_lower or "failed" in content_lower:
-                            tool_success = False
+                    # Prefer explicit success field from raw result
+                    if "_success" in tool_result:
+                        tool_success = tool_result.get("_success", True)
+                    else:
+                        # Fallback: check content for error indicators (legacy behavior)
+                        content = tool_result.get("content", "")
+                        if isinstance(content, str):
+                            content_lower = content.lower()
+                            # Only mark as failed if content explicitly indicates error/failure
+                            # Skip common false positives like "Error output:" label for successful commands
+                            if ("error executing" in content_lower or 
+                                ("failed" in content_lower and ("command failed" in content_lower or "execution failed" in content_lower))):
+                                tool_success = False
                 
                 # Complete visual feedback
                 if self._tool_status_display:
@@ -1801,10 +1849,17 @@ class ConversationSession:
                         )
 
                         # Check if tool was successful
-                        tool_success = tool_result.get("content", "").lower()
-                        is_success = (
-                            "error" not in tool_success and "failed" not in tool_success
-                        )
+                        # Use _success field if available, otherwise parse content
+                        if "_success" in tool_result:
+                            is_success = tool_result.get("_success", True)
+                        else:
+                            # Fallback: check content (legacy behavior)
+                            tool_success = tool_result.get("content", "").lower()
+                            is_success = (
+                                "error executing" not in tool_success and 
+                                ("failed" not in tool_success or 
+                                 ("command failed" not in tool_success and "execution failed" not in tool_success))
+                            )
 
                         # Update affective state based on tool outcome
                         if is_success:

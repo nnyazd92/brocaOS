@@ -164,6 +164,42 @@ class TerminalTool:
         
         return True
     
+    def _is_git_command(self, command: str) -> bool:
+        """
+        Check if command is a git command.
+        
+        Args:
+            command: Command string to check
+            
+        Returns:
+            True if command is a git command, False otherwise
+        """
+        cmd_name, _ = self._normalize_command(command)
+        return cmd_name == "git"
+    
+    def _get_stderr_label(self, result: Dict[str, Any]) -> str:
+        """
+        Get appropriate label for stderr output based on command type and success status.
+        
+        Args:
+            result: Tool execution result dictionary
+            
+        Returns:
+            Appropriate label for stderr output
+        """
+        command = result.get("command", "")
+        success = result.get("success", False)
+        
+        # For successful commands, don't use "Error output:"
+        if success:
+            if self._is_git_command(command):
+                return "Git output:"
+            else:
+                return "Output:"
+        else:
+            # For failed commands, "Error output:" or "Stderr output:" is appropriate
+            return "Stderr output:"
+    
     def execute(
         self,
         command: str,
@@ -455,7 +491,8 @@ class TerminalTool:
                 lines.append(f"\nOutput:\n{result['stdout']}")
             
             if result.get("stderr"):
-                lines.append(f"\nError output:\n{result['stderr']}")
+                stderr_label = self._get_stderr_label(result)
+                lines.append(f"\n{stderr_label}\n{result['stderr']}")
             
             return "\n".join(lines)
         

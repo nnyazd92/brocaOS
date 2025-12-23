@@ -532,6 +532,10 @@ class ToolRegistry:
                 "content": formatted_result
             }
             
+            # Include success field from raw result for proper success detection
+            if isinstance(result, dict) and "success" in result:
+                result_dict["_success"] = result.get("success", True)
+            
             # For critic tool, include raw result for enforcement checking
             if tool_name == "critic" and isinstance(result, dict):
                 result_dict["_raw_result"] = result

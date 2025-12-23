@@ -137,7 +137,7 @@ class DefaultColorProfile(ColorProfile):
         """Initialize default color profile."""
         super().__init__(
             brocaos_prompt=ANSI_CYAN,
-            response_text=ANSI_RESET,  # Default text color
+            response_text=ANSI_BRIGHT_WHITE,  # Bright white for good visibility
             you_prompt=ANSI_YELLOW,
             input_text=ANSI_BRIGHT_GREEN,  # Distinct color for user input (different from default and prompt)
             success_indicator=ANSI_GREEN,

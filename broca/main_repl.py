@@ -2,8 +2,9 @@ import sys
 import re
 import readline  # optional, for nicer REPL on Unix
 import logging
+import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 from .logging_config import setup_logging
 from .repl.session import ConversationSession
 from .config import config
@@ -30,15 +31,43 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# ANSI escape code pattern
+_ANSI_ESCAPE_PATTERN = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+
+def _strip_ansi_codes(text: str) -> str:
+    """
+    Strip ANSI escape codes from text.
+    
+    Args:
+        text: Text that may contain ANSI codes
+        
+    Returns:
+        Text with ANSI codes removed
+    """
+    return _ANSI_ESCAPE_PATTERN.sub('', text)
+
+
+def _get_visible_width(text: str) -> int:
+    """
+    Get the visible width of text, excluding ANSI escape codes.
+    
+    Args:
+        text: Text that may contain ANSI codes
+        
+    Returns:
+        Visible width in characters
+    """
+    return len(_strip_ansi_codes(text))
+
 
 def _get_user_input_with_colored_prompt(prompt: str) -> str:
     """
-    Get user input with a colored prompt that supports proper line wrapping.
+    Get user input with a colored prompt.
     
-    The issue with colored prompts in input() is that ANSI escape codes don't
-    count toward visible width, which can confuse terminal wrapping calculations.
-    This function prints the colored prompt separately and uses input('') with
-    an empty prompt, allowing the terminal/readline to handle wrapping correctly.
+    Uses input() directly with the colored prompt. This ensures readline
+    properly handles the prompt and prevents backspace from deleting it.
+    The newline issue is handled by ensuring proper terminal state.
     
     Args:
         prompt: Colored prompt string (may contain ANSI codes)
@@ -47,21 +76,21 @@ def _get_user_input_with_colored_prompt(prompt: str) -> str:
         User input string
     """
     try:
-        # Print the colored prompt without newline
-        # This allows readline to handle the input line correctly without
-        # being confused by ANSI codes in the prompt width calculation
-        sys.stdout.write(prompt)
+        # Use input() directly with the colored prompt
+        # This allows readline to properly handle the prompt and prevent
+        # backspace from deleting into it
+        result = input(prompt)
+        
+        # Explicitly flush stdout to ensure terminal state is reset
+        # This is critical for streaming output to appear correctly
         sys.stdout.flush()
         
-        # Use input with empty prompt - readline will handle line editing
-        # and wrapping correctly since it doesn't see ANSI codes
-        return input('')
+        return result
     except (EOFError, KeyboardInterrupt):
+        # Flush stdout to ensure terminal state is reset
+        sys.stdout.flush()
         # Re-raise these so they can be handled by the caller
         raise
-    except Exception:
-        # Fallback: If anything fails, use simple input (may have wrapping issues)
-        return input(prompt)
 
 
 def _initialize_storage() -> ConversationStorage | None:
@@ -650,8 +679,7 @@ def main() -> None:
                 if color_manager:
                     you_prompt = color_manager.colorize(you_prompt, "you_prompt")
                 
-                # Get user input with proper wrapping support
-                # Use readline for better line editing, but handle colored prompts correctly
+                # Get user input with colored prompt
                 user_input = _get_user_input_with_colored_prompt(you_prompt).strip()
                 
                 # Resume spinner updates after user input

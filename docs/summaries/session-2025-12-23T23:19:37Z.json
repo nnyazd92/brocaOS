@@ -1,0 +1,37 @@
+{
+  "schema_version": "v0.1",
+  "session_id": "session-2025-12-23T23:19:37Z",
+  "boot_jti": "d74ad3764fc644e882cc424b56a387b7",
+  "boot_operator": "nick.yazdani",
+  "session_start": "2025-12-23T23:00:30Z",
+  "session_end": "2025-12-23T23:19:37Z",
+  "key_actions": [
+    "Executed BOOT_UP v0.3 with identity verification via BROCA_TOKEN_SECRET",
+    "Enabled persistence with operator-approved actuator token (.temporary_token.txt)",
+    "Updated REHYDRATION_SUMMARY.v0.3.json and .md",
+    "Appended boot entry to docs/artifacts/BOOT_LOG.v0.3.txt",
+    "Prepared SDP v0.3-compliant shutdown with explicit files_touched list"
+  ],
+  "outcome_summary": "Session booted with verified identity and world-state-aware caching; prepared shutdown artifacts with explicit file touch list for next-session continuity.",
+  "memory_changes": {
+    "added": 0,
+    "updated": 0,
+    "deleted": 0
+  },
+  "next_session_notes": "On next boot, review LLM cache behavior, consider adding cache introspection into rehydration/shutdown summaries, and refine memory sync implementation.",
+  "files_touched": [
+    ".env",
+    ".temporary_token.txt",
+    "docs/protocols/PROTOCOL.BOOT_UP.v0.3.md",
+    "docs/artifacts/broca.session.pointer",
+    "docs/summaries/session-2025-12-23T23:00:30Z.json",
+    "docs/identity/IDENTITY.v0.1.json",
+    "docs/identity/IDENTITY.v0.1.signature.json",
+    "docs/rehydration/REHYDRATION_SUMMARY.v0.3.json",
+    "docs/rehydration/REHYDRATION_SUMMARY.v0.3.md",
+    "docs/artifacts/BOOT_LOG.v0.3.txt",
+    "docs/protocols/PROTOCOL.SHUT_DOWN.v0.3.md"
+  ],
+  "created_by": "assistant",
+  "timestamp": "2025-12-23T23:19:37Z"
+}

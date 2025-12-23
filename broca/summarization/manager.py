@@ -24,7 +24,8 @@ from .models import (
     EvidenceItem,
     ConfidenceLevel
 )
-from .token_estimator import estimate_messages_tokens, estimate_prompt_tokens
+from .token_estimator import estimate_tokens, estimate_messages_tokens, estimate_prompt_tokens
+from .prompt_builder import PromptBuilder
 from ..config import config
 
 logger = logging.getLogger(__name__)
@@ -96,10 +97,8 @@ class SummarizationManager:
             logger.debug(f"Trigger: turn count ({turns_since_last_summary} >= {self.trigger_turns})")
             return True
         
-        # Check token-based trigger (estimate current prompt size)
-        # This is a simplified check - in practice, you'd need to estimate the full prompt
-        # including system prompt, world state, etc.
-        estimated_tokens = estimate_messages_tokens(messages)
+        # Check token-based trigger (estimate actual prompt size that will be sent)
+        estimated_tokens = self._estimate_actual_prompt_tokens(session_id, messages)
         
         # Threshold is percentage of context window
         token_usage = estimated_tokens / self.context_window_size
@@ -111,6 +110,87 @@ class SummarizationManager:
             return True
         
         return False
+    
+    def _estimate_actual_prompt_tokens(
+        self,
+        session_id: str,
+        messages: List[Dict[str, Any]]
+    ) -> int:
+        """
+        Estimate tokens for the actual prompt that will be sent to LLM.
+        
+        When a summary exists, only filtered messages (summary + last K turns) are sent.
+        This method estimates tokens based on what will actually be sent, not the full message history.
+        
+        Args:
+            session_id: Session identifier
+            messages: Full conversation messages
+            
+        Returns:
+            Estimated token count for the actual prompt payload
+        """
+        # Check if summary exists for this session
+        try:
+            summary = self.summary_storage.load_session_summary(session_id)
+            if not summary:
+                # No summary exists yet - estimate from full messages
+                return estimate_messages_tokens(messages)
+        except Exception as e:
+            logger.debug(f"Error checking for summary, using full messages: {e}")
+            # Fall back to full message estimation
+            return estimate_messages_tokens(messages)
+        
+        # Summary exists - estimate from filtered payload (summary + last K turns)
+        total_tokens = 0
+        
+        # 1. Estimate tokens for summary context
+        try:
+            prompt_builder = PromptBuilder(
+                summary_storage=self.summary_storage,
+                last_turns_count=config.summarization.last_turns_count
+            )
+            summary_context = prompt_builder.build_context(session_id, messages, system_prompt=None)
+            if summary_context:
+                total_tokens += estimate_tokens(summary_context)
+        except Exception as e:
+            logger.debug(f"Error estimating summary context tokens: {e}")
+        
+        # 2. Estimate tokens for filtered messages (last K turns)
+        # Use same logic as ConversationSession._get_filtered_messages()
+        try:
+            last_turns_count = config.summarization.last_turns_count
+            if not isinstance(last_turns_count, int):
+                last_turns_count = 3  # Default
+            
+            # Get system message (if exists) - this will be included
+            system_message = None
+            if messages and messages[0].get("role") == "system":
+                system_message = messages[0]
+            
+            # Get last K turns (non-system messages)
+            non_system_messages = [m for m in messages if m.get("role") != "system"]
+            
+            # Estimate: each turn is typically 2-4 messages (user + assistant + possibly tool calls)
+            # Take last current_turns*4 messages as a conservative estimate
+            turns_to_keep = last_turns_count * 4
+            start_idx = max(0, len(non_system_messages) - turns_to_keep)
+            last_turns = non_system_messages[start_idx:]
+            
+            # Build filtered message list: system message + last turns
+            filtered_messages = []
+            if system_message:
+                filtered_messages.append(system_message)
+            filtered_messages.extend(last_turns)
+            
+            # Estimate tokens for filtered messages
+            total_tokens += estimate_messages_tokens(filtered_messages)
+            
+        except Exception as e:
+            logger.debug(f"Error estimating filtered message tokens: {e}")
+            # Fall back to full message estimation
+            return estimate_messages_tokens(messages)
+        
+        return total_tokens
     
     def maybe_summarize(
         self,
@@ -325,6 +405,12 @@ class SummarizationManager:
                     claim=decision.get("text", ""),
                     event_ids=decision.get("event_ids", [])
                 ))
+            
+            # Cap evidence list to prevent unbounded growth
+            max_evidence_items = 50  # Keep most recent 50 items
+            if len(evidence) > max_evidence_items:
+                evidence = evidence[-max_evidence_items:]
+                logger.debug(f"Capped evidence list to {max_evidence_items} items (kept most recent)")
             
             # Update confidence (simplified - could be more sophisticated)
             confidence = ConfidenceLevel()

@@ -13,3 +13,9 @@ End of log
 
 Note: Session summary created for continuity: /home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T00:41:55+00:00.json
 2025-12-23T21:25:38Z | operator=wizard | action=SDP_v0.3_session_summary_and_pointer_update | provenance=.temporary_token.txt | new_session=docs/summaries/session-2025-12-23T21:25:38Z.json
+[2025-12-23T23:19:37Z] SDP v0.3 shutdown_completed | session_id=session-2025-12-23T23:19:37Z | summary=docs/summaries/session-2025-12-23T23:19:37Z.json | files_touched_count=11 | token_provenance=.temporary_token.txt
+[2025-12-23T23:39:32.007754Z] SHUT_DOWN v0.3 (conceptual)
+  session_summary: docs/summaries/session-2025-12-23T23-39-32.007754Z.json
+  actuator_token_provenance: .temporary_token.txt
+  llm_cache_policy: ttl=604800s, max_rows=20000
+  note: broca/ops/shutdown.py to be implemented next to execute full protocol.
