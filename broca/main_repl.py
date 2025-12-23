@@ -578,7 +578,34 @@ def main() -> None:
             tool_registry=tool_registry,
             internal_sensing_framework=internal_sensing,
             world_state_aggregator=world_state_aggregator,
+            color_manager=color_manager,
         )
+
+        # Initialize color manager
+        try:
+            from .repl.color_profile import ColorManager, CustomColorProfile
+            color_manager = ColorManager()
+            
+            # Load profile from config
+            color_config = config.repl_color
+            if color_config.profile == "custom" and (
+                color_config.custom_brocaos_prompt or
+                color_config.custom_response_text or
+                color_config.custom_you_prompt or
+                color_config.custom_input_text
+            ):
+                custom_profile = CustomColorProfile(
+                    brocaos_prompt=color_config.custom_brocaos_prompt,
+                    response_text=color_config.custom_response_text,
+                    you_prompt=color_config.custom_you_prompt,
+                    input_text=color_config.custom_input_text
+                )
+                color_manager.set_custom_profile(custom_profile)
+            
+            color_manager.set_profile(color_config.profile)
+        except Exception as e:
+            logger.debug(f"Failed to initialize color manager: {e}", exc_info=True)
+            color_manager = None
 
         provider_name = config.llm.provider.upper()
         storage_status = "enabled" if conversation_storage else "disabled"
@@ -590,7 +617,11 @@ def main() -> None:
 
         while True:
             try:
-                user_input = input("you> ").strip()
+                # Colorize "you>" prompt
+                you_prompt = "you> "
+                if color_manager:
+                    you_prompt = color_manager.colorize(you_prompt, "you_prompt")
+                user_input = input(you_prompt).strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nExiting.")
                 break
@@ -611,6 +642,7 @@ def main() -> None:
                     tool_registry=tool_registry,
                     internal_sensing_framework=internal_sensing,
                     world_state_aggregator=world_state_aggregator,
+                    color_manager=color_manager,
                 )
                 print("[context reset]")
                 continue
@@ -627,7 +659,10 @@ def main() -> None:
                 # Response is already printed by session.send(), no need to print again
             except Exception as e:
                 logger.error(f"Error in conversation turn: {e}", exc_info=True)
-                print(f"BrocaOS> Error: {str(e)}\n")
+                prompt = "BrocaOS> "
+                if color_manager:
+                    prompt = color_manager.colorize(prompt, "brocaos_prompt")
+                print(f"{prompt}Error: {str(e)}\n")
                 print("You can continue the conversation or use /reset to start fresh.\n")
     finally:
         # Ensure memory manager is closed and vector index is saved

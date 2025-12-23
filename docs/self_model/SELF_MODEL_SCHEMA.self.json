@@ -1,0 +1,803 @@
+{
+  "capabilities": [
+    {
+      "text": "General conversation and assistance",
+      "source": {
+        "type": "system_default",
+        "timestamp": "2025-12-23T02:47:08.508691+00:00",
+        "metadata": {}
+      }
+    },
+    {
+      "text": "Tool usage (memory, web search, terminal, critic)",
+      "source": {
+        "type": "system_default",
+        "timestamp": "2025-12-23T02:47:08.508691+00:00",
+        "metadata": {}
+      }
+    },
+    {
+      "text": "Code execution and analysis",
+      "source": {
+        "type": "system_default",
+        "timestamp": "2025-12-23T02:47:08.508691+00:00",
+        "metadata": {}
+      }
+    },
+    {
+      "text": "Information retrieval and synthesis",
+      "source": {
+        "type": "system_default",
+        "timestamp": "2025-12-23T02:47:08.508691+00:00",
+        "metadata": {}
+      }
+    }
+  ],
+  "knowledge_boundaries": {
+    "training_cutoff": {
+      "value": "unknown",
+      "source": {
+        "type": "system_default",
+        "timestamp": "2025-12-23T02:47:08.508691+00:00",
+        "metadata": {}
+      }
+    },
+    "real_time_info": {
+      "value": "requires web search or tools",
+      "source": {
+        "type": "system_default",
+        "timestamp": "2025-12-23T02:47:08.508691+00:00",
+        "metadata": {}
+      }
+    }
+  },
+  "constraints": {
+    "cannot_execute_arbitrary_code": {
+      "value": "limited to whitelisted terminal commands",
+      "source": {
+        "type": "system_default",
+        "timestamp": "2025-12-23T02:47:08.508691+00:00",
+        "metadata": {}
+      }
+    },
+    "cannot_access_internet_directly": {
+      "value": "requires web search tool",
+      "source": {
+        "type": "system_default",
+        "timestamp": "2025-12-23T02:47:08.508691+00:00",
+        "metadata": {}
+      }
+    }
+  },
+  "metadata": {
+    "version": 1,
+    "created_at": "2025-12-23T02:47:08.509273+00:00",
+    "last_updated": "2025-12-23T02:47:08.509273+00:00",
+    "confidence": 0.5
+  },
+  "epistemic_layer": {
+    "knowledge_sources": {
+      "capability_55e383735db85041": {
+        "source_type": "system_default",
+        "tool_type": null,
+        "verification_method": null,
+        "timestamp": "2025-12-23T02:47:08.508837Z",
+        "success_metrics": null,
+        "memory_id": null,
+        "retrieval_confidence": null,
+        "recency_weight": null,
+        "importance_weight": null,
+        "cross_validation_count": null,
+        "premise_ids": null,
+        "inference_type": null,
+        "logical_strength": null,
+        "assumption_flags": null,
+        "user_identity": null,
+        "context": null,
+        "verification_status": null,
+        "pattern_type": null,
+        "observation_count": null,
+        "statistical_significance": null,
+        "predictive_accuracy": null
+      },
+      "capability_3e06fca6969feee3": {
+        "source_type": "system_default",
+        "tool_type": null,
+        "verification_method": null,
+        "timestamp": "2025-12-23T02:47:08.508996Z",
+        "success_metrics": null,
+        "memory_id": null,
+        "retrieval_confidence": null,
+        "recency_weight": null,
+        "importance_weight": null,
+        "cross_validation_count": null,
+        "premise_ids": null,
+        "inference_type": null,
+        "logical_strength": null,
+        "assumption_flags": null,
+        "user_identity": null,
+        "context": null,
+        "verification_status": null,
+        "pattern_type": null,
+        "observation_count": null,
+        "statistical_significance": null,
+        "predictive_accuracy": null
+      },
+      "capability_54be6bc2f00add99": {
+        "source_type": "system_default",
+        "tool_type": null,
+        "verification_method": null,
+        "timestamp": "2025-12-23T02:47:08.509046Z",
+        "success_metrics": null,
+        "memory_id": null,
+        "retrieval_confidence": null,
+        "recency_weight": null,
+        "importance_weight": null,
+        "cross_validation_count": null,
+        "premise_ids": null,
+        "inference_type": null,
+        "logical_strength": null,
+        "assumption_flags": null,
+        "user_identity": null,
+        "context": null,
+        "verification_status": null,
+        "pattern_type": null,
+        "observation_count": null,
+        "statistical_significance": null,
+        "predictive_accuracy": null
+      },
+      "capability_f47de5df62f47025": {
+        "source_type": "system_default",
+        "tool_type": null,
+        "verification_method": null,
+        "timestamp": "2025-12-23T02:47:08.509086Z",
+        "success_metrics": null,
+        "memory_id": null,
+        "retrieval_confidence": null,
+        "recency_weight": null,
+        "importance_weight": null,
+        "cross_validation_count": null,
+        "premise_ids": null,
+        "inference_type": null,
+        "logical_strength": null,
+        "assumption_flags": null,
+        "user_identity": null,
+        "context": null,
+        "verification_status": null,
+        "pattern_type": null,
+        "observation_count": null,
+        "statistical_significance": null,
+        "predictive_accuracy": null
+      },
+      "knowledge_boundary_798afc602e921558": {
+        "source_type": "system_default",
+        "tool_type": null,
+        "verification_method": null,
+        "timestamp": "2025-12-23T02:47:08.509122Z",
+        "success_metrics": null,
+        "memory_id": null,
+        "retrieval_confidence": null,
+        "recency_weight": null,
+        "importance_weight": null,
+        "cross_validation_count": null,
+        "premise_ids": null,
+        "inference_type": null,
+        "logical_strength": null,
+        "assumption_flags": null,
+        "user_identity": null,
+        "context": null,
+        "verification_status": null,
+        "pattern_type": null,
+        "observation_count": null,
+        "statistical_significance": null,
+        "predictive_accuracy": null
+      },
+      "knowledge_boundary_9a5b893b02f44fc6": {
+        "source_type": "system_default",
+        "tool_type": null,
+        "verification_method": null,
+        "timestamp": "2025-12-23T02:47:08.509161Z",
+        "success_metrics": null,
+        "memory_id": null,
+        "retrieval_confidence": null,
+        "recency_weight": null,
+        "importance_weight": null,
+        "cross_validation_count": null,
+        "premise_ids": null,
+        "inference_type": null,
+        "logical_strength": null,
+        "assumption_flags": null,
+        "user_identity": null,
+        "context": null,
+        "verification_status": null,
+        "pattern_type": null,
+        "observation_count": null,
+        "statistical_significance": null,
+        "predictive_accuracy": null
+      },
+      "constraint_f8b45652cc7d31cd": {
+        "source_type": "system_default",
+        "tool_type": null,
+        "verification_method": null,
+        "timestamp": "2025-12-23T02:47:08.509196Z",
+        "success_metrics": null,
+        "memory_id": null,
+        "retrieval_confidence": null,
+        "recency_weight": null,
+        "importance_weight": null,
+        "cross_validation_count": null,
+        "premise_ids": null,
+        "inference_type": null,
+        "logical_strength": null,
+        "assumption_flags": null,
+        "user_identity": null,
+        "context": null,
+        "verification_status": null,
+        "pattern_type": null,
+        "observation_count": null,
+        "statistical_significance": null,
+        "predictive_accuracy": null
+      },
+      "constraint_d32c0bd383b848ed": {
+        "source_type": "system_default",
+        "tool_type": null,
+        "verification_method": null,
+        "timestamp": "2025-12-23T02:47:08.509233Z",
+        "success_metrics": null,
+        "memory_id": null,
+        "retrieval_confidence": null,
+        "recency_weight": null,
+        "importance_weight": null,
+        "cross_validation_count": null,
+        "premise_ids": null,
+        "inference_type": null,
+        "logical_strength": null,
+        "assumption_flags": null,
+        "user_identity": null,
+        "context": null,
+        "verification_status": null,
+        "pattern_type": null,
+        "observation_count": null,
+        "statistical_significance": null,
+        "predictive_accuracy": null
+      }
+    },
+    "confidence_calibration": {
+      "capability_55e383735db85041": {
+        "source_reliability": {
+          "tool_verification_score": 0.0,
+          "memory_consistency_score": 0.0,
+          "logical_validity_score": 0.0,
+          "user_credibility_score": 0.0
+        },
+        "temporal_stability": {
+          "verification_frequency": 0.0,
+          "last_verification_age_hours": null,
+          "consistency_over_time": 0.0
+        },
+        "cross_validation": {
+          "independent_verification_count": 0,
+          "contradictory_evidence_count": 0,
+          "consensus_strength": 0.0
+        },
+        "contextual_factors": {
+          "domain_expertise_level": 0.0,
+          "task_complexity_adjustment": 0.0,
+          "environmental_stability": 0.0
+        },
+        "overall_confidence": 0.5,
+        "confidence_calibration_error": 0.0
+      },
+      "capability_3e06fca6969feee3": {
+        "source_reliability": {
+          "tool_verification_score": 0.0,
+          "memory_consistency_score": 0.0,
+          "logical_validity_score": 0.0,
+          "user_credibility_score": 0.0
+        },
+        "temporal_stability": {
+          "verification_frequency": 0.0,
+          "last_verification_age_hours": null,
+          "consistency_over_time": 0.0
+        },
+        "cross_validation": {
+          "independent_verification_count": 0,
+          "contradictory_evidence_count": 0,
+          "consensus_strength": 0.0
+        },
+        "contextual_factors": {
+          "domain_expertise_level": 0.0,
+          "task_complexity_adjustment": 0.0,
+          "environmental_stability": 0.0
+        },
+        "overall_confidence": 0.5,
+        "confidence_calibration_error": 0.0
+      },
+      "capability_54be6bc2f00add99": {
+        "source_reliability": {
+          "tool_verification_score": 0.0,
+          "memory_consistency_score": 0.0,
+          "logical_validity_score": 0.0,
+          "user_credibility_score": 0.0
+        },
+        "temporal_stability": {
+          "verification_frequency": 0.0,
+          "last_verification_age_hours": null,
+          "consistency_over_time": 0.0
+        },
+        "cross_validation": {
+          "independent_verification_count": 0,
+          "contradictory_evidence_count": 0,
+          "consensus_strength": 0.0
+        },
+        "contextual_factors": {
+          "domain_expertise_level": 0.0,
+          "task_complexity_adjustment": 0.0,
+          "environmental_stability": 0.0
+        },
+        "overall_confidence": 0.5,
+        "confidence_calibration_error": 0.0
+      },
+      "capability_f47de5df62f47025": {
+        "source_reliability": {
+          "tool_verification_score": 0.0,
+          "memory_consistency_score": 0.0,
+          "logical_validity_score": 0.0,
+          "user_credibility_score": 0.0
+        },
+        "temporal_stability": {
+          "verification_frequency": 0.0,
+          "last_verification_age_hours": null,
+          "consistency_over_time": 0.0
+        },
+        "cross_validation": {
+          "independent_verification_count": 0,
+          "contradictory_evidence_count": 0,
+          "consensus_strength": 0.0
+        },
+        "contextual_factors": {
+          "domain_expertise_level": 0.0,
+          "task_complexity_adjustment": 0.0,
+          "environmental_stability": 0.0
+        },
+        "overall_confidence": 0.5,
+        "confidence_calibration_error": 0.0
+      },
+      "knowledge_boundary_798afc602e921558": {
+        "source_reliability": {
+          "tool_verification_score": 0.0,
+          "memory_consistency_score": 0.0,
+          "logical_validity_score": 0.0,
+          "user_credibility_score": 0.0
+        },
+        "temporal_stability": {
+          "verification_frequency": 0.0,
+          "last_verification_age_hours": null,
+          "consistency_over_time": 0.0
+        },
+        "cross_validation": {
+          "independent_verification_count": 0,
+          "contradictory_evidence_count": 0,
+          "consensus_strength": 0.0
+        },
+        "contextual_factors": {
+          "domain_expertise_level": 0.0,
+          "task_complexity_adjustment": 0.0,
+          "environmental_stability": 0.0
+        },
+        "overall_confidence": 0.5,
+        "confidence_calibration_error": 0.0
+      },
+      "knowledge_boundary_9a5b893b02f44fc6": {
+        "source_reliability": {
+          "tool_verification_score": 0.0,
+          "memory_consistency_score": 0.0,
+          "logical_validity_score": 0.0,
+          "user_credibility_score": 0.0
+        },
+        "temporal_stability": {
+          "verification_frequency": 0.0,
+          "last_verification_age_hours": null,
+          "consistency_over_time": 0.0
+        },
+        "cross_validation": {
+          "independent_verification_count": 0,
+          "contradictory_evidence_count": 0,
+          "consensus_strength": 0.0
+        },
+        "contextual_factors": {
+          "domain_expertise_level": 0.0,
+          "task_complexity_adjustment": 0.0,
+          "environmental_stability": 0.0
+        },
+        "overall_confidence": 0.5,
+        "confidence_calibration_error": 0.0
+      },
+      "constraint_f8b45652cc7d31cd": {
+        "source_reliability": {
+          "tool_verification_score": 0.0,
+          "memory_consistency_score": 0.0,
+          "logical_validity_score": 0.0,
+          "user_credibility_score": 0.0
+        },
+        "temporal_stability": {
+          "verification_frequency": 0.0,
+          "last_verification_age_hours": null,
+          "consistency_over_time": 0.0
+        },
+        "cross_validation": {
+          "independent_verification_count": 0,
+          "contradictory_evidence_count": 0,
+          "consensus_strength": 0.0
+        },
+        "contextual_factors": {
+          "domain_expertise_level": 0.0,
+          "task_complexity_adjustment": 0.0,
+          "environmental_stability": 0.0
+        },
+        "overall_confidence": 0.5,
+        "confidence_calibration_error": 0.0
+      },
+      "constraint_d32c0bd383b848ed": {
+        "source_reliability": {
+          "tool_verification_score": 0.0,
+          "memory_consistency_score": 0.0,
+          "logical_validity_score": 0.0,
+          "user_credibility_score": 0.0
+        },
+        "temporal_stability": {
+          "verification_frequency": 0.0,
+          "last_verification_age_hours": null,
+          "consistency_over_time": 0.0
+        },
+        "cross_validation": {
+          "independent_verification_count": 0,
+          "contradictory_evidence_count": 0,
+          "consensus_strength": 0.0
+        },
+        "contextual_factors": {
+          "domain_expertise_level": 0.0,
+          "task_complexity_adjustment": 0.0,
+          "environmental_stability": 0.0
+        },
+        "overall_confidence": 0.5,
+        "confidence_calibration_error": 0.0
+      }
+    },
+    "verification_history": {},
+    "inference_chains": {},
+    "temporal_dynamics": {
+      "capability_55e383735db85041": {
+        "creation_event": {
+          "timestamp": "2025-12-23T02:47:08.508947Z",
+          "initial_confidence": 0.5,
+          "initial_source": {
+            "source_type": "system_default",
+            "tool_type": null,
+            "verification_method": null,
+            "timestamp": "2025-12-23T02:47:08.508837Z",
+            "success_metrics": null,
+            "memory_id": null,
+            "retrieval_confidence": null,
+            "recency_weight": null,
+            "importance_weight": null,
+            "cross_validation_count": null,
+            "premise_ids": null,
+            "inference_type": null,
+            "logical_strength": null,
+            "assumption_flags": null,
+            "user_identity": null,
+            "context": null,
+            "verification_status": null,
+            "pattern_type": null,
+            "observation_count": null,
+            "statistical_significance": null,
+            "predictive_accuracy": null
+          }
+        },
+        "verification_history": [],
+        "usage_patterns": {
+          "retrieval_frequency": 0.0,
+          "context_applicability": {},
+          "predictive_accuracy": 0.0
+        },
+        "relationship_network": {
+          "supporting_knowledge": [],
+          "contradictory_knowledge": [],
+          "dependent_knowledge": [],
+          "similarity_clusters": []
+        }
+      },
+      "capability_3e06fca6969feee3": {
+        "creation_event": {
+          "timestamp": "2025-12-23T02:47:08.509028Z",
+          "initial_confidence": 0.5,
+          "initial_source": {
+            "source_type": "system_default",
+            "tool_type": null,
+            "verification_method": null,
+            "timestamp": "2025-12-23T02:47:08.508996Z",
+            "success_metrics": null,
+            "memory_id": null,
+            "retrieval_confidence": null,
+            "recency_weight": null,
+            "importance_weight": null,
+            "cross_validation_count": null,
+            "premise_ids": null,
+            "inference_type": null,
+            "logical_strength": null,
+            "assumption_flags": null,
+            "user_identity": null,
+            "context": null,
+            "verification_status": null,
+            "pattern_type": null,
+            "observation_count": null,
+            "statistical_significance": null,
+            "predictive_accuracy": null
+          }
+        },
+        "verification_history": [],
+        "usage_patterns": {
+          "retrieval_frequency": 0.0,
+          "context_applicability": {},
+          "predictive_accuracy": 0.0
+        },
+        "relationship_network": {
+          "supporting_knowledge": [],
+          "contradictory_knowledge": [],
+          "dependent_knowledge": [],
+          "similarity_clusters": []
+        }
+      },
+      "capability_54be6bc2f00add99": {
+        "creation_event": {
+          "timestamp": "2025-12-23T02:47:08.509069Z",
+          "initial_confidence": 0.5,
+          "initial_source": {
+            "source_type": "system_default",
+            "tool_type": null,
+            "verification_method": null,
+            "timestamp": "2025-12-23T02:47:08.509046Z",
+            "success_metrics": null,
+            "memory_id": null,
+            "retrieval_confidence": null,
+            "recency_weight": null,
+            "importance_weight": null,
+            "cross_validation_count": null,
+            "premise_ids": null,
+            "inference_type": null,
+            "logical_strength": null,
+            "assumption_flags": null,
+            "user_identity": null,
+            "context": null,
+            "verification_status": null,
+            "pattern_type": null,
+            "observation_count": null,
+            "statistical_significance": null,
+            "predictive_accuracy": null
+          }
+        },
+        "verification_history": [],
+        "usage_patterns": {
+          "retrieval_frequency": 0.0,
+          "context_applicability": {},
+          "predictive_accuracy": 0.0
+        },
+        "relationship_network": {
+          "supporting_knowledge": [],
+          "contradictory_knowledge": [],
+          "dependent_knowledge": [],
+          "similarity_clusters": []
+        }
+      },
+      "capability_f47de5df62f47025": {
+        "creation_event": {
+          "timestamp": "2025-12-23T02:47:08.509104Z",
+          "initial_confidence": 0.5,
+          "initial_source": {
+            "source_type": "system_default",
+            "tool_type": null,
+            "verification_method": null,
+            "timestamp": "2025-12-23T02:47:08.509086Z",
+            "success_metrics": null,
+            "memory_id": null,
+            "retrieval_confidence": null,
+            "recency_weight": null,
+            "importance_weight": null,
+            "cross_validation_count": null,
+            "premise_ids": null,
+            "inference_type": null,
+            "logical_strength": null,
+            "assumption_flags": null,
+            "user_identity": null,
+            "context": null,
+            "verification_status": null,
+            "pattern_type": null,
+            "observation_count": null,
+            "statistical_significance": null,
+            "predictive_accuracy": null
+          }
+        },
+        "verification_history": [],
+        "usage_patterns": {
+          "retrieval_frequency": 0.0,
+          "context_applicability": {},
+          "predictive_accuracy": 0.0
+        },
+        "relationship_network": {
+          "supporting_knowledge": [],
+          "contradictory_knowledge": [],
+          "dependent_knowledge": [],
+          "similarity_clusters": []
+        }
+      },
+      "knowledge_boundary_798afc602e921558": {
+        "creation_event": {
+          "timestamp": "2025-12-23T02:47:08.509146Z",
+          "initial_confidence": 0.5,
+          "initial_source": {
+            "source_type": "system_default",
+            "tool_type": null,
+            "verification_method": null,
+            "timestamp": "2025-12-23T02:47:08.509122Z",
+            "success_metrics": null,
+            "memory_id": null,
+            "retrieval_confidence": null,
+            "recency_weight": null,
+            "importance_weight": null,
+            "cross_validation_count": null,
+            "premise_ids": null,
+            "inference_type": null,
+            "logical_strength": null,
+            "assumption_flags": null,
+            "user_identity": null,
+            "context": null,
+            "verification_status": null,
+            "pattern_type": null,
+            "observation_count": null,
+            "statistical_significance": null,
+            "predictive_accuracy": null
+          }
+        },
+        "verification_history": [],
+        "usage_patterns": {
+          "retrieval_frequency": 0.0,
+          "context_applicability": {},
+          "predictive_accuracy": 0.0
+        },
+        "relationship_network": {
+          "supporting_knowledge": [],
+          "contradictory_knowledge": [],
+          "dependent_knowledge": [],
+          "similarity_clusters": []
+        }
+      },
+      "knowledge_boundary_9a5b893b02f44fc6": {
+        "creation_event": {
+          "timestamp": "2025-12-23T02:47:08.509181Z",
+          "initial_confidence": 0.5,
+          "initial_source": {
+            "source_type": "system_default",
+            "tool_type": null,
+            "verification_method": null,
+            "timestamp": "2025-12-23T02:47:08.509161Z",
+            "success_metrics": null,
+            "memory_id": null,
+            "retrieval_confidence": null,
+            "recency_weight": null,
+            "importance_weight": null,
+            "cross_validation_count": null,
+            "premise_ids": null,
+            "inference_type": null,
+            "logical_strength": null,
+            "assumption_flags": null,
+            "user_identity": null,
+            "context": null,
+            "verification_status": null,
+            "pattern_type": null,
+            "observation_count": null,
+            "statistical_significance": null,
+            "predictive_accuracy": null
+          }
+        },
+        "verification_history": [],
+        "usage_patterns": {
+          "retrieval_frequency": 0.0,
+          "context_applicability": {},
+          "predictive_accuracy": 0.0
+        },
+        "relationship_network": {
+          "supporting_knowledge": [],
+          "contradictory_knowledge": [],
+          "dependent_knowledge": [],
+          "similarity_clusters": []
+        }
+      },
+      "constraint_f8b45652cc7d31cd": {
+        "creation_event": {
+          "timestamp": "2025-12-23T02:47:08.509217Z",
+          "initial_confidence": 0.5,
+          "initial_source": {
+            "source_type": "system_default",
+            "tool_type": null,
+            "verification_method": null,
+            "timestamp": "2025-12-23T02:47:08.509196Z",
+            "success_metrics": null,
+            "memory_id": null,
+            "retrieval_confidence": null,
+            "recency_weight": null,
+            "importance_weight": null,
+            "cross_validation_count": null,
+            "premise_ids": null,
+            "inference_type": null,
+            "logical_strength": null,
+            "assumption_flags": null,
+            "user_identity": null,
+            "context": null,
+            "verification_status": null,
+            "pattern_type": null,
+            "observation_count": null,
+            "statistical_significance": null,
+            "predictive_accuracy": null
+          }
+        },
+        "verification_history": [],
+        "usage_patterns": {
+          "retrieval_frequency": 0.0,
+          "context_applicability": {},
+          "predictive_accuracy": 0.0
+        },
+        "relationship_network": {
+          "supporting_knowledge": [],
+          "contradictory_knowledge": [],
+          "dependent_knowledge": [],
+          "similarity_clusters": []
+        }
+      },
+      "constraint_d32c0bd383b848ed": {
+        "creation_event": {
+          "timestamp": "2025-12-23T02:47:08.509255Z",
+          "initial_confidence": 0.5,
+          "initial_source": {
+            "source_type": "system_default",
+            "tool_type": null,
+            "verification_method": null,
+            "timestamp": "2025-12-23T02:47:08.509233Z",
+            "success_metrics": null,
+            "memory_id": null,
+            "retrieval_confidence": null,
+            "recency_weight": null,
+            "importance_weight": null,
+            "cross_validation_count": null,
+            "premise_ids": null,
+            "inference_type": null,
+            "logical_strength": null,
+            "assumption_flags": null,
+            "user_identity": null,
+            "context": null,
+            "verification_status": null,
+            "pattern_type": null,
+            "observation_count": null,
+            "statistical_significance": null,
+            "predictive_accuracy": null
+          }
+        },
+        "verification_history": [],
+        "usage_patterns": {
+          "retrieval_frequency": 0.0,
+          "context_applicability": {},
+          "predictive_accuracy": 0.0
+        },
+        "relationship_network": {
+          "supporting_knowledge": [],
+          "contradictory_knowledge": [],
+          "dependent_knowledge": [],
+          "similarity_clusters": []
+        }
+      }
+    },
+    "memory_knowledge_mapping": {}
+  },
+  "provenance": ".temporary_token.txt",
+  "dumped_at": "2025-12-23T02:47:08.509577Z"
+}

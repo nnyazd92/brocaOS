@@ -78,6 +78,120 @@ class TestGoldenTraces:
         assert "extracted" in compressed
         assert "bookkeeping" in compressed
     
+    def test_golden_trace_task_completion_typical(self, summarizer, golden_traces_dir):
+        """Test with typical task completion golden trace."""
+        golden_trace = load_golden_trace("task_completion_typical", golden_traces_dir)
+        
+        json_str = json.dumps(golden_trace)
+        
+        # Test parsing
+        parsed = summarizer._parse_json_response(json_str)
+        assert parsed is not None
+        assert parsed["summary_patch"]["current_goal"] == golden_trace["summary_patch"]["current_goal"]
+        
+        # Test validation with mock events
+        events = [
+            {"event_id": f"evt_{i}", "type": "user_message", "content": f"Message {i}"}
+            for i in range(1, 8)
+        ]
+        
+        validation = summarizer._validate_summarization_result(parsed, events)
+        assert validation["valid"] is True
+        
+        # Verify task completion property: completed task should NOT be in next_steps
+        next_steps = parsed["summary_patch"].get("next_steps", [])
+        tasks_updated = parsed["extracted"].get("tasks_updated", [])
+        completed_task_ids = {
+            t["id"].lower() 
+            for t in tasks_updated 
+            if t.get("status") == "completed"
+        }
+        
+        # No completed tasks should appear in next_steps
+        for step in next_steps:
+            step_lower = step.lower()
+            for task_id in completed_task_ids:
+                assert task_id not in step_lower, f"Completed task {task_id} found in next_steps: {step}"
+    
+    def test_golden_trace_task_completion_multiple(self, summarizer, golden_traces_dir):
+        """Test with multiple task completion golden trace."""
+        golden_trace = load_golden_trace("task_completion_multiple", golden_traces_dir)
+        
+        json_str = json.dumps(golden_trace)
+        
+        # Test parsing
+        parsed = summarizer._parse_json_response(json_str)
+        assert parsed is not None
+        
+        # Test validation
+        events = [
+            {"event_id": f"evt_{i}", "type": "user_message", "content": f"Message {i}"}
+            for i in range(1, 12)
+        ]
+        
+        validation = summarizer._validate_summarization_result(parsed, events)
+        assert validation["valid"] is True
+        
+        # Verify: completed tasks should NOT be in next_steps
+        next_steps = parsed["summary_patch"].get("next_steps", [])
+        tasks_updated = parsed["extracted"].get("tasks_updated", [])
+        completed_task_ids = {
+            t["id"].lower() 
+            for t in tasks_updated 
+            if t.get("status") == "completed"
+        }
+        
+        # Only pending tasks should be in next_steps
+        for step in next_steps:
+            step_lower = step.lower()
+            for task_id in completed_task_ids:
+                assert task_id not in step_lower, f"Completed task {task_id} found in next_steps: {step}"
+        
+        # Verify pending tasks are in next_steps
+        assert len(next_steps) > 0
+    
+    def test_golden_trace_task_completion_regression(self, summarizer, golden_traces_dir):
+        """Test regression case: verify completed task is removed from next_steps."""
+        golden_trace = load_golden_trace("task_completion_regression", golden_traces_dir)
+        
+        json_str = json.dumps(golden_trace)
+        
+        # Test parsing
+        parsed = summarizer._parse_json_response(json_str)
+        assert parsed is not None
+        
+        # Test validation
+        events = [
+            {"event_id": f"evt_{i}", "type": "user_message", "content": f"Message {i}"}
+            for i in range(1, 8)
+        ]
+        
+        validation = summarizer._validate_summarization_result(parsed, events)
+        assert validation["valid"] is True
+        
+        # Regression test: completed task must NOT be in next_steps
+        next_steps = parsed["summary_patch"].get("next_steps", [])
+        tasks_updated = parsed["extracted"].get("tasks_updated", [])
+        
+        # Extract completed task descriptions/IDs
+        completed_task_info = [
+            t["id"].lower() 
+            for t in tasks_updated 
+            if t.get("status") == "completed"
+        ]
+        
+        # Verify completed task is not in next_steps (the bug this fixes)
+        for step in next_steps:
+            step_lower = step.lower()
+            for task_info in completed_task_info:
+                # Should not contain completed task
+                assert task_info not in step_lower or "fix" not in step_lower.lower(), \
+                    f"Regression: Completed task '{task_info}' found in next_steps: '{step}'"
+        
+        # Completed task should be in tasks_updated
+        assert len(tasks_updated) > 0
+        assert any(t.get("status") == "completed" for t in tasks_updated)
+    
     def test_golden_trace_large_summary(self, summarizer, golden_traces_dir):
         """Test with large summary golden trace."""
         golden_trace = load_golden_trace("large_summary", golden_traces_dir)

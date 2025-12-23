@@ -346,4 +346,74 @@ class TestBranchCoverage:
         # Should apply final truncation
         from broca.summarization.token_estimator import estimate_tokens
         assert estimate_tokens(compressed) <= summarizer.max_summary_tokens
+    
+    # Prompt building branch coverage
+    def test_prompt_with_no_previous_summary(self, summarizer):
+        """Cover: prompt building when previous_summary is None."""
+        events = [
+            {"event_id": "evt_1", "type": "user_message", "content": "Test"}
+        ]
+        
+        prompt = summarizer._build_summarization_prompt("session_1", events, None)
+        
+        assert prompt is not None
+        assert "Events to summarize" in prompt
+        # Should not have "Previous summary context" section
+        assert "Previous summary context" not in prompt
+    
+    def test_prompt_with_empty_next_steps(self, summarizer):
+        """Cover: previous summary has empty next_steps."""
+        from broca.summarization.models import SessionSummary, SummaryHeader, SummaryBlocks
+        
+        previous_summary = SessionSummary(
+            header=SummaryHeader(
+                session_id="session_1",
+                created_at="2024-01-01T00:00:00Z",
+                last_updated_at="2024-01-01T00:00:00Z",
+                last_summarized_event_id="evt_1",
+                revision=0
+            ),
+            summary_blocks=SummaryBlocks(
+                current_goal="Test goal",
+                next_steps=[]  # Empty next_steps
+            )
+        )
+        
+        events = [
+            {"event_id": "evt_2", "type": "user_message", "content": "Test"}
+        ]
+        
+        prompt = summarizer._build_summarization_prompt("session_1", events, previous_summary)
+        
+        assert prompt is not None
+        # Should handle empty next_steps gracefully
+        assert "Previous summary context" in prompt or "next_steps" in prompt.lower()
+    
+    def test_prompt_with_previous_summary_has_next_steps(self, summarizer):
+        """Cover: previous summary has next_steps that should be included."""
+        from broca.summarization.models import SessionSummary, SummaryHeader, SummaryBlocks
+        
+        previous_summary = SessionSummary(
+            header=SummaryHeader(
+                session_id="session_1",
+                created_at="2024-01-01T00:00:00Z",
+                last_updated_at="2024-01-01T00:00:00Z",
+                last_summarized_event_id="evt_1",
+                revision=0
+            ),
+            summary_blocks=SummaryBlocks(
+                current_goal="Test goal",
+                next_steps=["Task 1", "Task 2", "Task 3"]
+            )
+        )
+        
+        events = [
+            {"event_id": "evt_2", "type": "user_message", "content": "Test"}
+        ]
+        
+        prompt = summarizer._build_summarization_prompt("session_1", events, previous_summary)
+        
+        assert prompt is not None
+        # Should include next_steps from previous summary
+        assert "Task 1" in prompt or "next_steps" in prompt.lower()
 

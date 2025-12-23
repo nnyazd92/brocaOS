@@ -282,7 +282,31 @@ class SummarizationManager:
                 blocks.constraints = blocks.constraints[-20:]
             if "next_steps" in summary_patch:
                 blocks.next_steps.extend(summary_patch["next_steps"])
-                blocks.next_steps = blocks.next_steps[-20:]
+                
+                # Filter out completed tasks (defensive check)
+                completed_task_ids = set()
+                for task_update in extracted.get("tasks_updated", []):
+                    if isinstance(task_update, dict) and task_update.get("status") == "completed":
+                        task_id = task_update.get("id")
+                        if task_id:
+                            completed_task_ids.add(task_id.lower())
+                
+                # Filter next_steps: remove items that match completed task patterns
+                # Simple heuristic: if next_step contains task_id or vice versa
+                filtered_next_steps = []
+                for step in blocks.next_steps:
+                    if not isinstance(step, str):
+                        # Skip non-string items
+                        continue
+                    step_lower = step.lower()
+                    is_completed = any(
+                        task_id in step_lower or step_lower in task_id 
+                        for task_id in completed_task_ids
+                    )
+                    if not is_completed:
+                        filtered_next_steps.append(step)
+                
+                blocks.next_steps = filtered_next_steps[-20:]  # Keep last 20
             
             # Build evidence list
             evidence = []

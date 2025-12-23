@@ -1,0 +1,45 @@
+{
+  "summary_patch": {
+    "current_goal": "Build a web application feature",
+    "what_we_built": [
+      "Created feature.py with API endpoint",
+      "Added database migration script",
+      "Implemented unit tests for feature"
+    ],
+    "open_questions": [
+      "Should we add integration tests?"
+    ],
+    "constraints": [
+      "Must maintain backward compatibility"
+    ],
+    "next_steps": []
+  },
+  "extracted": {
+    "facts_added": [
+      {
+        "text": "Feature implementation is complete",
+        "confidence": "high",
+        "event_ids": ["evt_3", "evt_5", "evt_7"]
+      }
+    ],
+    "decisions_added": [
+      {
+        "text": "Use Flask for the API framework",
+        "reasoning": "Simple and lightweight",
+        "event_ids": ["evt_2"]
+      }
+    ],
+    "tasks_added": [],
+    "tasks_updated": [
+      {
+        "id": "task_build_feature",
+        "status": "completed",
+        "event_ids": ["evt_3", "evt_5", "evt_7"]
+      }
+    ]
+  },
+  "bookkeeping": {
+    "new_last_summarized_event_id": "evt_7"
+  }
+}
+

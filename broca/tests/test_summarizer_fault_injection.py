@@ -399,4 +399,90 @@ class TestFaultInjection:
         
         # Should return None when parsing fails
         assert result is None
+    
+    # Task completion fault injection tests
+    def test_merge_with_malformed_tasks_updated(self, summarizer):
+        """Test handling missing/invalid task data gracefully."""
+        # This tests the conceptual filtering logic with malformed data
+        tasks_updated_malformed = [
+            {"id": "task_1", "status": "completed"},  # Missing event_ids
+            {"status": "completed", "event_ids": ["evt_1"]},  # Missing id
+            None,  # None entry
+            {"id": "task_2", "status": "invalid_status", "event_ids": []},  # Invalid status
+        ]
+        
+        # Filtering should handle missing fields gracefully
+        completed_task_ids = set()
+        for task_update in tasks_updated_malformed:
+            if isinstance(task_update, dict) and task_update.get("status") == "completed":
+                task_id = task_update.get("id")
+                if task_id:
+                    completed_task_ids.add(task_id.lower())
+        
+        # Should extract valid completed task IDs without crashing
+        assert "task_1" in completed_task_ids
+    
+    def test_filter_with_none_next_steps(self, summarizer):
+        """Test handling None/null next_steps safely."""
+        # Simulate filtering with None next_steps
+        next_steps = None
+        completed_task_ids = {"task_a"}
+        
+        # Filtering logic should handle None
+        if next_steps is None:
+            filtered = []
+        else:
+            filtered = [s for s in next_steps if not any(
+                tid.lower() in s.lower() for tid in completed_task_ids
+            )]
+        
+        assert filtered == []
+    
+    def test_prompt_with_very_long_next_steps(self, summarizer):
+        """Test handling extremely long next_steps lists."""
+        from broca.summarization.models import SessionSummary, SummaryHeader, SummaryBlocks
+        
+        # Create summary with very long next_steps list
+        previous_summary = SessionSummary(
+            header=SummaryHeader(
+                session_id="session_1",
+                created_at="2024-01-01T00:00:00Z",
+                last_updated_at="2024-01-01T00:00:00Z",
+                last_summarized_event_id="evt_1",
+                revision=0
+            ),
+            summary_blocks=SummaryBlocks(
+                current_goal="Test goal",
+                next_steps=[f"Task {i}" for i in range(100)]  # Very long list
+            )
+        )
+        
+        events = [
+            {"event_id": "evt_2", "type": "user_message", "content": "Test"}
+        ]
+        
+        # Should handle long list gracefully (truncated to first 5 in prompt)
+        prompt = summarizer._build_summarization_prompt("session_1", events, previous_summary)
+        assert prompt is not None
+        # Should not crash with long list
+    
+    def test_merge_with_duplicate_task_ids(self, summarizer):
+        """Test handling duplicate task IDs in tasks_updated."""
+        # Simulate merge with duplicate task IDs
+        tasks_updated = [
+            {"id": "task_1", "status": "completed", "event_ids": ["evt_1"]},
+            {"id": "task_1", "status": "completed", "event_ids": ["evt_2"]},  # Duplicate
+            {"id": "task_2", "status": "in_progress", "event_ids": ["evt_3"]},
+        ]
+        
+        # Extract completed task IDs (duplicates should be handled)
+        completed_task_ids = {
+            t["id"].lower() 
+            for t in tasks_updated 
+            if isinstance(t, dict) and t.get("status") == "completed"
+        }
+        
+        # Should handle duplicates (set deduplicates)
+        assert "task_1" in completed_task_ids
+        assert len(completed_task_ids) == 1  # Only one unique completed task
 

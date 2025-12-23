@@ -1,0 +1,6 @@
+{
+  "tool_name": "web_search",
+  "description": "Web searching python programming",
+  "format": "BrocaOS> [spinner] {description}",
+  "completion_format": "BrocaOS> {indicator} {description}\\n"
+}

@@ -429,12 +429,13 @@ This is trailing text after the code fence"""
         
         # Mock LLM to capture messages
         captured_messages = []
+        json_response = '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}'
         def capture_messages(messages, **kwargs):
             captured_messages.extend(messages)
-            return {"choices": [{"message": {"content": '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}"}}]}
+            return {"choices": [{"message": {"content": json_response}}]}
         
         mock_llm_client.chat.side_effect = capture_messages
-        mock_llm_client.extract_assistant_content.return_value = '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}'
+        mock_llm_client.extract_assistant_content.return_value = json_response
         
         summarizer.summarize_delta("session_1", events)
         
@@ -471,12 +472,13 @@ This is trailing text after the code fence"""
         
         # Mock LLM to capture messages
         captured_messages = []
+        json_response = '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_2"}}'
         def capture_messages(messages, **kwargs):
             captured_messages.extend(messages)
-            return {"choices": [{"message": {"content": '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_2"}}"}}]}
+            return {"choices": [{"message": {"content": json_response}}]}
         
         mock_llm_client.chat.side_effect = capture_messages
-        mock_llm_client.extract_assistant_content.return_value = '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_2"}}'
+        mock_llm_client.extract_assistant_content.return_value = json_response
         
         summarizer.summarize_delta("session_1", events, previous_summary)
         
@@ -497,12 +499,13 @@ This is trailing text after the code fence"""
         
         # Mock LLM to capture messages
         captured_messages = []
+        json_response = '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}'
         def capture_messages(messages, **kwargs):
             captured_messages.extend(messages)
-            return {"choices": [{"message": {"content": '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}"}}]}
+            return {"choices": [{"message": {"content": json_response}}]}
         
         mock_llm_client.chat.side_effect = capture_messages
-        mock_llm_client.extract_assistant_content.return_value = '{"summary_patch": {}, "extracted": {}, "bookkeeping": {"new_last_summarized_event_id": "evt_1"}}'
+        mock_llm_client.extract_assistant_content.return_value = json_response
         
         summarizer.summarize_delta("session_1", events)
         

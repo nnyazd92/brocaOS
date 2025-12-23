@@ -58,6 +58,7 @@ class ConversationSession:
         internal_sensing_framework: Optional["InternalSensingFramework"] = None,
         world_state_aggregator: Optional["WorldStateAggregator"] = None,
         base_system_prompt: Optional[str] = None,
+        color_manager: Optional[Any] = None,
     ) -> None:
         self.llm = llm or create_llm_client()
         self.messages: List[Dict[str, str]] = []
@@ -124,6 +125,17 @@ class ConversationSession:
             self._world_state_formatter = WorldStateFormatter()
         else:
             self._world_state_formatter = None
+
+        # Initialize tool status display for visual feedback
+        try:
+            from .tool_status import ToolStatusDisplay
+            self._tool_status_display = ToolStatusDisplay(color_manager=color_manager)
+        except Exception as e:
+            logger.debug(f"Failed to initialize tool status display: {e}", exc_info=True)
+            self._tool_status_display = None
+
+        # Store color manager for colorizing output
+        self._color_manager = color_manager
 
         if system_prompt:
             self.messages.append({"role": "system", "content": system_prompt})
@@ -296,7 +308,11 @@ class ConversationSession:
                 if use_streaming:
                     # Streaming mode - try streaming first
                     assistant_text = ""
-                    print("BrocaOS> ", end="", flush=True)
+                    # Colorize BrocaOS prompt
+                    prompt = "BrocaOS> "
+                    if self._color_manager:
+                        prompt = self._color_manager.colorize(prompt, "brocaos_prompt")
+                    print(prompt, end="", flush=True)
                     
                     # Get streaming delay from config
                     from ..config import config
@@ -337,7 +353,12 @@ class ConversationSession:
                         for chunk in stream_gen:
                             chunk_count += 1
                             assistant_text += chunk
-                            print(chunk, end="", flush=True)
+                            # Colorize response text chunks
+                            if self._color_manager:
+                                colored_chunk = self._color_manager.colorize(chunk, "response_text")
+                                print(colored_chunk, end="", flush=True)
+                            else:
+                                print(chunk, end="", flush=True)
                             
                             # Apply delay between chunks if configured
                             if streaming_delay > 0:
@@ -661,10 +682,19 @@ class ConversationSession:
                     # Otherwise streaming already printed everything including newline
                 else:
                     # Non-streaming: print with prompt
+                    prompt = "BrocaOS> "
+                    if self._color_manager:
+                        prompt = self._color_manager.colorize(prompt, "brocaos_prompt")
+                    
                     if assistant_text:
-                        print(f"BrocaOS> {assistant_text}\n", end="", flush=True)
+                        # Colorize response text
+                        if self._color_manager:
+                            colored_text = self._color_manager.colorize(assistant_text, "response_text")
+                            print(f"{prompt}{colored_text}\n", end="", flush=True)
+                        else:
+                            print(f"{prompt}{assistant_text}\n", end="", flush=True)
                     else:
-                        print("BrocaOS> \n", end="", flush=True)  # Empty response
+                        print(f"{prompt}\n", end="", flush=True)  # Empty response
 
                 # Log assistant message event
                 if self._event_logger:
@@ -1446,6 +1476,17 @@ class ConversationSession:
             )
 
             try:
+                # Show visual feedback for tool invocation
+                if self._tool_status_display:
+                    try:
+                        self._tool_status_display.start_tool_call(
+                            tool_name=tool_name,
+                            arguments=arguments,
+                            tool_call_id=tool_call_id
+                        )
+                    except Exception as e:
+                        logger.debug(f"Failed to start tool status display: {e}", exc_info=True)
+                
                 # Log tool call event
                 if self._event_logger:
                     try:
@@ -1459,6 +1500,26 @@ class ConversationSession:
                         logger.warning(f"Failed to log tool call event: {e}", exc_info=True)
                 
                 tool_result = self.tool_registry.execute_tool_call(tool_call)
+                
+                # Determine if tool call was successful
+                tool_success = True
+                if isinstance(tool_result, dict):
+                    content = tool_result.get("content", "")
+                    if isinstance(content, str):
+                        content_lower = content.lower()
+                        if "error" in content_lower or "failed" in content_lower:
+                            tool_success = False
+                
+                # Complete visual feedback
+                if self._tool_status_display:
+                    try:
+                        self._tool_status_display.complete_tool_call(
+                            tool_call_id=tool_call_id,
+                            tool_name=tool_name,
+                            success=tool_success
+                        )
+                    except Exception as e:
+                        logger.debug(f"Failed to complete tool status display: {e}", exc_info=True)
                 
                 # Truncate tool result if it exceeds size limit
                 from ..config import config
@@ -1548,6 +1609,17 @@ class ConversationSession:
                     },
                 )
             except Exception as e:
+                # Complete visual feedback with error
+                if self._tool_status_display:
+                    try:
+                        self._tool_status_display.complete_tool_call(
+                            tool_call_id=tool_call_id,
+                            tool_name=tool_name,
+                            success=False
+                        )
+                    except Exception:
+                        pass  # Ignore errors in display system
+                
                 logger.error(
                     f"Error executing tool call: {e}",
                     exc_info=True,

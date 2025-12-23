@@ -1,0 +1,74 @@
+{
+  "summary_patch": {
+    "current_goal": "Complete multiple tasks for project milestone",
+    "what_we_built": [
+      "Implemented authentication system",
+      "Created user dashboard",
+      "Added API documentation"
+    ],
+    "open_questions": [
+      "What database should we use for production?"
+    ],
+    "constraints": [
+      "Must use existing infrastructure"
+    ],
+    "next_steps": [
+      "Deploy to staging environment",
+      "Set up monitoring"
+    ]
+  },
+  "extracted": {
+    "facts_added": [
+      {
+        "text": "Authentication system is fully implemented",
+        "confidence": "high",
+        "event_ids": ["evt_2", "evt_4"]
+      },
+      {
+        "text": "User dashboard is complete",
+        "confidence": "high",
+        "event_ids": ["evt_6", "evt_8"]
+      }
+    ],
+    "decisions_added": [
+      {
+        "text": "Use JWT for authentication tokens",
+        "reasoning": "Stateless and scalable",
+        "event_ids": ["evt_1"]
+      }
+    ],
+    "tasks_added": [
+      {
+        "id": "task_deploy_staging",
+        "description": "Deploy to staging environment",
+        "event_ids": ["evt_10"]
+      },
+      {
+        "id": "task_setup_monitoring",
+        "description": "Set up monitoring",
+        "event_ids": ["evt_11"]
+      }
+    ],
+    "tasks_updated": [
+      {
+        "id": "task_auth_system",
+        "status": "completed",
+        "event_ids": ["evt_2", "evt_4"]
+      },
+      {
+        "id": "task_user_dashboard",
+        "status": "completed",
+        "event_ids": ["evt_6", "evt_8"]
+      },
+      {
+        "id": "task_api_docs",
+        "status": "completed",
+        "event_ids": ["evt_9"]
+      }
+    ]
+  },
+  "bookkeeping": {
+    "new_last_summarized_event_id": "evt_11"
+  }
+}
+

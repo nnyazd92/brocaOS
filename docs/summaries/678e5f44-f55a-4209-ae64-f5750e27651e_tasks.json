@@ -1,0 +1,20 @@
+{
+  "tasks": [
+    {
+      "id": "task_update_shutdown_protocol_docs",
+      "description": "Rewrite PROTOCOL.SHUT_DOWN.v0.3.md to fully ...",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_1b2543dcbf514a3ebd1089d4e96676a1",
+        "evt_6cc92a21479f4c5a8a506c3e2d8e997a",
+        "evt_e1eb0d1611a841aa8e0fa25cb0f56cc7",
+        "evt_e1eb0d1611a841aa8e0fa25cb0f56cc7",
+        "evt_d8057598c2b84fbaa636ef02db3d3abf",
+        "evt_8389a75723134d51a1a61f4e17cd5f16"
+      ],
+      "created_at": "2025-12-23T20:15:37.242672+00:00"
+    }
+  ]
+}

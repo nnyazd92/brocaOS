@@ -1,0 +1,6 @@
+{
+  "tool_name": "terminal",
+  "description": "Running terminal command: ls -la",
+  "format": "BrocaOS> [spinner] {description}",
+  "completion_format": "BrocaOS> {indicator} {description}\\n"
+}

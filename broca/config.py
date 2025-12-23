@@ -163,6 +163,15 @@ class SummarizationConfig(BaseModel):
     max_tool_result_size: int = int(os.getenv("BROCA_MAX_TOOL_RESULT_SIZE", "50000"))  # Maximum tool result size in characters (~12.5K tokens)
 
 
+class ReplColorConfig(BaseModel):
+    """Configuration for REPL color profiles."""
+    profile: str = os.getenv("BROCA_REPL_COLOR_PROFILE", "default")  # "default", "dark", "light", or "custom"
+    custom_brocaos_prompt: str = os.getenv("BROCA_REPL_CUSTOM_BROCAOS_PROMPT", "")
+    custom_response_text: str = os.getenv("BROCA_REPL_CUSTOM_RESPONSE_TEXT", "")
+    custom_you_prompt: str = os.getenv("BROCA_REPL_CUSTOM_YOU_PROMPT", "")
+    custom_input_text: str = os.getenv("BROCA_REPL_CUSTOM_INPUT_TEXT", "")
+
+
 class BrocaConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     logging: LoggingConfig = LoggingConfig()
@@ -174,6 +183,7 @@ class BrocaConfig(BaseModel):
     environment: EnvironmentConfig = EnvironmentConfig()
     optimization: OptimizationConfig = OptimizationConfig()
     summarization: SummarizationConfig = SummarizationConfig()
+    repl_color: ReplColorConfig = ReplColorConfig()
 
 
 config = BrocaConfig()

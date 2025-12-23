@@ -1,0 +1,42 @@
+{
+  "summary_patch": {
+    "current_goal": "Fix bug in summarization system",
+    "what_we_built": [
+      "Fixed task completion tracking bug",
+      "Improved prompt instructions for task lifecycle"
+    ],
+    "open_questions": [],
+    "constraints": [
+      "Must not break existing summaries"
+    ],
+    "next_steps": []
+  },
+  "extracted": {
+    "facts_added": [
+      {
+        "text": "Task completion bug has been fixed",
+        "confidence": "high",
+        "event_ids": ["evt_5", "evt_7"]
+      }
+    ],
+    "decisions_added": [
+      {
+        "text": "Add defensive filtering in merge logic",
+        "reasoning": "Provides safety net if LLM misses task completion",
+        "event_ids": ["evt_3"]
+      }
+    ],
+    "tasks_added": [],
+    "tasks_updated": [
+      {
+        "id": "task_fix_completion_bug",
+        "status": "completed",
+        "event_ids": ["evt_5", "evt_7"]
+      }
+    ]
+  },
+  "bookkeeping": {
+    "new_last_summarized_event_id": "evt_7"
+  }
+}
+

@@ -73,9 +73,16 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
@@ -143,11 +150,13 @@ class Summarizer:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -185,7 +194,26 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated"."""
         
         return prompt
     

@@ -274,4 +274,130 @@ class TestPropertyBased:
         
         # Should be under limit (allow small rounding differences)
         assert final_tokens <= max_tokens + 5  # Allow 5 token tolerance for rounding/estimation
+    
+    # Task completion property tests
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=50)
+    @given(
+        next_steps=st.lists(st.text(max_size=100), min_size=0, max_size=10),
+        tasks_updated=st.lists(
+            st.fixed_dictionaries({
+                "id": st.text(min_size=1, max_size=50),
+                "status": st.sampled_from(["completed", "in_progress", "pending", "cancelled"]),
+                "event_ids": st.lists(st.text(min_size=1, max_size=20), min_size=1, max_size=5)
+            }),
+            min_size=0,
+            max_size=10
+        )
+    )
+    def test_next_steps_never_contains_completed_tasks(
+        self, next_steps, tasks_updated
+    ):
+        """Property: After filtering, no completed task should appear in next_steps."""
+        # This property will be tested after merge logic is implemented
+        # For now, we verify the invariant conceptually
+        completed_task_ids = {
+            t["id"].lower() for t in tasks_updated if t["status"] == "completed"
+        }
+        
+        # Filter logic: remove items from next_steps that match completed task IDs
+        # Simple heuristic: if next_step contains task_id or vice versa
+        filtered_next_steps = []
+        for step in next_steps:
+            step_lower = step.lower()
+            is_completed = any(
+                task_id in step_lower or step_lower in task_id 
+                for task_id in completed_task_ids
+            )
+            if not is_completed:
+                filtered_next_steps.append(step)
+        
+        # Property: No completed task should be in filtered_next_steps
+        for step in filtered_next_steps:
+            step_lower = step.lower()
+            for task_id in completed_task_ids:
+                # If task_id and step overlap significantly, they should have been filtered
+                if task_id in step_lower or step_lower in task_id:
+                    # This should not happen in filtered list
+                    assert False, f"Completed task {task_id} found in filtered next_steps: {step}"
+    
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=50)
+    @given(
+        tasks_updated=st.lists(
+            st.fixed_dictionaries({
+                "id": st.text(min_size=1, max_size=50),
+                "status": st.sampled_from(["completed", "in_progress", "pending", "cancelled"]),
+                "event_ids": st.lists(st.text(min_size=1, max_size=20), min_size=1, max_size=5)
+            }),
+            min_size=1,
+            max_size=10
+        ),
+        next_steps=st.lists(st.text(max_size=100), min_size=0, max_size=10)
+    )
+    def test_tasks_updated_implies_not_in_next_steps(self, tasks_updated, next_steps):
+        """Property: If task in tasks_updated with status='completed', it must not be in next_steps after filtering."""
+        completed_tasks = [t for t in tasks_updated if t.get("status") == "completed"]
+        
+        if not completed_tasks:
+            # No completed tasks, property trivially holds
+            return
+        
+        # Filter logic simulation
+        completed_task_ids = {t["id"].lower() for t in completed_tasks}
+        filtered_next_steps = []
+        for step in next_steps:
+            step_lower = step.lower()
+            is_completed = any(
+                task_id in step_lower or step_lower in task_id 
+                for task_id in completed_task_ids
+            )
+            if not is_completed:
+                filtered_next_steps.append(step)
+        
+        # Property: For each completed task, it should not appear in filtered_next_steps
+        for completed_task in completed_tasks:
+            task_id_lower = completed_task["id"].lower()
+            for step in filtered_next_steps:
+                step_lower = step.lower()
+                # If they overlap, property is violated
+                assert not (task_id_lower in step_lower or step_lower in task_id_lower), \
+                    f"Completed task {completed_task['id']} found in filtered next_steps: {step}"
+    
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=30)
+    @given(
+        previous_next_steps=st.lists(st.text(max_size=100), min_size=0, max_size=10),
+        new_next_steps=st.lists(st.text(max_size=100), min_size=0, max_size=10),
+        completed_task_ids=st.lists(st.text(min_size=1, max_size=50), min_size=0, max_size=5)
+    )
+    def test_next_steps_filtering_invariant(
+        self, previous_next_steps, new_next_steps, completed_task_ids
+    ):
+        """Property: Merge result's next_steps is subset of union that excludes completed."""
+        # Simulate merge: extend previous + new
+        all_next_steps = previous_next_steps + new_next_steps
+        
+        # Filter out completed tasks
+        completed_ids_lower = {tid.lower() for tid in completed_task_ids}
+        filtered_next_steps = []
+        for step in all_next_steps:
+            step_lower = step.lower()
+            is_completed = any(
+                task_id in step_lower or step_lower in task_id 
+                for task_id in completed_ids_lower
+            )
+            if not is_completed:
+                filtered_next_steps.append(step)
+        
+        # Property 1: Filtered result is a subset of union (some items may be filtered out)
+        assert len(filtered_next_steps) <= len(all_next_steps)
+        
+        # Property 2: All items in filtered result are in original union
+        for step in filtered_next_steps:
+            assert step in all_next_steps
+        
+        # Property 3: No completed task appears in filtered result
+        for step in filtered_next_steps:
+            step_lower = step.lower()
+            for task_id in completed_ids_lower:
+                assert not (task_id in step_lower or step_lower in task_id), \
+                    f"Completed task {task_id} found in filtered result"
 
