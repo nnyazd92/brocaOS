@@ -20,3 +20,9 @@ Files written:
 - docs/artifacts/BOOT_LOG.v0.3.txt
 
 End of boot log
+[2025-12-23T21:45:36Z] BOOT_UP v0.3 completed; identity verified; persistence enabled; token_provenance=.temporary_token.txt
+[2025-12-23T23:09:19.991693Z] BOOT_UP v0.3 | operator=nick.yazdani | approval=interactive | provenance=.temporary_token.txt | persistence=enabled | current_session=docs/summaries/session-2025-12-23T23:00:30Z.json
+[2025-12-23T23:27:12.042155Z] BOOT_UP v0.3
+  identity_verification: verified (HMAC-SHA256, env=BROCA_TOKEN_SECRET)
+  persistence: enabled (actuator token .temporary_token.txt)
+  current_session_summary: docs/summaries/session-2025-12-23T23:19:37Z.json

@@ -1,0 +1,42 @@
+{
+  "schema_version": "v0.1",
+  "session_id": "session-2025-12-23T23-39-32.007754Z",
+  "boot_jti": "d74ad3764fc644e882cc424b56a387b7",
+  "boot_operator": "nick.yazdani",
+  "session_start": "2025-12-23T23:00:30Z",
+  "session_end": "2025-12-23T23:39:32.007754Z",
+  "key_actions": [
+    "Executed BOOT_UP v0.3 with identity verification via BROCA_TOKEN_SECRET",
+    "Enabled persistence with operator-approved actuator token (.temporary_token.txt)",
+    "Updated REHYDRATION_SUMMARY.v0.3.json and .md",
+    "Appended boot entry to docs/artifacts/BOOT_LOG.v0.3.txt",
+    "Prepared SDP v0.3-compliant shutdown with explicit files_touched list",
+    "Added LLM cache introspection and eviction helpers to broca/llm/cache.py",
+    "Introduced CacheConfig with TTL and max_rows defaults in broca/config.py",
+    "Planned integration of cache maintenance into a dedicated broca/ops/shutdown.py orchestrator"
+  ],
+  "outcome_summary": "Session prepared LLM cache introspection and policy hooks, and staged the design for a dedicated broca/ops/shutdown.py implementing PROTOCOL.SHUT_DOWN.v0.3.",
+  "memory_changes": {
+    "added": 0,
+    "updated": 0,
+    "deleted": 0
+  },
+  "next_session_notes": "Implement broca/ops/shutdown.py to execute PROTOCOL.SHUT_DOWN.v0.3 end-to-end, including: (1) session summary finalization, (2) LLM cache maintenance using the new helpers and CacheConfig, (3) writing SHUTDOWN_STATE and SHUTDOWN_LOG, and (4) updating REHYDRATION_SUMMARY with llm_cache stats and policy.",
+  "files_touched": [
+    ".env",
+    ".temporary_token.txt",
+    "broca/config.py",
+    "broca/llm/cache.py",
+    "docs/artifacts/BOOT_LOG.v0.3.txt",
+    "docs/artifacts/broca.session.pointer",
+    "docs/identity/IDENTITY.v0.1.json",
+    "docs/identity/IDENTITY.v0.1.signature.json",
+    "docs/protocols/PROTOCOL.BOOT_UP.v0.3.md",
+    "docs/protocols/PROTOCOL.SHUT_DOWN.v0.3.md",
+    "docs/rehydration/REHYDRATION_SUMMARY.v0.3.json",
+    "docs/rehydration/REHYDRATION_SUMMARY.v0.3.md",
+    "docs/summaries/session-2025-12-23T23:00:30Z.json"
+  ],
+  "created_by": "assistant",
+  "timestamp": "2025-12-23T23:39:32.007754Z"
+}

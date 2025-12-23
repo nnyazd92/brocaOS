@@ -16,3 +16,8 @@ hashlib
 REHYDRATION_SUMMMARY*
 SHUTDOWN_SUMMARY*
 .temporary_token.txt
+
+# Test artifacts
+.hypothesis/
+.coverage
+broca_repl.log*

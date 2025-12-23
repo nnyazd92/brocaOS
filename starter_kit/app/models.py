@@ -43,3 +43,13 @@ class ActuatorResponse(BaseModel):
     request_id: str
     status: str
 
+class AuthContext(BaseModel):
+    """Resolved authentication context for a request.
+
+    For now this is single-tenant but includes account/api_key ids so we can
+    grow into multi-tenant SaaS without changing the interface.
+    """
+
+    account_id: str | None = None
+    api_key_id: str | None = None
+

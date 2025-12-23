@@ -1,28 +1,80 @@
 {
   "schema_version": "v0.3",
-  "boot_time": "2025-12-22T22:56:xxZ",
+  "boot_timestamp": "2025-12-23T23:27:12.042155Z",
   "identity_verification": {
-    "status": "success",
-    "method": "actuator_token_verification",
-    "verified_by": "environment_access.verify_approval_token",
-    "identity_provenance": "docs/identity/IDENTITY.v0.1.json",
-    "identity_token_jti": "6b761cbbdd614d9c81011c24d54bcd3a"
+    "status": "verified",
+    "method": "HMAC-SHA256",
+    "provenance": {
+      "env_var": "BROCA_TOKEN_SECRET",
+      "actuator_token_file": ".temporary_token.txt"
+    }
   },
-  "actuator_token": {
-    "provenance_file": ".temporary_token.txt",
-    "token_jti": "9f8cbff847a647adbe0ea223743cd317",
-    "token_scopes": ["filesystem:write","project:write","memory:write"],
-    "verification": "valid"
+  "persistence": {
+    "enabled": true,
+    "actuator_token_provenance": ".temporary_token.txt"
   },
-  "session_pointer": "docs/artifacts/broca.session.pointer",
-  "session_summary_loaded": "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T21:52:26Z.json",
-  "next_session_notes": "No-op",
-  "persistence_enabled": true,
-  "actions_taken": [
-    "created rehydration summary (json + md)",
-    "touched .persistence_enabled marker",
-    "created git snapshot"
-  ],
-  "git_snapshot": "pending - will be created after writes",
-  "notes": "Boot preflight completed earlier; persistence gate opened based on verified actuator token. Identity pointer was read from session pointer."
+  "session_continuity": {
+    "loaded": true,
+    "previous_session_id": "session-2025-12-23T23-39-32.007754Z",
+    "boot_operator": "nick.yazdani",
+    "key_actions": [
+      "Executed BOOT_UP v0.3 with identity verification via BROCA_TOKEN_SECRET",
+      "Enabled persistence with operator-approved actuator token (.temporary_token.txt)",
+      "Updated REHYDRATION_SUMMARY.v0.3.json and .md",
+      "Appended boot entry to docs/artifacts/BOOT_LOG.v0.3.txt",
+      "Prepared SDP v0.3-compliant shutdown with explicit files_touched list",
+      "Added LLM cache introspection and eviction helpers to broca/llm/cache.py",
+      "Introduced CacheConfig with TTL and max_rows defaults in broca/config.py",
+      "Planned integration of cache maintenance into a dedicated broca/ops/shutdown.py orchestrator"
+    ],
+    "next_session_notes": "Implement broca/ops/shutdown.py to execute PROTOCOL.SHUT_DOWN.v0.3 end-to-end, including: (1) session summary finalization, (2) LLM cache maintenance using the new helpers and CacheConfig, (3) writing SHUTDOWN_STATE and SHUTDOWN_LOG, and (4) updating REHYDRATION_SUMMARY with llm_cache stats and policy."
+  },
+  "pointers": {
+    "session_pointer": "docs/artifacts/broca.session.pointer",
+    "current_session_summary": "docs/summaries/session-2025-12-23T23:19:37Z.json",
+    "previous_summaries": [
+      "docs/summaries/session-2025-12-23T23:00:30Z.json",
+      "docs/summaries/session-2025-12-23T21:25:38Z.json",
+      "docs/summaries/session-2025-12-23T20:52:01Z.json",
+      "docs/summaries/session-2025-12-23T04-29-59.502401+00-00.json",
+      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T21:52:26Z.json",
+      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T06:09:04Z.json",
+      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T00:41:55+00:00.json",
+      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T07:52:10Z.json",
+      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-19T21:16:42Z.json",
+      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T13:08:02Z.json"
+    ],
+    "identity_pointer": "docs/identity/IDENTITY.v0.1.json",
+    "self_model_pointer": "docs/self_model/SELF_MODEL_CURRENT.json"
+  },
+  "self_model": {
+    "loaded": true,
+    "schema_version": null,
+    "hash": "9ae13f3a00b1d7f50e4dac1ef52522952a5099d7195cd4875a4edd7b2fbbdeb7"
+  },
+  "llm_cache": {
+    "policy": {
+      "ttl_seconds": 604800,
+      "max_rows": 20000
+    },
+    "stats": {
+      "row_count": 87,
+      "created_at_min": "2025-12-23T23:05:41.444208+00:00",
+      "created_at_max": "2025-12-23T23:39:31.949676+00:00",
+      "last_used_at_min": "2025-12-23T23:05:41.444208+00:00",
+      "last_used_at_max": "2025-12-23T23:39:31.949676+00:00"
+    },
+    "health": {
+      "stats": {
+        "row_count": 87,
+        "created_at_min": "2025-12-23T23:05:41.444208+00:00",
+        "created_at_max": "2025-12-23T23:39:31.949676+00:00",
+        "last_used_at_min": "2025-12-23T23:05:41.444208+00:00",
+        "last_used_at_max": "2025-12-23T23:39:31.949676+00:00"
+      },
+      "has_stale_entries": false,
+      "oversized": false
+    },
+    "note": "Maintenance helpers (evict_stale_entries, enforce_max_rows) are implemented and ready to be called from broca/ops/shutdown.py."
+  }
 }

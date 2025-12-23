@@ -1,0 +1,10 @@
+{
+  "success_indicator": "\u001b[32m\u2713\u001b[0m",
+  "error_indicator": "\u001b[31m\u2717\u001b[0m",
+  "has_ansi_codes": true,
+  "notes": [
+    "Success indicator should be green (ANSI code 32 or 92)",
+    "Error indicator should be red (ANSI code 31 or 91)",
+    "ANSI codes should be present when colors are enabled"
+  ]
+}

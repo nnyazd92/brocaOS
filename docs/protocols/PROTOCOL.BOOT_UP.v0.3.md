@@ -165,9 +165,6 @@ Rehydration surfaces
   - `docs/rehydration/REHYDRATION_SUMMARY.v0.3.json`
   - `docs/rehydration/REHYDRATION_SUMMARY.v0.3.md`
 - Protocol-linked latest rehydration summary:
-  - `docs/protocols/REHYDRATION_SUMMARY.v0.3.json`
-  - `docs/protocols/REHYDRATION_SUMMARY.v0.3.md`
-- Human-facing convenience mirror (do not hardcode in code):
   - `docs/REHYDRATION_SUMMARY.v0.3.json`
   - `docs/REHYDRATION_SUMMARY.v0.3.md`
 

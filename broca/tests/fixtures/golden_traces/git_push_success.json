@@ -1,0 +1,15 @@
+{
+  "command": "git push origin develop",
+  "result": {
+    "success": true,
+    "returncode": 0,
+    "stdout": "",
+    "stderr": "To https://github.com/nnyazd92/brocaOS.git\n   e74d1a5..9b58e41  develop -> develop\n"
+  },
+  "expected_format_contains": [
+    "develop -> develop"
+  ],
+  "expected_format_not_contains": [
+    "Error output:"
+  ]
+}

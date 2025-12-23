@@ -1,0 +1,14 @@
+{
+  "command": "git push origin develop",
+  "result": {
+    "success": false,
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "error: failed to push some refs to 'origin'\nremote: error: GH006: Protected branch update failed"
+  },
+  "expected_format_contains": [
+    "error",
+    "failed"
+  ],
+  "expected_format_not_contains": []
+}

@@ -1,8 +1,10 @@
 import sys
+import re
 import readline  # optional, for nicer REPL on Unix
 import logging
+import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 from .logging_config import setup_logging
 from .repl.session import ConversationSession
 from .config import config
@@ -28,6 +30,67 @@ if TYPE_CHECKING:
     from .self_model.storage import SelfModelSQLiteStorage
 
 logger = logging.getLogger(__name__)
+
+# ANSI escape code pattern
+_ANSI_ESCAPE_PATTERN = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+
+def _strip_ansi_codes(text: str) -> str:
+    """
+    Strip ANSI escape codes from text.
+    
+    Args:
+        text: Text that may contain ANSI codes
+        
+    Returns:
+        Text with ANSI codes removed
+    """
+    return _ANSI_ESCAPE_PATTERN.sub('', text)
+
+
+def _get_visible_width(text: str) -> int:
+    """
+    Get the visible width of text, excluding ANSI escape codes.
+    
+    Args:
+        text: Text that may contain ANSI codes
+        
+    Returns:
+        Visible width in characters
+    """
+    return len(_strip_ansi_codes(text))
+
+
+def _get_user_input_with_colored_prompt(prompt: str) -> str:
+    """
+    Get user input with a colored prompt.
+    
+    Uses input() directly with the colored prompt. This ensures readline
+    properly handles the prompt and prevents backspace from deleting it.
+    The newline issue is handled by ensuring proper terminal state.
+    
+    Args:
+        prompt: Colored prompt string (may contain ANSI codes)
+        
+    Returns:
+        User input string
+    """
+    try:
+        # Use input() directly with the colored prompt
+        # This allows readline to properly handle the prompt and prevent
+        # backspace from deleting into it
+        result = input(prompt)
+        
+        # Explicitly flush stdout to ensure terminal state is reset
+        # This is critical for streaming output to appear correctly
+        sys.stdout.flush()
+        
+        return result
+    except (EOFError, KeyboardInterrupt):
+        # Flush stdout to ensure terminal state is reset
+        sys.stdout.flush()
+        # Re-raise these so they can be handled by the caller
+        raise
 
 
 def _initialize_storage() -> ConversationStorage | None:
@@ -561,15 +624,6 @@ def main() -> None:
             self_model_reduction_level=config.self_model.self_model_reduction_level,
         )
         
-        session = ConversationSession(
-            system_prompt=None,
-            storage=conversation_storage,
-            tool_registry=tool_registry,
-            internal_sensing_framework=internal_sensing,
-            world_state_aggregator=world_state_aggregator,
-            color_manager=color_manager,
-        )
-
         # Initialize color manager
         try:
             from .repl.color_profile import ColorManager, CustomColorProfile
@@ -595,6 +649,15 @@ def main() -> None:
         except Exception as e:
             logger.debug(f"Failed to initialize color manager: {e}", exc_info=True)
             color_manager = None
+        
+        session = ConversationSession(
+            system_prompt=None,
+            storage=conversation_storage,
+            tool_registry=tool_registry,
+            internal_sensing_framework=internal_sensing,
+            world_state_aggregator=world_state_aggregator,
+            color_manager=color_manager,
+        )
 
         provider_name = config.llm.provider.upper()
         storage_status = "enabled" if conversation_storage else "disabled"
@@ -606,12 +669,26 @@ def main() -> None:
 
         while True:
             try:
+                # Pause spinner updates before user input to prevent interference
+                # This stops all spinner threads and clears any partial output
+                if session.tool_status_display:
+                    session.tool_status_display.pause_updates()
+                
                 # Colorize "you>" prompt
                 you_prompt = "you> "
                 if color_manager:
                     you_prompt = color_manager.colorize(you_prompt, "you_prompt")
-                user_input = input(you_prompt).strip()
+                
+                # Get user input with colored prompt
+                user_input = _get_user_input_with_colored_prompt(you_prompt).strip()
+                
+                # Resume spinner updates after user input
+                if session.tool_status_display:
+                    session.tool_status_display.resume_updates()
             except (EOFError, KeyboardInterrupt):
+                # Resume on exception too
+                if session.tool_status_display:
+                    session.tool_status_display.resume_updates()
                 print("\nExiting.")
                 break
 
