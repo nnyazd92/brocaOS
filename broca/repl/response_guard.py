@@ -23,11 +23,12 @@ def ensure_non_empty(content: Optional[str], trace_id: Optional[str] = None) -> 
     Only inject a deterministic fallback message when content is None.
     """
     trace_id = trace_id or str(uuid.uuid4())
-    # If content is explicitly None, inject fallback. If content is an empty
-    # string (""), preserve it to maintain backward compatibility with
-    # callers/tests that expect empty-string replies.
-    if content is None:
-        logger.warning("No assistant reply (None) detected; injecting fallback (TraceID=%s)", trace_id)
+    # If content is explicitly None or only whitespace, inject fallback.
+    # Historically the code preserved empty-string ("") replies for
+    # backward compatibility, but that leads to blank UI responses when a
+    # streaming path yields no chunks. Treat whitespace-only content as
+    # missing so callers always receive a visible fallback.
+    if content is None or (isinstance(content, str) and content.strip() == ""):
+        logger.warning("No assistant reply (None or whitespace) detected; injecting fallback (TraceID=%s)", trace_id)
         return FALLBACK_TEMPLATE.format(trace_id=trace_id)
-    # Otherwise return content as-is (including empty string)
     return content
