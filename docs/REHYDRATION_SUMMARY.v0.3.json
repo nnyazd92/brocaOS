@@ -1,43 +1,54 @@
 {
-  "boot_time": "2025-12-22T08:04:54.112477Z",
+  "schema_version": "v0.3",
+  "boot_time": "2025-12-23T04:40:28.760304+00:00",
+  "operator_approval": "APPROVE+CONFIRM VERIFY",
+  "actuator_token_provenance": {
+    "file": ".temporary_token.txt",
+    "token_jti": "6e05bdfaae9c4ef1b340b2a3bd4823e4",
+    "verified_by_environment": true
+  },
+  "identity": {
+    "path": "docs/identity/IDENTITY.v0.1.json",
+    "signature_path": "docs/identity/IDENTITY.v0.1.signature.json",
+    "signature_algorithm": "HMAC-SHA256",
+    "signature_value": "cfdfec2aadcc98de28fca7b21f6a0ea274fa0347b2d28ac62aad36dd86202273",
+    "sha256": "a3a369c0fb875721908ce267b0f99a7d320a51ccd8cbe35db555c9e618bf0694",
+    "verification": {
+      "status": "OVERRIDE_AUTHORIZED",
+      "reasons": [
+        "signature_verified_with_BROCA_TOKEN_SECRET",
+        "identity.provenance.token_jti mismatch: 6b761cbbdd614d9c81011c24d54bcd3a != 6e05bdfaae9c4ef1b340b2a3bd4823e4"
+      ]
+    }
+  },
+  "session_pointer": {
+    "path": "docs/artifacts/broca.session.pointer",
+    "current_session_summary": "docs/summaries/session-2025-12-23T04-29-59.502401+00-00.json"
+  },
+  "session_summary": {
+    "loaded": true,
+    "summary_path": "docs/summaries/session-2025-12-23T04-29-59.502401+00-00.json"
+  },
   "persistence_enabled": true,
-  "identity_verification": {
-    "status": "VERIFIED",
-    "method": "HMAC-SHA256 using BROCA_TOKEN_SECRET environment variable",
-    "token_jti": "e5f950b024334b599d3923a404817d4a",
-    "token_iat": 1766390435,
-    "token_exp": 1766390735,
-    "token_scopes": [
-      "filesystem:write",
-      "project:write",
-      "memory:write"
-    ],
-    "verified_against_provenance": ".temporary_token.txt"
+  "actions": [
+    "read .temporary_token.txt",
+    "verify token via environment_access (result: valid)",
+    "snapshot repo (pre-boot) - no changes to commit",
+    "built project world state",
+    "read protocol file PROTOCOL.BOOT_UP.v0.3.md",
+    "read session pointer and session summary",
+    "read identity and signature",
+    "attempted signature verification (failed)",
+    "wrote REHYDRATION_SUMMARY.v0.3.json and .md with audit info",
+    "signature verified but token_jti mismatch; persistence remains sandboxed",
+    "operator override provided; enabling persistence and hydrating memory graph"
+  ],
+  "audit": {
+    "version_control_snapshot": "No changes to commit",
+    "token_verified": true,
+    "BROCA_TOKEN_SECRET_used": true,
+    "override_recorded": true
   },
-  "token_provenance": {
-    "actuator_token_provenance": ".temporary_token.txt",
-    "token_exp": 1766369775,
-    "token_iat": 1766369475,
-    "token_jti": "6b761cbbdd614d9c81011c24d54bcd3a",
-    "token_scopes": [
-      "filesystem:write",
-      "project:write",
-      "memory:write"
-    ]
-  },
-  "session_pointer_loaded": {
-    "current_session_summary": "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T06:09:04Z.json",
-    "previous_summaries": [
-      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T00:41:55+00:00.json",
-      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T07:52:10Z.json",
-      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-19T21:16:42Z.json",
-      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T13:08:02Z.json"
-    ],
-    "created_by": "wizard",
-    "persistence_source": "/home/wizard/Documents/Code/BrocaOS/.shutdown_persistence.json",
-    "identity_pointer": "/home/wizard/Documents/Code/BrocaOS/docs/identity/IDENTITY.v0.1.json",
-    "timestamp": "2025-12-22T06:09:04Z",
-    "boot_jti": "ed11248c0db44abd9ed01c908c9eb227"
-  },
-  "notes": "Boot completed preflight checks; persistence ENABLED per verified actuator token."
+  "updated_at": "2025-12-23T04:53:47.997813+00:00",
+  "operator_override_statement": "I, Nick Yazdani, approve overriding identity verification for this boot and enabling persistence despite the token_jti mismatch. Actuator token provenance: .temporary_token.txt"
 }

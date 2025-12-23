@@ -215,12 +215,16 @@ class TestErrorPropagation:
         
         session = ConversationSession(llm=client)
         
-        # Should not raise, but return empty string
+        # Should not raise, but return fallback message (not empty string)
         response = session.send("Test message")
         
-        assert response == ""
-        assert len(session.messages) == 2  # user + empty assistant
-        assert session.messages[1]["content"] == ""
+        # Empty responses should get fallback message, not empty string
+        assert response is not None
+        assert response.strip() != ""
+        assert "[automatic fallback]" in response
+        assert len(session.messages) == 2  # user + assistant with fallback
+        assert session.messages[1]["content"] == response
+        assert "[automatic fallback]" in session.messages[1]["content"]
 
 
 class TestRealisticScenarios:

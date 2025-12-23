@@ -1,0 +1,27 @@
+version: '3.8'
+services:
+  db:
+    image: pgvector/pgvector:latest
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: broca
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/broca"
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
+# note: in local dev you may need to set up .env or override DATABASE_URL

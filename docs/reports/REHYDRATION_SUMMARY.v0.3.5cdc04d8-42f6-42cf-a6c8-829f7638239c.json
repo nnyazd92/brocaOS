@@ -1,0 +1,35 @@
+{
+  "boot_timestamp": "",
+  "session_id": "5cdc04d8-42f6-42cf-a6c8-829f7638239c",
+  "session_pointer_path": "docs/artifacts/broca.session.pointer",
+  "session_summary_loaded": "docs/summaries/5cdc04d8-42f6-42cf-a6c8-829f7638239c_summary.json",
+  "identity_path": "docs/identity/IDENTITY.v0.1.json",
+  "identity_verification": {
+    "result": "signature_mismatch",
+    "identity_token_jti": "6b761cbbdd614d9c81011c24d54bcd3a",
+    "verified_with_token_jti": "270e17c2dea64f7aaa54a6e718ab4278",
+    "verified_with_issuer": "broca-token-v1",
+    "verification_method": "operator-approved override",
+    "operator_override_recorded": true
+  },
+  "token_provenance": {
+    "actuator_token_provenance": ".temporary_token.txt",
+    "token_jti": "270e17c2dea64f7aaa54a6e718ab4278",
+    "issuer": "broca-token-v1",
+    "scopes": ["filesystem:write","project:write","memory:write"]
+  },
+  "persistence": {
+    "persistence_enabled": true,
+    "rationale": "Operator approval received; identity token_jti mismatch noted but overridden",
+    "persistence_state_path": "docs/artifacts/persistence_state.json"
+  },
+  "session_summary_highlights": {
+    "current_goal": "Deliver a runnable starter_kit (local dev + Helm skeleton + Python SDK stub) under starter_kit/",
+    "next_steps": ["Implement a minimal FastAPI demo app under starter_kit/app and smoke-test docker-compose locally."]
+  },
+  "self_consistency_check": "not_run",
+  "warnings": ["identity token_jti in identity artifact does not match actuator token; operator override used to enable persistence","self_consistency_check not run — any self-model mutation will require ORP approval"],
+  "actuator_token_provenance": ".temporary_token.txt",
+  "written_by": "assistant",
+  "written_at": ""
+}

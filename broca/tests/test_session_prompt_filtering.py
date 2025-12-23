@@ -160,3 +160,4 @@ class TestMessageFiltering:
                 # Should have system + 3 turns = 7 messages
                 assert len(last_messages) >= 6  # At least system + user/assistant pairs
 
+
