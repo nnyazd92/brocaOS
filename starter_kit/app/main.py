@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from .models import *
 from . import db
+from . import embeddings
 from uuid import uuid4
 from typing import Dict, List
 import threading
@@ -26,7 +27,13 @@ def memory_upsert(req: MemoryUpsertRequest):
     # ensure session exists
     if not db.get_session(req.session_id):
         raise HTTPException(status_code=404, detail="session not found")
-    items = [it.model_dump() for it in req.items]
+    items = []
+    for it in req.items:
+        obj = it.model_dump()
+        text = obj.get('text') or ''
+        emb = embeddings.embed_text(text)
+        obj['embedding'] = emb
+        items.append(obj)
     count = db.upsert_memories(req.session_id, items)
     return {"ok": True, "count": count}
 
@@ -35,7 +42,8 @@ def memory_query(req: MemoryQueryRequest):
     if not db.get_session(req.session_id):
         raise HTTPException(status_code=404, detail="session not found")
     top = req.top if req.top and req.top>0 else 5
-    results = db.query_memories(req.session_id, req.query, top=top)
+    qvec = embeddings.embed_text(req.query)
+    results = db.query_memories(req.session_id, qvec, top=top)
     return {"results": [{"id": r['id'], "text": r['text'], "score": r['score']} for r in results]}
 
 @app.post("/actuator/request", response_model=ActuatorResponse)

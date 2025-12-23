@@ -9,3 +9,5 @@ requests==2.31.0
 psycopg[binary]
 python-dotenv
 psycopg_pool
+pgvector
+requests
