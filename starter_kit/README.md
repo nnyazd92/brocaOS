@@ -19,3 +19,30 @@ Notes:
 - For production, replace in-memory stores with Postgres/Vector DB and secure actuator approvals.
 
 License: Apache-2.0 (see starter_kit/LICENSE)
+
+
+## Monetizable BrocaAPI starter
+
+This starter now includes:
+
+- **API-key authentication** for all mutating/query endpoints (`x-api-key` header).
+- **Accounts / API keys / usage_events** tables in Postgres for basic metering.
+- A small admin bootstrap script to create an account + API key:
+
+  ```bash
+  DATABASE_URL=postgresql://postgres:postgres@localhost:5432/broca \\n  python -m starter_kit.app.admin_init
+  ```
+
+  This prints a raw API key once; use it in requests as:
+
+  ```bash
+  curl -H "x-api-key: <YOUR_API_KEY>" http://localhost:8080/health
+  ```
+
+With this you can run a single-tenant, dev-focused BrocaAPI and start treating:
+
+- `/session` as a **billable session primitive**.
+- `/memory/upsert` and `/memory/query` as **billable memory operations**.
+- `/actuator/*` as **governed action hooks** for higher-value plans.
+
+See `starter_kit/docs/quickstart.md` for more details.
