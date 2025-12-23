@@ -63,7 +63,22 @@ class SelfModelStorage:
                 logger.warning("Self-model file exists but has no current model")
                 return None
             
-            model = SelfModel.from_dict(model_data)
+            # If the stored metadata indicates an older schema, optionally
+            # perform an automatic non-destructive migration using our
+            # migration helper. We will prefer to keep current behavior
+            # unless a migration is explicitly requested by the operator.
+            try:
+                model = SelfModel.from_dict(model_data)
+            except Exception:
+                # Attempt an on-the-fly migration if validation fails
+                try:
+                    from .migrations.migrate_to_v2 import migrate_to_v2
+                    migrated = migrate_to_v2(model_data)
+                    model = SelfModel.from_dict(migrated)
+                    logger.info("Auto-migrated self-model during load via migrate_to_v2")
+                except Exception as e:
+                    logger.error(f"Failed to auto-migrate self-model: {e}", exc_info=True)
+                    return None
             logger.info(f"Loaded self-model version {model.metadata.get('version', 'unknown')}")
             return model
             
@@ -373,7 +388,22 @@ class SelfModelSQLiteStorage:
             epistemic_layer = self._load_epistemic_layer(cursor, self_model_id)
             model_data["epistemic_layer"] = epistemic_layer
             
-            model = SelfModel.from_dict(model_data)
+            # If the stored metadata indicates an older schema, optionally
+            # perform an automatic non-destructive migration using our
+            # migration helper. We will prefer to keep current behavior
+            # unless a migration is explicitly requested by the operator.
+            try:
+                model = SelfModel.from_dict(model_data)
+            except Exception:
+                # Attempt an on-the-fly migration if validation fails
+                try:
+                    from .migrations.migrate_to_v2 import migrate_to_v2
+                    migrated = migrate_to_v2(model_data)
+                    model = SelfModel.from_dict(migrated)
+                    logger.info("Auto-migrated self-model during load via migrate_to_v2")
+                except Exception as e:
+                    logger.error(f"Failed to auto-migrate self-model: {e}", exc_info=True)
+                    return None
             
             # Log epistemic layer status
             if epistemic_layer:
