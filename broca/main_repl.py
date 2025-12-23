@@ -167,17 +167,6 @@ def _initialize_tool_registry(
             except Exception as e:
                 logger.warning(f"Failed to register critic tool: {e}", exc_info=True)
         
-        # Register version control tool if enabled
-        if config.tools.enable_version_control:
-            try:
-                from .tools.version_control import VersionControlTool
-                repo_path = config.tools.version_control_repo_path
-                version_control_tool = VersionControlTool(repo_path=repo_path)
-                registry.register_tool(version_control_tool)
-                logger.info("Registered version control tool")
-            except Exception as e:
-                logger.warning(f"Failed to register version control tool: {e}", exc_info=True)
-        
         # Register project world state tool if enabled
         if config.tools.enable_project_world_state:
             try:

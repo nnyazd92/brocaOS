@@ -78,9 +78,6 @@ class ToolsConfig(BaseModel):
     terminal_working_directory: str | None = os.getenv("BROCA_TERMINAL_WORKING_DIR", None)
     enable_critic: bool = os.getenv("BROCA_ENABLE_CRITIC", "false").lower() == "true"
     critic_system_prompt_template: str | None = os.getenv("BROCA_CRITIC_SYSTEM_PROMPT", None)
-    # Version control tool configuration
-    enable_version_control: bool = os.getenv("BROCA_ENABLE_VERSION_CONTROL", "true").lower() == "true"
-    version_control_repo_path: str | None = os.getenv("BROCA_VERSION_CONTROL_REPO_PATH", None)
     # Project world state tool configuration
     enable_project_world_state: bool = os.getenv("BROCA_ENABLE_PROJECT_WORLD_STATE", "true").lower() == "true"
     project_world_state_path: str | None = os.getenv("BROCA_PROJECT_WORLD_STATE_PATH", None)

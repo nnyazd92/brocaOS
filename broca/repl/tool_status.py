@@ -165,12 +165,6 @@ class ToolDescriptionFormatter:
         elif tool_name == "critic":
             return "Running critic check"
         
-        elif tool_name == "version_control":
-            action = arguments.get("action", "")
-            if action:
-                return f"Version control: {action}"
-            return "Version control operation"
-        
         elif tool_name == "project_world_state":
             return "Updating project world state"
         
