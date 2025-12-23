@@ -1,144 +1,41 @@
 {
-  "protocol_version": "v0.3",
-  "timestamp": "2025-12-21T08:19:31Z",
-  "operator_approval": "approved by operator (chat): proceed with boot writes; no override of identity verification requested",
-  "actuator_token_provenance": {
-    "path": ".temporary_token.txt",
-    "jti": "e60bb7349c1e4a9fac41374db101f731",
-    "exp": 1766305358,
+  "schema_version": "v0.3",
+  "boot_status": "ok",
+  "identity_verification": {
+    "status": "verified",
+    "method": "HMAC-SHA256",
+    "secret_provenance": ".env:BROCA_TOKEN_SECRET",
+    "identity_path": "docs/identity/IDENTITY.v0.1.json",
+    "signature_path": "docs/identity/IDENTITY.v0.1.signature.json",
+    "repo_commit": "e6fa8f09aec1782db1f3c47b34bd386834ad8b6d"
+  },
+  "token_provenance": {
+    "actuator_token_file": ".temporary_token.txt",
     "scopes": [
       "filesystem:write",
       "project:write",
       "memory:write"
     ]
   },
-  "identity_artifact": {
-    "path": "docs/identity/IDENTITY.v0.1.json",
-    "signature_present": true,
-    "identity_token_provenance_jtis": [
-      "ed11248c0db44abd9ed01c908c9eb227"
-    ],
-    "signature_meta": {
-      "algorithm": "HMAC-SHA256",
-      "signature_b64url": "Ak5-FbG21svbxuk7aoC_cWk5Q-iq2nJIef5q2-FGDsg",
-      "canonicalization": "json.dumps(..., separators=(\",\",\" :\"), sort_keys=True)"
-    }
-  },
-  "verification": {
-    "env_has_BROCA_TOKEN_SECRET": true,
-    "verification_match": false,
-    "matching_candidate": null,
-    "attempts_count": 8,
-    "attempts": [
-      {
-        "remove_audit": false,
-        "remove_token_provenance": false,
-        "spaced": false,
-        "computed": "Khz56PuQKv91zd_zLwz0QYcqfTRSPzBiyi1ezVlBFUc",
-        "match": false
-      },
-      {
-        "remove_audit": false,
-        "remove_token_provenance": false,
-        "spaced": true,
-        "computed": "0DRy7wyk2dyisKAvR2YsKYY3S-r8gXnSElzoxYZSH3o",
-        "match": false
-      },
-      {
-        "remove_audit": false,
-        "remove_token_provenance": true,
-        "spaced": false,
-        "computed": "iG7iWRjkqKQNw_ECiLLfTlE5fFwYe87m8g44Oa5qKxA",
-        "match": false
-      },
-      {
-        "remove_audit": false,
-        "remove_token_provenance": true,
-        "spaced": true,
-        "computed": "c0pywGOADVJuOFPeArZ6fkZJJLFu8WJ3gf7ElV3YGt4",
-        "match": false
-      },
-      {
-        "remove_audit": true,
-        "remove_token_provenance": false,
-        "spaced": false,
-        "computed": "xMxhFlnyX6uD7dgEbK5nZKTHT5sufRSwHRga5434Pf8",
-        "match": false
-      },
-      {
-        "remove_audit": true,
-        "remove_token_provenance": false,
-        "spaced": true,
-        "computed": "qLMN4cpzZQTgZH6uNfqUEriyMoYE8Ipc2-cGsp_uPLY",
-        "match": false
-      },
-      {
-        "remove_audit": true,
-        "remove_token_provenance": true,
-        "spaced": false,
-        "computed": "JspfDSvKh7swcfvlK3mVFOis1ygUqQRspwhQtuVqJL8",
-        "match": false
-      },
-      {
-        "remove_audit": true,
-        "remove_token_provenance": true,
-        "spaced": true,
-        "computed": "rab48dEDrqGcIR9bLqf36r6syIvAP1BIYqnvxEnyIUM",
-        "match": false
-      }
-    ]
-  },
-  "session_pointer": {
-    "current_session_summary": "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T07:52:10Z.json",
-    "previous_summaries": [
-      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-19T21:16:42Z.json",
-      "/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-21T13:08:02Z.json"
-    ],
-    "created_by": "wizard",
-    "persistence_source": "/home/wizard/Documents/Code/BrocaOS/.shutdown_persistence.json",
-    "identity_pointer": "/home/wizard/Documents/Code/BrocaOS/docs/identity/IDENTITY.v0.1.json",
-    "timestamp": "2025-12-21T07:53:03.102360+00:00",
-    "boot_jti": "ed11248c0db44abd9ed01c908c9eb227"
-  },
-  "loaded_session_summary": {
-    "schema_version": "v0.1",
-    "session_id": "session-2025-12-21T07:52:10Z",
-    "boot_jti": "ed11248c0db44abd9ed01c908c9eb227",
+  "session_continuity": {
+    "loaded": true,
+    "session_id": "session-2025-12-23T21:25:38Z",
     "boot_operator": "wizard",
-    "session_start": "2025-12-21T18:27:32.613822",
-    "session_end": "2025-12-21T07:52:10.887165+00:00",
+    "timestamp": "2025-12-23T21:25:38Z",
     "key_actions": [
-      "Successfully completed PROTOCOL.BOOT_UP.v0.3 with session continuity",
-      "Generated comprehensive world state analysis report",
-      "Identified world state initialization failures (SelfModel, MemoryManager)",
-      "Prepared for shutdown with session summarization"
+      "Implemented accounts/api_keys/usage_events schema for BrocaAPI starter (Postgres).",
+      "Added API-key auth (x-api-key) and usage logging to /session, /memory/upsert, /memory/query, /actuator/request, /actuator/approve.",
+      "Created admin_init script to bootstrap default account and API key.",
+      "Updated starter_kit README and quickstart docs with monetization/auth flow.",
+      "Dockerized and smoke-tested starter_kit via docker compose (BrocaAPI starter running at :8080).",
+      "Identified remaining auth bug: Pydantic type mismatch (UUID -> str) in get_auth_context; to be fixed next session.",
+      "Discussed and queued cost-reduction work (caching, rate limits) for next session."
     ],
-    "outcome_summary": "Boot completed successfully with session continuity established. World state analysis revealed critical initialization failures that need addressing. System ready for shutdown with updated identity artifacts.",
-    "memory_changes": {
-      "added": 0,
-      "updated": 0,
-      "deleted": 0
-    },
-    "next_session_notes": "Address world state initialization failures: 1) Fix SelfModel constructor compatibility, 2) Fix MemoryManager dependency injection, 3) Correct directory structure path, 4) Add initialization validation.",
-    "created_by": "wizard",
-    "timestamp": "2025-12-21T07:52:10.887165+00:00"
+    "next_session_notes": "First fix get_auth_context to cast UUIDs to strings in AuthContext; re-run E2E smoke test (session/memory/admin_usage). Then design and implement cost reduction: embeddings/LLM caching in BrocaOS, optional query caching and simple rate limits for starter_kit."
   },
-  "persistence_enabled": true,
-  "notes": "Persistence enabled by operator override despite identity verification failure. Identity signature did not verify against BROCA_TOKEN_SECRET.",
-  "next_steps": "Address world state initialization failures: 1) Fix SelfModel constructor compatibility, 2) Fix MemoryManager dependency injection, 3) Correct directory structure path, 4) Add initialization validation.",
-  "override": {
-    "operator": "wizard",
-    "approval_text": "I, wizard, approve overriding identity verification for this boot and enabling persistence despite signature failure.",
-    "timestamp": "2025-12-21T08:33:08Z",
-    "actuator_token_provenance": {
-      "path": ".temporary_token.txt",
-      "jti": "b174479dc9304192abfbcece6bf29cc3",
-      "exp": 1766306198,
-      "scopes": [
-        "filesystem:write",
-        "project:write",
-        "memory:write"
-      ]
-    }
+  "self_model": {
+    "path": "docs/self_model/SELF_MODEL_CURRENT.json",
+    "schema_version": "v2.0.0",
+    "version": 118
   }
 }

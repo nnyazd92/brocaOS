@@ -135,9 +135,6 @@ Rehydration & shutdown summaries
   - `docs/rehydration/REHYDRATION_SUMMARY.v0.3.json`
   - `docs/rehydration/REHYDRATION_SUMMARY.v0.3.md`
 - Protocol-linked rehydration summary:
-  - `docs/protocols/REHYDRATION_SUMMARY.v0.3.json`
-  - `docs/protocols/REHYDRATION_SUMMARY.v0.3.md`
-- Shutdown summaries:
   - Current protocol-linked: `docs/protocols/SHUTDOWN_SUMMARY.v0.3.json`
   - Historical / working: `docs/rehydration/SHUTDOWN_SUMMARY.v0.1.md`
 

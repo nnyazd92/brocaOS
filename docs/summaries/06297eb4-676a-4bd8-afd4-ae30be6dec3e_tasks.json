@@ -1,0 +1,35 @@
+{
+  "tasks": [
+    {
+      "id": "task_monetize_starter_kit_auth_metering",
+      "description": "Add accounts/api_keys/usage_events schema, A...",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_91ca8f1c3d0a4931b9c61b26e3101378",
+        "evt_14a03d6f286f42ce88c538f8508cac00",
+        "evt_c58bb99f805f49f9b0b21bb213324399",
+        "evt_13f7ab89fb2a4f7e9120057f581e70c1",
+        "evt_b4d472fd2c454ab79201c8df3357dfab",
+        "evt_5382d4c0e22a4536867c6914b50d2b09",
+        "evt_cc63bfc343e64a8687a4b66f6fb96d5d",
+        "evt_117dfa7bc51b434ab455476ba512f352",
+        "evt_690fdc5bc5eb4688821238c82c16f44e"
+      ],
+      "created_at": "2025-12-23T21:26:49.344317+00:00"
+    },
+    {
+      "id": "task_fix_authcontext_uuid_str_cast",
+      "description": "Fix get_auth_context in starter_kit/app/...",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_95b0074473374c6597ef097e7b6459cb",
+        "evt_10f62c49860f4ece81f05866b5a7ee26"
+      ],
+      "created_at": "2025-12-23T21:26:49.344381+00:00"
+    }
+  ]
+}

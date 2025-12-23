@@ -20,3 +20,4 @@ Files written:
 - docs/artifacts/BOOT_LOG.v0.3.txt
 
 End of boot log
+[2025-12-23T21:45:36Z] BOOT_UP v0.3 completed; identity verified; persistence enabled; token_provenance=.temporary_token.txt

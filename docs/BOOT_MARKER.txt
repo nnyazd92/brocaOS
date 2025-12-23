@@ -1,5 +1,4 @@
-Boot marker created at 2025-12-22T00:57:13Z
-Initiated by: Nick Yazdani
-Actuator token provenance: .temporary_token.txt
-Token jti: 4d404ac516094295a78393d8a333502f
-
+BOOTED: 2025-12-23T21:45:36Z
+PERSISTENCE_ENABLED: true
+IDENTITY_VERIFIED: true
+TOKEN_PROVENANCE: .temporary_token.txt
