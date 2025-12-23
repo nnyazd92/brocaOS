@@ -1,27 +1,27 @@
 version: '3.8'
 services:
-  brocaapi:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/broca
-      - S3_ENDPOINT=http://minio:9000
-    depends_on:
-      - db
-      - minio
   db:
     image: postgres:15
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: broca
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "5432:5432"
-  minio:
-    image: minio/minio
-    command: server /data
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
     environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio123
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/broca"
+      PORT: "8080"
     ports:
-      - "9000:9000"
+      - "8080:8080"
+    depends_on:
+      - db
+
+# note: in local dev you may need to set up .env or override DATABASE_URL
