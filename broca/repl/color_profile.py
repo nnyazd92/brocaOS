@@ -81,6 +81,8 @@ class ColorProfile:
     - response_text: Color for assistant response text
     - you_prompt: Color for "you> " prompt
     - input_text: Color for user input text
+    - success_indicator: Color for success indicator (✓)
+    - error_indicator: Color for error indicator (✗)
     """
     
     def __init__(
@@ -88,7 +90,9 @@ class ColorProfile:
         brocaos_prompt: str,
         response_text: str,
         you_prompt: str,
-        input_text: str
+        input_text: str,
+        success_indicator: str = "",
+        error_indicator: str = ""
     ):
         """
         Initialize color profile.
@@ -98,11 +102,15 @@ class ColorProfile:
             response_text: ANSI color code for response text
             you_prompt: ANSI color code for you prompt
             input_text: ANSI color code for input text
+            success_indicator: ANSI color code for success indicator (✓)
+            error_indicator: ANSI color code for error indicator (✗)
         """
         self.brocaos_prompt = brocaos_prompt or ""
         self.response_text = response_text or ""
         self.you_prompt = you_prompt or ""
         self.input_text = input_text or ""
+        self.success_indicator = success_indicator or ""
+        self.error_indicator = error_indicator or ""
     
     def apply_color(self, text: str, color_type: str) -> str:
         """
@@ -131,7 +139,9 @@ class DefaultColorProfile(ColorProfile):
             brocaos_prompt=ANSI_CYAN,
             response_text=ANSI_RESET,  # Default text color
             you_prompt=ANSI_YELLOW,
-            input_text=ANSI_RESET
+            input_text=ANSI_BRIGHT_GREEN,  # Distinct color for user input (different from default and prompt)
+            success_indicator=ANSI_GREEN,
+            error_indicator=ANSI_RED
         )
 
 
@@ -144,7 +154,9 @@ class DarkColorProfile(ColorProfile):
             brocaos_prompt=ANSI_BRIGHT_CYAN,
             response_text=ANSI_BRIGHT_WHITE,
             you_prompt=ANSI_BRIGHT_YELLOW,
-            input_text=ANSI_BRIGHT_GREEN
+            input_text=ANSI_BRIGHT_GREEN,
+            success_indicator=ANSI_BRIGHT_GREEN,
+            error_indicator=ANSI_BRIGHT_RED
         )
 
 
@@ -157,7 +169,9 @@ class LightColorProfile(ColorProfile):
             brocaos_prompt=ANSI_BLUE,
             response_text=ANSI_BLACK,
             you_prompt=ANSI_MAGENTA,
-            input_text=ANSI_BLACK
+            input_text=ANSI_BLACK,
+            success_indicator=ANSI_GREEN,
+            error_indicator=ANSI_RED
         )
 
 
@@ -169,7 +183,9 @@ class CustomColorProfile(ColorProfile):
         brocaos_prompt: str = "",
         response_text: str = "",
         you_prompt: str = "",
-        input_text: str = ""
+        input_text: str = "",
+        success_indicator: str = "",
+        error_indicator: str = ""
     ):
         """
         Initialize custom color profile.
@@ -179,12 +195,16 @@ class CustomColorProfile(ColorProfile):
             response_text: Custom ANSI color code for response text
             you_prompt: Custom ANSI color code for you prompt
             input_text: Custom ANSI color code for input text
+            success_indicator: Custom ANSI color code for success indicator
+            error_indicator: Custom ANSI color code for error indicator
         """
         super().__init__(
             brocaos_prompt=brocaos_prompt or "",
             response_text=response_text or "",
             you_prompt=you_prompt or "",
-            input_text=input_text or ""
+            input_text=input_text or "",
+            success_indicator=success_indicator or "",
+            error_indicator=error_indicator or ""
         )
 
 
@@ -274,7 +294,7 @@ class ColorManager:
         
         Args:
             text: Text to colorize
-            color_type: Type of color ("brocaos_prompt", "response_text", "you_prompt", "input_text")
+            color_type: Type of color ("brocaos_prompt", "response_text", "you_prompt", "input_text", "success_indicator", "error_indicator")
             
         Returns:
             Colorized text if enabled, original text otherwise

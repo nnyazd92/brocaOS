@@ -157,6 +157,16 @@ class ConversationSession:
                 "world_state_enabled": world_state_aggregator is not None,
             },
         )
+    
+    @property
+    def tool_status_display(self):
+        """
+        Get the tool status display instance.
+        
+        Returns:
+            ToolStatusDisplay instance or None if not available
+        """
+        return self._tool_status_display
 
     # ---------- Public API ----------
 
@@ -308,11 +318,7 @@ class ConversationSession:
                 if use_streaming:
                     # Streaming mode - try streaming first
                     assistant_text = ""
-                    # Colorize BrocaOS prompt
-                    prompt = "BrocaOS> "
-                    if self._color_manager:
-                        prompt = self._color_manager.colorize(prompt, "brocaos_prompt")
-                    print(prompt, end="", flush=True)
+                    prompt_printed = False  # Track if we've printed the prompt yet
                     
                     # Get streaming delay from config
                     from ..config import config
@@ -353,6 +359,15 @@ class ConversationSession:
                         for chunk in stream_gen:
                             chunk_count += 1
                             assistant_text += chunk
+                            
+                            # Print prompt on first chunk only
+                            if not prompt_printed:
+                                prompt = "BrocaOS> "
+                                if self._color_manager:
+                                    prompt = self._color_manager.colorize(prompt, "brocaos_prompt")
+                                print(prompt, end="", flush=True)
+                                prompt_printed = True
+                            
                             # Colorize response text chunks
                             if self._color_manager:
                                 colored_chunk = self._color_manager.colorize(chunk, "response_text")
@@ -364,8 +379,9 @@ class ConversationSession:
                             if streaming_delay > 0:
                                 time.sleep(streaming_delay)
                         
-                        # Always print newline after streaming, even if no chunks were received
-                        print("", flush=True)  # New line after streaming
+                        # Only print newline if we actually printed content
+                        if prompt_printed:
+                            print("", flush=True)  # New line after streaming
                         # If streaming produced no visible content (no chunks or only whitespace),
                         # normalize assistant_text to None so the response-guard will inject
                         # a deterministic fallback reply instead of returning an empty string.
@@ -415,6 +431,15 @@ class ConversationSession:
                         messages_for_llm = self._get_messages_for_llm()
                         messages_for_llm = self._validate_message_size(messages_for_llm)
                         
+                        # Validate message ordering before sending to API
+                        is_valid, error = self._validate_message_ordering(messages_for_llm)
+                        if not is_valid:
+                            logger.warning(
+                                f"Invalid message ordering detected before LLM call: {error}. "
+                                "Attempting to fix by removing orphaned tool messages."
+                            )
+                            messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
+                        
                         if tools:
                             response = self.llm.chat(
                                 messages_for_llm, 
@@ -433,6 +458,15 @@ class ConversationSession:
                     # Non-streaming mode (when streaming disabled)
                     messages_for_llm = self._get_messages_for_llm()
                     messages_for_llm = self._validate_message_size(messages_for_llm)
+                    
+                    # Validate message ordering before sending to API
+                    is_valid, error = self._validate_message_ordering(messages_for_llm)
+                    if not is_valid:
+                        logger.warning(
+                            f"Invalid message ordering detected before LLM call: {error}. "
+                            "Attempting to fix by removing orphaned tool messages."
+                        )
+                        messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
                     
                     if tools:
                         response = self.llm.chat(
@@ -672,29 +706,27 @@ class ConversationSession:
                 
                 # Ensure response is always printed
                 if used_streaming:
-                    # If we streamed, content was already printed chunk by chunk
-                    # But if assistant_text is empty or None, we still printed "BrocaOS> " so add newline
-                    # (The newline is already printed in streaming loop, but ensure it's there)
-                    if not assistant_text or not assistant_text.strip():
-                        # Empty response after streaming - we already printed "BrocaOS> " but no content
-                        # The newline was already printed, so we're done
-                        pass
-                    # Otherwise streaming already printed everything including newline
+                    # If we streamed, content was already printed chunk by chunk (if any)
+                    # The prompt was only printed if chunks were received, and newline only if prompt was printed
+                    # If no chunks were received, nothing was printed (no empty prompt line)
+                    # Empty responses are handled by response guard which injects a fallback
+                    pass  # Streaming output handling is complete
                 else:
-                    # Non-streaming: print with prompt
-                    prompt = "BrocaOS> "
-                    if self._color_manager:
-                        prompt = self._color_manager.colorize(prompt, "brocaos_prompt")
-                    
+                    # Non-streaming: print with prompt only if we have content
+                    # Response guard ensures assistant_text is never None/empty, but check anyway
                     if assistant_text:
+                        prompt = "BrocaOS> "
+                        if self._color_manager:
+                            prompt = self._color_manager.colorize(prompt, "brocaos_prompt")
+                        
                         # Colorize response text
                         if self._color_manager:
                             colored_text = self._color_manager.colorize(assistant_text, "response_text")
                             print(f"{prompt}{colored_text}\n", end="", flush=True)
                         else:
                             print(f"{prompt}{assistant_text}\n", end="", flush=True)
-                    else:
-                        print(f"{prompt}\n", end="", flush=True)  # Empty response
+                    # If assistant_text is None/empty, response guard should have injected fallback
+                    # but if it didn't for some reason, don't print empty prompt line
 
                 # Log assistant message event
                 if self._event_logger:
@@ -1134,9 +1166,12 @@ class ConversationSession:
             max_tokens: Maximum token limit
             
         Returns:
-            Filtered messages with tool results truncated if needed
+            Filtered messages with tool results truncated if needed and tool message ordering fixed
         """
         from ..config import config
+        
+        # Fix tool message ordering first (remove orphaned tool messages)
+        messages = self._fix_tool_message_ordering(messages)
         
         # Estimate tokens
         estimated_tokens = estimate_messages_tokens(messages)
@@ -1162,6 +1197,83 @@ class ConversationSession:
             )
         
         return truncated_messages
+    
+    def _fix_tool_message_ordering(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Fix tool message ordering by removing orphaned tool messages.
+        
+        Removes tool messages that don't have a preceding assistant message
+        with matching tool_calls. This ensures messages are valid for OpenAI API.
+        
+        Args:
+            messages: List of messages (may contain orphaned tool messages)
+            
+        Returns:
+            List of messages with orphaned tool messages removed
+        """
+        if not messages:
+            return messages
+        
+        fixed_messages = []
+        # Track tool_call_ids from assistant messages with tool_calls
+        valid_tool_call_ids = set()
+        # Track the last assistant message index with tool_calls
+        last_assistant_with_tool_calls_idx = -1
+        
+        for i, msg in enumerate(messages):
+            role = msg.get("role")
+            
+            # System messages are always included
+            if role == "system":
+                fixed_messages.append(msg)
+                continue
+            
+            # Handle assistant messages
+            if role == "assistant":
+                tool_calls = msg.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list):
+                    # Extract tool_call_ids
+                    current_tool_call_ids = set()
+                    for tool_call in tool_calls:
+                        if isinstance(tool_call, dict):
+                            tool_call_id = tool_call.get("id")
+                            if isinstance(tool_call_id, str):
+                                current_tool_call_ids.add(tool_call_id)
+                    
+                    # Update tracking
+                    valid_tool_call_ids = current_tool_call_ids
+                    last_assistant_with_tool_calls_idx = len(fixed_messages)
+                    fixed_messages.append(msg)
+                else:
+                    # Assistant without tool_calls - reset tracking
+                    valid_tool_call_ids.clear()
+                    last_assistant_with_tool_calls_idx = -1
+                    fixed_messages.append(msg)
+            
+            # Handle tool messages
+            elif role == "tool":
+                tool_call_id = msg.get("tool_call_id")
+                if isinstance(tool_call_id, str) and tool_call_id in valid_tool_call_ids:
+                    # Valid tool message - has matching tool_call_id
+                    fixed_messages.append(msg)
+                else:
+                    # Orphaned tool message - remove it
+                    logger.debug(
+                        f"Removing orphaned tool message with tool_call_id '{tool_call_id}' "
+                        f"(no preceding assistant message with matching tool_calls)"
+                    )
+            
+            # User messages are always included
+            elif role == "user":
+                # User messages reset the tool call context
+                valid_tool_call_ids.clear()
+                last_assistant_with_tool_calls_idx = -1
+                fixed_messages.append(msg)
+            else:
+                # Unknown role - include it (might be custom roles)
+                fixed_messages.append(msg)
+        
+        return fixed_messages
     
     def _truncate_tool_results_in_messages(
         self, messages: List[Dict[str, Any]], max_tool_result_size: int
@@ -1241,6 +1353,116 @@ class ConversationSession:
         
         return truncated
 
+    def _validate_message_ordering(self, messages: List[Dict[str, Any]]) -> tuple[bool, Optional[str]]:
+        """
+        Validate that message ordering follows OpenAI API requirements.
+        
+        OpenAI API requires that tool messages must follow an assistant message
+        with tool_calls. This function validates that requirement.
+        
+        Args:
+            messages: List of message dictionaries to validate
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+            - is_valid: True if messages are valid, False otherwise
+            - error_message: None if valid, error description if invalid
+        """
+        if not messages:
+            return True, None
+        
+        # Track which tool_call_ids we've seen in assistant messages
+        seen_tool_call_ids = set()
+        
+        # Track the last assistant message with tool_calls
+        last_assistant_with_tool_calls = None
+        
+        for i, msg in enumerate(messages):
+            role = msg.get("role")
+            
+            # Skip system messages (they don't affect tool message ordering)
+            if role == "system":
+                continue
+            
+            # Handle assistant messages
+            if role == "assistant":
+                tool_calls = msg.get("tool_calls")
+                if tool_calls:
+                    # Validate tool_calls structure
+                    if not isinstance(tool_calls, list):
+                        return False, f"Message {i}: tool_calls must be a list, got {type(tool_calls)}"
+                    
+                    # Extract tool_call_ids from this assistant message
+                    current_tool_call_ids = set()
+                    for tool_call in tool_calls:
+                        if not isinstance(tool_call, dict):
+                            return False, f"Message {i}: tool_calls must contain dictionaries"
+                        
+                        tool_call_id = tool_call.get("id")
+                        if tool_call_id is None:
+                            return False, f"Message {i}: tool_call missing 'id' field"
+                        
+                        if not isinstance(tool_call_id, str):
+                            return False, f"Message {i}: tool_call 'id' must be a string, got {type(tool_call_id)}"
+                        
+                        current_tool_call_ids.add(tool_call_id)
+                    
+                    # Update tracking
+                    seen_tool_call_ids.update(current_tool_call_ids)
+                    last_assistant_with_tool_calls = i
+                else:
+                    # Assistant without tool_calls - reset tracking
+                    last_assistant_with_tool_calls = None
+                    seen_tool_call_ids.clear()
+            
+            # Handle tool messages
+            elif role == "tool":
+                # Tool message must have a tool_call_id
+                tool_call_id = msg.get("tool_call_id")
+                if tool_call_id is None:
+                    return False, f"Message {i}: tool message missing 'tool_call_id' field"
+                
+                if not isinstance(tool_call_id, str):
+                    return False, f"Message {i}: tool message 'tool_call_id' must be a string, got {type(tool_call_id)}"
+                
+                # Check if this tool_call_id was seen in a preceding assistant message with tool_calls
+                if tool_call_id not in seen_tool_call_ids:
+                    # Check if there's an assistant message with tool_calls before this tool message
+                    found_preceding_assistant = False
+                    for j in range(i - 1, -1, -1):
+                        prev_msg = messages[j]
+                        if prev_msg.get("role") == "system":
+                            continue
+                        if prev_msg.get("role") == "assistant":
+                            prev_tool_calls = prev_msg.get("tool_calls")
+                            if prev_tool_calls and isinstance(prev_tool_calls, list):
+                                prev_tool_call_ids = {
+                                    tc.get("id") for tc in prev_tool_calls
+                                    if isinstance(tc, dict) and isinstance(tc.get("id"), str)
+                                }
+                                if tool_call_id in prev_tool_call_ids:
+                                    found_preceding_assistant = True
+                                    break
+                            # If assistant doesn't have tool_calls, stop looking
+                            break
+                        elif prev_msg.get("role") in ("user", "tool"):
+                            # Continue looking backwards
+                            continue
+                    
+                    if not found_preceding_assistant:
+                        return False, (
+                            f"Message {i}: tool message with tool_call_id '{tool_call_id}' "
+                            "does not follow an assistant message with matching tool_calls"
+                        )
+            
+            # User messages don't need special validation for tool ordering
+            elif role == "user":
+                # User messages reset the tool call context
+                last_assistant_with_tool_calls = None
+                seen_tool_call_ids.clear()
+        
+        return True, None
+    
     def _update_system_prompt(self) -> None:
         """
         Update system prompt with current world state and session summary.

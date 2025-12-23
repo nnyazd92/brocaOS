@@ -205,6 +205,9 @@ class ToolStatusDisplay:
         self._lock = threading.Lock()
         self._active_spinners: Dict[str, Spinner] = {}
         self._active_descriptions: Dict[str, str] = {}
+        self._spinner_threads: Dict[str, threading.Thread] = {}
+        self._spinner_running: Dict[str, bool] = {}
+        self._paused: bool = False
     
     def start_tool_call(self, tool_name: str, arguments: Dict[str, Any], tool_call_id: str = "") -> None:
         """
@@ -230,13 +233,55 @@ class ToolStatusDisplay:
                 spinner.start()
                 self._active_spinners[key] = spinner
                 self._active_descriptions[key] = description
+                self._spinner_running[key] = True
             
             # Print initial status line
             self._print_status(key, description, spinner.update())
+            
+            # Start background thread for continuous animation
+            self._start_spinner_thread(key, description)
         
         except Exception:
             # Graceful degradation - don't crash if display fails
             pass
+    
+    def _start_spinner_thread(self, key: str, description: str) -> None:
+        """
+        Start background thread to animate spinner.
+        
+        Args:
+            key: Unique key for this tool call
+            description: Description text
+        """
+        def animate():
+            """Background thread function to continuously update spinner."""
+            while True:
+                with self._lock:
+                    if not self._spinner_running.get(key, False) or self._paused:
+                        break
+                    spinner = self._active_spinners.get(key)
+                    if not spinner:
+                        break
+                    spinner_char = spinner.update()
+                    is_paused = self._paused
+                
+                # Check paused flag outside lock to avoid blocking
+                if is_paused:
+                    break
+                
+                if spinner_char:
+                    try:
+                        self._print_status(key, description, spinner_char)
+                    except (IOError, OSError):
+                        # Handle write errors gracefully
+                        pass
+                
+                time.sleep(0.1)  # Update every 100ms
+        
+        thread = threading.Thread(target=animate, daemon=True)
+        thread.start()
+        with self._lock:
+            self._spinner_threads[key] = thread
     
     def complete_tool_call(self, tool_call_id: str = "", tool_name: str = "", success: bool = True) -> None:
         """
@@ -254,19 +299,90 @@ class ToolStatusDisplay:
             # Use tool_call_id if provided, otherwise use tool_name
             key = tool_call_id or tool_name
             
+            # Stop spinner animation
             with self._lock:
+                self._spinner_running[key] = False
                 spinner = self._active_spinners.pop(key, None)
                 description = self._active_descriptions.pop(key, "")
+                thread = self._spinner_threads.pop(key, None)
+            
+            # Wait briefly for thread to finish current iteration
+            if thread and thread.is_alive():
+                thread.join(timeout=0.15)
             
             if spinner and description:
                 # Get final indicator
                 indicator = spinner.stop(success=success)
-                # Clear the line and print final status
+                # Clear the line and print final status on same line
                 self._print_final(key, description, indicator, success)
         
         except Exception:
             # Graceful degradation
             pass
+    
+    def pause_updates(self) -> None:
+        """
+        Pause all spinner updates to prevent interference with user input.
+        
+        This should be called before user input to prevent spinner updates
+        from overwriting what the user is typing. Waits for active threads
+        to stop to ensure no updates occur while user is typing.
+        
+        Note: Does NOT write to stdout to avoid interfering with terminal
+        line wrapping behavior during input().
+        """
+        threads_to_wait = []
+        
+        with self._lock:
+            self._paused = True
+            # Stop all active spinners
+            for key in list(self._spinner_running.keys()):
+                self._spinner_running[key] = False
+                # Collect threads to wait for
+                thread = self._spinner_threads.get(key)
+                if thread:
+                    threads_to_wait.append(thread)
+        
+        # Wait for threads to finish their current iteration (with timeout)
+        # This ensures no spinner updates can occur while user is typing
+        for thread in threads_to_wait:
+            if thread and thread.is_alive():
+                thread.join(timeout=0.15)  # Wait up to 150ms for thread to stop
+        
+        # Do NOT write anything to stdout here - it interferes with
+        # terminal line wrapping when input() is called. The threads are
+        # stopped, which is sufficient to prevent interference.
+    
+    def _clear_current_line(self) -> None:
+        """
+        Clear the current line and ensure cursor is positioned correctly.
+        
+        This helper method ensures we're on a fresh line before resuming
+        spinner updates to prevent display corruption.
+        """
+        try:
+            # Write a newline to ensure we're on a fresh line
+            # This prevents spinner updates from overwriting the input line
+            sys.stdout.write('\n')
+            sys.stdout.flush()
+        except (IOError, OSError):
+            # Handle write errors gracefully
+            pass
+    
+    def resume_updates(self) -> None:
+        """
+        Resume spinner updates after user input.
+        
+        This should be called after user input is received to allow
+        spinner updates to continue. Clears the current line first to
+        prevent display corruption.
+        """
+        # Clear any partial spinner output and ensure we're on a new line
+        # This prevents spinner updates from overwriting the user's input line
+        self._clear_current_line()
+        
+        with self._lock:
+            self._paused = False
     
     def _print_status(self, key: str, description: str, spinner_char: str) -> None:
         """
@@ -277,17 +393,29 @@ class ToolStatusDisplay:
             description: Description text
             spinner_char: Current spinner character
         """
+        # Check if paused before writing
+        with self._lock:
+            if self._paused:
+                return
+        
         try:
-            # Clear line and print status
-            # Use carriage return to overwrite line
+            # Only print if spinner is enabled and we have a valid character
+            if not spinner_char:
+                return
+            
+            # Verify terminal is a TTY before using carriage return
+            if not sys.stdout.isatty():
+                return
+            
+            # Use carriage return to overwrite same line (no newline)
             prompt = "BrocaOS> "
             if self._color_manager:
                 prompt = self._color_manager.colorize(prompt, "brocaos_prompt")
             line = f"\r{prompt}{spinner_char} {description}"
             sys.stdout.write(line)
-            sys.stdout.flush()
-        except (IOError, OSError):
-            # Handle write errors gracefully
+            sys.stdout.flush()  # Ensure output is immediately visible
+        except (IOError, OSError, AttributeError):
+            # Handle write errors gracefully (including when stdout doesn't have isatty)
             pass
     
     def _print_final(self, key: str, description: str, indicator: str, success: bool) -> None:
@@ -301,14 +429,25 @@ class ToolStatusDisplay:
             success: Whether operation succeeded
         """
         try:
-            # Clear line and print final status
+            # Only print if enabled and terminal is a TTY
+            if not self._enabled or not sys.stdout.isatty():
+                return
+            
+            # Colorize the indicator
+            if self._color_manager:
+                if success:
+                    indicator = self._color_manager.colorize(indicator, "success_indicator")
+                else:
+                    indicator = self._color_manager.colorize(indicator, "error_indicator")
+            
+            # Use carriage return to overwrite spinner on same line, then add newline only at end
             prompt = "BrocaOS> "
             if self._color_manager:
                 prompt = self._color_manager.colorize(prompt, "brocaos_prompt")
             line = f"\r{prompt}{indicator} {description}\n"
             sys.stdout.write(line)
-            sys.stdout.flush()
-        except (IOError, OSError):
-            # Handle write errors gracefully
+            sys.stdout.flush()  # Ensure output is immediately visible
+        except (IOError, OSError, AttributeError):
+            # Handle write errors gracefully (including when stdout doesn't have isatty)
             pass
 

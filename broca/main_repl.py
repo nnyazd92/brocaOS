@@ -1,4 +1,5 @@
 import sys
+import re
 import readline  # optional, for nicer REPL on Unix
 import logging
 from pathlib import Path
@@ -28,6 +29,39 @@ if TYPE_CHECKING:
     from .self_model.storage import SelfModelSQLiteStorage
 
 logger = logging.getLogger(__name__)
+
+
+def _get_user_input_with_colored_prompt(prompt: str) -> str:
+    """
+    Get user input with a colored prompt that supports proper line wrapping.
+    
+    The issue with colored prompts in input() is that ANSI escape codes don't
+    count toward visible width, which can confuse terminal wrapping calculations.
+    This function prints the colored prompt separately and uses input('') with
+    an empty prompt, allowing the terminal/readline to handle wrapping correctly.
+    
+    Args:
+        prompt: Colored prompt string (may contain ANSI codes)
+        
+    Returns:
+        User input string
+    """
+    try:
+        # Print the colored prompt without newline
+        # This allows readline to handle the input line correctly without
+        # being confused by ANSI codes in the prompt width calculation
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        
+        # Use input with empty prompt - readline will handle line editing
+        # and wrapping correctly since it doesn't see ANSI codes
+        return input('')
+    except (EOFError, KeyboardInterrupt):
+        # Re-raise these so they can be handled by the caller
+        raise
+    except Exception:
+        # Fallback: If anything fails, use simple input (may have wrapping issues)
+        return input(prompt)
 
 
 def _initialize_storage() -> ConversationStorage | None:
@@ -561,15 +595,6 @@ def main() -> None:
             self_model_reduction_level=config.self_model.self_model_reduction_level,
         )
         
-        session = ConversationSession(
-            system_prompt=None,
-            storage=conversation_storage,
-            tool_registry=tool_registry,
-            internal_sensing_framework=internal_sensing,
-            world_state_aggregator=world_state_aggregator,
-            color_manager=color_manager,
-        )
-
         # Initialize color manager
         try:
             from .repl.color_profile import ColorManager, CustomColorProfile
@@ -595,6 +620,15 @@ def main() -> None:
         except Exception as e:
             logger.debug(f"Failed to initialize color manager: {e}", exc_info=True)
             color_manager = None
+        
+        session = ConversationSession(
+            system_prompt=None,
+            storage=conversation_storage,
+            tool_registry=tool_registry,
+            internal_sensing_framework=internal_sensing,
+            world_state_aggregator=world_state_aggregator,
+            color_manager=color_manager,
+        )
 
         provider_name = config.llm.provider.upper()
         storage_status = "enabled" if conversation_storage else "disabled"
@@ -606,12 +640,27 @@ def main() -> None:
 
         while True:
             try:
+                # Pause spinner updates before user input to prevent interference
+                # This stops all spinner threads and clears any partial output
+                if session.tool_status_display:
+                    session.tool_status_display.pause_updates()
+                
                 # Colorize "you>" prompt
                 you_prompt = "you> "
                 if color_manager:
                     you_prompt = color_manager.colorize(you_prompt, "you_prompt")
-                user_input = input(you_prompt).strip()
+                
+                # Get user input with proper wrapping support
+                # Use readline for better line editing, but handle colored prompts correctly
+                user_input = _get_user_input_with_colored_prompt(you_prompt).strip()
+                
+                # Resume spinner updates after user input
+                if session.tool_status_display:
+                    session.tool_status_display.resume_updates()
             except (EOFError, KeyboardInterrupt):
+                # Resume on exception too
+                if session.tool_status_display:
+                    session.tool_status_display.resume_updates()
                 print("\nExiting.")
                 break
 
