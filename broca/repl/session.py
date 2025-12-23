@@ -802,13 +802,18 @@ class ConversationSession:
                 try:
                     assistant_msg = next((m for m in reversed(self.messages) if m.get("role") == "assistant"), None)
                     trace_id = getattr(self, "_current_response_id", None) or None
+                    # Normalize whitespace-only content to None to ensure the
+                    # response_guard will inject a fallback. This covers cases
+                    # where some code paths set empty-string replies explicitly.
                     if assistant_msg is None:
                         final_reply = ensure_non_empty(None, trace_id=trace_id)
                         self.messages.append({"role": "assistant", "content": final_reply})
                     else:
                         content = assistant_msg.get("content", "")
+                        if isinstance(content, str) and content.strip() == "":
+                            content = None
                         final_reply = ensure_non_empty(content, trace_id=trace_id)
-                        if final_reply != content:
+                        if final_reply != (assistant_msg.get("content", None)):
                             assistant_msg["content"] = final_reply
                             logger.info("Injected fallback assistant reply due to empty content (TraceID=%s)", trace_id)
                 except Exception as _e:
