@@ -128,17 +128,21 @@ class TestConversationSessionSend:
         """
         Test handling of empty LLM response.
         
-        Rationale: Ensures the session handles edge cases gracefully.
+        Rationale: Ensures the session handles edge cases gracefully by injecting fallback.
         """
         mock_llm_client.chat.return_value = build_llm_response(content="")
         session = ConversationSession(llm=mock_llm_client)
         
         response = session.send("Test")
         
-        assert response == ""
-        assert len(session.messages) == 2  # user + empty assistant
+        # Empty responses should get fallback message, not empty string
+        assert response is not None
+        assert response.strip() != ""
+        assert "[automatic fallback]" in response
+        assert len(session.messages) == 2  # user + assistant with fallback
         assert session.messages[1]["role"] == "assistant"
-        assert session.messages[1]["content"] == ""
+        assert session.messages[1]["content"] == response
+        assert "[automatic fallback]" in session.messages[1]["content"]
     
     def test_send_return_value(self, mock_llm_client: Mock):
         """

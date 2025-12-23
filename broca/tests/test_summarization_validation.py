@@ -115,3 +115,4 @@ class TestDriftDetection:
         compression_ratio = len(raw_events_text) / len(summary_text)
         assert compression_ratio > 5.0
 
+

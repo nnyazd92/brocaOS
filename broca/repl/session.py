@@ -148,6 +148,21 @@ class ConversationSession:
 
     # ---------- Public API ----------
 
+    def _ensure_response_non_empty(self, content: Optional[str]) -> str:
+        """
+        Helper method to ensure a response is never empty.
+        
+        Wraps ensure_non_empty() with proper trace_id handling.
+        
+        Args:
+            content: The response content to check (may be None or empty string)
+            
+        Returns:
+            Non-empty string (either original content or fallback message)
+        """
+        trace_id = getattr(self, "_current_response_id", None) or None
+        return ensure_non_empty(content, trace_id=trace_id)
+
     def send(self, user_text: str, stream: bool = None) -> str:
         """
         Append a user message, call the LLM, handle tool calls if needed, and return final reply.
@@ -187,6 +202,7 @@ class ConversationSession:
         # On-demand summarization command (no auto windowing)
         if user_text.strip().startswith("/summarize"):
             summary = self._summarize_history()
+            summary = self._ensure_response_non_empty(summary)
             self.messages.append({"role": "assistant", "content": summary})
             self.updated_at = datetime.now(timezone.utc).isoformat()
             self._log_context_after_turn(assistant_text=summary, raw_response={})
@@ -417,6 +433,7 @@ class ConversationSession:
                 )
                 trace = getattr(self, "_current_response_id", None) or str(__import__('uuid').uuid4())
                 error_with_trace = f"{error_message} TraceID: {trace}"
+                error_with_trace = self._ensure_response_non_empty(error_with_trace)
                 self.messages.append({"role": "assistant", "content": error_with_trace})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
@@ -433,6 +450,7 @@ class ConversationSession:
                 )
                 trace = getattr(self, "_current_response_id", None) or str(__import__('uuid').uuid4())
                 error_with_trace = f"{error_message} TraceID: {trace}"
+                error_with_trace = self._ensure_response_non_empty(error_with_trace)
                 self.messages.append({"role": "assistant", "content": error_with_trace})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
@@ -449,6 +467,7 @@ class ConversationSession:
                 )
                 trace = getattr(self, "_current_response_id", None) or str(__import__('uuid').uuid4())
                 error_with_trace = f"{error_message} TraceID: {trace}"
+                error_with_trace = self._ensure_response_non_empty(error_with_trace)
                 self.messages.append({"role": "assistant", "content": error_with_trace})
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 # Log conversation turn completion even on error
@@ -510,7 +529,10 @@ class ConversationSession:
 
             # If we didn't stream and got a non-streaming response, extract assistant text
             if not used_streaming and assistant_text is None:
-                assistant_text = self.llm.extract_assistant_content(response) or ""
+                assistant_text = self.llm.extract_assistant_content(response) or None
+                # Normalize empty string to None so guard can catch it
+                if assistant_text == "":
+                    assistant_text = None
 
             if tool_calls and self.tool_registry:
                 # Mark that we've had tool calls
@@ -622,7 +644,10 @@ class ConversationSession:
                 # Extract assistant text - if we used streaming, it's already in assistant_text
                 # But make sure we have it even if streaming was used (fallback)
                 if assistant_text is None:
-                    assistant_text = self.llm.extract_assistant_content(response) or ""
+                    assistant_text = self.llm.extract_assistant_content(response) or None
+                    # Normalize empty string to None so guard can catch it
+                    if assistant_text == "":
+                        assistant_text = None
                 
                 # Ensure response is always printed
                 if used_streaming:
@@ -843,6 +868,13 @@ class ConversationSession:
             assistant_text = (
                 "I apologize, but I encountered an issue processing your request."
             )
+        
+        # Normalize empty string to None so guard can catch it
+        if assistant_text == "" or (isinstance(assistant_text, str) and assistant_text.strip() == ""):
+            assistant_text = None
+        
+        # Apply response guard to ensure non-empty
+        assistant_text = self._ensure_response_non_empty(assistant_text)
 
         self.messages.append({"role": "assistant", "content": assistant_text})
         self.updated_at = datetime.now(timezone.utc).isoformat()

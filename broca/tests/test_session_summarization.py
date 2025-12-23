@@ -129,3 +129,4 @@ class TestSessionSummarizationIntegration:
             # Check that summary was created (if summarization triggered)
             # Note: This depends on the mock summarizer, so we're mainly testing the flow works
 
+

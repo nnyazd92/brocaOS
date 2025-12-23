@@ -1,0 +1,17 @@
+{
+  "tasks": [
+    {
+      "id": "task_add_dockerignore_quickstart_requirements",
+      "description": "Add .dockerignore, quickstart ex...",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_3d67f427b33d49dbaa169380eac9282a",
+        "evt_b2030ef5227346c9887d7163a6bd85a1",
+        "evt_4b11cce2f4ad42c28f31bc2e8fc8968e"
+      ],
+      "created_at": "2025-12-23T11:30:55.388387+00:00"
+    }
+  ]
+}
