@@ -2,24 +2,28 @@
   "header": {
     "session_id": "678e5f44-f55a-4209-ae64-f5750e27651e",
     "created_at": "2025-12-23T20:15:37.237300+00:00",
-    "last_updated_at": "2025-12-23T20:15:37.237329+00:00",
-    "last_summarized_event_id": "evt_d3b286bcb4b8440b9c4e324efd68ac49",
-    "revision": 0,
+    "last_updated_at": "2025-12-23T20:36:53.670630+00:00",
+    "last_summarized_event_id": "evt_84b55d5751504c7193c2f0da815e0fa4",
+    "revision": 1,
     "scope": "Session 678e5f44-f55a-4209-ae64-f5750e27651e"
   },
   "summary_blocks": {
-    "current_goal": "Formalize BrocaOS boot/shutdown protocols and clean the repo so ...",
+    "current_goal": "BrocaOS is now using a cleaned, canonical artifact layout with boot/shutdown protocols forma...",
     "what_we_built": [
-      "Completed a full rewrite of PROTOCOL.SHUT_DOWN.v..."
+      "Completed a full rewrite of PROTOCOL.SHUT_DOWN.v...",
+      "Canonical filesystem layout for memory, ..."
     ],
     "open_questions": [
-      "Should self-model and memory DB ..."
+      "Should self-model and memory DB ...",
+      "Are there any remaining scripts or tools..."
     ],
     "constraints": [
-      "Filesystem changes must remain compatibl..."
+      "Filesystem changes must remain compatibl...",
+      "Environment has limited version_control tooling; direct git commands must be executed via the terminal tool."
     ],
     "next_steps": [
-      "Implement or update shutdown code to follow PROT..."
+      "Implement or update shutdown code to follow PROT...",
+      "Inspect boot and shutdown code (rehydration/..."
     ]
   },
   "evidence": [
@@ -47,6 +51,39 @@
         "evt_6cc92a21479f4c5a8a506c3e2d8e997a",
         "evt_d8152e6d45284af09f1fbc90ccc6fbf9",
         "evt_be716d5b6491472c986b51cd2b45b1d2"
+      ]
+    },
+    {
+      "claim": "Backup, swap, and temp-like files (e.g., *.bak, ...",
+      "event_ids": [
+        "evt_26f8399931494424902f468be77cb5f8",
+        "evt_385373b754674a28abe4ec989e048347",
+        "evt_504e2ce5a1e04dd687ebd57f440e7174"
+      ]
+    },
+    {
+      "claim": "Memory graph state was moved to docs/memory/MEMORY_G...",
+      "event_ids": [
+        "evt_d63b6f403a4f471d9555d26c573e2a45",
+        "evt_fe8f448b120349a596cc0d8c5f7a1922",
+        "evt_cac065a5b0d84a48bb643efe4f6c9b99"
+      ]
+    },
+    {
+      "claim": "Redundant REHYDRATION_SUMMARY.v0.3.* copies in docs/...",
+      "event_ids": [
+        "evt_d63b6f403a4f471d9555d26c573e2a45",
+        "evt_fe8f448b120349a596cc0d8c5f7a1922"
+      ]
+    },
+    {
+      "claim": "Treat docs/ as the canonical human-facing and current state surface,...",
+      "event_ids": [
+        "evt_9003033190904e2982255bb24d0b06ba",
+        "evt_751d60937d4e43808f16906154801c63",
+        "evt_d63b6f403a4f471d9555d26c573e2a45",
+        "evt_fe8f448b120349a596cc0d8c5f7a1922",
+        "evt_cac065a5b0d84a48bb643efe4f6c9b99"
       ]
     }
   ],
