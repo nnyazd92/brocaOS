@@ -1,0 +1,20 @@
+{
+  "schema_version": "v0.1",
+  "session_id": "session-final",
+  "boot_jti": "65f3ebf427ee40e6a98c464f367ccc54",
+  "boot_operator": "Nick Yazdani",
+  "session_start": "2025-12-23T04:29:59.502424+00:00",
+  "session_end": "2025-12-23T04:29:59.502427+00:00",
+  "key_actions": [
+    "Shutdown persistence"
+  ],
+  "outcome_summary": "Graceful shutdown",
+  "memory_changes": {
+    "added": 0,
+    "updated": 0,
+    "deleted": 0
+  },
+  "next_session_notes": "Resume on next boot",
+  "created_by": "assistant",
+  "timestamp": "2025-12-23T04:29:59.502432+00:00"
+}
