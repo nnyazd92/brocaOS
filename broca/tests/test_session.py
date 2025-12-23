@@ -117,11 +117,11 @@ class TestConversationSessionSend:
         
         session.send("Message 1")
         call_args_1 = mock_llm_client.chat.call_args[0][0]
-        assert len(call_args_1) == 3  # system, user, assistant
+        assert len(call_args_1) == 2  # system, user (assistant is added after LLM call)
         
         session.send("Message 2")
         call_args_2 = mock_llm_client.chat.call_args[0][0]
-        assert len(call_args_2) == 5  # system, user, assistant, user, assistant
+        assert len(call_args_2) == 4  # system, user1, assistant1, user2 (assistant2 is added after LLM call)
         assert call_args_2[0]["role"] == "system"  # System prompt preserved
     
     def test_send_empty_response_handling(self, mock_llm_client: Mock):
@@ -653,6 +653,10 @@ class TestConversationSessionStreaming:
         """
         # Disable streaming in config
         mock_config.llm.streaming_enabled = False
+        # Set up other config attributes that might be accessed
+        mock_config.summarization.last_turns_count = 10
+        mock_config.llm.max_context_tokens = 100000
+        mock_config.summarization.max_tool_result_size = 1000
         
         mock_llm_client.chat.return_value = build_llm_response(content="Response")
         mock_llm_client.extract_tool_calls = lambda x: []

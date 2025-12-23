@@ -8,6 +8,7 @@ import sys
 from datetime import datetime, timezone
 from ..llm import create_llm_client, LLMClient
 from .response_guard import ensure_non_empty
+from ..summarization.token_estimator import truncate_tool_result, estimate_messages_tokens
 
 # Try to import termios for terminal control (Unix only)
 try:
@@ -300,15 +301,18 @@ class ConversationSession:
                     try:
                         # Stream the response - works even with tools available
                         # If tools are used, the stream will yield empty/minimal content, and we'll detect tool_calls after
+                        messages_for_llm = self._get_messages_for_llm()
+                        messages_for_llm = self._validate_message_size(messages_for_llm)
+                        
                         if tools:
                             stream_gen = self.llm.chat_stream(
-                                self._get_messages_for_llm(), 
+                                messages_for_llm, 
                                 tools=tools,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None
                             )
                         else:
                             stream_gen = self.llm.chat_stream(
-                                self._get_messages_for_llm(),
+                                messages_for_llm,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None
                             )
                         
@@ -325,6 +329,11 @@ class ConversationSession:
                         
                         # Always print newline after streaming, even if no chunks were received
                         print("", flush=True)  # New line after streaming
+                        # If streaming produced no visible content (no chunks or only whitespace),
+                        # normalize assistant_text to None so the response-guard will inject
+                        # a deterministic fallback reply instead of returning an empty string.
+                        if chunk_count == 0 or (isinstance(assistant_text, str) and assistant_text.strip() == ""):
+                            assistant_text = None
                         used_streaming = True
                         
                         # If no chunks were received, log a warning
@@ -349,8 +358,10 @@ class ConversationSession:
                         if tools and (not assistant_text or len(assistant_text.strip()) < 10):
                             logger.debug("Streamed response had minimal content with tools available, checking for tool_calls")
                             # Make a non-streaming call to check for tool_calls
+                            messages_for_llm = self._get_messages_for_llm()
+                            messages_for_llm = self._validate_message_size(messages_for_llm)
                             non_stream_response = self.llm.chat(
-                                self._get_messages_for_llm(), 
+                                messages_for_llm, 
                                 tools=tools,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None
                             )
@@ -364,15 +375,18 @@ class ConversationSession:
                         # Fall back to non-streaming on error
                         logger.warning(f"Streaming failed, falling back to non-streaming: {e}", exc_info=True)
                         assistant_text = None  # Reset so it gets extracted from response
+                        messages_for_llm = self._get_messages_for_llm()
+                        messages_for_llm = self._validate_message_size(messages_for_llm)
+                        
                         if tools:
                             response = self.llm.chat(
-                                self._get_messages_for_llm(), 
+                                messages_for_llm, 
                                 tools=tools,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None
                             )
                         else:
                             response = self.llm.chat(
-                                self._get_messages_for_llm(),
+                                messages_for_llm,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None
                             )
                     finally:
@@ -380,15 +394,18 @@ class ConversationSession:
                         pass
                 else:
                     # Non-streaming mode (when streaming disabled)
+                    messages_for_llm = self._get_messages_for_llm()
+                    messages_for_llm = self._validate_message_size(messages_for_llm)
+                    
                     if tools:
                         response = self.llm.chat(
-                            self._get_messages_for_llm(), 
+                            messages_for_llm, 
                             tools=tools,
                             reasoning_content=self._current_reasoning_content if is_reasoner else None
                         )
                     else:
                         response = self.llm.chat(
-                            self._get_messages_for_llm(),
+                            messages_for_llm,
                             reasoning_content=self._current_reasoning_content if is_reasoner else None
                         )
             except TimeoutError as e:
@@ -785,13 +802,18 @@ class ConversationSession:
                 try:
                     assistant_msg = next((m for m in reversed(self.messages) if m.get("role") == "assistant"), None)
                     trace_id = getattr(self, "_current_response_id", None) or None
+                    # Normalize whitespace-only content to None to ensure the
+                    # response_guard will inject a fallback. This covers cases
+                    # where some code paths set empty-string replies explicitly.
                     if assistant_msg is None:
                         final_reply = ensure_non_empty(None, trace_id=trace_id)
                         self.messages.append({"role": "assistant", "content": final_reply})
                     else:
                         content = assistant_msg.get("content", "")
+                        if isinstance(content, str) and content.strip() == "":
+                            content = None
                         final_reply = ensure_non_empty(content, trace_id=trace_id)
-                        if final_reply != content:
+                        if final_reply != (assistant_msg.get("content", None)):
                             assistant_msg["content"] = final_reply
                             logger.info("Injected fallback assistant reply due to empty content (TraceID=%s)", trace_id)
                 except Exception as _e:
@@ -856,6 +878,8 @@ class ConversationSession:
                 },
                 {"role": "user", "content": prompt + "\n\n" + "\n".join(convo_preview)},
             ]
+            # Validate message size before sending (use a higher limit for summarization)
+            messages = self._validate_message_size(messages, max_tokens=50000)
             resp = self.llm.chat(messages)
             return self.llm.extract_assistant_content(resp) or "Summary generated."
         except Exception:
@@ -932,26 +956,40 @@ class ConversationSession:
         
         When summarization is disabled or no summary exists, returns full message history.
         
+        This function now includes token-aware filtering:
+        - Estimates token count for filtered messages
+        - Truncates tool results if messages exceed token limit
+        - Dynamically reduces turn count if still over limit after truncation
+        
         Returns:
-            Filtered message list for LLM calls
+            Filtered message list for LLM calls (with tool results truncated if needed)
         """
-        # If summarization not enabled, return full messages
+        from ..config import config
+        
+        # If summarization not enabled, still apply token-aware filtering
         if not self._summarization_manager:
-            return self.messages
+            # Apply token-aware filtering even without summarization
+            return self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
         
         # Check if summary exists for this session
         try:
             summary = self._summarization_manager.summary_storage.load_session_summary(self.session_id)
             if not summary:
-                # No summary exists yet, return full messages
-                return self.messages
+                # No summary exists yet, apply token-aware filtering to full messages
+                return self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
         except Exception as e:
             logger.debug(f"Error checking for summary, using full messages: {e}")
-            return self.messages
+            return self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
         
-        # Summary exists - filter to system message + last K turns
-        from ..config import config
+        # Summary exists - filter to system message + last K turns with token awareness
+        # Handle cases where config might be a MagicMock (e.g., in tests)
         last_turns_count = config.summarization.last_turns_count
+        if not isinstance(last_turns_count, int):
+            last_turns_count = 10  # Default value
+        
+        max_context_tokens = config.llm.max_context_tokens
+        if not isinstance(max_context_tokens, int):
+            max_context_tokens = 100000  # Default value
         
         # Get system message (if exists)
         system_message = None
@@ -962,26 +1000,184 @@ class ConversationSession:
         # Filter out system messages to get conversation turns
         non_system_messages = [m for m in self.messages if m.get("role") != "system"]
         
-        # Each turn = user + assistant (and possibly tool calls/results)
-        # Get last K turns worth of messages
-        # Estimate: each turn is typically 2-4 messages (user, assistant, possibly tool_call, tool_result)
-        # To be safe, take last K*2 messages as a conservative estimate for K turns
-        turns_to_keep = last_turns_count * 2
-        start_idx = max(0, len(non_system_messages) - turns_to_keep)
-        last_turns = non_system_messages[start_idx:]
+        # Start with configured turn count and dynamically reduce if needed
+        current_turns = last_turns_count
+        min_turns = 1  # Always keep at least last 1 turn
         
-        # Reconstruct message list: system message (if exists) + last turns
+        while current_turns >= min_turns:
+            # Each turn = user + assistant (and possibly tool calls/results)
+            # Estimate: each turn is typically 2-4 messages
+            # To be safe, take last current_turns*4 messages as a conservative estimate
+            turns_to_keep = current_turns * 4
+            start_idx = max(0, len(non_system_messages) - turns_to_keep)
+            last_turns = non_system_messages[start_idx:]
+            
+            # Reconstruct message list: system message (if exists) + last turns
+            filtered_messages = []
+            if system_message:
+                filtered_messages.append(system_message)
+            filtered_messages.extend(last_turns)
+            
+            # Estimate tokens
+            estimated_tokens = estimate_messages_tokens(filtered_messages)
+            
+            # If under limit, truncate tool results and return
+            if estimated_tokens <= max_context_tokens:
+                # Truncate tool results in filtered messages as a safety measure
+                filtered_messages = self._truncate_tool_results_in_messages(
+                    filtered_messages, config.summarization.max_tool_result_size
+                )
+                logger.debug(
+                    f"Filtered messages for LLM: {len(filtered_messages)} messages, "
+                    f"~{estimated_tokens} tokens (keeping last {current_turns} turns)"
+                )
+                return filtered_messages
+            
+            # Over limit - try reducing turn count
+            if current_turns > min_turns:
+                current_turns -= 1
+                logger.debug(
+                    f"Messages exceed token limit ({estimated_tokens} > {max_context_tokens}), "
+                    f"reducing to {current_turns} turns"
+                )
+            else:
+                # At minimum, truncate tool results and return anyway
+                filtered_messages = self._truncate_tool_results_in_messages(
+                    filtered_messages, config.summarization.max_tool_result_size
+                )
+                logger.warning(
+                    f"Messages still exceed token limit after truncation "
+                    f"({estimated_tokens} > {max_context_tokens}), returning minimum turns"
+                )
+                return filtered_messages
+        
+        # Fallback: return at least system message + last message
         filtered_messages = []
         if system_message:
             filtered_messages.append(system_message)
-        filtered_messages.extend(last_turns)
+        if non_system_messages:
+            filtered_messages.append(non_system_messages[-1])
+        return self._truncate_tool_results_in_messages(
+            filtered_messages, config.summarization.max_tool_result_size
+        )
+    
+    def _apply_token_aware_filtering(
+        self, messages: List[Dict[str, Any]], max_tokens: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Apply token-aware filtering to messages, truncating tool results if needed.
         
-        logger.debug(
-            f"Filtered messages for LLM: {len(filtered_messages)} messages "
-            f"(full history: {len(self.messages)} messages, keeping last {last_turns_count} turns)"
+        Args:
+            messages: List of messages to filter
+            max_tokens: Maximum token limit
+            
+        Returns:
+            Filtered messages with tool results truncated if needed
+        """
+        from ..config import config
+        
+        # Estimate tokens
+        estimated_tokens = estimate_messages_tokens(messages)
+        
+        # If under limit, just truncate tool results as safety measure
+        if estimated_tokens <= max_tokens:
+            return self._truncate_tool_results_in_messages(
+                messages, config.summarization.max_tool_result_size
+            )
+        
+        # Over limit - truncate tool results
+        truncated_messages = self._truncate_tool_results_in_messages(
+            messages, config.summarization.max_tool_result_size
         )
         
-        return filtered_messages
+        # Re-estimate after truncation
+        estimated_tokens_after = estimate_messages_tokens(truncated_messages)
+        
+        if estimated_tokens_after > max_tokens:
+            logger.warning(
+                f"Messages still exceed token limit after truncation "
+                f"({estimated_tokens_after} > {max_tokens})"
+            )
+        
+        return truncated_messages
+    
+    def _truncate_tool_results_in_messages(
+        self, messages: List[Dict[str, Any]], max_tool_result_size: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Truncate tool result content in messages if they exceed size limit.
+        
+        Args:
+            messages: List of messages
+            max_tool_result_size: Maximum size for tool result content
+            
+        Returns:
+            List of messages with tool results truncated
+        """
+        truncated = []
+        for msg in messages:
+            if msg.get("role") == "tool":
+                truncated_msg = truncate_tool_result(msg, max_tool_result_size)
+                truncated.append(truncated_msg)
+            else:
+                truncated.append(msg)
+        return truncated
+    
+    def _validate_message_size(
+        self, messages: List[Dict[str, Any]], max_tokens: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Validate and truncate messages to ensure they're under token limit.
+        
+        Pre-flight check before sending to LLM API. Estimates tokens and truncates
+        tool results if needed. Logs warnings when truncation occurs.
+        
+        Args:
+            messages: List of messages to validate
+            max_tokens: Maximum token limit (defaults to config.llm.max_context_tokens)
+            
+        Returns:
+            Validated messages with tool results truncated if needed
+        """
+        from ..config import config
+        
+        if max_tokens is None:
+            max_tokens = config.llm.max_context_tokens
+        
+        # Estimate tokens
+        estimated_tokens = estimate_messages_tokens(messages)
+        
+        # If under limit, just truncate tool results as safety measure
+        if estimated_tokens <= max_tokens:
+            truncated = self._truncate_tool_results_in_messages(
+                messages, config.summarization.max_tool_result_size
+            )
+            return truncated
+        
+        # Over limit - truncate tool results
+        logger.warning(
+            f"Messages exceed token limit ({estimated_tokens} > {max_tokens}), "
+            f"truncating tool results"
+        )
+        
+        truncated = self._truncate_tool_results_in_messages(
+            messages, config.summarization.max_tool_result_size
+        )
+        
+        # Re-estimate after truncation
+        estimated_after = estimate_messages_tokens(truncated)
+        
+        if estimated_after > max_tokens:
+            logger.error(
+                f"Messages still exceed token limit after truncation "
+                f"({estimated_after} > {max_tokens}). Consider reducing conversation history."
+            )
+        else:
+            logger.info(
+                f"Messages truncated successfully: {estimated_tokens} -> {estimated_after} tokens"
+            )
+        
+        return truncated
 
     def _update_system_prompt(self) -> None:
         """
@@ -1231,6 +1427,12 @@ class ConversationSession:
                         logger.warning(f"Failed to log tool call event: {e}", exc_info=True)
                 
                 tool_result = self.tool_registry.execute_tool_call(tool_call)
+                
+                # Truncate tool result if it exceeds size limit
+                from ..config import config
+                max_tool_result_size = config.summarization.max_tool_result_size
+                tool_result = truncate_tool_result(tool_result, max_tool_result_size)
+                
                 self.messages.append(tool_result)
                 
                 # Log tool result event

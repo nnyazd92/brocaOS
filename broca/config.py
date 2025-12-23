@@ -14,6 +14,7 @@ class LLMConfig(BaseModel):
     timeout: float = float(os.getenv("DEEPSEEK_TIMEOUT", "300.0"))  # Default 5 minutes
     streaming_enabled: bool = os.getenv("BROCA_STREAMING_ENABLED", "true").lower() == "true"
     streaming_delay: float = float(os.getenv("BROCA_STREAMING_DELAY", "0.02"))  # Delay between chunks in seconds (default 20ms)
+    max_context_tokens: int = int(os.getenv("BROCA_MAX_CONTEXT_TOKENS", "272000"))  # Maximum context window size (matches API limit)
     
     def __init__(self, **kwargs):
         # Get provider first
@@ -153,12 +154,13 @@ class SummarizationConfig(BaseModel):
     enabled: bool = os.getenv("BROCA_SUMMARIZATION_ENABLED", "true").lower() == "true"
     event_log_path: str = os.getenv("BROCA_EVENT_LOG_PATH", "conversations/events")
     summary_path: str = os.getenv("BROCA_SUMMARY_PATH", "docs/summaries")
-    context_window_size: int = int(os.getenv("BROCA_SUMMARIZATION_CONTEXT_WINDOW_SIZE", "128000"))
+    context_window_size: int = int(os.getenv("BROCA_SUMMARIZATION_CONTEXT_WINDOW_SIZE", "272000"))  # Updated to match API limit
     trigger_turns: int = int(os.getenv("BROCA_SUMMARIZATION_TRIGGER_TURNS", "15"))
     trigger_token_threshold: float = float(os.getenv("BROCA_SUMMARIZATION_TOKEN_THRESHOLD", "0.75"))
     max_summary_tokens: int = int(os.getenv("BROCA_SUMMARIZATION_MAX_TOKENS", "1200"))
     max_block_tokens: int = int(os.getenv("BROCA_SUMMARIZATION_MAX_BLOCK_TOKENS", "200"))
     last_turns_count: int = int(os.getenv("BROCA_SUMMARIZATION_LAST_TURNS", "3"))
+    max_tool_result_size: int = int(os.getenv("BROCA_MAX_TOOL_RESULT_SIZE", "50000"))  # Maximum tool result size in characters (~12.5K tokens)
 
 
 class BrocaConfig(BaseModel):
