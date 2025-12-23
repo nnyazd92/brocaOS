@@ -52,6 +52,23 @@ Boot steps (read-only until Plan+Approval present)
    - Load artifact pointers referenced in identity (memory_namespaces_index.md, artifacts root).
    - Read-only during preflight.
 
+## 3b) hydrate_identity_and_self_model()
+   - Identity:
+     - Load identity_pointer from session pointer if present; else use docs/identity/IDENTITY.v0.1.json.
+     - Verify schema_version is supported.
+     - Verify session_summary path (if present in identity) exists and is consistent with current_session_summary in broca.session.pointer.
+     - Record identity metadata (commit hash, provenance) into REHYDRATION_SUMMARY.
+   - Self-model:
+     - Locate self-model definition:
+       - Preferred: path in identity (e.g., identity.self_model_pointer).
+       - Fallback: docs/self_model/SELF_MODEL.v0.1.json if it exists.
+     - Load self-model JSON and validate schema_version and core structure (capabilities, constraints).
+     - Do not mutate self-model during boot; any changes must go through ORP.
+     - Record self-model path, schema version, and SHA-256 hash into REHYDRATION_SUMMARY.
+
+   - Load artifact pointers referenced in identity (memory_namespaces_index.md, artifacts root).
+   - Read-only during preflight.
+
 ## 4) hydrate_memory_graph()
    - Instantiate memory storage and vector index.
    - Sync indexes (if persistence authenticated, components may write state to disk).
@@ -127,3 +144,51 @@ Rationale:
 - Records provenance for auditability and safe overrides.
 
 End - PROTOCOL.BOOT_UP.v0.3.md
+
+## Canonical Artifact Locations (v0.3)
+
+Identity & self-model
+- Identity (canonical): `docs/identity/IDENTITY.v0.1.json`
+- Identity signature: `docs/identity/IDENTITY.v0.1.signature.json`
+- Self-model schema (canonical): `docs/self_model/SELF_MODEL_SCHEMA.v0.1.json`
+- Self-model schema (self-description): `docs/self_model/SELF_MODEL_SCHEMA.self.json`
+- Self-model current view (preferred): `docs/self_model/SELF_MODEL_CURRENT.json`
+  - Versioned underlying file (example): `docs/self_model/self_model.v2.json`
+
+Session continuity
+- Session pointer (authoritative): `docs/artifacts/broca.session.pointer`
+- Session pointer provenance: `docs/artifacts/broca.session.pointer.provenance.json`
+- Session summaries (historical): `docs/summaries/session-<ISO>.json`
+
+Rehydration surfaces
+- Rehydration working set (boot/shutdown I/O):
+  - `docs/rehydration/REHYDRATION_SUMMARY.v0.3.json`
+  - `docs/rehydration/REHYDRATION_SUMMARY.v0.3.md`
+- Protocol-linked latest rehydration summary:
+  - `docs/protocols/REHYDRATION_SUMMARY.v0.3.json`
+  - `docs/protocols/REHYDRATION_SUMMARY.v0.3.md`
+- Human-facing convenience mirror (do not hardcode in code):
+  - `docs/REHYDRATION_SUMMARY.v0.3.json`
+  - `docs/REHYDRATION_SUMMARY.v0.3.md`
+
+Memory and persistence
+- Memory namespaces index: `docs/memory/memory_namespaces_index.md`
+- Memory graph state: `docs/memory/MEMORY_GRAPH_STATE.v0.1.json`
+- Artifact map (canonical): `docs/ARTIFACT_MAP.json`
+- Persistence state (latest): `docs/artifacts/PERSISTENCE_STATE.v0.3.json`
+- Memory sync state/report:
+  - `docs/protocols/MEMORY_SYNC_STATE.json`
+  - `docs/protocols/MEMORY_SYNC_REPORT.md`
+
+Boot/shutdown markers & logs
+- Boot marker: `docs/BOOT_MARKER.txt`
+- Shutdown marker: `docs/SHUTDOWN_MARKER.txt`
+- Shutdown state (canonical): `docs/SHUTDOWN_STATE.v0.1.json`
+- Boot log (structured): `docs/artifacts/BOOT_LOG.v0.3.txt`
+- Shutdown log (structured): `docs/artifacts/SHUTDOWN_LOG.v0.1.txt`
+- Detailed shutdown reports: `docs/artifacts/logs/shutdown/SHUTDOWN_*.{md,json}`
+
+Implementation note
+- Code implementing BOOT_UP v0.3 MUST reference the boot/shutdown I/O bundle at
+  `docs/rehydration/REHYDRATION_SUMMARY.v0.3.{json,md}` and the session pointer at
+  `docs/artifacts/broca.session.pointer` rather than ad-hoc or legacy paths.
