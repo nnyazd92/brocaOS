@@ -1,6 +1,0 @@
-{
-  "signature_b64url": "k2g8xizxfYeYd1kdHZGNWV2Zhov_z1blTlbJBkXZuks",
-  "algorithm": "HMAC-SHA256",
-  "signed_at": "2025-12-20T04:55:47.241817+00:00",
-  "signer": "env.BROCA_TOKEN_SECRET"
-}
