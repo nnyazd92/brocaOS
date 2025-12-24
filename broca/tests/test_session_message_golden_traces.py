@@ -349,3 +349,6 @@ class TestGoldenTraceReplay:
             is_valid_filtered, error_filtered = session._validate_message_ordering(filtered)
             assert is_valid_filtered is True, f"Filtered trace {trace_file.name} invalid: {error_filtered}"
 
+
+
+

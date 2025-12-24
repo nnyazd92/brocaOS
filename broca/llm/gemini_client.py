@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import List, Dict, Any, Optional, Iterator
 import logging
+import time
 
 import httpx
 
@@ -93,6 +94,18 @@ class GeminiClient:
         return {
             "thinking_level": self.thinking_level,
         }
+    
+    def _should_retry_error(self, error: httpx.HTTPStatusError) -> bool:
+        """Determine if an HTTP error should be retried.
+        
+        Retries on rate limits (429) and server errors (500, 502, 503, 504).
+        Does not retry on client errors (4xx except 429) or authentication errors.
+        """
+        if error.response is None:
+            return False
+        status_code = error.response.status_code
+        # Retry on rate limits and server errors
+        return status_code in (429, 500, 502, 503, 504)
 
     def chat(
         self,
@@ -241,51 +254,86 @@ class GeminiClient:
             "Content-Type": "application/json",
         }
 
-        try:
-            resp = self._client.post("/chat/completions", json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            
-            # Extract and store thought_signature
-            extracted_sig = self.extract_thought_signature(data)
-            if extracted_sig:
-                self._thought_signature = extracted_sig
+        # Retry logic for transient errors
+        max_retries = 3
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                resp = self._client.post("/chat/completions", json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                
+                # Extract and store thought_signature
+                extracted_sig = self.extract_thought_signature(data)
+                if extracted_sig:
+                    self._thought_signature = extracted_sig
 
-            logger.debug(
-                "Received Gemini REST chat response",
-                extra={
-                    "event": "llm_response",
-                    "provider": "gemini",
-                    "mode": "rest",
-                    "model": self.model,
-                    "usage": data.get("usage", {}),
-                    "choices_count": len(data.get("choices", [])),
-                    "has_thought_signature": bool(extracted_sig),
-                },
-            )
+                logger.debug(
+                    "Received Gemini REST chat response",
+                    extra={
+                        "event": "llm_response",
+                        "provider": "gemini",
+                        "mode": "rest",
+                        "model": self.model,
+                        "usage": data.get("usage", {}),
+                        "choices_count": len(data.get("choices", [])),
+                        "has_thought_signature": bool(extracted_sig),
+                    },
+                )
 
-            return data
+                return data
 
-        except httpx.ReadTimeout as e:
-            logger.error(
-                "Gemini API request timed out",
-                exc_info=True,
-            )
-            raise TimeoutError(
-                "Gemini API request timed out. Try reducing conversation length or "
-                "increasing the configured timeout."
-            ) from e
-        except httpx.HTTPStatusError as e:
+            except httpx.HTTPStatusError as e:
+                last_exception = e
+                if attempt < max_retries and self._should_retry_error(e):
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    status_code = e.response.status_code if e.response else "unknown"
+                    logger.warning(
+                        f"Gemini API transient error {status_code}, retrying in {wait_time}s "
+                        f"(attempt {attempt + 1}/{max_retries + 1})",
+                        extra={
+                            "event": "api_error_retry",
+                            "provider": "gemini",
+                            "status_code": status_code,
+                            "attempt": attempt + 1,
+                            "max_retries": max_retries + 1,
+                        }
+                    )
+                    time.sleep(wait_time)
+                    continue
+                # Not retryable or out of retries - break and handle below
+                break
+            except httpx.ReadTimeout as e:
+                # Timeout errors are not retried
+                logger.error(
+                    "Gemini API request timed out",
+                    exc_info=True,
+                )
+                raise TimeoutError(
+                    "Gemini API request timed out. Try reducing conversation length or "
+                    "increasing the configured timeout."
+                ) from e
+            except httpx.RequestError as e:
+                # Network errors are not retried
+                logger.error(
+                    f"Network error during Gemini API request: {e}",
+                    exc_info=True,
+                )
+                raise ConnectionError(f"Network error: {e}") from e
+        
+        # Handle HTTPStatusError that wasn't retried or failed all retries
+        if isinstance(last_exception, httpx.HTTPStatusError):
             error_detail = ""
             try:
-                if e.response is not None:
-                    body = e.response.text
+                if last_exception.response is not None:
+                    body = last_exception.response.text
                     error_detail = f" Response body: {body[:500]}"
             except Exception:
                 pass
 
             logger.error(
-                f"Gemini API returned error status: {e.response.status_code if e.response else 'unknown'}{error_detail}",
+                f"Gemini API returned error status: {last_exception.response.status_code if last_exception.response else 'unknown'}{error_detail}",
                 extra={
                     "event": "api_error",
                     "provider": "gemini",
@@ -293,13 +341,7 @@ class GeminiClient:
                 },
                 exc_info=True,
             )
-            raise
-        except httpx.RequestError as e:
-            logger.error(
-                f"Network error during Gemini API request: {e}",
-                exc_info=True,
-            )
-            raise ConnectionError(f"Network error: {e}") from e
+            raise last_exception
 
     def chat_stream(
         self,
@@ -368,62 +410,100 @@ class GeminiClient:
 
         last_chunk_thought_sig: Optional[str] = None
 
-        try:
-            with self._client.stream("POST", "/chat/completions", json=payload, headers=headers) as response:
-                response.raise_for_status()
+        # Retry logic for transient errors (retries the initial request)
+        max_retries = 3
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                with self._client.stream("POST", "/chat/completions", json=payload, headers=headers) as response:
+                    response.raise_for_status()
 
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    if line.startswith("data: "):
-                        data_str = line[6:]
-                        if data_str.strip() == "[DONE]":
-                            # Check final chunk for thought_signature
-                            if last_chunk_thought_sig:
-                                self._thought_signature = last_chunk_thought_sig
-                            break
-                        try:
-                            chunk = httpx.Response(200, text=data_str).json()
-                        except Exception:
+                    for line in response.iter_lines():
+                        if not line:
                             continue
-                        choices = chunk.get("choices", [])
-                        if not choices:
-                            continue
-                        delta = choices[0].get("delta", {})
-                        content = delta.get("content")
-                        
-                        # Check for thought_signature in chunk (may be in final empty chunk)
-                        chunk_sig = chunk.get("thought_signature") or choices[0].get("thought_signature")
-                        if chunk_sig:
-                            last_chunk_thought_sig = chunk_sig
-                        
-                        if content:
-                            yield content
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            if data_str.strip() == "[DONE]":
+                                # Check final chunk for thought_signature
+                                if last_chunk_thought_sig:
+                                    self._thought_signature = last_chunk_thought_sig
+                                break
+                            try:
+                                chunk = httpx.Response(200, text=data_str).json()
+                            except Exception:
+                                continue
+                            choices = chunk.get("choices", [])
+                            if not choices:
+                                continue
+                            delta = choices[0].get("delta", {})
+                            content = delta.get("content")
                             
-                # Store signature from final chunk if found
-                if last_chunk_thought_sig:
-                    self._thought_signature = last_chunk_thought_sig
+                            # Check for thought_signature in chunk (may be in final empty chunk)
+                            chunk_sig = chunk.get("thought_signature") or choices[0].get("thought_signature")
+                            if chunk_sig:
+                                last_chunk_thought_sig = chunk_sig
+                            
+                            if content:
+                                yield content
+                                
+                    # Store signature from final chunk if found
+                    if last_chunk_thought_sig:
+                        self._thought_signature = last_chunk_thought_sig
                     
-        except httpx.ReadTimeout as e:
-            logger.error(
-                "Gemini API streaming request timed out",
-                exc_info=True,
-            )
-            raise TimeoutError(
-                "Gemini streaming request timed out. Try reducing conversation "
-                "length or increasing the configured timeout."
-            ) from e
-        except httpx.HTTPStatusError as e:
+                    # Success - return (generator completes)
+                    return
+                    
+            except httpx.HTTPStatusError as e:
+                last_exception = e
+                if attempt < max_retries and self._should_retry_error(e):
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    status_code = e.response.status_code if e.response else "unknown"
+                    logger.warning(
+                        f"Gemini API transient error {status_code} during streaming, retrying in {wait_time}s "
+                        f"(attempt {attempt + 1}/{max_retries + 1})",
+                        extra={
+                            "event": "api_error_retry_stream",
+                            "provider": "gemini",
+                            "status_code": status_code,
+                            "attempt": attempt + 1,
+                            "max_retries": max_retries + 1,
+                        }
+                    )
+                    time.sleep(wait_time)
+                    continue
+                # Not retryable or out of retries - break and handle below
+                break
+            except httpx.ReadTimeout as e:
+                # Timeout errors are not retried
+                logger.error(
+                    "Gemini API streaming request timed out",
+                    exc_info=True,
+                )
+                raise TimeoutError(
+                    "Gemini streaming request timed out. Try reducing conversation "
+                    "length or increasing the configured timeout."
+                ) from e
+            except httpx.RequestError as e:
+                # Network errors are not retried
+                logger.error(
+                    f"Network error during Gemini streaming API request: {e}",
+                    exc_info=True,
+                )
+                raise ConnectionError(f"Network error: {e}") from e
+        
+        # Handle HTTPStatusError that wasn't retried or failed all retries
+        if isinstance(last_exception, httpx.HTTPStatusError):
             error_detail = ""
             try:
-                if e.response is not None:
-                    body = e.response.text
+                if last_exception.response is not None:
+                    body = last_exception.response.text
                     error_detail = f" Response body: {body[:500]}"
             except Exception:
                 pass
 
             logger.error(
-                f"Gemini API returned error status during streaming: {e.response.status_code if e.response else 'unknown'}{error_detail}",
+                f"Gemini API returned error status during streaming: {last_exception.response.status_code if last_exception.response else 'unknown'}{error_detail}",
                 extra={
                     "event": "api_error_stream",
                     "provider": "gemini",
@@ -431,13 +511,7 @@ class GeminiClient:
                 },
                 exc_info=True,
             )
-            raise
-        except httpx.RequestError as e:
-            logger.error(
-                f"Network error during Gemini streaming API request: {e}",
-                exc_info=True,
-            )
-            raise ConnectionError(f"Network error: {e}") from e
+            raise last_exception
 
     @staticmethod
     def extract_assistant_content(response: Dict[str, Any]) -> str:

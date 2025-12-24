@@ -319,23 +319,24 @@ class SummarizationManager:
             conflicts = result.get("conflicts", [])
             
             # Create or update header
+            # Ensure we always have a valid event ID with proper fallback chain
+            new_last_summarized_event_id = bookkeeping.get("new_last_summarized_event_id")
+            if not new_last_summarized_event_id:
+                # Fallback to latest_event_id from events that were summarized
+                new_last_summarized_event_id = latest_event_id or ""
+            
             if previous_summary:
                 header = previous_summary.header
                 header.last_updated_at = datetime.now(timezone.utc).isoformat()
-                header.last_summarized_event_id = bookkeeping.get(
-                    "new_last_summarized_event_id",
-                    latest_event_id or ""
-                )
+                # Use new ID, or fall back to previous value if somehow empty
+                header.last_summarized_event_id = new_last_summarized_event_id or header.last_summarized_event_id or ""
                 header.revision += 1
             else:
                 header = SummaryHeader(
                     session_id=session_id,
                     created_at=datetime.now(timezone.utc).isoformat(),
                     last_updated_at=datetime.now(timezone.utc).isoformat(),
-                    last_summarized_event_id=bookkeeping.get(
-                        "new_last_summarized_event_id",
-                        latest_event_id or ""
-                    ),
+                    last_summarized_event_id=new_last_summarized_event_id or "",
                     revision=0,
                     scope=f"Session {session_id}"
                 )

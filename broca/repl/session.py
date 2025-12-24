@@ -314,8 +314,7 @@ class ConversationSession:
         is_reasoner = hasattr(self.llm, 'is_reasoner_model') and self.llm.is_reasoner_model()
         
         # Check if we're using Gemini client (for thought_signature support)
-        from ..llm.gemini_client import GeminiClient
-        is_gemini = isinstance(self.llm, GeminiClient)
+        is_gemini = self._is_gemini_client()
         
         # Handle tool calls iteratively (may require multiple LLM calls)
         iterations = 0
@@ -388,6 +387,32 @@ class ConversationSession:
                             # Apply Gemini-specific fix if needed
                             if is_gemini:
                                 messages_for_llm = self._fix_gemini_tool_call_ordering(messages_for_llm)
+                            # Re-validate after fixing
+                            is_valid_after, error_after = self._validate_message_ordering(messages_for_llm, check_gemini_ordering=is_gemini)
+                            if not is_valid_after:
+                                logger.error(
+                                    f"Message ordering still invalid after fix: {error_after}. "
+                                    "Proceeding anyway, but API call may fail."
+                                )
+                        
+                        # Log message structure before API call (for debugging)
+                        if is_gemini:
+                            msg_structure = [
+                                f"{i}:{msg.get('role', 'unknown')}" + 
+                                (f"[tool_calls={len(msg.get('tool_calls', []))}]" if msg.get('tool_calls') else "") +
+                                (f"[tool_call_id={msg.get('tool_call_id', '')[:15]}]" if msg.get('tool_call_id') else "")
+                                for i, msg in enumerate(messages_for_llm[:15])
+                            ]
+                            logger.info(
+                                "Sending messages to Gemini API (streaming)",
+                                extra={
+                                    "event": "gemini_api_call_pre",
+                                    "iteration": iterations,
+                                    "messages_count": len(messages_for_llm),
+                                    "message_structure": " -> ".join(msg_structure) + ("..." if len(messages_for_llm) > 15 else ""),
+                                    "validation_passed": is_valid,
+                                }
+                            )
                         
                         logger.debug(f"Starting streaming request (iteration {iterations}, has_tools={bool(tools)})")
                         
@@ -481,6 +506,32 @@ class ConversationSession:
                                 # Apply Gemini-specific fix if needed
                                 if is_gemini:
                                     messages_for_llm = self._fix_gemini_tool_call_ordering(messages_for_llm)
+                                # Re-validate after fixing
+                                is_valid_after, error_after = self._validate_message_ordering(messages_for_llm, check_gemini_ordering=is_gemini)
+                                if not is_valid_after:
+                                    logger.error(
+                                        f"Message ordering still invalid after fix: {error_after}. "
+                                        "Proceeding anyway, but API call may fail."
+                                    )
+                            
+                            # Log message structure before API call (for debugging)
+                            if is_gemini:
+                                msg_structure = [
+                                    f"{i}:{msg.get('role', 'unknown')}" + 
+                                    (f"[tool_calls={len(msg.get('tool_calls', []))}]" if msg.get('tool_calls') else "") +
+                                    (f"[tool_call_id={msg.get('tool_call_id', '')[:15]}]" if msg.get('tool_call_id') else "")
+                                    for i, msg in enumerate(messages_for_llm[:15])
+                                ]
+                                logger.info(
+                                    "Sending messages to Gemini API (tool_calls check)",
+                                    extra={
+                                        "event": "gemini_api_call_pre",
+                                        "iteration": iterations,
+                                        "messages_count": len(messages_for_llm),
+                                        "message_structure": " -> ".join(msg_structure) + ("..." if len(messages_for_llm) > 15 else ""),
+                                        "validation_passed": is_valid,
+                                    }
+                                )
                             
                             non_stream_response = self.llm.chat(
                                 messages_for_llm, 
@@ -521,6 +572,32 @@ class ConversationSession:
                             # Apply Gemini-specific fix if needed
                             if is_gemini:
                                 messages_for_llm = self._fix_gemini_tool_call_ordering(messages_for_llm)
+                            # Re-validate after fixing
+                            is_valid_after, error_after = self._validate_message_ordering(messages_for_llm, check_gemini_ordering=is_gemini)
+                            if not is_valid_after:
+                                logger.error(
+                                    f"Message ordering still invalid after fix: {error_after}. "
+                                    "Proceeding anyway, but API call may fail."
+                                )
+                        
+                        # Log message structure before API call (for debugging)
+                        if is_gemini:
+                            msg_structure = [
+                                f"{i}:{msg.get('role', 'unknown')}" + 
+                                (f"[tool_calls={len(msg.get('tool_calls', []))}]" if msg.get('tool_calls') else "") +
+                                (f"[tool_call_id={msg.get('tool_call_id', '')[:15]}]" if msg.get('tool_call_id') else "")
+                                for i, msg in enumerate(messages_for_llm[:15])
+                            ]
+                            logger.info(
+                                "Sending messages to Gemini API (fallback non-streaming)",
+                                extra={
+                                    "event": "gemini_api_call_pre",
+                                    "iteration": iterations,
+                                    "messages_count": len(messages_for_llm),
+                                    "message_structure": " -> ".join(msg_structure) + ("..." if len(messages_for_llm) > 15 else ""),
+                                    "validation_passed": is_valid,
+                                }
+                            )
                         
                         if tools:
                             response = self.llm.chat(
@@ -554,6 +631,32 @@ class ConversationSession:
                         # Apply Gemini-specific fix if needed
                         if is_gemini:
                             messages_for_llm = self._fix_gemini_tool_call_ordering(messages_for_llm)
+                        # Re-validate after fixing
+                        is_valid_after, error_after = self._validate_message_ordering(messages_for_llm, check_gemini_ordering=is_gemini)
+                        if not is_valid_after:
+                            logger.error(
+                                f"Message ordering still invalid after fix: {error_after}. "
+                                "Proceeding anyway, but API call may fail."
+                            )
+                    
+                    # Log message structure before API call (for debugging)
+                    if is_gemini:
+                        msg_structure = [
+                            f"{i}:{msg.get('role', 'unknown')}" + 
+                            (f"[tool_calls={len(msg.get('tool_calls', []))}]" if msg.get('tool_calls') else "") +
+                            (f"[tool_call_id={msg.get('tool_call_id', '')[:15]}]" if msg.get('tool_call_id') else "")
+                            for i, msg in enumerate(messages_for_llm[:15])
+                        ]
+                        logger.info(
+                            "Sending messages to Gemini API (non-streaming)",
+                            extra={
+                                "event": "gemini_api_call_pre",
+                                "iteration": iterations,
+                                "messages_count": len(messages_for_llm),
+                                "message_structure": " -> ".join(msg_structure) + ("..." if len(messages_for_llm) > 15 else ""),
+                                "validation_passed": is_valid,
+                            }
+                        )
                     
                     if tools:
                         response = self.llm.chat(
@@ -862,18 +965,14 @@ class ConversationSession:
                 self._turns_since_last_summary += 1
                 if self._summarization_manager:
                     try:
-                        self._summarization_manager.maybe_summarize(
+                        result = self._summarization_manager.maybe_summarize(
                             self.session_id,
                             self.messages,
                             self._turns_since_last_summary
                         )
-                        # Reset counter after summarization (even if it didn't trigger)
+                        # Reset counter after summarization only if it actually occurred
                         # This prevents rapid re-triggering
-                        if self._summarization_manager.should_summarize(
-                            self.session_id,
-                            self.messages,
-                            self._turns_since_last_summary
-                        ):
+                        if result is not None:
                             self._turns_since_last_summary = 0
                     except Exception as e:
                         logger.warning(f"Failed to trigger summarization: {e}", exc_info=True)
@@ -1070,6 +1169,31 @@ class ConversationSession:
         self._save_conversation()
         return assistant_text
 
+    def _is_gemini_client(self) -> bool:
+        """
+        Check if the LLM client is a GeminiClient, handling both direct and wrapped clients.
+        
+        When world_state_aggregator is available, the LLM is wrapped in CachedLLMClient.
+        This method checks both the direct client and the underlying client if wrapped.
+        
+        Returns:
+            True if the LLM (or its underlying client) is a GeminiClient, False otherwise
+        """
+        from ..llm.gemini_client import GeminiClient
+        from ..llm.cached_client import CachedLLMClient
+        
+        # Check if it's a direct GeminiClient
+        if isinstance(self.llm, GeminiClient):
+            return True
+        
+        # Check if it's a CachedLLMClient wrapping a GeminiClient
+        if isinstance(self.llm, CachedLLMClient):
+            underlying = getattr(self.llm, '_underlying', None)
+            if underlying is not None and isinstance(underlying, GeminiClient):
+                return True
+        
+        return False
+    
     def _summarize_history(self, max_tokens: int = 250) -> str:
         """Summarize recent conversation history (opt-in, read-only)."""
         try:
@@ -1180,8 +1304,7 @@ class ConversationSession:
         from ..config import config
         
         # Check if we're using Gemini client (for Gemini-specific ordering fixes)
-        from ..llm.gemini_client import GeminiClient
-        is_gemini = isinstance(self.llm, GeminiClient)
+        is_gemini = self._is_gemini_client()
         
         # If summarization not enabled, still apply token-aware filtering
         if not self._summarization_manager:
@@ -1315,22 +1438,37 @@ class ConversationSession:
         """
         from ..config import config
         
+        # Check if we're using Gemini client (for Gemini-specific ordering fixes)
+        is_gemini = self._is_gemini_client()
+        
         # Fix tool message ordering first (remove orphaned tool messages)
         messages = self._fix_tool_message_ordering(messages)
+        
+        # Apply Gemini-specific fix proactively if using Gemini
+        if is_gemini:
+            messages = self._fix_gemini_tool_call_ordering(messages)
         
         # Estimate tokens
         estimated_tokens = estimate_messages_tokens(messages)
         
         # If under limit, just truncate tool results as safety measure
         if estimated_tokens <= max_tokens:
-            return self._truncate_tool_results_in_messages(
+            result = self._truncate_tool_results_in_messages(
                 messages, config.summarization.max_tool_result_size
             )
+            # Re-apply Gemini fix after truncation (defensive)
+            if is_gemini:
+                result = self._fix_gemini_tool_call_ordering(result)
+            return result
         
         # Over limit - truncate tool results
         truncated_messages = self._truncate_tool_results_in_messages(
             messages, config.summarization.max_tool_result_size
         )
+        
+        # Re-apply Gemini fix after truncation (defensive)
+        if is_gemini:
+            truncated_messages = self._fix_gemini_tool_call_ordering(truncated_messages)
         
         # Re-estimate after truncation
         estimated_tokens_after = estimate_messages_tokens(truncated_messages)
@@ -1438,9 +1576,30 @@ class ConversationSession:
         if not messages:
             return messages
         
+        # Log message structure before fixing
+        msg_summary = [
+            f"{i}:{msg.get('role', 'unknown')}" + 
+            (f"[tool_calls={len(msg.get('tool_calls', []))}]" if msg.get('tool_calls') else "") +
+            (f"[tool_call_id={msg.get('tool_call_id', '')[:20]}]" if msg.get('tool_call_id') else "")
+            for i, msg in enumerate(messages)
+        ]
+        logger.info(
+            "Applying Gemini tool call ordering fix",
+            extra={
+                "event": "gemini_fix_applied",
+                "messages_before": len(messages),
+                "message_structure": " -> ".join(msg_summary[:10]) + ("..." if len(msg_summary) > 10 else ""),
+            }
+        )
+        
         fixed_messages = []
         # Track tool_call_ids from assistant messages with tool_calls that we keep
         valid_tool_call_ids = set()
+        removed_count = 0
+        
+        # Track the last non-system message we've added to fixed_messages
+        # This helps us detect if we're starting with an invalid assistant message
+        last_non_system_in_fixed = None
         
         for i, msg in enumerate(messages):
             role = msg.get("role")
@@ -1457,6 +1616,9 @@ class ConversationSession:
                     # Check if this assistant message with tool_calls has a valid predecessor
                     # (must be immediately after user or tool message)
                     found_valid_predecessor = False
+                    predecessor_role = None
+                    
+                    # First check in the original messages list
                     for j in range(i - 1, -1, -1):
                         prev_msg = messages[j]
                         prev_role = prev_msg.get("role")
@@ -1465,11 +1627,21 @@ class ConversationSession:
                         # Valid predecessor: user or tool message
                         if prev_role in ("user", "tool"):
                             found_valid_predecessor = True
+                            predecessor_role = prev_role
                             break
                         # If we hit an assistant message (with or without tool_calls), it's invalid
                         elif prev_role == "assistant":
                             found_valid_predecessor = False
+                            predecessor_role = prev_role
                             break
+                    
+                    # Also check if this would be the first non-system message in fixed_messages
+                    # (edge case: filtering might have cut off the user message)
+                    if not found_valid_predecessor and last_non_system_in_fixed is None:
+                        # This is the first non-system message and it's an assistant with tool_calls
+                        # This is invalid - must start with user message
+                        found_valid_predecessor = False
+                        predecessor_role = "none (first message)"
                     
                     if found_valid_predecessor:
                         # Valid - keep this assistant message and track its tool_call_ids
@@ -1481,22 +1653,36 @@ class ConversationSession:
                                     current_tool_call_ids.add(tool_call_id)
                         valid_tool_call_ids = current_tool_call_ids
                         fixed_messages.append(msg)
+                        last_non_system_in_fixed = "assistant"
                         logger.debug(
                             f"Keeping valid assistant message with tool_calls at index {i} "
-                            f"(has valid predecessor)"
+                            f"(predecessor: {predecessor_role})"
                         )
                     else:
                         # Invalid - skip this assistant message and clear tool_call_ids
                         # We'll also skip any tool messages that follow
+                        removed_count += 1
+                        tool_names = [
+                            tc.get("function", {}).get("name", "unknown")
+                            for tc in tool_calls if isinstance(tc, dict)
+                        ]
                         valid_tool_call_ids.clear()
-                        logger.debug(
+                        logger.warning(
                             f"Removing invalid assistant message with tool_calls at index {i} "
-                            f"(does not follow user or tool message)"
+                            f"(predecessor: {predecessor_role}). Tool names: {tool_names}",
+                            extra={
+                                "event": "gemini_invalid_message_removed",
+                                "message_index": i,
+                                "predecessor_role": predecessor_role,
+                                "tool_names": tool_names,
+                                "tool_calls_count": len(tool_calls),
+                            }
                         )
                 else:
                     # Assistant without tool_calls - always keep, reset tracking
                     valid_tool_call_ids.clear()
                     fixed_messages.append(msg)
+                    last_non_system_in_fixed = "assistant"
             
             # Handle tool messages
             elif role == "tool":
@@ -1504,11 +1690,18 @@ class ConversationSession:
                 if isinstance(tool_call_id, str) and tool_call_id in valid_tool_call_ids:
                     # Valid tool message - has matching tool_call_id from a kept assistant message
                     fixed_messages.append(msg)
+                    last_non_system_in_fixed = "tool"
                 else:
                     # Orphaned tool message - remove it
-                    logger.debug(
+                    removed_count += 1
+                    logger.warning(
                         f"Removing orphaned tool message with tool_call_id '{tool_call_id}' "
-                        f"(no valid preceding assistant message with matching tool_calls)"
+                        f"(no valid preceding assistant message with matching tool_calls)",
+                        extra={
+                            "event": "gemini_orphaned_tool_removed",
+                            "message_index": i,
+                            "tool_call_id": tool_call_id,
+                        }
                     )
             
             # User messages are always included
@@ -1516,9 +1709,30 @@ class ConversationSession:
                 # User messages reset the tool call context
                 valid_tool_call_ids.clear()
                 fixed_messages.append(msg)
+                last_non_system_in_fixed = "user"
             else:
                 # Unknown role - include it (might be custom roles)
                 fixed_messages.append(msg)
+                last_non_system_in_fixed = role
+        
+        # Log results
+        if removed_count > 0:
+            msg_summary_after = [
+                f"{i}:{msg.get('role', 'unknown')}" + 
+                (f"[tool_calls={len(msg.get('tool_calls', []))}]" if msg.get('tool_calls') else "") +
+                (f"[tool_call_id={msg.get('tool_call_id', '')[:20]}]" if msg.get('tool_call_id') else "")
+                for i, msg in enumerate(fixed_messages)
+            ]
+            logger.info(
+                f"Gemini fix completed: removed {removed_count} invalid message(s)",
+                extra={
+                    "event": "gemini_fix_completed",
+                    "messages_before": len(messages),
+                    "messages_after": len(fixed_messages),
+                    "removed_count": removed_count,
+                    "message_structure_after": " -> ".join(msg_summary_after[:10]) + ("..." if len(msg_summary_after) > 10 else ""),
+                }
+            )
         
         return fixed_messages
     
@@ -1648,6 +1862,8 @@ class ConversationSession:
                     if check_gemini_ordering:
                         # Find the immediately preceding non-system message
                         found_valid_predecessor = False
+                        predecessor_index = -1
+                        predecessor_role = None
                         for j in range(i - 1, -1, -1):
                             prev_msg = messages[j]
                             prev_role = prev_msg.get("role")
@@ -1656,16 +1872,47 @@ class ConversationSession:
                             # Valid predecessor: user or tool message
                             if prev_role in ("user", "tool"):
                                 found_valid_predecessor = True
+                                predecessor_index = j
+                                predecessor_role = prev_role
                                 break
                             # If we hit an assistant message (with or without tool_calls), it's invalid
                             elif prev_role == "assistant":
                                 found_valid_predecessor = False
+                                predecessor_index = j
+                                predecessor_role = prev_role
                                 break
                         
                         if not found_valid_predecessor:
-                            return False, (
+                            tool_names = [
+                                tc.get("function", {}).get("name", "unknown")
+                                for tc in tool_calls if isinstance(tc, dict)
+                            ]
+                            error_msg = (
                                 f"Message {i}: Gemini API requires assistant messages with tool_calls "
                                 "to come immediately after a user message or a tool message"
+                            )
+                            logger.warning(
+                                error_msg,
+                                extra={
+                                    "event": "gemini_validation_failed",
+                                    "message_index": i,
+                                    "predecessor_index": predecessor_index,
+                                    "predecessor_role": predecessor_role,
+                                    "tool_names": tool_names,
+                                    "tool_calls_count": len(tool_calls),
+                                }
+                            )
+                            return False, error_msg
+                        else:
+                            logger.debug(
+                                f"Gemini validation passed for assistant message with tool_calls at index {i} "
+                                f"(predecessor: {predecessor_role} at index {predecessor_index})",
+                                extra={
+                                    "event": "gemini_validation_passed",
+                                    "message_index": i,
+                                    "predecessor_index": predecessor_index,
+                                    "predecessor_role": predecessor_role,
+                                }
                             )
                     
                     # Extract tool_call_ids from this assistant message

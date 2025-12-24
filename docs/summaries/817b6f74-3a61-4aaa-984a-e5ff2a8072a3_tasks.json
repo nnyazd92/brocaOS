@@ -1,0 +1,26 @@
+{
+  "tasks": [
+    {
+      "id": "task_gr_derivation",
+      "description": "Derive General Relativity/Schwarzschild Metric from information bandwidth dilation.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_ff6c49a986814bc7889e549a406f062e"
+      ],
+      "created_at": "2025-12-24T03:47:35.797273+00:00"
+    },
+    {
+      "id": "task_sm_mapping",
+      "description": "Map Standard Model gauge groups to Leech Lattice symmetries.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_6db9bfba1f24488ca5f00ec1fc5f41e3"
+      ],
+      "created_at": "2025-12-24T03:47:35.797323+00:00"
+    }
+  ]
+}
