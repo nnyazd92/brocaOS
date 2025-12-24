@@ -1,0 +1,77 @@
+{
+  "header": {
+    "session_id": "6150d104-3de9-408f-b5ce-d20272c29e1f",
+    "created_at": "2025-12-24T23:09:13.429092+00:00",
+    "last_updated_at": "2025-12-24T23:09:13.429113+00:00",
+    "last_summarized_event_id": "evt_6aa3448bf7214993ad083078b30e04b2",
+    "revision": 0,
+    "scope": "Session 6150d104-3de9-408f-b5ce-d20272c29e1f"
+  },
+  "summary_blocks": {
+    "current_goal": "Rehydrate session and fully realize the internal sensing architecture by replacing placeholders with live NLP, semantic analysis, and prediction error loops.",
+    "what_we_built": [
+      "Closed-loop interoceptive layer with computational and informational surprise monitoring.",
+      "VADER sentiment integration for valence and Cosine Distance (embeddings) for semantic novelty.",
+      "Logical Reversal detection and internal thought analysis for automated cognitive metrics.",
+      "Wired sensing framework into ToolRegistry and ConversationSession for real-time awareness.",
+      "Comprehensive test suite (broca/tests/test_internal_sensing_realization.py) verifying all sensing logic.",
+      "Restored legacy root files (AGENTS.md, requirements.txt, setup.cfg) from Git history."
+    ],
+    "open_questions": [
+      "Should Curiosity Drive be directly wired to the new Informational Surprise metric?",
+      "Would a live 'Health/Mood' status bar in the REPL be beneficial for monitoring these metrics during execution?"
+    ],
+    "constraints": [
+      "Modifications to core logic require active actuator token provenance (.temporary_token.txt)."
+    ],
+    "next_steps": [
+      "Execute governance_demo.py to observe sensing metrics under complex logic conditions.",
+      "Finalize the 'Cognitive IP' pilot.",
+      "Optionally implement a real-time status bar in the REPL UI."
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "Nick is located in Melbourne, Australia and it is currently Christmas Day for him.",
+      "event_ids": [
+        "evt_2475335719a7462e89eabef3799606f7",
+        "evt_6a9056da30db4ff8b487ab61613ce242"
+      ]
+    },
+    {
+      "claim": "Broca's internal sensing framework now uses VADER for sentiment and Embeddings for semantic surprise calculation.",
+      "event_ids": [
+        "evt_bd955be73dbd40f7b719661bf0d702d4",
+        "evt_2e8e51a13fca4a308424811ee6c6329c"
+      ]
+    },
+    {
+      "claim": "The internal sensing realization test suite successfully passed 6/6 tests.",
+      "event_ids": [
+        "evt_0696d4920d744a53825458bb927eddc7",
+        "evt_a45be4dfbb0a45fd8b79a5930e0f9361"
+      ]
+    },
+    {
+      "claim": "Adopted VADER over TextBlob for valence calculation to improve conversational sentiment accuracy.",
+      "event_ids": [
+        "evt_71496f2aad204632b16fb9f65ab55b4c",
+        "evt_d41aba76fdf44422b00dff54474c3c5d"
+      ]
+    },
+    {
+      "claim": "Used Cosine Distance (Embeddings) to measure Informational Surprise.",
+      "event_ids": [
+        "evt_cda05df62d964a17a46f56f2ea0bcd51",
+        "evt_125f4d0e1b6a41ffa49641617f68382c"
+      ]
+    }
+  ],
+  "confidence": {
+    "current_goal": "high",
+    "what_we_built": [],
+    "open_questions": [],
+    "constraints": [],
+    "next_steps": []
+  }
+}

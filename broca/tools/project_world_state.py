@@ -45,6 +45,16 @@ class ProjectWorldStateTool:
         '.woff', '.woff2', '.ttf', '.otf',
     }
     
+    # Directories to completely exclude from scanning
+    IGNORE_DIRS = {
+        '.venv', 'venv', 'env', '.env',  # Virtual environments
+        '.git',  # Version control
+        '__pycache__', '.pytest_cache', '.mypy_cache',  # Python caches
+        'node_modules',  # Node.js dependencies
+        'build', 'dist', '.tox', '.coverage', 'htmlcov',  # Build artifacts
+        '.idea', '.vscode',  # IDE directories
+    }
+    
     def __init__(
         self,
         project_root: Optional[str] = None,
@@ -162,8 +172,8 @@ class ProjectWorldStateTool:
             for item in sorted(path.iterdir()):
                 try:
                     if item.is_dir():
-                        # Skip .venv directories completely
-                        if item.name == '.venv':
+                        # Skip ignored directories completely
+                        if item.name in self.IGNORE_DIRS:
                             continue
                         
                         # Add directory to list

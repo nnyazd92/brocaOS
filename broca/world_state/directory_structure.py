@@ -36,7 +36,14 @@ class DirectoryStructureGenerator:
         self._last_scan: Optional[datetime] = None
         # Default ignore patterns for directories and files to avoid scanning
         # common build/artifact and binary directories.
-        self.ignore_dirs = set(["__pycache__", ".git", "build", "dist", "artifacts"])
+        self.ignore_dirs = set([
+            "__pycache__", ".git", "build", "dist", "artifacts",  # Existing
+            ".venv", "venv", "env", ".env",  # Virtual environments
+            ".pytest_cache", ".mypy_cache",  # Python caches
+            "node_modules",  # Node.js dependencies
+            ".tox", ".coverage", "htmlcov",  # Build artifacts
+            ".idea", ".vscode",  # IDE directories
+        ])
         # Optional flag to include hidden files if explicitly requested
         self.include_hidden = False
         # Maximum file size (bytes) to consider for prompt-sized outputs; larger
@@ -81,21 +88,24 @@ class DirectoryStructureGenerator:
         try:
             for item in sorted(current_path.iterdir()):
                 try:
-                    # Skip hidden files and directories (starting with '.') unless include_hidden is True
-                    if item.name.startswith('.') and not self.include_hidden:
-                        continue
-                    
                     item_rel_path = rel_path / item.name if rel_path else Path(item.name)
                     
                     if item.is_dir():
-                        # Skip ignored directories (e.g., __pycache__) by default
+                        # Skip ignored directories (e.g., .venv, .git, node_modules) completely
                         if item.name in self.ignore_dirs:
+                            continue
+                        
+                        # Skip hidden directories (starting with '.') unless include_hidden is True
+                        if item.name.startswith('.') and not self.include_hidden:
                             continue
                         # Add directory to list
                         directories.append(str(item_rel_path).replace('\\', '/'))
                         # Recursively scan subdirectory
                         self._scan_directory_recursive(item, files, directories, item_rel_path)
                     elif item.is_file():
+                        # Skip hidden files (starting with '.') unless include_hidden is True
+                        if item.name.startswith('.') and not self.include_hidden:
+                            continue
                         # Add file to list
                         files.append({
                             "path": str(item_rel_path).replace('\\', '/'),

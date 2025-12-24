@@ -126,6 +126,7 @@ def _initialize_tool_registry(
     memory_manager: MemoryManager | None = None,
     epistemic_engine: "MetacognitiveEngine | None" = None,
     self_model: SelfModel | None = None,
+    internal_sensing: InternalSensingFramework | None = None,
     storage: Any = None
 ) -> ToolRegistry | None:
     """
@@ -141,7 +142,7 @@ def _initialize_tool_registry(
         ToolRegistry instance if successfully initialized, None otherwise.
     """
     try:
-        registry = ToolRegistry(epistemic_engine=epistemic_engine)
+        registry = ToolRegistry(epistemic_engine=epistemic_engine, internal_sensing_framework=internal_sensing)
         
         # Register web search tool if enabled
         if config.tools.enable_web_search:
@@ -445,7 +446,7 @@ def _initialize_environment_system():
         return None
 
 
-def _initialize_internal_sensing() -> InternalSensingFramework | None:
+def _initialize_internal_sensing(embedding_service: Optional[EmbeddingService] = None) -> InternalSensingFramework | None:
     """
     Initialize internal sensing system if enabled.
     
@@ -460,6 +461,7 @@ def _initialize_internal_sensing() -> InternalSensingFramework | None:
         framework = InternalSensingFramework(
             sampling_rate=config.internal_sensing.sampling_rate,
             history_window=config.internal_sensing.history_window,
+            embedding_service=embedding_service,
         )
         
         # Enable/disable specific components based on config
@@ -509,7 +511,7 @@ def main() -> None:
         logger.warning("✗ Self-model initialization failed or disabled - will not be included in world state")
     
     # Initialize internal sensing system
-    internal_sensing = _initialize_internal_sensing()
+    internal_sensing = _initialize_internal_sensing(embedding_service=memory_manager.embedding_service if memory_manager else None)
     if internal_sensing:
         logger.info("✓ Internal sensing framework initialized successfully")
     else:
@@ -528,7 +530,8 @@ def main() -> None:
             memory_manager=memory_manager,
             epistemic_engine=epistemic_engine,
             self_model=self_model,
-            storage=self_model_storage
+            storage=self_model_storage,
+            internal_sensing=internal_sensing
         )
         if tool_registry:
             logger.info("✓ Tool registry initialized successfully")

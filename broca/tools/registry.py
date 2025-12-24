@@ -35,7 +35,7 @@ class ToolRegistry:
     - Execute tool calls from the LLM
     """
     
-    def __init__(self, epistemic_engine: Optional[Any] = None) -> None:
+    def __init__(self, epistemic_engine: Optional[Any] = None, internal_sensing_framework: Optional["InternalSensingFramework"] = None) -> None:
         """
         Initialize an empty tool registry.
         
@@ -44,6 +44,7 @@ class ToolRegistry:
         """
         self._tools: Dict[str, Tool] = {}
         self.epistemic_engine = epistemic_engine
+        self.internal_sensing_framework = internal_sensing_framework
                 # Policy / rate-limits (read-only + web search)
         # Read from env first (to support tests patching os.environ), fallback to config
         self._policy_mode = os.getenv("BROCA_TOOLS_MODE", getattr(config.tools, "tools_mode", "normal"))
@@ -515,6 +516,24 @@ class ToolRegistry:
                 # Format result for LLM
                 formatted_result = tool.format_result(result)
             
+
+            # Record usage in internal sensing framework
+            if self.internal_sensing_framework:
+                try:
+                    self.internal_sensing_framework.record_tool_usage(tool_name, arguments, result)
+                    # Estimate impact based on tool type
+                    impact = 2 if tool_name in ('terminal', 'web_search') else 1
+                    self.internal_sensing_framework.record_cognitive_impact(tool_name, impact)
+
+                    # Record informational surprise (expectation vs reality)
+                    # Expectation is the tool name + arguments, reality is the result
+                    expectation = f'{tool_name} {str(arguments)}'
+                    reality = str(result)
+                    self.internal_sensing_framework.record_informational_surprise(expectation, reality)
+
+                except Exception as e:
+                    logger.debug(f'Error recording tool usage in sensing framework: {e}')
+
             # Log result
             log_tool_result(
                 tool_name,

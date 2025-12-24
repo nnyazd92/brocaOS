@@ -1,35 +1,39 @@
 {
-  "boot_id": "boot-2025-12-24T04:26:05Z",
-  "timestamp": "2025-12-24T04:26:14Z",
+  "boot_id": "session-2025-12-25T04:52:11Z",
+  "timestamp": "2025-12-24T22:52:59.438573Z",
   "identity_verification": {
-    "status": "verified",
-    "method": "HMAC-SHA256",
-    "provenance": ".temporary_token.txt",
-    "secret_source": "BROCA_TOKEN_SECRET"
+    "status": "success",
+    "provenance": "BROCA_TOKEN_SECRET",
+    "identity_artifact": "docs/identity/IDENTITY.v0.1.json",
+    "signature_artifact": "docs/identity/IDENTITY.v0.1.signature.json"
   },
   "persistence_posture": {
     "enabled": true,
-    "token_provenance": ".temporary_token.txt"
+    "actuator_token_provenance": ".temporary_token.txt"
   },
   "session_continuity": {
     "loaded": true,
-    "previous_session_id": "session-2025-12-24T04:26:14Z",
-    "boot_operator": "Nick Navid Yazdani",
+    "previous_session_id": "session-2025-12-24T17:47:21Z",
+    "boot_operator": "Nick Yazdani",
     "key_actions": [
-      "Developed L-ToE Framework Specification v1.0",
-      "Derived Schwarzschild Radius from Bandwidth Dilation",
-      "Identified Co2 index as Leech Lattice Kissing Number"
+      "Refined broca/repl/session.py and broca/summarization/manager.py",
+      "Updated test fixtures for session message validation",
+      "Deleted legacy root files (AGENTS.md, requirements.txt, setup.cfg)",
+      "Initialized docs/physics/ with L-TOE derivation documents",
+      "Initialized docs/whitepaper/ with Pitch Deck and Roadmap v1.0",
+      "Performed VCS snapshot of all changes",
+      "Wired up Internal Sensing Framework to ToolRegistry and Cognitive State Monitor",
+      "Implemented and wired up \"Surprise\" (Prediction Error) in the Affective State Monitor",
+      "Implemented Logical Reversal detection and Thought Analysis in ResponseAnalyzer",
+      "Upgraded Cognitive Coherence to detect mid-stream corrections and contradictions",
+      "Implemented Informational Surprise (Semantic Novelty) using Jaccard distance",
+      "Wired ToolRegistry to record Informational Surprise based on tool results vs expectations"
     ],
-    "next_session_notes": "Pivot to monetization strategies and project funding."
+    "next_session_notes": "Execute governance_demo.py and finalize the 'Cognitive IP' pilot."
   },
-  "artifacts_loaded": {
-    "identity": "docs/identity/IDENTITY.v0.1.json",
-    "self_model": "docs/self_model/SELF_MODEL_CURRENT.json",
-    "memory_index": "docs/memory/memory_namespaces_index.md"
-  },
-  "shutdown_status": {
-    "session_summary_created": true,
-    "session_summary_path": "docs/summaries/session-2025-12-24T04:26:14Z.json",
-    "pointer_updated": true
+  "self_model": {
+    "path": "docs/self_model/SELF_MODEL_CURRENT.json",
+    "version": 118,
+    "schema_version": "v2.0.0"
   }
 }

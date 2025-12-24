@@ -15,6 +15,7 @@ from .computational_physiology import ComputationalPhysiologyMonitor
 from .cognitive_state import CognitiveStateMonitor
 from .affective_state import ComputationalAffectMonitor
 from .predictive_interoception import PredictiveInteroception
+from .response_analyzer import ResponseAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class IntegratedInteroception:
     Combines all internal sensing components into unified awareness.
     """
     
-    def __init__(self, history_window: int = 60) -> None:
+    def __init__(self, history_window: int = 60, embedding_service: Optional[Any] = None) -> None:
         """
         Initialize integrated interoception.
         
@@ -37,6 +38,7 @@ class IntegratedInteroception:
         self.cognition = CognitiveStateMonitor()
         self.affect = ComputationalAffectMonitor()
         self.prediction = PredictiveInteroception()
+        self.embedding_service = embedding_service
         
         self.interoceptive_map: Dict[str, Any] = {}
         self.history_window = history_window
@@ -54,14 +56,22 @@ class IntegratedInteroception:
         # Sample all components
         computational = self.physiology.sample_resources()
         cognitive = self.cognition.sample_cognitive_state()
+        
+        # Calculate Surprise (Prediction Error) from PREVIOUS turn's prediction vs CURRENT reality
+        if hasattr(self, '_last_prediction') and self._last_prediction:
+            error = self.prediction.compute_prediction_error(self._last_prediction, computational)
+            self.affect.update_surprise(error)
+
         affective = self.affect.sample_affective_state()
         
         # Generate predictions
         resource_prediction = self.prediction.predict_resources(self.physiology, horizon=3)
         cognitive_prediction = self.prediction.predict_cognitive_load(self.cognition, horizon=2)
         affective_prediction = self.prediction.predict_affective_state(self.affect, horizon=1)
+        error_probability = self.prediction.predict_error_probability(self.cognition, self.physiology, self.affect)
         
         # Create unified state
+        
         unified_state = {
             "computational": computational,
             "cognitive": cognitive,
@@ -70,11 +80,13 @@ class IntegratedInteroception:
                 "resources": resource_prediction,
                 "cognitive": cognitive_prediction,
                 "affective": affective_prediction,
+                "error_probability": error_probability,
             },
             "timestamp": time.time(),
         }
         
         # Update interoceptive map
+        self._last_prediction = resource_prediction
         self.interoceptive_map = unified_state.copy()
         
         return unified_state
@@ -167,6 +179,11 @@ class IntegratedInteroception:
             lines.append(f"  Arousal: {arousal:.2%}")
         else:
             lines.append("  Arousal: unknown")
+        
+        surprise = aff.get('surprise')
+        if surprise is not None:
+            lines.append(f'  Surprise: {surprise:.2%}')
+
         curiosity = aff.get('curiosity_drive')
         if curiosity is not None:
             lines.append(f"  Curiosity: {curiosity:.2%}")
@@ -176,6 +193,34 @@ class IntegratedInteroception:
         
         return "\n".join(lines)
     
+
+    
+    def record_informational_surprise(self, expectation: str, reality: str) -> None:
+        """
+        Record surprise at the informational level using embeddings if available.
+        """
+        semantic_surprise = 0.0
+        
+        if self.embedding_service:
+            try:
+                # Generate embeddings for both
+                emb_exp = self.embedding_service.generate_embedding(expectation)
+                emb_real = self.embedding_service.generate_embedding(reality)
+                semantic_surprise = ResponseAnalyzer.calculate_semantic_distance(emb_exp, emb_real)
+            except Exception as e:
+                logger.debug(f'Embedding-based surprise failed: {e}')
+                # Fallback to keyword surprise
+                semantic_surprise = ResponseAnalyzer.calculate_informational_surprise(expectation, reality)
+        else:
+            # Fallback to keyword surprise
+            semantic_surprise = ResponseAnalyzer.calculate_informational_surprise(expectation, reality)
+        
+        # Blend with existing surprise
+        current_surprise = self.affect.affective_states.get("surprise", 0.0) or 0.0
+        blended_surprise = (current_surprise * 0.3) + (semantic_surprise * 0.7)
+        self.affect.update_surprise(blended_surprise)
+
+
     def detect_anomalies(self, threshold: float = 0.3) -> List[Dict[str, Any]]:
         """
         Detect significant state changes.

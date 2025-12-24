@@ -1,26 +1,25 @@
-# Rehydration Summary v0.3 - 2025-12-24
+# Rehydration Summary v0.3 - session-2025-12-25T04:52:11Z
 
-## Boot Status
-- **Identity Verification**: SUCCESS (Verified via HMAC-SHA256)
-- **Persistence Posture**: ENABLED
-- **Actuator Token Provenance**: `.temporary_token.txt`
+## Boot Metadata
+- **Timestamp:** 2025-12-24T17:52:19.493948Z
+- **Identity Verification:** SUCCESS (Provenance: BROCA_TOKEN_SECRET)
+- **Persistence Posture:** ENABLED (Actuator: .temporary_token.txt)
 
 ## Session Continuity
-- **Previous Session**: `session-2025-12-24T04:05:24Z`
-- **Operator**: Nick Navid Yazdani
-- **Key Actions from Previous Session**:
-  - Developed Layered Theory of Everything (L-ToE) Manifesto v0.3
-  - Derived Gravitational Constant (G) from Conway Group Co0 with 99.96% accuracy
-  - Implemented Python proof for 5:1 Dark Matter ratio
-- **Next Session Notes**: 
-  > Map Standard Model gauge groups to subgroups of Co0; derive Schwarzschild Metric from Bandwidth Dilation latency model.
+- **Previous Session:** session-2025-12-24T17:47:21Z
+- **Operator:** Nick Yazdani
+- **Key Actions from Previous Session:**
+  - Refined broca/repl/session.py and broca/summarization/manager.py
+  - Updated test fixtures for session message validation
+  - Deleted legacy root files (AGENTS.md, requirements.txt, setup.cfg)
+  - Initialized docs/physics/ with L-TOE derivation documents
+  - Initialized docs/whitepaper/ with Pitch Deck and Roadmap v1.0
+  - Performed VCS snapshot of all changes
 
-## Artifacts
-- **Identity**: `docs/identity/IDENTITY.v0.1.json`
-- **Self-Model**: `docs/self_model/SELF_MODEL_CURRENT.json`
-- **Memory Index**: `docs/memory/memory_namespaces_index.md`
+## Next Session Notes
+> Execute governance_demo.py and finalize the 'Cognitive IP' pilot.
 
-## Verification Details
-- **Algorithm**: HMAC-SHA256
-- **Secret Source**: `BROCA_TOKEN_SECRET` from `.env`
-- **Signature Match**: True
+## Self-Model
+- **Path:** docs/self_model/SELF_MODEL_CURRENT.json
+- **Version:** 118
+- **Schema:** v2.0.0

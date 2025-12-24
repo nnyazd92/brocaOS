@@ -5,6 +5,7 @@ Monitors affective states including valence, arousal, curiosity, and satisfactio
 """
 
 from __future__ import annotations
+from .response_analyzer import ResponseAnalyzer
 
 import time
 import logging
@@ -40,7 +41,8 @@ class ComputationalAffectMonitor:
             "arousal": None,  # Unknown until computed
             "certainty_affect": None,  # Unknown until computed
             "curiosity_drive": None,  # Unknown until computed
-            "coherence_pleasure": None,  # Unknown until computed
+            "coherence_pleasure": None,
+            "surprise": 0.0,  # Prediction error / novelty  # Unknown until computed
         }
         
         self._motivational_drives: Dict[str, float] = {}
@@ -67,29 +69,32 @@ class ComputationalAffectMonitor:
         
         self.affective_states["valence"] = max(-1.0, min(1.0, valence))
     
+    
     def compute_valence_from_text(self, text: str) -> None:
         """
-        Compute valence directly from text using TextBlob.
+        Compute valence directly from text using VADER (fallback to TextBlob).
         
         Args:
             text: Text to analyze
         """
         if not text:
-            # Empty text - leave valence as None
             return
-        
-        if TextBlob is None:
-            logger.debug("TextBlob not available, cannot compute valence from text")
+            
+        # Try VADER first
+        vader_scores = ResponseAnalyzer.analyze_sentiment_vader(text)
+        if vader_scores:
+            # VADER compound score is -1.0 to 1.0
+            self.affective_states["valence"] = max(-1.0, min(1.0, vader_scores['compound']))
             return
-        
-        try:
-            blob = TextBlob(text)
-            polarity = blob.sentiment.polarity  # -1.0 to 1.0
-            # Map polarity directly to valence (same range)
-            self.affective_states["valence"] = max(-1.0, min(1.0, polarity))
-        except Exception as e:
-            logger.debug(f"TextBlob sentiment analysis failed: {e}")
-            # On error, leave valence unchanged (None or previous value)
+
+        # Fallback to TextBlob
+        if TextBlob is not None:
+            try:
+                blob = TextBlob(text)
+                self.affective_states["valence"] = max(-1.0, min(1.0, blob.sentiment.polarity))
+            except Exception:
+                pass
+
     
     def compute_valence_from_conversation_history(self, messages: List[Dict[str, Any]]) -> None:
         """
@@ -141,9 +146,10 @@ class ComputationalAffectMonitor:
         # Certainty affect is directly related to confidence
         self.affective_states["certainty_affect"] = max(0.0, min(1.0, confidence))
     
+    
     def compute_curiosity_drive(self, uncertainty: float, interest: float) -> None:
         """
-        Compute curiosity drive from uncertainty and interest.
+        Compute curiosity drive from uncertainty, interest, and surprise.
         
         Args:
             uncertainty: Uncertainty level (0.0-1.0)
@@ -151,21 +157,38 @@ class ComputationalAffectMonitor:
         """
         uncertainty = max(0.0, min(1.0, uncertainty))
         interest = max(0.0, min(1.0, interest))
+        surprise = self.affective_states.get("surprise", 0.0) or 0.0
         
-        # Curiosity is combination of uncertainty and interest
-        curiosity = (uncertainty * 0.5 + interest * 0.5)
-        self.affective_states["curiosity_drive"] = curiosity
+        # Curiosity is driven by uncertainty, interest, and surprise (novelty)
+        # Weighted: 40% uncertainty, 30% interest, 30% surprise
+        curiosity = (uncertainty * 0.4 + interest * 0.3 + surprise * 0.3)
+        self.affective_states["curiosity_drive"] = max(0.0, min(1.0, curiosity))
+
+    
     
     def update_coherence_pleasure(self, coherence: float) -> None:
         """
-        Update coherence pleasure from coherence level.
+        Update coherence pleasure from coherence level and certainty.
         
         Args:
             coherence: Coherence level (0.0-1.0)
         """
-        # Pleasure increases with coherence
-        self.affective_states["coherence_pleasure"] = max(0.0, min(1.0, coherence))
+        certainty = self.affective_states.get("certainty_affect", 0.5) or 0.5
+        # Pleasure increases with coherence and certainty
+        pleasure = (coherence * 0.7) + (certainty * 0.3)
+        self.affective_states["coherence_pleasure"] = max(0.0, min(1.0, pleasure))
+
     
+    
+    def update_surprise(self, prediction_error: float) -> None:
+        """
+        Update surprise state based on prediction error (novelty/unexpectedness).
+        
+        Args:
+            prediction_error: Magnitude of difference between predicted and actual (0.0-1.0)
+        """
+        self.affective_states["surprise"] = max(0.0, min(1.0, prediction_error))
+
     def update_from_cognitive(self, cognitive_monitor: "CognitiveStateMonitor") -> None:
         """
         Update affective states from cognitive monitor.

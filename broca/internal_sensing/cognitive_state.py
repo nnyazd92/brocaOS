@@ -11,6 +11,7 @@ import time
 import logging
 from typing import Dict, Any, List, Optional, Union
 from collections import deque, defaultdict
+from .response_analyzer import ResponseAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -153,32 +154,35 @@ class CognitiveStateMonitor:
         
         self._update_coherence()
     
+    
     def _update_coherence(self) -> None:
-        """Update conceptual coherence from reasoning steps."""
-        if len(self._reasoning_steps) < 2:
-            self.states["conceptual_coherence"] = None  # Need at least 2 steps to compare
+        """Update conceptual coherence from reasoning steps and logical reversals."""
+        if not self._reasoning_steps:
+            self.states["conceptual_coherence"] = None
             return
         
-        # Simple coherence check: look for contradictions
+        # 1. Check for explicit contradictions in steps
         contradictions = 0
         total_comparisons = 0
-        
         for i, step1 in enumerate(self._reasoning_steps):
             for step2 in self._reasoning_steps[i+1:]:
                 total_comparisons += 1
-                # Check if conclusions contradict
                 if (step1.get("premise") == step2.get("premise") and
                     step1.get("conclusion") != step2.get("conclusion")):
                     contradictions += 1
         
-        if total_comparisons == 0:
-            coherence = 0.5
-        else:
-            # Coherence is inverse of contradiction rate
-            contradiction_rate = contradictions / total_comparisons
-            coherence = 1.0 - contradiction_rate
+        step_coherence = 1.0 - (contradictions / total_comparisons) if total_comparisons > 0 else 1.0
         
-        self.states["conceptual_coherence"] = max(0.0, min(1.0, coherence))
+        # 2. Check for logical reversals in the latest conclusion
+        latest_conclusion = self._reasoning_steps[-1].get("conclusion", "")
+        reversal_score = ResponseAnalyzer.detect_logical_reversals(latest_conclusion)
+        
+        # Coherence is reduced by reversals (mid-stream corrections)
+        # A reversal score of 1.0 reduces coherence by 0.5
+        final_coherence = step_coherence * (1.0 - (reversal_score * 0.5))
+        
+        self.states["conceptual_coherence"] = max(0.0, min(1.0, final_coherence))
+
     
     def _calculate_coherence(self) -> Optional[float]:
         """

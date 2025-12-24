@@ -1033,6 +1033,24 @@ class ConversationSession:
                                         response_id, uncertainty
                                     )
 
+
+                                # Analyze internal thoughts if available
+                                reasoning_content = getattr(self, '_current_reasoning_content', None)
+                                if reasoning_content:
+                                    thought_metrics = ResponseAnalyzer.analyze_thoughts(reasoning_content)
+                                    # Update uncertainty with thought-based analysis
+                                    if thought_metrics['uncertainty'] > (uncertainty or 0.0):
+                                        uncertainty = thought_metrics['uncertainty']
+                                        self.internal_sensing_framework.interoception.cognition.record_uncertainty(
+                                            f'thought_{response_id}', uncertainty
+                                        )
+                                    
+                                    # Record processing depth from thoughts
+                                    if thought_metrics['depth'] > 0:
+                                        self.internal_sensing_framework.interoception.cognition.record_processing_depth(
+                                            f'thought_{response_id}', int(thought_metrics['depth'] * 10)
+                                        )
+
                                 # Compute valence and arousal
                                 # Use conversation history for valence (excluding system prompts)
                                 # Include current assistant response in history
