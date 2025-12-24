@@ -61,36 +61,6 @@ def _get_visible_width(text: str) -> int:
     return len(_strip_ansi_codes(text))
 
 
-def _get_user_input_with_colored_prompt(prompt: str) -> str:
-    """
-    Get user input with a colored prompt.
-    
-    Uses input() directly with the colored prompt. This ensures readline
-    properly handles the prompt and prevents backspace from deleting it.
-    The newline issue is handled by ensuring proper terminal state.
-    
-    Args:
-        prompt: Colored prompt string (may contain ANSI codes)
-        
-    Returns:
-        User input string
-    """
-    try:
-        # Use input() directly with the colored prompt
-        # This allows readline to properly handle the prompt and prevent
-        # backspace from deleting into it
-        result = input(prompt)
-        
-        # Explicitly flush stdout to ensure terminal state is reset
-        # This is critical for streaming output to appear correctly
-        sys.stdout.flush()
-        
-        return result
-    except (EOFError, KeyboardInterrupt):
-        # Flush stdout to ensure terminal state is reset
-        sys.stdout.flush()
-        # Re-raise these so they can be handled by the caller
-        raise
 
 
 def _initialize_storage() -> ConversationStorage | None:
@@ -674,13 +644,17 @@ def main() -> None:
                 if session.tool_status_display:
                     session.tool_status_display.pause_updates()
                 
-                # Colorize "you>" prompt
+                # Use plain prompt for input - readline works perfectly with plain prompts
+                # Colors are kept for output only to avoid readline/ANSI code conflicts
                 you_prompt = "you> "
-                if color_manager:
-                    you_prompt = color_manager.colorize(you_prompt, "you_prompt")
                 
-                # Get user input with colored prompt
-                user_input = _get_user_input_with_colored_prompt(you_prompt).strip()
+                # Get user input with plain prompt
+                user_input = input(you_prompt).strip()
+                
+                # Ensure stdout is flushed and terminal is ready for streaming output
+                # This is critical - after input(), the terminal needs to be in the right state
+                # for streaming output to appear immediately
+                sys.stdout.flush()
                 
                 # Resume spinner updates after user input
                 if session.tool_status_display:

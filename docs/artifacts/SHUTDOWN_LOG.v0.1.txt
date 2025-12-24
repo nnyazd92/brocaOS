@@ -19,3 +19,4 @@ Note: Session summary created for continuity: /home/wizard/Documents/Code/BrocaO
   actuator_token_provenance: .temporary_token.txt
   llm_cache_policy: ttl=604800s, max_rows=20000
   note: broca/ops/shutdown.py to be implemented next to execute full protocol.
+{"timestamp": "2025-12-24T01:16:09Z", "session_summary": "docs/summaries/session-2025-12-24T01:16:09Z.json", "status": "shutdown_completed", "token_provenance": ".temporary_token.txt"}

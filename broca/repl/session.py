@@ -8,6 +8,7 @@ import sys
 from datetime import datetime, timezone
 from ..llm import create_llm_client, LLMClient
 from .response_guard import ensure_non_empty
+from .ansi_repair import repair_ansi_codes
 from ..summarization.token_estimator import truncate_tool_result, estimate_messages_tokens
 
 # Try to import termios for terminal control (Unix only)
@@ -222,6 +223,10 @@ class ConversationSession:
             self._current_reasoning_content = None
         else:
             self._current_reasoning_content = None
+        
+        # Initialize thought_signature for Gemini 3 (persists across turns to maintain reasoning context)
+        if not hasattr(self, '_current_thought_signature'):
+            self._current_thought_signature = None
 
         # Log user message event
         if self._event_logger:
@@ -308,6 +313,10 @@ class ConversationSession:
         # Check if we're using reasoner model
         is_reasoner = hasattr(self.llm, 'is_reasoner_model') and self.llm.is_reasoner_model()
         
+        # Check if we're using Gemini client (for thought_signature support)
+        from ..llm.gemini_client import GeminiClient
+        is_gemini = isinstance(self.llm, GeminiClient)
+        
         # Handle tool calls iteratively (may require multiple LLM calls)
         iterations = 0
         response = None
@@ -368,24 +377,41 @@ class ConversationSession:
                         messages_for_llm = self._get_messages_for_llm()
                         messages_for_llm = self._validate_message_size(messages_for_llm)
                         
+                        # Validate message ordering before sending to API (Gemini-specific if using Gemini)
+                        is_valid, error = self._validate_message_ordering(messages_for_llm, check_gemini_ordering=is_gemini)
+                        if not is_valid:
+                            logger.warning(
+                                f"Invalid message ordering detected before streaming LLM call: {error}. "
+                                "Attempting to fix by removing orphaned tool messages."
+                            )
+                            messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
+                            # Apply Gemini-specific fix if needed
+                            if is_gemini:
+                                messages_for_llm = self._fix_gemini_tool_call_ordering(messages_for_llm)
+                        
                         logger.debug(f"Starting streaming request (iteration {iterations}, has_tools={bool(tools)})")
                         
                         if tools:
                             stream_gen = self.llm.chat_stream(
                                 messages_for_llm, 
                                 tools=tools,
-                                reasoning_content=self._current_reasoning_content if is_reasoner else None
+                                reasoning_content=self._current_reasoning_content if is_reasoner else None,
+                                thought_signature=self._current_thought_signature if is_gemini else None
                             )
                         else:
                             stream_gen = self.llm.chat_stream(
                                 messages_for_llm,
-                                reasoning_content=self._current_reasoning_content if is_reasoner else None
+                                reasoning_content=self._current_reasoning_content if is_reasoner else None,
+                                thought_signature=self._current_thought_signature if is_gemini else None
                             )
                         
                         # Collect streaming chunks and print them immediately as they arrive
                         chunk_count = 0
                         for chunk in stream_gen:
                             chunk_count += 1
+                            
+                            # Repair broken ANSI escape sequences in chunk before accumulating and printing
+                            chunk = repair_ansi_codes(chunk)
                             assistant_text += chunk
                             
                             # Print prompt on first chunk only
@@ -443,10 +469,24 @@ class ConversationSession:
                             # Make a non-streaming call to check for tool_calls
                             messages_for_llm = self._get_messages_for_llm()
                             messages_for_llm = self._validate_message_size(messages_for_llm)
+                            
+                            # Validate message ordering before sending to API (Gemini-specific if using Gemini)
+                            is_valid, error = self._validate_message_ordering(messages_for_llm, check_gemini_ordering=is_gemini)
+                            if not is_valid:
+                                logger.warning(
+                                    f"Invalid message ordering detected before tool_calls check: {error}. "
+                                    "Attempting to fix by removing orphaned tool messages."
+                                )
+                                messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
+                                # Apply Gemini-specific fix if needed
+                                if is_gemini:
+                                    messages_for_llm = self._fix_gemini_tool_call_ordering(messages_for_llm)
+                            
                             non_stream_response = self.llm.chat(
                                 messages_for_llm, 
                                 tools=tools,
-                                reasoning_content=self._current_reasoning_content if is_reasoner else None
+                                reasoning_content=self._current_reasoning_content if is_reasoner else None,
+                                thought_signature=self._current_thought_signature if is_gemini else None
                             )
                             tool_calls_from_response = self.llm.extract_tool_calls(non_stream_response)
                             if tool_calls_from_response:
@@ -471,24 +511,29 @@ class ConversationSession:
                         messages_for_llm = self._validate_message_size(messages_for_llm)
                         
                         # Validate message ordering before sending to API
-                        is_valid, error = self._validate_message_ordering(messages_for_llm)
+                        is_valid, error = self._validate_message_ordering(messages_for_llm, check_gemini_ordering=is_gemini)
                         if not is_valid:
                             logger.warning(
                                 f"Invalid message ordering detected before LLM call: {error}. "
                                 "Attempting to fix by removing orphaned tool messages."
                             )
                             messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
+                            # Apply Gemini-specific fix if needed
+                            if is_gemini:
+                                messages_for_llm = self._fix_gemini_tool_call_ordering(messages_for_llm)
                         
                         if tools:
                             response = self.llm.chat(
                                 messages_for_llm, 
                                 tools=tools,
-                                reasoning_content=self._current_reasoning_content if is_reasoner else None
+                                reasoning_content=self._current_reasoning_content if is_reasoner else None,
+                                thought_signature=self._current_thought_signature if is_gemini else None
                             )
                         else:
                             response = self.llm.chat(
                                 messages_for_llm,
-                                reasoning_content=self._current_reasoning_content if is_reasoner else None
+                                reasoning_content=self._current_reasoning_content if is_reasoner else None,
+                                thought_signature=self._current_thought_signature if is_gemini else None
                             )
                     finally:
                         # No terminal settings to restore since we only flushed input
@@ -499,24 +544,29 @@ class ConversationSession:
                     messages_for_llm = self._validate_message_size(messages_for_llm)
                     
                     # Validate message ordering before sending to API
-                    is_valid, error = self._validate_message_ordering(messages_for_llm)
+                    is_valid, error = self._validate_message_ordering(messages_for_llm, check_gemini_ordering=is_gemini)
                     if not is_valid:
                         logger.warning(
                             f"Invalid message ordering detected before LLM call: {error}. "
                             "Attempting to fix by removing orphaned tool messages."
                         )
                         messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
+                        # Apply Gemini-specific fix if needed
+                        if is_gemini:
+                            messages_for_llm = self._fix_gemini_tool_call_ordering(messages_for_llm)
                     
                     if tools:
                         response = self.llm.chat(
                             messages_for_llm, 
                             tools=tools,
-                            reasoning_content=self._current_reasoning_content if is_reasoner else None
+                            reasoning_content=self._current_reasoning_content if is_reasoner else None,
+                            thought_signature=self._current_thought_signature if is_gemini else None
                         )
                     else:
                         response = self.llm.chat(
                             messages_for_llm,
-                            reasoning_content=self._current_reasoning_content if is_reasoner else None
+                            reasoning_content=self._current_reasoning_content if is_reasoner else None,
+                            thought_signature=self._current_thought_signature if is_gemini else None
                         )
             except TimeoutError as e:
                 logger.error(f"LLM request timed out: {e}", exc_info=True)
@@ -610,6 +660,30 @@ class ConversationSession:
                     # Initialize to empty string if we have tool_calls (field must exist)
                     if tool_calls and not hasattr(self, '_current_reasoning_content'):
                         self._current_reasoning_content = ""
+            
+            # Extract thought_signature for Gemini 3 (if present)
+            # Thought signature persists across turns to maintain reasoning context
+            if is_gemini and hasattr(self.llm, 'extract_thought_signature'):
+                extracted_sig = self.llm.extract_thought_signature(response)
+                if extracted_sig:
+                    self._current_thought_signature = extracted_sig
+                    logger.info(
+                        "Extracted thought_signature from Gemini response",
+                        extra={
+                            "event": "thought_signature_extracted",
+                            "iteration": iterations,
+                            "has_tool_calls": bool(tool_calls),
+                        }
+                    )
+                else:
+                    logger.debug(
+                        "No thought_signature in Gemini response",
+                        extra={
+                            "event": "no_thought_signature_in_response",
+                            "iteration": iterations,
+                            "has_tool_calls": bool(tool_calls),
+                        }
+                    )
 
             # Instrumentation: Track processing depth from tool calls
             if self.internal_sensing_framework and tool_calls:
@@ -627,6 +701,9 @@ class ConversationSession:
                 # Normalize empty string to None so guard can catch it
                 if assistant_text == "":
                     assistant_text = None
+                # Repair broken ANSI escape sequences in extracted text
+                if assistant_text:
+                    assistant_text = repair_ansi_codes(assistant_text)
 
             if tool_calls and self.tool_registry:
                 # Mark that we've had tool calls
@@ -742,6 +819,9 @@ class ConversationSession:
                     # Normalize empty string to None so guard can catch it
                     if assistant_text == "":
                         assistant_text = None
+                    # Repair broken ANSI escape sequences in extracted text
+                    if assistant_text:
+                        assistant_text = repair_ansi_codes(assistant_text)
                 
                 # Ensure response is always printed
                 if used_streaming:
@@ -1099,20 +1179,36 @@ class ConversationSession:
         """
         from ..config import config
         
+        # Check if we're using Gemini client (for Gemini-specific ordering fixes)
+        from ..llm.gemini_client import GeminiClient
+        is_gemini = isinstance(self.llm, GeminiClient)
+        
         # If summarization not enabled, still apply token-aware filtering
         if not self._summarization_manager:
             # Apply token-aware filtering even without summarization
-            return self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
+            filtered = self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
+            # Apply Gemini-specific fix if needed
+            if is_gemini:
+                filtered = self._fix_gemini_tool_call_ordering(filtered)
+            return filtered
         
         # Check if summary exists for this session
         try:
             summary = self._summarization_manager.summary_storage.load_session_summary(self.session_id)
             if not summary:
                 # No summary exists yet, apply token-aware filtering to full messages
-                return self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
+                filtered = self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
+                # Apply Gemini-specific fix if needed
+                if is_gemini:
+                    filtered = self._fix_gemini_tool_call_ordering(filtered)
+                return filtered
         except Exception as e:
             logger.debug(f"Error checking for summary, using full messages: {e}")
-            return self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
+            filtered = self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
+            # Apply Gemini-specific fix if needed
+            if is_gemini:
+                filtered = self._fix_gemini_tool_call_ordering(filtered)
+            return filtered
         
         # Summary exists - filter to system message + last K turns with token awareness
         # Handle cases where config might be a MagicMock (e.g., in tests)
@@ -1160,6 +1256,9 @@ class ConversationSession:
                 filtered_messages = self._truncate_tool_results_in_messages(
                     filtered_messages, config.summarization.max_tool_result_size
                 )
+                # Apply Gemini-specific fix if needed
+                if is_gemini:
+                    filtered_messages = self._fix_gemini_tool_call_ordering(filtered_messages)
                 logger.debug(
                     f"Filtered messages for LLM: {len(filtered_messages)} messages, "
                     f"~{estimated_tokens} tokens (keeping last {current_turns} turns)"
@@ -1178,6 +1277,9 @@ class ConversationSession:
                 filtered_messages = self._truncate_tool_results_in_messages(
                     filtered_messages, config.summarization.max_tool_result_size
                 )
+                # Apply Gemini-specific fix if needed
+                if is_gemini:
+                    filtered_messages = self._fix_gemini_tool_call_ordering(filtered_messages)
                 logger.warning(
                     f"Messages still exceed token limit after truncation "
                     f"({estimated_tokens} > {max_context_tokens}), returning minimum turns"
@@ -1190,9 +1292,13 @@ class ConversationSession:
             filtered_messages.append(system_message)
         if non_system_messages:
             filtered_messages.append(non_system_messages[-1])
-        return self._truncate_tool_results_in_messages(
+        filtered_messages = self._truncate_tool_results_in_messages(
             filtered_messages, config.summarization.max_tool_result_size
         )
+        # Apply Gemini-specific fix if needed
+        if is_gemini:
+            filtered_messages = self._fix_gemini_tool_call_ordering(filtered_messages)
+        return filtered_messages
     
     def _apply_token_aware_filtering(
         self, messages: List[Dict[str, Any]], max_tokens: int
@@ -1314,6 +1420,108 @@ class ConversationSession:
         
         return fixed_messages
     
+    def _fix_gemini_tool_call_ordering(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Fix Gemini-specific tool call ordering by removing invalid assistant messages.
+        
+        Gemini API requires that assistant messages with tool_calls must come
+        immediately after either a user message or a tool message. This function
+        removes assistant messages with tool_calls that violate this requirement,
+        along with their associated tool messages.
+        
+        Args:
+            messages: List of messages (may contain invalid assistant messages with tool_calls)
+            
+        Returns:
+            List of messages with invalid assistant messages and their tool messages removed
+        """
+        if not messages:
+            return messages
+        
+        fixed_messages = []
+        # Track tool_call_ids from assistant messages with tool_calls that we keep
+        valid_tool_call_ids = set()
+        
+        for i, msg in enumerate(messages):
+            role = msg.get("role")
+            
+            # System messages are always included
+            if role == "system":
+                fixed_messages.append(msg)
+                continue
+            
+            # Handle assistant messages
+            if role == "assistant":
+                tool_calls = msg.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list):
+                    # Check if this assistant message with tool_calls has a valid predecessor
+                    # (must be immediately after user or tool message)
+                    found_valid_predecessor = False
+                    for j in range(i - 1, -1, -1):
+                        prev_msg = messages[j]
+                        prev_role = prev_msg.get("role")
+                        if prev_role == "system":
+                            continue
+                        # Valid predecessor: user or tool message
+                        if prev_role in ("user", "tool"):
+                            found_valid_predecessor = True
+                            break
+                        # If we hit an assistant message (with or without tool_calls), it's invalid
+                        elif prev_role == "assistant":
+                            found_valid_predecessor = False
+                            break
+                    
+                    if found_valid_predecessor:
+                        # Valid - keep this assistant message and track its tool_call_ids
+                        current_tool_call_ids = set()
+                        for tool_call in tool_calls:
+                            if isinstance(tool_call, dict):
+                                tool_call_id = tool_call.get("id")
+                                if isinstance(tool_call_id, str):
+                                    current_tool_call_ids.add(tool_call_id)
+                        valid_tool_call_ids = current_tool_call_ids
+                        fixed_messages.append(msg)
+                        logger.debug(
+                            f"Keeping valid assistant message with tool_calls at index {i} "
+                            f"(has valid predecessor)"
+                        )
+                    else:
+                        # Invalid - skip this assistant message and clear tool_call_ids
+                        # We'll also skip any tool messages that follow
+                        valid_tool_call_ids.clear()
+                        logger.debug(
+                            f"Removing invalid assistant message with tool_calls at index {i} "
+                            f"(does not follow user or tool message)"
+                        )
+                else:
+                    # Assistant without tool_calls - always keep, reset tracking
+                    valid_tool_call_ids.clear()
+                    fixed_messages.append(msg)
+            
+            # Handle tool messages
+            elif role == "tool":
+                tool_call_id = msg.get("tool_call_id")
+                if isinstance(tool_call_id, str) and tool_call_id in valid_tool_call_ids:
+                    # Valid tool message - has matching tool_call_id from a kept assistant message
+                    fixed_messages.append(msg)
+                else:
+                    # Orphaned tool message - remove it
+                    logger.debug(
+                        f"Removing orphaned tool message with tool_call_id '{tool_call_id}' "
+                        f"(no valid preceding assistant message with matching tool_calls)"
+                    )
+            
+            # User messages are always included
+            elif role == "user":
+                # User messages reset the tool call context
+                valid_tool_call_ids.clear()
+                fixed_messages.append(msg)
+            else:
+                # Unknown role - include it (might be custom roles)
+                fixed_messages.append(msg)
+        
+        return fixed_messages
+    
     def _truncate_tool_results_in_messages(
         self, messages: List[Dict[str, Any]], max_tool_result_size: int
     ) -> List[Dict[str, Any]]:
@@ -1392,15 +1600,19 @@ class ConversationSession:
         
         return truncated
 
-    def _validate_message_ordering(self, messages: List[Dict[str, Any]]) -> tuple[bool, Optional[str]]:
+    def _validate_message_ordering(self, messages: List[Dict[str, Any]], check_gemini_ordering: bool = False) -> tuple[bool, Optional[str]]:
         """
-        Validate that message ordering follows OpenAI API requirements.
+        Validate that message ordering follows API requirements.
         
         OpenAI API requires that tool messages must follow an assistant message
         with tool_calls. This function validates that requirement.
         
+        Gemini API has stricter requirements: assistant messages with tool_calls
+        must come immediately after either a user message or a tool message.
+        
         Args:
             messages: List of message dictionaries to validate
+            check_gemini_ordering: If True, also validate Gemini-specific ordering requirements
             
         Returns:
             Tuple of (is_valid, error_message)
@@ -1430,6 +1642,31 @@ class ConversationSession:
                     # Validate tool_calls structure
                     if not isinstance(tool_calls, list):
                         return False, f"Message {i}: tool_calls must be a list, got {type(tool_calls)}"
+                    
+                    # Gemini-specific validation: assistant messages with tool_calls must
+                    # come immediately after a user message or a tool message
+                    if check_gemini_ordering:
+                        # Find the immediately preceding non-system message
+                        found_valid_predecessor = False
+                        for j in range(i - 1, -1, -1):
+                            prev_msg = messages[j]
+                            prev_role = prev_msg.get("role")
+                            if prev_role == "system":
+                                continue
+                            # Valid predecessor: user or tool message
+                            if prev_role in ("user", "tool"):
+                                found_valid_predecessor = True
+                                break
+                            # If we hit an assistant message (with or without tool_calls), it's invalid
+                            elif prev_role == "assistant":
+                                found_valid_predecessor = False
+                                break
+                        
+                        if not found_valid_predecessor:
+                            return False, (
+                                f"Message {i}: Gemini API requires assistant messages with tool_calls "
+                                "to come immediately after a user message or a tool message"
+                            )
                     
                     # Extract tool_call_ids from this assistant message
                     current_tool_call_ids = set()
@@ -1768,9 +2005,11 @@ class ConversationSession:
                 if isinstance(tool_result, dict):
                     # Prefer explicit success field from raw result
                     if "_success" in tool_result:
-                        tool_success = tool_result.get("_success", True)
+                        # Explicitly check the boolean value - don't rely on truthiness
+                        tool_success = bool(tool_result["_success"])
                     else:
                         # Fallback: check content for error indicators (legacy behavior)
+                        # Only use this if _success field is not available
                         content = tool_result.get("content", "")
                         if isinstance(content, str):
                             content_lower = content.lower()

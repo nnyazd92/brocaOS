@@ -533,8 +533,9 @@ class ToolRegistry:
             }
             
             # Include success field from raw result for proper success detection
+            # Always set _success as a boolean to ensure consistent success detection
             if isinstance(result, dict) and "success" in result:
-                result_dict["_success"] = result.get("success", True)
+                result_dict["_success"] = bool(result.get("success", True))
             
             # For critic tool, include raw result for enforcement checking
             if tool_name == "critic" and isinstance(result, dict):

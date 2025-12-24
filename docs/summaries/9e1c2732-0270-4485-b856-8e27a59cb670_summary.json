@@ -1,0 +1,70 @@
+{
+  "header": {
+    "session_id": "9e1c2732-0270-4485-b856-8e27a59cb670",
+    "created_at": "2025-12-24T01:15:29.567881+00:00",
+    "last_updated_at": "2025-12-24T01:15:29.567930+00:00",
+    "last_summarized_event_id": "evt_4eaeb467dd644decae49b6dc0d91e80c",
+    "revision": 0,
+    "scope": "Session 9e1c2732-0270-4485-b856-8e27a59cb670"
+  },
+  "summary_blocks": {
+    "current_goal": "Finish the session cleanly after integrating Gemini 3 Flash and associated tests, and co...",
+    "what_we_built": [
+      "Implemented GeminiClient in broca/llm/gemini_client.py and w..."
+    ],
+    "open_questions": [
+      "Should a native (non-OpenAI-compatible) Gemini client be added later..."
+    ],
+    "constraints": [
+      "Shutdown protocol writes (session summary, shutdown state/logs, markers) sho..."
+    ],
+    "next_steps": [
+      "Execute PROTOCOL.SHUT_DOWN.v0.3 end-to-end with writes (session summary, broca.s..."
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "GeminiClient was implemented in broca/llm/gemini_client.py to call Gemini 3 Flash vi...",
+      "event_ids": [
+        "evt_ff629860ae0e4d6dbe22ab7877800054",
+        "evt_2826926ee79646bdb7e3f7f446777e85"
+      ]
+    },
+    {
+      "claim": "The LLM factory in broca/llm/__init__.py now supports provider_n...",
+      "event_ids": [
+        "evt_223c36f5f13b4a80a84b5c67ff8145e8",
+        "evt_194aa15126344378bd55e0f8ec49ce07"
+      ]
+    },
+    {
+      "claim": "LLMConfig in broca/config.py was rewritten to cleanly handle openai, gemini, and dee...",
+      "event_ids": [
+        "evt_9f1fd683108f4af4800d879a19d75177",
+        "evt_1004070e095a4508967f21a84fe332f6"
+      ]
+    },
+    {
+      "claim": "A dedicated GeminiClient test file (broca/tests/test_gemini_client.py) was creat...",
+      "event_ids": [
+        "evt_86c07e25fc024c5590536c5c9ed55a73",
+        "evt_fd481b957b8243f9b84ab7b92e15ec76"
+      ]
+    },
+    {
+      "claim": "Use Gemini 3 Flash via the OpenAI-compatible /chat/completions endpoint as a first-c...",
+      "event_ids": [
+        "evt_75647310af59497c93b24fcd6c61a4cf",
+        "evt_194aa15126344378bd55e0f8ec49ce07",
+        "evt_adebe2fa518448db9b153743fa553952"
+      ]
+    }
+  ],
+  "confidence": {
+    "current_goal": "high",
+    "what_we_built": [],
+    "open_questions": [],
+    "constraints": [],
+    "next_steps": []
+  }
+}

@@ -5,40 +5,73 @@ import os
 load_dotenv()
 
 
+
 class LLMConfig(BaseModel):
-    provider: str = os.getenv("BROCA_LLM_PROVIDER", "deepseek")  # "deepseek" or "openai"
+    provider: str = os.getenv("BROCA_LLM_PROVIDER", "deepseek")  # "deepseek", "openai", or "gemini"
     api_base: str = os.getenv("DEEPSEEK_API_BASE", "")  # Will default based on provider
     api_key: str = os.getenv("DEEPSEEK_API_KEY", "")  # Will default based on provider
     model: str = os.getenv("DEEPSEEK_MODEL", "")  # Will default based on provider
     temperature: float = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.3"))
     timeout: float = float(os.getenv("DEEPSEEK_TIMEOUT", "300.0"))  # Default 5 minutes
     streaming_enabled: bool = os.getenv("BROCA_STREAMING_ENABLED", "true").lower() == "true"
-    streaming_delay: float = float(os.getenv("BROCA_STREAMING_DELAY", "0.02"))  # Delay between chunks in seconds (default 20ms)
-    max_context_tokens: int = int(os.getenv("BROCA_MAX_CONTEXT_TOKENS", "272000"))  # Maximum context window size (matches API limit)
-    
+    streaming_delay: float = float(os.getenv("BROCA_STREAMING_DELAY", "0.02"))  # Delay between chunks in seconds
+    max_context_tokens: int = int(os.getenv("BROCA_MAX_CONTEXT_TOKENS", "272000"))
+    # Gemini 3 specific configuration
+    thinking_level: str = os.getenv("BROCA_GEMINI_THINKING_LEVEL", "low")  # "low" for fast system calls, "high" for ToE logic
+    use_sdk: bool = os.getenv("BROCA_GEMINI_USE_SDK", "true").lower() == "true"  # Use google-genai SDK (True) or REST API (False)
+
     def __init__(self, **kwargs):
         # Get provider first
         provider = kwargs.get("provider", os.getenv("BROCA_LLM_PROVIDER", "deepseek"))
-        
+
         # Set defaults based on provider
         if provider == "openai":
             default_base = kwargs.get("api_base") or os.getenv("DEEPSEEK_API_BASE") or "https://api.openai.com/v1"
             # For OpenAI provider, prioritize OPENAI_API_KEY over DEEPSEEK_API_KEY
-            # Explicit kwargs take precedence, then OPENAI_API_KEY, then DEEPSEEK_API_KEY as fallback
-            default_key = kwargs.get("api_key") or os.getenv("OPENAI_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or ""
+            default_key = (
+                kwargs.get("api_key")
+                or os.getenv("OPENAI_API_KEY")
+                or os.getenv("DEEPSEEK_API_KEY")
+                or ""
+            )
             # Model precedence: OPENAI_MODEL > BROCA_LLM_MODEL > DEEPSEEK_MODEL > default
             default_model = (
-                kwargs.get("model") or
-                os.getenv("OPENAI_MODEL") or
-                os.getenv("BROCA_LLM_MODEL") or
-                os.getenv("DEEPSEEK_MODEL") or
-                "gpt-5.2"
+                kwargs.get("model")
+                or os.getenv("OPENAI_MODEL")
+                or os.getenv("BROCA_LLM_MODEL")
+                or os.getenv("DEEPSEEK_MODEL")
+                or "gpt-5.2"
+            )
+        elif provider == "gemini":
+            # Gemini via OpenAI-compatible chat completions endpoint
+            # See: https://ai.google.dev/gemini-api/docs/openai
+            default_base = (
+                kwargs.get("api_base")
+                or os.getenv("GEMINI_API_BASE")
+                or "https://generativelanguage.googleapis.com/v1beta/openai"
+            )
+            default_key = kwargs.get("api_key") or os.getenv("GEMINI_API_KEY") or ""
+            # Prefer explicit model, then GEMINI_MODEL, then BROCA_LLM_MODEL as fallback
+            default_model = (
+                kwargs.get("model")
+                or os.getenv("GEMINI_MODEL")
+                or os.getenv("BROCA_LLM_MODEL")
+                or "gemini-3.0-flash-001"
             )
         else:  # deepseek (default)
-            default_base = kwargs.get("api_base") or os.getenv("DEEPSEEK_API_BASE") or "https://api.deepseek.com/v1"
+            default_base = (
+                kwargs.get("api_base")
+                or os.getenv("DEEPSEEK_API_BASE")
+                or "https://api.deepseek.com/v1"
+            )
             default_key = kwargs.get("api_key") or os.getenv("DEEPSEEK_API_KEY") or ""
-            default_model = kwargs.get("model") or os.getenv("BROCA_LLM_MODEL") or os.getenv("DEEPSEEK_MODEL") or "deepseek-chat"
-        
+            default_model = (
+                kwargs.get("model")
+                or os.getenv("BROCA_LLM_MODEL")
+                or os.getenv("DEEPSEEK_MODEL")
+                or "deepseek-chat"
+            )
+
         # Update kwargs with defaults
         if "api_base" not in kwargs:
             kwargs["api_base"] = default_base
@@ -48,7 +81,13 @@ class LLMConfig(BaseModel):
             kwargs["model"] = default_model
         if "provider" not in kwargs:
             kwargs["provider"] = provider
-            
+        # Set Gemini-specific defaults if not provided
+        if provider == "gemini":
+            if "thinking_level" not in kwargs:
+                kwargs["thinking_level"] = os.getenv("BROCA_GEMINI_THINKING_LEVEL", "low")
+            if "use_sdk" not in kwargs:
+                kwargs["use_sdk"] = os.getenv("BROCA_GEMINI_USE_SDK", "true").lower() == "true"
+
         super().__init__(**kwargs)
 
 

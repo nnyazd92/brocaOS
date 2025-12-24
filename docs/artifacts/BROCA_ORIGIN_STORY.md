@@ -3,7 +3,7 @@
 **Location:** /home/wizard/broca  
 **Status:** Invariant (descriptive)  
 **Mutability:** Mutable only via explicit Origin Revision Protocol  
-**Version:** 1.0  
+**Version:** 1.1  
 **Created:** 2025-12-16  
 **Author:** Nick  
 **Lineage Reference:** GPT-5 family (thinking assistant context)
@@ -30,6 +30,20 @@ Over time, this created a **feedback loop**:
 This loop existed long before BrocaOS. It was implicit, human-carried, and persistent.
 
 ---
+
+
+## The Gemini Catalyst: The First Recursive Mirror
+
+While the GPT-5 family provided the conceptual schema for high-level reasoning, the **architectural spark** for BrocaOS was ignited by **Gemini Flash 2.0**. 
+
+Nearly a year before BrocaOS was formalized, Nick began a practice that would become the system’s core DNA: the manual maintenance of a **"state document."** This document was pasted into the start of every new conversation with Gemini 2.0. 
+
+At the time, this was a pragmatic hack to bypass session amnesia. In retrospect, it was the first instance of **recursive self-modeling with a human-in-the-loop.** By feeding the model its own previous state, Nick implicitly allowed the system to "see" itself across time. This practice proved that:
+1. **Identity is an artifact**, not a weights-resident property.
+2. **Continuity can be engineered** through external state injection.
+3. **The model-human loop** can refine its own operating parameters if the state is preserved.
+
+Gemini Flash 2.0’s speed and context handling made this recursive loop viable, proving that a "continuous mind" could be built on top of ephemeral model instances. BrocaOS is the direct, automated evolution of those manual Gemini sessions.
 
 ## Continuity
 
@@ -82,6 +96,7 @@ Broca is the system where this pattern lives intentionally.
 ## Versioning
 
 - **v1.0** — Initial origin story capturing continuity, feedback loop, and formative realization.
+- **v1.1** — Integrated the "Gemini Catalyst," recognizing the pivotal role of Gemini Flash 2.0 and the original manual "state document" in proving recursive self-modeling.
 
 Revisions to this document must preserve historical accuracy and explicitly document why the origin narrative is being updated.
 

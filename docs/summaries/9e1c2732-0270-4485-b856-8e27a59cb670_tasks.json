@@ -1,0 +1,35 @@
+{
+  "tasks": [
+    {
+      "id": "task_gemini_client_impl",
+      "description": "Implement GeminiClient in broca/llm/gemini_clien...",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_75647310af59497c93b24fcd6c61a4cf",
+        "evt_ff629860ae0e4d6dbe22ab7877800054",
+        "evt_223c36f5f13b4a80a84b5c67ff8145e8",
+        "evt_ff629860ae0e4d6dbe22ab7877800054",
+        "evt_223c36f5f13b4a80a84b5c67ff8145e8",
+        "evt_e8542af975634f0898d7ce59d27a9824"
+      ],
+      "created_at": "2025-12-24T01:15:29.573116+00:00"
+    },
+    {
+      "id": "task_llmconfig_gemini_support",
+      "description": "Extend LLMConfig in broca/config.py to cleanly support gemin...",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_e90c55a8ce6640a4b5870611fb158b56",
+        "evt_9f1fd683108f4af4800d879a19d75177",
+        "evt_194aa15126344378bd55e0f8ec49ce07",
+        "evt_9f1fd683108f4af4800d879a19d75177",
+        "evt_e2c4aa2068cf4b7eb61c430b00f80535"
+      ],
+      "created_at": "2025-12-24T01:15:29.573168+00:00"
+    }
+  ]
+}

@@ -33,6 +33,7 @@ class LLMLike(Protocol):
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         reasoning_content: Optional[str] = None,
+        thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
         ...
 
@@ -85,6 +86,7 @@ class CachedLLMClient:
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]],
         temperature: Optional[float],
+        thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
         # Aggregate world state if available
         world_state: Dict[str, Any] = {}
@@ -107,6 +109,7 @@ class CachedLLMClient:
             "tools_hash": _hash_tools(tools),
             "params": {
                 "temperature": temperature,
+                "thought_signature": thought_signature,
             },
         }
 
@@ -124,8 +127,11 @@ class CachedLLMClient:
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         reasoning_content: Optional[str] = None,
+        thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
-        descriptor = self._build_descriptor(messages, tools=tools, temperature=temperature)
+        descriptor = self._build_descriptor(
+            messages, tools=tools, temperature=temperature, thought_signature=thought_signature
+        )
         key_json = json.dumps(descriptor, sort_keys=True, separators=(",", ":"))
         cache_key = hashlib.sha256(key_json.encode("utf-8")).hexdigest()
 
@@ -147,6 +153,7 @@ class CachedLLMClient:
             temperature=temperature,
             tools=tools,
             reasoning_content=reasoning_content,
+            thought_signature=thought_signature,
         )
 
         store_cached_response(

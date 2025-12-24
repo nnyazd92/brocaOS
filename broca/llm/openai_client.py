@@ -43,6 +43,7 @@ class OpenAIClient:
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         reasoning_content: Optional[str] = None,
+        thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Send a chat completion request and return the raw JSON response.
@@ -135,6 +136,7 @@ class OpenAIClient:
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         reasoning_content: Optional[str] = None,
+        thought_signature: Optional[str] = None,
     ) -> Iterator[str]:
         """
         Stream chat completion, yielding text chunks as they arrive.

@@ -1,1 +1,2 @@
-SHUTDOWN 2025-12-23T23:39:32.007754Z session_id=session-2025-12-23T23-39-32.007754Z
+Shutdown completed at 2025-12-24T01:16:09Z UTC
+Session summary: docs/summaries/session-2025-12-24T01:16:09Z.json
