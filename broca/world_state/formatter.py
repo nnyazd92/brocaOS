@@ -26,8 +26,12 @@ class WorldStateFormatter:
         Initialize formatter.
         
         Args:
-            max_length: Optional maximum length for formatted output (None = no limit)
+            max_length: Optional maximum length for formatted output.
+                       If None, uses config.storage.max_world_state_size
         """
+        if max_length is None:
+            from ..config import config
+            max_length = config.storage.max_world_state_size
         self.max_length = max_length
         logger.debug(f"Initialized WorldStateFormatter (max_length={max_length})")
     

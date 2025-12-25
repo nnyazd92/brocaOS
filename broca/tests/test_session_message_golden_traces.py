@@ -233,10 +233,12 @@ class TestGoldenTraceReplay:
         # Test filtering with summarization
         with patch.object(session, '_summarization_manager') as mock_mgr:
             mock_mgr.summary_storage.load_session_summary.return_value = {"summary": "test"}
-            with patch('broca.repl.session.config') as mock_config:
-                mock_config.summarization.last_turns_count = 2
-                mock_config.llm.max_context_tokens = 100000
-                mock_config.summarization.max_tool_result_size = 1000
+            from broca.config import config
+            with patch.object(config, 'summarization') as mock_summarization:
+                with patch.object(config, 'llm') as mock_llm:
+                    type(mock_summarization).last_turns_count = 2
+                    type(mock_llm).max_context_tokens = 100000
+                    type(mock_summarization).max_tool_result_size = 1000
                 
                 filtered = session._get_messages_for_llm()
                 is_valid_filtered, error_filtered = session._validate_message_ordering(filtered)
@@ -282,10 +284,12 @@ class TestGoldenTraceReplay:
         # This should remove the old tool call sequence
         with patch.object(session, '_summarization_manager') as mock_mgr:
             mock_mgr.summary_storage.load_session_summary.return_value = {"summary": "test"}
-            with patch('broca.repl.session.config') as mock_config:
-                mock_config.summarization.last_turns_count = 1
-                mock_config.llm.max_context_tokens = 100000
-                mock_config.summarization.max_tool_result_size = 1000
+            from broca.config import config
+            with patch.object(config, 'summarization') as mock_summarization:
+                with patch.object(config, 'llm') as mock_llm:
+                    type(mock_summarization).last_turns_count = 1
+                    type(mock_llm).max_context_tokens = 100000
+                    type(mock_summarization).max_tool_result_size = 1000
                 
                 filtered = session._get_messages_for_llm()
                 

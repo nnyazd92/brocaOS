@@ -103,6 +103,9 @@ class StorageConfig(BaseModel):
     storage_type: str = os.getenv("BROCA_STORAGE_TYPE", "json")
     storage_path: str = os.getenv("BROCA_STORAGE_PATH", "conversations")
     base_system_prompt: str = os.getenv("BROCA_BASE_SYSTEM_PROMPT", "")
+    max_system_prompt_size: int = int(os.getenv("BROCA_MAX_SYSTEM_PROMPT_SIZE", str(50 * 1024)))  # Default 50KB
+    max_world_state_size: int = int(os.getenv("BROCA_MAX_WORLD_STATE_SIZE", str(30 * 1024)))  # Default 30KB
+    max_summary_context_size: int = int(os.getenv("BROCA_MAX_SUMMARY_CONTEXT_SIZE", str(15 * 1024)))  # Default 15KB
 
 
 class ToolsConfig(BaseModel):

@@ -26,6 +26,8 @@ class TestEndToEndDataFlow:
         Rationale: Ensures complete data flow works end-to-end.
         """
         mock_llm = Mock()
+        # Mock chat_stream to return an empty iterator (no streaming)
+        mock_llm.chat_stream.return_value = iter([])
         mock_llm.chat.return_value = build_llm_response("This is a confident response about mathematics.")
         mock_llm.extract_assistant_content.return_value = "This is a confident response about mathematics."
         mock_llm.extract_tool_calls.return_value = []

@@ -62,6 +62,7 @@ class PromptBuilder:
             
         Returns:
             Context string to include in prompt (summary context, not including base system prompt)
+            Truncated to max_summary_context_size if needed.
         """
         parts = []
         
@@ -86,7 +87,30 @@ class PromptBuilder:
         # Note: Last K turns are handled separately by filtering messages before LLM call
         # They are not included in the system prompt context to keep it focused on summaries
         
-        return "\n\n".join(parts)
+        result = "\n\n".join(parts)
+        
+        # Apply size limit
+        max_size = config.storage.max_summary_context_size
+        original_size = len(result)
+        if original_size > max_size:
+            # Truncate from the end, preserving structure
+            truncated = result[:max_size]
+            # Try to truncate at a section boundary
+            last_section = truncated.rfind("##")
+            if last_section > max_size * 0.7:  # Only if we're keeping most of it
+                truncated = truncated[:last_section].rstrip()
+            else:
+                # Truncate at last newline
+                last_newline = truncated.rfind("\n")
+                if last_newline > max_size * 0.8:
+                    truncated = truncated[:last_newline]
+            result = truncated + "\n\n[Summary context truncated due to size limit]"
+            logger.warning(
+                f"Summary context truncated from {original_size} to {len(result)} characters "
+                f"(limit: {max_size})"
+            )
+        
+        return result
     
     def _format_summary(self, summary: SessionSummary) -> str:
         """Format session summary for prompt."""

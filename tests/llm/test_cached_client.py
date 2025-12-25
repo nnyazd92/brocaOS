@@ -19,6 +19,7 @@ class FakeLLM:
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         reasoning_content: Optional[str] = None,
+        thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
         self.call_count += 1
         self._last_request = {

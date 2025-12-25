@@ -34,7 +34,13 @@ def session(mock_llm_client):
 message_role = st.sampled_from(["system", "user", "assistant", "tool"])
 
 # Strategy for generating tool call IDs
-tool_call_id_strategy = st.text(min_size=1, max_size=20, alphabet=st.characters(whitespace=False))
+# Note: Hypothesis API changed - use characters() without whitespace parameter
+# Filter whitespace manually or use a different approach
+tool_call_id_strategy = st.text(
+    min_size=1, 
+    max_size=20, 
+    alphabet=st.characters(min_codepoint=33, max_codepoint=126)  # Printable ASCII excluding space
+)
 
 
 def create_valid_tool_call_sequence(min_tool_calls: int = 1, max_tool_calls: int = 3) -> st.SearchStrategy:

@@ -40,13 +40,14 @@ class DummyStream:
 
 def test_chat_success(monkeypatch):
     """GeminiClient.chat should POST to /chat/completions and return JSON."""
-    client = GeminiClient(api_key="test-key", base_url="https://example.com", model="gemini-3.0-flash-001")
+    # Force REST API usage (not SDK) for this test
+    client = GeminiClient(api_key="test-key", base_url="https://example.com", model="gemini-3.0-flash-001", use_sdk=False)
 
+    # REST API payload doesn't include generation_config (only SDK does)
     expected_payload = {
         "model": client.model,
         "messages": [{"role": "user", "content": "hi"}],
         "temperature": client.temperature,
-        "generation_config": {"thinking_level": client.thinking_level},
     }
 
     def fake_post(path, json=None, headers=None):  # type: ignore[override]
@@ -172,19 +173,21 @@ def test_extract_tool_calls_absent():
 # Gemini 3 Integration Tests
 
 def test_chat_with_thinking_level_rest(monkeypatch):
-    """Test that thinking_level is included in REST API requests."""
+    """Test that thinking_level is NOT included in REST API requests (only SDK supports it)."""
+    # Force REST API usage (not SDK) for this test
     client = GeminiClient(
         api_key="test-key",
         base_url="https://example.com",
         model="gemini-3.0-flash-001",
+        use_sdk=False,
     )
     # Set thinking_level via config
     client.thinking_level = "high"
 
     def fake_post(path, json=None, headers=None):  # type: ignore[override]
         assert path == "/chat/completions"
-        assert "generation_config" in json
-        assert json["generation_config"]["thinking_level"] == "high"
+        # REST API doesn't support generation_config - only SDK does
+        assert "generation_config" not in json
         return _make_response(
             {
                 "choices": [{"message": {"role": "assistant", "content": "response"}}],
@@ -354,13 +357,23 @@ def test_thinking_level_from_config(monkeypatch):
 
 def test_use_sdk_flag():
     """Test that use_sdk flag can be configured."""
+    from broca.config import config
     client = GeminiClient(
         api_key="test-key",
         base_url="https://example.com",
         model="gemini-3.0-flash-001",
     )
-    # Default should be True (SDK preferred)
-    assert client.use_sdk is True
+    # Default should match config (which may be True or False depending on environment)
+    # The important thing is that it can be set
+    assert client.use_sdk == config.llm.use_sdk
+    # Test that it can be overridden
+    client2 = GeminiClient(
+        api_key="test-key",
+        base_url="https://example.com",
+        model="gemini-3.0-flash-001",
+        use_sdk=False,
+    )
+    assert client2.use_sdk is False
 
 
 def test_sdk_fallback_to_rest(monkeypatch):

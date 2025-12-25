@@ -17,8 +17,14 @@ except ImportError:
     OpenAI = None  # type: ignore
 
 from ..config import config
+from ..summarization.token_estimator import estimate_tokens
 
 logger = logging.getLogger(__name__)
+
+# Maximum tokens for embedding models (OpenAI embeddings typically support 8192 tokens)
+# Using ~4 chars per token, that's approximately 32768 characters
+DEFAULT_EMBEDDING_MAX_TOKENS = 8192
+DEFAULT_EMBEDDING_MAX_CHARS = DEFAULT_EMBEDDING_MAX_TOKENS * 4  # ~32768 chars
 
 
 class EmbeddingService:
@@ -119,10 +125,54 @@ class EmbeddingService:
             base_url=self.base_url
         )
         
+        # Maximum context length for embedding models
+        # Most embedding models support 8192 tokens (~32768 chars)
+        self.max_tokens = DEFAULT_EMBEDDING_MAX_TOKENS
+        self.max_chars = DEFAULT_EMBEDDING_MAX_CHARS
+        
         logger.info(
             f"Initialized EmbeddingService with model: {self.model}, "
-            f"API: {self.base_url}, dimension: {self.dimension}"
+            f"API: {self.base_url}, dimension: {self.dimension}, "
+            f"max_tokens: {self.max_tokens}"
         )
+    
+    def _truncate_text_for_embedding(self, text: str) -> str:
+        """
+        Truncate text to fit within embedding model token limits.
+        
+        Uses character-based approximation to estimate tokens and truncates
+        if text exceeds the maximum allowed tokens.
+        
+        Args:
+            text: Text to potentially truncate
+            
+        Returns:
+            Truncated text if needed, otherwise original text
+        """
+        # Estimate tokens using character-based approximation
+        estimated_tokens = estimate_tokens(text)
+        
+        if estimated_tokens <= self.max_tokens:
+            return text
+        
+        # Text exceeds limit - truncate to max_chars
+        # Use character-based truncation for simplicity and performance
+        original_length = len(text)
+        truncated_text = text[:self.max_chars]
+        
+        logger.warning(
+            f"Text exceeds embedding token limit ({estimated_tokens} > {self.max_tokens} tokens). "
+            f"Truncating from {original_length} to {len(truncated_text)} characters.",
+            extra={
+                "event": "embedding_text_truncated",
+                "original_length": original_length,
+                "truncated_length": len(truncated_text),
+                "estimated_tokens": estimated_tokens,
+                "max_tokens": self.max_tokens,
+            }
+        )
+        
+        return truncated_text
     
     def generate_embedding(self, text: str) -> List[float]:
         """
@@ -141,12 +191,15 @@ class EmbeddingService:
         if not text or not text.strip():
             raise ValueError("Text cannot be empty")
         
+        # Truncate text if it exceeds token limits
+        text_to_embed = self._truncate_text_for_embedding(text.strip())
+        
         try:
-            logger.debug(f"Generating embedding for text (length: {len(text)})")
+            logger.debug(f"Generating embedding for text (length: {len(text_to_embed)})")
             
             response = self._client.embeddings.create(
                 model=self.model,
-                input=text.strip()
+                input=text_to_embed
             )
             
             # Extract embedding vector
@@ -176,8 +229,8 @@ class EmbeddingService:
         if not texts:
             raise ValueError("Texts list cannot be empty")
         
-        # Filter out empty texts
-        valid_texts = [t.strip() for t in texts if t and t.strip()]
+        # Filter out empty texts and truncate each if needed
+        valid_texts = [self._truncate_text_for_embedding(t.strip()) for t in texts if t and t.strip()]
         if not valid_texts:
             raise ValueError("No valid texts provided")
         

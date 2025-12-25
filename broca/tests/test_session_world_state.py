@@ -206,6 +206,8 @@ class TestSessionWorldState:
         
         # Reset and manually remove system message to test creation
         session.messages = []
+        # Reset hash so update will proceed
+        session._last_world_state_hash = None
         mock_world_state_aggregator.aggregate.reset_mock()
         
         # Call update method

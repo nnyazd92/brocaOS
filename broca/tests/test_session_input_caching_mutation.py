@@ -86,10 +86,13 @@ class TestMutationKillers:
             llm=mock_llm_client,
             world_state_aggregator=mock_world_state_aggregator
         )
+        # Note: _update_system_prompt() is called in __init__ if world_state_aggregator is available
+        # So hash may already be set. Reset it for this test to verify update sets it.
+        session._last_world_state_hash = None
         session._world_state_formatter = mock_world_state_formatter
         
-        # Initial state - hash should be None
-        assert not hasattr(session, '_last_world_state_hash') or session._last_world_state_hash is None
+        # Initial state (after reset) - hash should be None
+        assert session._last_world_state_hash is None
         
         # Update - hash should be set
         session._update_system_prompt()

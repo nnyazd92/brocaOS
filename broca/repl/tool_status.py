@@ -514,7 +514,13 @@ class ToolStatusDisplay:
                 return
             
             # Verify terminal is a TTY before using carriage return
-            if not sys.stdout.isatty():
+            # Check hasattr first to handle cases where stdout might not have isatty
+            # Use try/except to handle cases where isatty might raise or return unexpected values
+            try:
+                is_tty = hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+            except (AttributeError, TypeError):
+                is_tty = False
+            if not is_tty:
                 return
             
             # If output is captured and this is an intermediate animation update,

@@ -1,0 +1,2 @@
+{"type": "user_message", "role": "user", "content": "Hello", "sha256": "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969", "event_id": "evt_b352e58ecdb346ab8e7a5572894cfcf1", "ts": "2025-12-25T02:30:53.856487+00:00"}
+{"type": "assistant_message", "role": "assistant", "content": "Response", "sha256": "9061383b8e228ef3ac36ddc06d128d0fc5c93edf924cefb5a65392f6104798bd", "event_id": "evt_f32ce25774f247f9bfa6e8b019cd6e59", "ts": "2025-12-25T02:30:53.858381+00:00"}

@@ -58,9 +58,11 @@ class TestWorldStateFormatter:
     
     def test_init_default(self):
         """Test initializing formatter with default settings."""
+        from broca.config import config
         formatter = WorldStateFormatter()
         
-        assert formatter.max_length is None
+        # Default now uses config value instead of None
+        assert formatter.max_length == config.storage.max_world_state_size
     
     def test_init_with_max_length(self):
         """Test initializing formatter with max length."""

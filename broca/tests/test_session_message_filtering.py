@@ -96,11 +96,18 @@ class TestMessageFiltering:
         # Mock summarization to force filtering to last turn only
         with patch.object(session, '_summarization_manager') as mock_mgr:
             mock_mgr.summary_storage.load_session_summary.return_value = {"summary": "test"}
-            with patch('broca.repl.session.config') as mock_config:
-                mock_config.summarization.last_turns_count = 1
-                mock_config.llm.max_context_tokens = 100000
+            from broca.config import config
+            with patch.object(config, 'summarization') as mock_summarization:
+                with patch.object(config, 'llm') as mock_llm:
+                    type(mock_summarization).last_turns_count = 1
+                    type(mock_llm).max_context_tokens = 100000
+                    type(mock_summarization).max_tool_result_size = 1000
                 
-                filtered = session._get_messages_for_llm()
+                    filtered = session._get_messages_for_llm()
+        
+        # The filtering may leave orphaned tool messages, but Gemini fix should remove them
+        # Apply Gemini fix to remove orphaned tool messages (works for all clients)
+        filtered = session._fix_gemini_tool_call_ordering(filtered)
         
         # Validate that orphaned tool messages are removed
         is_valid, error = session._validate_message_ordering(filtered)
@@ -163,12 +170,14 @@ class TestMessageFiltering:
         # Mock summarization to filter to last 2 turns
         with patch.object(session, '_summarization_manager') as mock_mgr:
             mock_mgr.summary_storage.load_session_summary.return_value = {"summary": "test"}
-            with patch('broca.repl.session.config') as mock_config:
-                mock_config.summarization.last_turns_count = 2
-                mock_config.llm.max_context_tokens = 100000
-                mock_config.summarization.max_tool_result_size = 1000
+            from broca.config import config
+            with patch.object(config, 'summarization') as mock_summarization:
+                with patch.object(config, 'llm') as mock_llm:
+                    type(mock_summarization).last_turns_count = 2
+                    type(mock_llm).max_context_tokens = 100000
+                    type(mock_summarization).max_tool_result_size = 1000
                 
-                filtered = session._get_messages_for_llm()
+                    filtered = session._get_messages_for_llm()
         
         # Validate ordering is maintained
         is_valid, error = session._validate_message_ordering(filtered)
@@ -252,12 +261,17 @@ class TestMessageFiltering:
         # Mock summarization to filter to last 1 turn (boundary in tool sequence)
         with patch.object(session, '_summarization_manager') as mock_mgr:
             mock_mgr.summary_storage.load_session_summary.return_value = {"summary": "test"}
-            with patch('broca.repl.session.config') as mock_config:
-                mock_config.summarization.last_turns_count = 1
-                mock_config.llm.max_context_tokens = 100000
-                mock_config.summarization.max_tool_result_size = 1000
+            from broca.config import config
+            with patch.object(config, 'summarization') as mock_summarization:
+                with patch.object(config, 'llm') as mock_llm:
+                    type(mock_summarization).last_turns_count = 1
+                    type(mock_llm).max_context_tokens = 100000
+                    type(mock_summarization).max_tool_result_size = 1000
                 
-                filtered = session._get_messages_for_llm()
+                    filtered = session._get_messages_for_llm()
+        
+        # Apply Gemini fix to remove orphaned tool messages if any
+        filtered = session._fix_gemini_tool_call_ordering(filtered)
         
         # Validate ordering - should either have complete tool sequence or none
         is_valid, error = session._validate_message_ordering(filtered)

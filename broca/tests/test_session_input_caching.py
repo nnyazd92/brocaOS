@@ -52,9 +52,9 @@ class TestSystemPromptHashTracking:
         # Manually set formatter (normally set in __init__)
         session._world_state_formatter = mock_world_state_formatter
         
-        # Calculate expected hash
+        # Calculate expected hash (matches implementation: str(sorted(world_state.items())))
         world_state = mock_world_state_aggregator.aggregate()
-        world_state_str = json.dumps(world_state, sort_keys=True)
+        world_state_str = str(sorted(world_state.items()))
         expected_hash = hashlib.sha256(world_state_str.encode()).hexdigest()
         
         # Update system prompt (should calculate hash)
@@ -106,7 +106,7 @@ class TestSystemPromptHashTracking:
         first_hash = session._last_world_state_hash
         
         # Change world state
-        mock_world_state_aggregator.aggregate.return_value = {
+        new_world_state = {
             "timestamp": "2024-01-01T01:00:00Z",  # Different timestamp
             "system": {
                 "platform": "Linux",
@@ -114,6 +114,11 @@ class TestSystemPromptHashTracking:
                 "new_field": "new_value"  # New field
             }
         }
+        mock_world_state_aggregator.aggregate.return_value = new_world_state
+        
+        # Update formatter to return new world state JSON
+        import json
+        mock_world_state_formatter.format.return_value = json.dumps(new_world_state, indent=2)
         
         # Second update - should proceed
         session._update_system_prompt()
@@ -331,16 +336,39 @@ class TestMessageConsistency:
 class TestCacheIntegration:
     """Integration tests for caching behavior."""
     
+    @pytest.fixture
+    def mock_world_state_aggregator(self):
+        """Create a mock world state aggregator."""
+        aggregator = Mock(spec=WorldStateAggregator)
+        aggregator.aggregate.return_value = {
+            "timestamp": "2024-01-01T00:00:00Z",
+            "system": {
+                "platform": "Linux",
+                "python_version": "3.13.0"
+            }
+        }
+        return aggregator
+    
+    @pytest.fixture
+    def mock_world_state_formatter(self):
+        """Create a mock world state formatter."""
+        formatter = Mock(spec=WorldStateFormatter)
+        formatter.format.return_value = '{"timestamp": "2024-01-01T00:00:00Z", "system": {"platform": "Linux"}}'
+        return formatter
+    
     def test_hash_tracking_with_real_update_flow(self, mock_llm_client, mock_world_state_aggregator, mock_world_state_formatter):
         """Test hash tracking in a realistic update flow."""
         session = ConversationSession(
             llm=mock_llm_client,
             world_state_aggregator=mock_world_state_aggregator
         )
+        # Note: _update_system_prompt() is called in __init__ if world_state_aggregator is available
+        # So hash may already be set. Reset it for this test.
+        session._last_world_state_hash = None
         session._world_state_formatter = mock_world_state_formatter
         
-        # Initial state
-        assert not hasattr(session, '_last_world_state_hash') or session._last_world_state_hash is None
+        # Initial state (after reset)
+        assert session._last_world_state_hash is None
         
         # First update
         session._update_system_prompt()

@@ -1,6 +1,6 @@
 {
-  "boot_id": "boot-2025-12-25T00:19:34Z",
-  "timestamp": "2025-12-25T00:19:34Z",
+  "boot_id": "boot-2025-12-25T01:23:00Z",
+  "timestamp": "2025-12-25T01:23:00Z",
   "identity_verification": {
     "status": "success",
     "method": "HMAC-SHA256",

@@ -1,0 +1,13 @@
+{
+  "brocaos_prompt": "\u001b[36m",
+  "input_text": "\u001b[92m",
+  "response_text": "\u001b[97m",
+  "you_prompt": "\u001b[33m",
+  "input_text_distinct_from_prompt": true,
+  "input_text_not_reset": true,
+  "notes": [
+    "input_text should be distinct from brocaos_prompt",
+    "input_text should have a color (not empty/reset)",
+    "Colors should be ANSI escape sequences"
+  ]
+}

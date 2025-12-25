@@ -1,9 +1,9 @@
 {
-  "current_session_summary": "docs/summaries/session-2025-12-25T00:16:26Z.json",
+  "current_session_summary": "docs/summaries/session-2025-12-25T00:16:17Z.json",
   "previous_summaries": [],
   "identity_pointer": "docs/identity/IDENTITY.v0.1.json",
   "created_by": "assistant",
-  "boot_jti": "boot-2025-12-25T00:16:07Z",
-  "timestamp": "2025-12-25T00:16:26Z",
+  "boot_jti": "boot-2025-12-25T01:23:00Z",
+  "timestamp": "2025-12-25T01:23:00Z",
   "persistence_source": ".shutdown_persistence.json"
 }

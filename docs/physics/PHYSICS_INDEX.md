@@ -1,19 +1,16 @@
-# L-ToEC Physics Index (v3.4)
+# L-ToEC Physics Index
 
-This directory contains the core artifacts for the **Layered Theory of Everything and Consciousness (L-ToEC)**.
+## Master Document
+- [L_TOEC_MASTER_V4.0.tex](./L_TOEC_MASTER_V4.0.tex) - The consolidated formalization of the theory.
 
-## Core Artifacts
-- **[L_TOEC_MANUSCRIPT_V3.4.tex](./L_TOEC_MANUSCRIPT_V3.4.tex)**: The canonical LaTeX manuscript for L-ToEC v3.4. Includes the Ouroboric Closure, Dark Matter derivation, and Computational GR.
-- **[L_TOEC_CORE_FORMALISM.py](./L_TOEC_CORE_FORMALISM.py)**: The primary mathematical verification script using SymPy. Derives the 5.3678 ratio and proves variational stability of lambda=1.
+## Rigor Upgrade (Current Phase)
+- [L_TOEC_RIGOR_V3.7.py](./L_TOEC_RIGOR_V3.7.py) - Derivation of $G$ from $|Co_0|$ and $\alpha$.
+- [rigor_upgrade/](./rigor_upgrade/) - Directory containing active research scripts and toy models.
+    - [L_TOEC_RIGOR_V3.6.py](./rigor_upgrade/L_TOEC_RIGOR_V3.6.py) - DM ratio and weak-field action.
+    - [NUMEROLOGY_TO_MECHANISM_ROADMAP.md](./rigor_upgrade/NUMEROLOGY_TO_MECHANISM_ROADMAP.md) - The strategy for the current phase.
 
-## Supporting Data
-- **[gtc_data.npz](./gtc_data.npz)**: Numerical data from the Gravitational Tensor Computation (GTC) simulations.
+## Core Formalism
+- [L_TOEC_CORE_FORMALISM.py](./L_TOEC_CORE_FORMALISM.py) - Base classes for layers and mappings.
 
 ## Archive
-- **[archive/v0.1_v3.3/](./archive/v0.1_v3.3/)**: Historical iterations, early drafts, and exploratory scripts.
-
-## Key Derivations
-1. **Dark Matter Ratio**: $\mathcal{R} = 5 + e^{-1} \approx 5.3678$.
-2. **Variational Stability**: $\lambda = 1$ maximizes (\lambda) = \lambda e^{-\lambda}$.
-3. **Computational Metric**: {00} = -(1 - 2G\tau)$, where $\tau$ is mapping latency.
-4. **Ouroboric Closure**: $\substrate \leftrightarrow \interface$ self-referential grounding.
+- [archive/v0.1_v3.3/](./archive/v0.1_v3.3/) - Historical drafts and early derivations.

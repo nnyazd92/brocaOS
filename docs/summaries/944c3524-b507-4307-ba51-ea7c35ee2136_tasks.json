@@ -1,0 +1,43 @@
+{
+  "tasks": [
+    {
+      "id": "recover_session",
+      "description": "Recover system state and interrupted work after ungraceful session termination.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_ed8d605cd4354cdaa019ecfcf1930514",
+        "evt_e6eb43709e2c4a6e8679d6a897e5a910"
+      ],
+      "created_at": "2025-12-25T02:27:27.556924+00:00"
+    },
+    {
+      "id": "repo_hygiene",
+      "description": "Clean project root and move patch scripts to /home/wizard/broca.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_f77c7a43b82747719e2905c81c93393a",
+        "evt_543ceba15f6e4370993b2254dc553dae",
+        "evt_136176a86ea045edb3ed7509830efeea"
+      ],
+      "created_at": "2025-12-25T02:27:27.556970+00:00"
+    },
+    {
+      "id": "apply_rigor_pivot",
+      "description": "Update manuscript with Symbol Table, Dimensional Bridge, and Symbol Splitting.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_3f0bb4190cc44fea9021fb78c06220ee",
+        "evt_c5ab78dcd67646438cecf98f6fb0a622",
+        "evt_ac071605b2844503984255d9b5e2336a",
+        "evt_e7233f8a2a75454bb77a6341d36e9357"
+      ],
+      "created_at": "2025-12-25T02:27:27.556987+00:00"
+    }
+  ]
+}

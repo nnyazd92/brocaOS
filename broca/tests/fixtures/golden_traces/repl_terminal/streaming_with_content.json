@@ -1,0 +1,10 @@
+{
+  "has_brocaos_prompt": true,
+  "has_content": true,
+  "no_empty_prompt": true,
+  "notes": [
+    "Prompt should only appear when content is streamed",
+    "No empty 'BrocaOS> ' lines should be printed",
+    "Content chunks should be printed after prompt"
+  ]
+}

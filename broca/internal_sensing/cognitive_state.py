@@ -152,7 +152,11 @@ class CognitiveStateMonitor:
         if len(self._reasoning_steps) > 50:
             self._reasoning_steps = self._reasoning_steps[-50:]
         
-        self._update_coherence()
+        # Only update coherence if we have at least 2 steps
+        if len(self._reasoning_steps) >= 2:
+            self._update_coherence()
+        else:
+            self.states["conceptual_coherence"] = None
     
     
     def _update_coherence(self) -> None:

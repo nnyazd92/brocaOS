@@ -766,6 +766,18 @@ class TestPhysiologyHealthAggregation:
     def mock_internal_sensing(self):
         """Create a mock internal sensing framework with computational state."""
         mock = Mock(spec=InternalSensingFramework)
+        # Mock interoception with all sub-components
+        mock.interoception = Mock()
+        mock.interoception.physiology = Mock()
+        mock.interoception.cognition = Mock()
+        mock.interoception.affect = Mock()
+        mock.interoception.affect.get_motivational_drives.return_value = {}
+        mock.interoception.affect.get_satisfaction_patterns.return_value = []
+        mock.interoception.cognition._get_reasoning_patterns.return_value = []
+        mock.interoception.detect_anomalies.return_value = []
+        mock.interoception.measure_self_awareness_quality.return_value = None
+        mock.interoception.track_interoceptive_accuracy.return_value = {}
+        
         mock.sample_internal_state.return_value = {
             "computational": {
                 "computational_load": 0.09,
@@ -780,6 +792,7 @@ class TestPhysiologyHealthAggregation:
         }
         mock.generate_interoceptive_report.return_value = "Current state: stable"
         mock.get_tool_statistics.return_value = {"memory": 5}
+        mock.extract_behavioral_patterns.return_value = []
         return mock
     
     def test_aggregate_physiology_health(self):

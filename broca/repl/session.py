@@ -468,11 +468,15 @@ class ConversationSession:
                         if prompt_printed:
                             print("", flush=True)  # New line after streaming
                         # If streaming produced no visible content (no chunks or only whitespace),
-                        # normalize assistant_text to None so the response-guard will inject
-                        # a deterministic fallback reply instead of returning an empty string.
+                        # we need to extract from response dict or fall back to non-streaming
                         if chunk_count == 0 or (isinstance(assistant_text, str) and assistant_text.strip() == ""):
+                            # No chunks received - try to extract from response dict if available
+                            # Otherwise, we'll fall back to non-streaming below
                             assistant_text = None
-                        used_streaming = True
+                            # Mark that streaming didn't actually produce content
+                            used_streaming = False
+                        else:
+                            used_streaming = True
                         
                         # If no chunks were received, log a warning
                         if chunk_count == 0 and tools:
@@ -562,6 +566,7 @@ class ConversationSession:
                             }
                         )
                         assistant_text = None  # Reset so it gets extracted from response
+                        used_streaming = False  # Mark that we're not using streaming anymore
                         messages_for_llm = self._get_messages_for_llm()
                         messages_for_llm = self._validate_message_size(messages_for_llm)
                         
@@ -1059,7 +1064,7 @@ class ConversationSession:
 
                                 # Analyze internal thoughts if available
                                 reasoning_content = getattr(self, '_current_reasoning_content', None)
-                                if reasoning_content:
+                                if reasoning_content and isinstance(reasoning_content, str):
                                     thought_metrics = ResponseAnalyzer.analyze_thoughts(reasoning_content)
                                     # Update uncertainty with thought-based analysis
                                     if thought_metrics['uncertainty'] > (uncertainty or 0.0):
@@ -2287,27 +2292,48 @@ class ConversationSession:
         1. Base system prompt (if configured) - user-defined invariants
         2. Session summary context (if summarization enabled) - rolling summary
         3. Formatted world state JSON - dynamic content with consistent structure
+
+        Implements size limits, deduplication, and hash-based change detection
+        to prevent unbounded growth and duplicate content.
         """
         if not self.world_state_aggregator or not self._world_state_formatter:
             return
 
         try:
+            from ..config import config
+            import hashlib
+            
             # Aggregate current world state
             world_state = self.world_state_aggregator.aggregate()
 
-            # Format world state for prompt
+            # Calculate hash of world state to detect changes
+            world_state_str = str(sorted(world_state.items()))
+            world_state_hash = hashlib.sha256(world_state_str.encode()).hexdigest()
+            
+            # Skip update if world state hasn't changed (hash-based change detection)
+            if world_state_hash == self._last_world_state_hash:
+                logger.debug("World state unchanged, skipping system prompt update")
+                return
+            
+            self._last_world_state_hash = world_state_hash
+            self._last_world_state_raw = world_state
+
+            # Format world state for prompt (formatter handles its own size limits)
             formatted_world_state = self._world_state_formatter.format(world_state)
 
             # Combine base prompt, summary context, and world state
             parts = []
-            if self.base_system_prompt:
-                parts.append(self.base_system_prompt)
             
-            # Add summary context if summarization is enabled
+            # 1. Base system prompt (only include once, no duplicates)
+            if self.base_system_prompt:
+                base_prompt = self.base_system_prompt.strip()
+                if base_prompt:
+                    parts.append(base_prompt)
+            
+            # 2. Add summary context if summarization is enabled
             if self._summarization_manager:
                 try:
                     from ..summarization.prompt_builder import PromptBuilder
-                    from ..config import config
                     
                     prompt_builder = PromptBuilder(
                         summary_storage=self._summarization_manager.summary_storage,
@@ -2320,11 +2346,17 @@ class ConversationSession:
                         system_prompt=None
                     )
                     if summary_context and summary_context.strip():
-                        parts.append(summary_context)
+                        # Deduplicate: check if summary context duplicates base prompt
+                        summary_clean = summary_context.strip()
+                        if not self.base_system_prompt or not self._is_duplicate_content(
+                            summary_clean, self.base_system_prompt
+                        ):
+                            parts.append(summary_context)
                 except Exception as e:
                     logger.debug(f"Failed to add summary context to prompt: {e}", exc_info=True)
             
-            if formatted_world_state:
+            # 3. World state JSON
+            if formatted_world_state and formatted_world_state.strip():
                 parts.append(formatted_world_state)
 
             # Join with double newline if multiple parts exist
@@ -2335,21 +2367,180 @@ class ConversationSession:
             else:
                 complete_prompt = ""
 
-            # Update or create system message
-            if self.messages and self.messages[0].get("role") == "system":
-                # Update existing system message
-                self.messages[0]["content"] = complete_prompt
-            else:
-                # Create new system message at the beginning
-                self.messages.insert(0, {"role": "system", "content": complete_prompt})
+            # Apply overall size limit and truncation if needed
+            max_size = config.storage.max_system_prompt_size
+            original_size = len(complete_prompt)
+            if original_size > max_size:
+                # Truncate intelligently: preserve base prompt if possible, truncate world state
+                if len(parts) > 1:
+                    # Check if base prompt alone exceeds limit
+                    base_prompt_size = len(parts[0]) if parts else 0
+                    if base_prompt_size > max_size:
+                        # Base prompt is too large, truncate it directly
+                        truncated_base = parts[0][:max_size - 50]  # Leave room for truncation message
+                        last_newline = truncated_base.rfind("\n")
+                        if last_newline > (max_size - 50) * 0.8:
+                            truncated_base = truncated_base[:last_newline]
+                        complete_prompt = truncated_base + "\n[System prompt truncated due to size limit]"
+                    else:
+                        # Keep base prompt and summary, truncate world state
+                        base_and_summary = "\n\n".join(parts[:-1])  # All except world state
+                        world_state_part = parts[-1]
+                        available_for_world_state = max_size - len(base_and_summary) - 10  # 10 for separator
+                        
+                        if available_for_world_state > 100:  # Only if we have reasonable space
+                            # Truncate world state JSON
+                            truncated_world_state = world_state_part[:available_for_world_state]
+                            # Try to truncate at a JSON boundary
+                            last_brace = truncated_world_state.rfind("}")
+                            if last_brace > available_for_world_state * 0.8:
+                                truncated_world_state = truncated_world_state[:last_brace + 1]
+                            else:
+                                truncated_world_state = truncated_world_state.rstrip() + '\n}'
+                            truncated_world_state += '\n  "_truncated": true\n}'
+                            complete_prompt = base_and_summary + "\n\n" + truncated_world_state
+                        else:
+                            # Too little space, just keep base and summary
+                            complete_prompt = base_and_summary + "\n\n[World state omitted due to size limit]"
+                else:
+                    # Single part, truncate directly
+                    complete_prompt = complete_prompt[:max_size - 50]  # Leave room for message
+                    # Try to truncate at a reasonable boundary
+                    last_newline = complete_prompt.rfind("\n")
+                    if last_newline > (max_size - 50) * 0.8:
+                        complete_prompt = complete_prompt[:last_newline]
+                    complete_prompt += "\n[System prompt truncated due to size limit]"
+                
+                logger.warning(
+                    f"System prompt truncated from {original_size} to {len(complete_prompt)} characters "
+                    f"(limit: {max_size})"
+                )
 
-            logger.debug("Updated system prompt with current world state and summary context")
+            # Validate: check for duplicate sections within the prompt itself
+            self._validate_system_prompt_for_duplicates(complete_prompt)
+            
+            # Validate: ensure we're not duplicating existing content
+            existing_system_content = None
+            if self.messages and self.messages[0].get("role") == "system":
+                existing_system_content = self.messages[0].get("content", "")
+            
+            # Only update if content actually changed (avoid unnecessary updates)
+            if existing_system_content != complete_prompt:
+                # Update or create system message (always REPLACE, never append)
+                if self.messages and self.messages[0].get("role") == "system":
+                    # Update existing system message
+                    self.messages[0]["content"] = complete_prompt
+                else:
+                    # Create new system message at the beginning
+                    self.messages.insert(0, {"role": "system", "content": complete_prompt})
+
+                # Log system prompt size for monitoring
+                prompt_size = len(complete_prompt)
+                size_kb = prompt_size / 1024
+                max_size_kb = config.storage.max_system_prompt_size / 1024
+                
+                if prompt_size > config.storage.max_system_prompt_size * 0.9:
+                    logger.warning(
+                        f"System prompt size is {size_kb:.1f}KB (90% of {max_size_kb:.1f}KB limit) - "
+                        f"consider reducing content"
+                    )
+                elif prompt_size > config.storage.max_system_prompt_size * 0.7:
+                    logger.info(
+                        f"System prompt size is {size_kb:.1f}KB ({prompt_size / config.storage.max_system_prompt_size * 100:.0f}% of limit)"
+                    )
+                
+                logger.debug(
+                    f"Updated system prompt with current world state and summary context "
+                    f"(size: {prompt_size} chars, {size_kb:.1f}KB)"
+                )
+            else:
+                logger.debug("System prompt content unchanged, skipping update")
 
         except Exception as e:
             logger.warning(
                 f"Error updating system prompt with world state: {e}", exc_info=True
             )
             # Continue with existing system prompt on error
+    
+    def _is_duplicate_content(self, content1: str, content2: str, threshold: float = 0.8) -> bool:
+        """
+        Check if two content strings are duplicates or highly similar.
+        
+        Args:
+            content1: First content string
+            content2: Second content string
+            threshold: Similarity threshold (0.0-1.0) for considering content duplicate
+            
+        Returns:
+            True if content is considered duplicate, False otherwise
+        """
+        if not content1 or not content2:
+            return False
+        
+        # Normalize whitespace
+        norm1 = " ".join(content1.split())
+        norm2 = " ".join(content2.split())
+        
+        # Quick check: exact match after normalization
+        if norm1 == norm2:
+            return True
+        
+        # Check if one is a substring of the other (with threshold)
+        shorter = norm1 if len(norm1) < len(norm2) else norm2
+        longer = norm2 if len(norm1) < len(norm2) else norm1
+        
+        if len(shorter) == 0:
+            return False
+        
+        # If shorter is contained in longer, check overlap ratio
+        if shorter in longer:
+            overlap_ratio = len(shorter) / len(longer) if len(longer) > 0 else 0
+            if overlap_ratio >= threshold:
+                return True
+            # Also check if shorter represents a significant portion of longer
+            # (e.g., "Hello" in "Hello world" with threshold 0.5 should match)
+            if len(shorter) / len(longer) >= threshold:
+                return True
+        
+        return False
+    
+    def _validate_system_prompt_for_duplicates(self, prompt_content: str) -> None:
+        """
+        Validate system prompt for duplicate sections and log warnings.
+        
+        Args:
+            prompt_content: The system prompt content to validate
+        """
+        if not prompt_content:
+            return
+        
+        # Split by double newlines (section separators)
+        sections = [s.strip() for s in prompt_content.split("\n\n") if s.strip()]
+        
+        if len(sections) < 2:
+            return
+        
+        # Check for duplicate sections
+        seen_sections = []
+        duplicates_found = []
+        
+        for i, section in enumerate(sections):
+            # Normalize section for comparison (remove leading markers like "##")
+            normalized = " ".join(section.split())
+            
+            # Check against previously seen sections
+            for j, seen in enumerate(seen_sections):
+                if self._is_duplicate_content(normalized, seen, threshold=0.7):
+                    duplicates_found.append((i, j, section[:100]))  # Store first 100 chars for logging
+                    break
+            
+            seen_sections.append(normalized)
+        
+        if duplicates_found:
+            logger.warning(
+                f"Detected {len(duplicates_found)} potential duplicate section(s) in system prompt. "
+                f"This may indicate content accumulation. Sections: {duplicates_found[:3]}"
+            )
 
     # ---------- Critic enforcement helpers ----------
 
