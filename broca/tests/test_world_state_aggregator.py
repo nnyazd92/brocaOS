@@ -20,10 +20,37 @@ class TestWorldStateAggregator:
     def mock_internal_sensing(self):
         """Create a mock internal sensing framework."""
         mock = Mock(spec=InternalSensingFramework)
+        # Mock interoception with all sub-components
+        mock.interoception = Mock()
+        mock.interoception.physiology = Mock()
+        mock.interoception.cognition = Mock()
+        mock.interoception.affect = Mock()
+        mock.interoception.affect.get_motivational_drives.return_value = {"exploration": 0.7, "completion": 0.5}
+        mock.interoception.affect.get_satisfaction_patterns.return_value = [
+            {"task_id": "task1", "type": "satisfaction", "level": 0.8, "timestamp": 1234567890}
+        ]
+        mock.interoception.cognition._get_reasoning_patterns.return_value = [
+            {"type": "heuristic", "name": "pattern1", "timestamp": 1234567890}
+        ]
+        mock.interoception.detect_anomalies.return_value = [
+            {"type": "cognitive_state_change", "metric": "confidence_level", "change": 0.2}
+        ]
+        mock.interoception.measure_self_awareness_quality.return_value = 0.85
+        mock.interoception.track_interoceptive_accuracy.return_value = {
+            "prediction_accuracy": 0.75,
+            "overall_accuracy": 0.75
+        }
+        
         mock.sample_internal_state.return_value = {
             "computational": {"metrics": {"processing_latency": 0.5}},
             "cognitive": {"metrics": {"confidence": 0.8, "uncertainty": 0.2}},
             "affective": {"valence": 0.6, "arousal": 0.4},
+            "predictive": {
+                "resources": {"cpu_load": 0.3},
+                "cognitive": {"confidence": 0.85},
+                "affective": {"valence": 0.65},
+                "error_probability": 0.1
+            }
         }
         mock.generate_interoceptive_report.return_value = "Current state: stable"
         mock.get_tool_statistics.return_value = {"memory": 5, "terminal": 3}
@@ -114,7 +141,7 @@ class TestWorldStateAggregator:
         assert "tools" not in world_state
     
     def test_get_internal_sensing_state(self, mock_internal_sensing):
-        """Test getting internal sensing state."""
+        """Test getting internal sensing state with all new fields."""
         aggregator = WorldStateAggregator(internal_sensing=mock_internal_sensing)
         
         state = aggregator.get_internal_sensing_state()
@@ -124,12 +151,47 @@ class TestWorldStateAggregator:
         assert "current_state" in state
         assert "interoceptive_report" in state
         assert "tool_statistics" in state
-        # behavioral_patterns should NOT be included
-        assert "behavioral_patterns" not in state
+        
+        # New fields should be included
+        assert "predictive" in state
+        assert "behavioral_patterns" in state
+        assert "anomalies" in state
+        assert "quality_metrics" in state
+        assert "motivational_state" in state
+        assert "reasoning_patterns" in state
+        
+        # Verify predictive data
+        assert state["predictive"]["resources"]["cpu_load"] == 0.3
+        assert state["predictive"]["error_probability"] == 0.1
+        
+        # Verify behavioral patterns
+        assert len(state["behavioral_patterns"]) == 1
+        assert state["behavioral_patterns"][0]["type"] == "tool_usage"
+        
+        # Verify anomalies
+        assert len(state["anomalies"]) == 1
+        assert state["anomalies"][0]["type"] == "cognitive_state_change"
+        
+        # Verify quality metrics
+        assert state["quality_metrics"]["self_awareness_quality"] == 0.85
+        assert "prediction_accuracy" in state["quality_metrics"]["interoceptive_accuracy"]
+        
+        # Verify motivational state
+        assert "drives" in state["motivational_state"]
+        assert state["motivational_state"]["drives"]["exploration"] == 0.7
+        assert "satisfaction_patterns" in state["motivational_state"]
+        
+        # Verify reasoning patterns
+        assert len(state["reasoning_patterns"]) == 1
+        assert state["reasoning_patterns"][0]["type"] == "heuristic"
         
         mock_internal_sensing.sample_internal_state.assert_called_once()
         mock_internal_sensing.generate_interoceptive_report.assert_called_once()
         mock_internal_sensing.get_tool_statistics.assert_called_once()
+        mock_internal_sensing.extract_behavioral_patterns.assert_called_once()
+        mock_internal_sensing.interoception.detect_anomalies.assert_called_once()
+        mock_internal_sensing.interoception.measure_self_awareness_quality.assert_called_once()
+        mock_internal_sensing.interoception.track_interoceptive_accuracy.assert_called_once()
     
     def test_get_internal_sensing_state_none(self):
         """Test getting internal sensing state when not available."""
@@ -237,8 +299,8 @@ class TestWorldStateAggregator:
         assert "internal_state" not in world_state
         assert "project" not in world_state
     
-    def test_aggregate_excludes_behavioral_patterns(self, mock_internal_sensing):
-        """Test that aggregated world state does NOT contain behavioral_patterns."""
+    def test_aggregate_includes_all_internal_sensing_fields(self, mock_internal_sensing):
+        """Test that aggregated world state includes all new internal sensing fields."""
         aggregator = WorldStateAggregator(internal_sensing=mock_internal_sensing)
         
         world_state = aggregator.aggregate()
@@ -247,12 +309,72 @@ class TestWorldStateAggregator:
         assert "internal_state" in world_state
         assert world_state["internal_state"] is not None
         
-        # behavioral_patterns should NOT be in internal_state
         internal_state = world_state["internal_state"]
-        assert "behavioral_patterns" not in internal_state
-        # Other expected fields should still be present
+        
+        # Core fields should be present
         assert "interoceptive_report" in internal_state
         assert "tool_statistics" in internal_state
+        
+        # New fields should be included
+        assert "predictive" in internal_state
+        assert "behavioral_patterns" in internal_state
+        assert "anomalies" in internal_state
+        assert "quality_metrics" in internal_state
+        assert "motivational_state" in internal_state
+        assert "reasoning_patterns" in internal_state
+        
+        # Verify predictive data structure
+        assert "resources" in internal_state["predictive"]
+        assert "error_probability" in internal_state["predictive"]
+        
+        # Verify quality metrics structure
+        assert "self_awareness_quality" in internal_state["quality_metrics"]
+        assert "interoceptive_accuracy" in internal_state["quality_metrics"]
+        
+        # Verify motivational state structure
+        assert "drives" in internal_state["motivational_state"]
+        assert "satisfaction_patterns" in internal_state["motivational_state"]
+    
+    def test_aggregate_omits_empty_internal_sensing_fields(self):
+        """Test that empty internal sensing fields are omitted from world state."""
+        mock_empty = Mock(spec=InternalSensingFramework)
+        mock_empty.interoception = Mock()
+        mock_empty.interoception.physiology = Mock()
+        mock_empty.interoception.cognition = Mock()
+        mock_empty.interoception.affect = Mock()
+        mock_empty.interoception.affect.get_motivational_drives.return_value = {}
+        mock_empty.interoception.affect.get_satisfaction_patterns.return_value = []
+        mock_empty.interoception.cognition._get_reasoning_patterns.return_value = []
+        mock_empty.interoception.detect_anomalies.return_value = []
+        mock_empty.interoception.measure_self_awareness_quality.return_value = None
+        mock_empty.interoception.track_interoceptive_accuracy.return_value = {}
+        
+        mock_empty.sample_internal_state.return_value = {
+            "computational": {"metrics": {"processing_latency": 0.5}},
+            "cognitive": {"metrics": {"confidence": 0.8}},
+            "affective": {"valence": 0.6},
+            # No predictive field
+        }
+        mock_empty.generate_interoceptive_report.return_value = "Current state: stable"
+        mock_empty.get_tool_statistics.return_value = {}
+        mock_empty.extract_behavioral_patterns.return_value = []
+        
+        aggregator = WorldStateAggregator(internal_sensing=mock_empty)
+        world_state = aggregator.aggregate()
+        
+        internal_state = world_state["internal_state"]
+        
+        # Core fields should still be present
+        assert "interoceptive_report" in internal_state
+        assert "tool_statistics" in internal_state
+        
+        # Empty fields should be omitted
+        assert "predictive" not in internal_state
+        assert "behavioral_patterns" not in internal_state
+        assert "anomalies" not in internal_state
+        assert "quality_metrics" not in internal_state
+        assert "motivational_state" not in internal_state
+        assert "reasoning_patterns" not in internal_state
     
     def test_aggregate_includes_valence(self, mock_internal_sensing):
         """Test that valence appears in world state affect section."""

@@ -1,25 +1,28 @@
-# Rehydration Summary v0.3 - session-2025-12-25T04:52:11Z
+# Rehydration Summary v0.3
 
-## Boot Metadata
-- **Timestamp:** 2025-12-24T17:52:19.493948Z
-- **Identity Verification:** SUCCESS (Provenance: BROCA_TOKEN_SECRET)
-- **Persistence Posture:** ENABLED (Actuator: .temporary_token.txt)
+**Boot ID**: boot-2025-12-25T00:19:34Z
+**Timestamp**: 2025-12-25T00:19:34Z
+
+## Identity & Persistence
+- **Identity Verification**: SUCCESS (HMAC-SHA256)
+- **Token Provenance**: .temporary_token.txt
+- **Persistence Posture**: ENABLED
 
 ## Session Continuity
-- **Previous Session:** session-2025-12-24T17:47:21Z
-- **Operator:** Nick Yazdani
-- **Key Actions from Previous Session:**
-  - Refined broca/repl/session.py and broca/summarization/manager.py
-  - Updated test fixtures for session message validation
-  - Deleted legacy root files (AGENTS.md, requirements.txt, setup.cfg)
-  - Initialized docs/physics/ with L-TOE derivation documents
-  - Initialized docs/whitepaper/ with Pitch Deck and Roadmap v1.0
-  - Performed VCS snapshot of all changes
+- **Previous Session**: session-2025-12-25T00:16:17Z
+- **Operator**: Nick Navid Yazdani
+- **Key Actions from Previous Session**:
+  - Formalized ECC (Error Correction Code) Correction for L-ToEC
+  - Derived theoretical Dark Matter to Baryon ratio of 5.3678:1
+  - Updated L_TOEC_MANUSCRIPT.tex to v3.1
+  - Refined Parity Dimension argument
+  - Prepared manuscript for GPT-5.2 Brutal Critic review
 
 ## Next Session Notes
-> Execute governance_demo.py and finalize the 'Cognitive IP' pilot.
+> Initiate GPT-5.2 Brutal Critic review of L_TOEC_MANUSCRIPT.tex v3.1. Iterate based on feedback. Finalize Alpha-Complete status.
 
-## Self-Model
-- **Path:** docs/self_model/SELF_MODEL_CURRENT.json
-- **Version:** 118
-- **Schema:** v2.0.0
+## Artifact Pointers
+- **Identity**: docs/identity/IDENTITY.v0.1.json
+- **Self-Model**: docs/self_model/SELF_MODEL_CURRENT.json
+- **Session Pointer**: docs/artifacts/broca.session.pointer
+- **Memory Graph**: docs/memory/MEMORY_GRAPH_STATE.v0.1.json

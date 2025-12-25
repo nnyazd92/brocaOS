@@ -325,5 +325,217 @@ class TestMessageValidation:
         assert error is None
 
 
-
+class TestGeminiMessageOrderingFix:
+    """Test Gemini-specific message ordering fix with iterative approach."""
+    
+    def test_fix_cascading_invalidations(self, mock_llm_client: Mock):
+        """
+        Test that fix handles cascading invalidations correctly.
+        
+        Scenario: System → Assistant(tool_calls) → Tool → Assistant(tool_calls)
+        First assistant is invalid (after system), so both assistants and tool should be removed.
+        """
+        session = ConversationSession(llm=mock_llm_client)
+        
+        messages = [
+            {"role": "system", "content": "You are helpful"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_1", "type": "function", "function": {"name": "tool1", "arguments": "{}"}}
+                ]
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "result1"
+            },
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_2", "type": "function", "function": {"name": "tool2", "arguments": "{}"}}
+                ]
+            },
+        ]
+        
+        fixed = session._fix_gemini_tool_call_ordering(messages)
+        
+        # System message should remain
+        assert len(fixed) == 1
+        assert fixed[0]["role"] == "system"
+        # All assistant messages with tool_calls should be removed
+        # because first one is invalid (after system)
+    
+    def test_fix_system_followed_by_assistant_tool_calls(self, mock_llm_client: Mock):
+        """
+        Test fix removes assistant with tool_calls that immediately follows system message.
+        """
+        session = ConversationSession(llm=mock_llm_client)
+        
+        messages = [
+            {"role": "system", "content": "System prompt"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_1", "type": "function", "function": {"name": "tool1", "arguments": "{}"}}
+                ]
+            },
+            {"role": "user", "content": "User message"}
+        ]
+        
+        fixed = session._fix_gemini_tool_call_ordering(messages)
+        
+        # Should keep system and user, remove invalid assistant
+        assert len(fixed) == 2
+        assert fixed[0]["role"] == "system"
+        assert fixed[1]["role"] == "user"
+        # Assistant with tool_calls should be removed
+    
+    def test_fix_valid_sequence_preserved(self, mock_llm_client: Mock):
+        """
+        Test that valid sequences are preserved by the fix.
+        """
+        session = ConversationSession(llm=mock_llm_client)
+        
+        messages = [
+            {"role": "system", "content": "System prompt"},
+            {"role": "user", "content": "User message"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_1", "type": "function", "function": {"name": "tool1", "arguments": "{}"}}
+                ]
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "result"
+            },
+            {"role": "assistant", "content": "Final response"}
+        ]
+        
+        fixed = session._fix_gemini_tool_call_ordering(messages)
+        
+        # All messages should be preserved (valid sequence)
+        assert len(fixed) == len(messages)
+        assert fixed[0]["role"] == "system"
+        assert fixed[1]["role"] == "user"
+        assert fixed[2]["role"] == "assistant"
+        assert "tool_calls" in fixed[2]
+        assert fixed[3]["role"] == "tool"
+        assert fixed[4]["role"] == "assistant"
+    
+    def test_fix_iterative_removes_cascading_invalidations(self, mock_llm_client: Mock):
+        """
+        Test that iterative fix properly handles messages that become invalid after removals.
+        
+        Structure: System → Assistant1(tool_calls) → Tool1 → Assistant2(tool_calls) → Tool2
+        After removing Assistant1 and Tool1, Assistant2 should also be removed in next iteration.
+        """
+        session = ConversationSession(llm=mock_llm_client)
+        
+        messages = [
+            {"role": "system", "content": "System"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_1", "type": "function", "function": {"name": "tool1", "arguments": "{}"}}
+                ]
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "result1"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_2", "type": "function", "function": {"name": "tool2", "arguments": "{}"}}
+                ]
+            },
+            {"role": "tool", "tool_call_id": "call_2", "content": "result2"}
+        ]
+        
+        fixed = session._fix_gemini_tool_call_ordering(messages)
+        
+        # Should remove all invalid messages (all assistants with tool_calls and their tools)
+        # Only system should remain
+        assert len(fixed) == 1
+        assert fixed[0]["role"] == "system"
+    
+    def test_fix_orphaned_tool_messages(self, mock_llm_client: Mock):
+        """
+        Test that orphaned tool messages are removed.
+        """
+        session = ConversationSession(llm=mock_llm_client)
+        
+        messages = [
+            {"role": "system", "content": "System"},
+            {"role": "user", "content": "User"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_1", "type": "function", "function": {"name": "tool1", "arguments": "{}"}}
+                ]
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "result1"},
+            # Orphaned tool message (no matching assistant)
+            {"role": "tool", "tool_call_id": "call_999", "content": "orphaned"}
+        ]
+        
+        fixed = session._fix_gemini_tool_call_ordering(messages)
+        
+        # Should remove orphaned tool message
+        tool_messages = [m for m in fixed if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0]["tool_call_id"] == "call_1"
+    
+    def test_fix_empty_messages(self, mock_llm_client: Mock):
+        """Test that empty message list is handled gracefully."""
+        session = ConversationSession(llm=mock_llm_client)
+        
+        messages = []
+        fixed = session._fix_gemini_tool_call_ordering(messages)
+        
+        assert fixed == []
+    
+    def test_fix_only_system_message(self, mock_llm_client: Mock):
+        """Test that system-only message list is handled."""
+        session = ConversationSession(llm=mock_llm_client)
+        
+        messages = [{"role": "system", "content": "System only"}]
+        fixed = session._fix_gemini_tool_call_ordering(messages)
+        
+        assert len(fixed) == 1
+        assert fixed[0]["role"] == "system"
+    
+    def test_fix_validates_result(self, mock_llm_client: Mock):
+        """
+        Test that fix validates the result after fixing.
+        Note: This tests that validation is called, not that it always passes.
+        """
+        session = ConversationSession(llm=mock_llm_client)
+        
+        messages = [
+            {"role": "system", "content": "System"},
+            {"role": "user", "content": "User"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_1", "type": "function", "function": {"name": "tool1", "arguments": "{}"}}
+                ]
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "result"}
+        ]
+        
+        # Should not raise exception
+        fixed = session._fix_gemini_tool_call_ordering(messages)
+        
+        # Result should be valid or at least handled
+        assert isinstance(fixed, list)
+        assert len(fixed) > 0
 

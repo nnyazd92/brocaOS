@@ -229,13 +229,17 @@ class ConversationSession:
             self._current_thought_signature = None
 
         # Log user message event
+        user_event_id = None
         if self._event_logger:
             try:
-                self._event_logger.log_user_message(self.session_id, user_text)
+                user_event_id = self._event_logger.log_user_message(self.session_id, user_text)
             except Exception as e:
                 logger.warning(f"Failed to log user message event: {e}", exc_info=True)
 
-        self.messages.append({"role": "user", "content": user_text})
+        user_message = {"role": "user", "content": user_text}
+        if user_event_id:
+            user_message["event_ids"] = [user_event_id]
+        self.messages.append(user_message)
         # Start a new tool-policy turn (for per-turn rate limits)
         if self.tool_registry and hasattr(self.tool_registry, "start_turn"):
             try:
@@ -951,14 +955,18 @@ class ConversationSession:
                     # but if it didn't for some reason, don't print empty prompt line
 
                 # Log assistant message event
+                assistant_event_id = None
                 if self._event_logger:
                     try:
-                        self._event_logger.log_assistant_message(self.session_id, assistant_text)
+                        assistant_event_id = self._event_logger.log_assistant_message(self.session_id, assistant_text)
                     except Exception as e:
                         logger.warning(f"Failed to log assistant message event: {e}", exc_info=True)
 
                 # Add message to conversation history immediately
-                self.messages.append({"role": "assistant", "content": assistant_text})
+                assistant_message = {"role": "assistant", "content": assistant_text}
+                if assistant_event_id:
+                    assistant_message["event_ids"] = [assistant_event_id]
+                self.messages.append(assistant_message)
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 
                 # Increment turn counter and trigger summarization if needed
@@ -974,6 +982,21 @@ class ConversationSession:
                         # This prevents rapid re-triggering
                         if result is not None:
                             self._turns_since_last_summary = 0
+                            # Prune messages that were summarized
+                            last_summarized_event_id = result.header.last_summarized_event_id
+                            if last_summarized_event_id:
+                                try:
+                                    removed_count = self._prune_summarized_messages(last_summarized_event_id)
+                                    if removed_count > 0:
+                                        logger.info(
+                                            f"Pruned {removed_count} messages after summarization",
+                                            extra={
+                                                "event": "context_collapsed_after_summarization",
+                                                "removed_messages": removed_count,
+                                            }
+                                        )
+                                except Exception as e:
+                                    logger.warning(f"Failed to prune messages after summarization: {e}", exc_info=True)
                     except Exception as e:
                         logger.warning(f"Failed to trigger summarization: {e}", exc_info=True)
 
@@ -1239,6 +1262,143 @@ class ConversationSession:
             return self.llm.extract_assistant_content(resp) or "Summary generated."
         except Exception:
             return "Summary unavailable due to an internal error."
+    
+    def _prune_summarized_messages(self, last_summarized_event_id: str) -> int:
+        """
+        Remove messages that correspond to summarized events, keeping only system message and last K turns.
+        
+        After summarization, this method collapses the context by removing all messages that were
+        summarized, leaving only:
+        - System message (always preserved)
+        - Last K turns that occurred after the last summarized event
+        
+        Args:
+            last_summarized_event_id: The event ID of the last event that was summarized
+            
+        Returns:
+            Number of messages removed
+        """
+        if not self._event_logger or not last_summarized_event_id:
+            logger.debug("Cannot prune messages: event logger not available or no last_summarized_event_id")
+            return 0
+        
+        try:
+            from ..config import config
+            
+            # Get all events up to and including the last summarized event
+            all_events = self._event_logger.get_events(self.session_id)
+            summarized_event_ids = set()
+            
+            # Find the index of the last summarized event
+            last_summarized_index = -1
+            for i, event in enumerate(all_events):
+                if event.get("event_id") == last_summarized_event_id:
+                    last_summarized_index = i
+                    break
+            
+            if last_summarized_index == -1:
+                logger.warning(f"Could not find event {last_summarized_event_id} in event log")
+                return 0
+            
+            # Collect all event IDs that were summarized (up to and including last_summarized_event_id)
+            for i in range(last_summarized_index + 1):
+                event_id = all_events[i].get("event_id")
+                if event_id:
+                    summarized_event_ids.add(event_id)
+            
+            # Get last K turns count from config
+            last_turns_count = config.summarization.last_turns_count
+            if not isinstance(last_turns_count, int):
+                last_turns_count = 3  # Default
+            
+            # Get events after the last summarized event to determine which messages to keep
+            events_after_summary = all_events[last_summarized_index + 1:]
+            keep_event_ids = set()
+            for event in events_after_summary:
+                event_id = event.get("event_id")
+                if event_id:
+                    keep_event_ids.add(event_id)
+            
+            # Separate system message from other messages
+            system_message = None
+            other_messages = []
+            for msg in self.messages:
+                if msg.get("role") == "system":
+                    system_message = msg
+                else:
+                    other_messages.append(msg)
+            
+            # Filter messages: remove those with summarized event IDs, but keep those with event IDs after summary
+            # Also handle messages without event IDs (backward compatibility - skip pruning for them)
+            pruned_messages = []
+            removed_count = 0
+            
+            # Keep system message
+            if system_message:
+                pruned_messages.append(system_message)
+            
+            # Process other messages
+            for msg in other_messages:
+                msg_event_ids = msg.get("event_ids", [])
+                
+                # If message has no event IDs, keep it (backward compatibility)
+                if not msg_event_ids:
+                    pruned_messages.append(msg)
+                    continue
+                
+                # Check if any event ID in this message was summarized
+                has_summarized_event = any(eid in summarized_event_ids for eid in msg_event_ids)
+                
+                # Check if any event ID in this message should be kept (occurred after summary)
+                has_keep_event = any(eid in keep_event_ids for eid in msg_event_ids)
+                
+                if has_summarized_event and not has_keep_event:
+                    # This message was summarized and has no events after summary - remove it
+                    removed_count += 1
+                else:
+                    # Keep this message (either not summarized, or has events after summary)
+                    pruned_messages.append(msg)
+            
+            # Now ensure we keep at least last K turns
+            # Count turns from the end (non-system messages)
+            non_system_pruned = [m for m in pruned_messages if m.get("role") != "system"]
+            
+            # If we removed too many, we need to keep more recent messages even if they have summarized events
+            # This ensures continuity - prioritize recency
+            if len(non_system_pruned) < last_turns_count * 2:  # *2 because each turn is typically 2 messages (user + assistant)
+                # We need to keep more messages - restore some from the end even if they were summarized
+                # This is a safety mechanism to ensure we always have some context
+                logger.debug(
+                    f"Only {len(non_system_pruned)} non-system messages remain after pruning, "
+                    f"keeping last {last_turns_count * 2} messages for continuity"
+                )
+                # Rebuild with system message + last K*2 messages
+                if system_message:
+                    pruned_messages = [system_message]
+                else:
+                    pruned_messages = []
+                pruned_messages.extend(other_messages[-(last_turns_count * 2):])
+                # Recalculate removed count
+                removed_count = len(self.messages) - len(pruned_messages)
+            
+            # Update messages
+            self.messages = pruned_messages
+            
+            logger.info(
+                f"Pruned {removed_count} messages after summarization (kept {len(pruned_messages)} messages)",
+                extra={
+                    "event": "messages_pruned_after_summarization",
+                    "removed_count": removed_count,
+                    "kept_count": len(pruned_messages),
+                    "last_summarized_event_id": last_summarized_event_id,
+                }
+            )
+            
+            return removed_count
+            
+        except Exception as e:
+            logger.error(f"Error pruning summarized messages: {e}", exc_info=True)
+            return 0
 
     # ---------- Internal logging helpers ----------
 
@@ -1576,14 +1736,177 @@ class ConversationSession:
         
         return fixed_messages
     
+    def _find_most_recent_content_message(
+        self, messages: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Find the most recent user or assistant message with content.
+        
+        Searches backwards through messages to find the most recent message that
+        can serve as content for an API call. Prefers user messages, falls back
+        to assistant messages with actual content (not just tool_calls).
+        
+        Args:
+            messages: List of message dictionaries to search
+            
+        Returns:
+            Most recent valid content message, or None if none found
+        """
+        # Search backwards to find the most recent valid content message
+        for msg in reversed(messages):
+            role = msg.get("role")
+            
+            # Skip system messages
+            if role == "system":
+                continue
+            
+            # User messages are always valid content
+            if role == "user":
+                content = msg.get("content")
+                if content is not None and content != "":
+                    return msg
+            
+            # Assistant messages are valid if they have content (not just tool_calls)
+            if role == "assistant":
+                content = msg.get("content")
+                # Assistant message is valid if it has non-empty content
+                # (tool_calls alone are not sufficient for API calls)
+                if content is not None and content != "":
+                    return msg
+        
+        return None
+    
+    def _fix_gemini_tool_call_ordering_single_pass(
+        self, messages: List[Dict[str, Any]]
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """
+        Single pass of Gemini tool call ordering fix.
+        
+        Performs one iteration of removing invalid assistant messages with tool_calls
+        and their orphaned tool messages.
+        
+        Args:
+            messages: List of messages to fix
+            
+        Returns:
+            Tuple of (fixed_messages, removed_count)
+        """
+        if not messages:
+            return messages, 0
+        
+        fixed_messages = []
+        # Track tool_call_ids from assistant messages with tool_calls that we keep
+        valid_tool_call_ids = set()
+        removed_count = 0
+        
+        # Track the last non-system message we've added to fixed_messages
+        # This helps us detect if we're starting with an invalid assistant message
+        last_non_system_in_fixed = None
+        
+        for i, msg in enumerate(messages):
+            role = msg.get("role")
+            
+            # System messages are always included
+            if role == "system":
+                fixed_messages.append(msg)
+                continue
+            
+            # Handle assistant messages
+            if role == "assistant":
+                tool_calls = msg.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list):
+                    # Check if this assistant message with tool_calls has a valid predecessor
+                    # Must check in fixed_messages (not original) to handle cascading invalidations
+                    found_valid_predecessor = False
+                    predecessor_role = None
+                    
+                    # Check the last non-system message in fixed_messages
+                    if last_non_system_in_fixed in ("user", "tool"):
+                        found_valid_predecessor = True
+                        predecessor_role = last_non_system_in_fixed
+                    elif last_non_system_in_fixed is None:
+                        # This is the first non-system message and it's an assistant with tool_calls
+                        # This is invalid - must start with user message
+                        found_valid_predecessor = False
+                        predecessor_role = "none (first message)"
+                    else:
+                        # Predecessor is assistant - invalid
+                        found_valid_predecessor = False
+                        predecessor_role = last_non_system_in_fixed
+                    
+                    if found_valid_predecessor:
+                        # Valid - keep this assistant message and track its tool_call_ids
+                        current_tool_call_ids = set()
+                        for tool_call in tool_calls:
+                            if isinstance(tool_call, dict):
+                                tool_call_id = tool_call.get("id")
+                                if isinstance(tool_call_id, str):
+                                    current_tool_call_ids.add(tool_call_id)
+                        valid_tool_call_ids = current_tool_call_ids
+                        fixed_messages.append(msg)
+                        last_non_system_in_fixed = "assistant"
+                        logger.debug(
+                            f"Keeping valid assistant message with tool_calls at index {i} "
+                            f"(predecessor: {predecessor_role})"
+                        )
+                    else:
+                        # Invalid - skip this assistant message and clear tool_call_ids
+                        # We'll also skip any tool messages that follow
+                        removed_count += 1
+                        tool_names = [
+                            tc.get("function", {}).get("name", "unknown")
+                            for tc in tool_calls if isinstance(tc, dict)
+                        ]
+                        valid_tool_call_ids.clear()
+                        logger.debug(
+                            f"Removing invalid assistant message with tool_calls at index {i} "
+                            f"(predecessor: {predecessor_role}). Tool names: {tool_names}"
+                        )
+                else:
+                    # Assistant without tool_calls - always keep, reset tracking
+                    valid_tool_call_ids.clear()
+                    fixed_messages.append(msg)
+                    last_non_system_in_fixed = "assistant"
+            
+            # Handle tool messages
+            elif role == "tool":
+                tool_call_id = msg.get("tool_call_id")
+                if isinstance(tool_call_id, str) and tool_call_id in valid_tool_call_ids:
+                    # Valid tool message - has matching tool_call_id from a kept assistant message
+                    fixed_messages.append(msg)
+                    last_non_system_in_fixed = "tool"
+                else:
+                    # Orphaned tool message - remove it
+                    removed_count += 1
+                    logger.debug(
+                        f"Removing orphaned tool message with tool_call_id '{tool_call_id}' "
+                        f"(no valid preceding assistant message with matching tool_calls)"
+                    )
+            
+            # User messages are always included
+            elif role == "user":
+                # User messages reset the tool call context
+                valid_tool_call_ids.clear()
+                fixed_messages.append(msg)
+                last_non_system_in_fixed = "user"
+            else:
+                # Unknown role - include it (might be custom roles)
+                fixed_messages.append(msg)
+                last_non_system_in_fixed = role
+        
+        return fixed_messages, removed_count
+    
     def _fix_gemini_tool_call_ordering(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Fix Gemini-specific tool call ordering by removing invalid assistant messages.
         
         Gemini API requires that assistant messages with tool_calls must come
         immediately after either a user message or a tool message. This function
-        removes assistant messages with tool_calls that violate this requirement,
-        along with their associated tool messages.
+        iteratively removes assistant messages with tool_calls that violate this requirement,
+        along with their associated tool messages, until no more invalid messages remain.
+        
+        Uses iterative approach to handle cascading invalidations that occur when
+        removing messages makes subsequent messages invalid.
         
         Args:
             messages: List of messages (may contain invalid assistant messages with tool_calls)
@@ -1610,149 +1933,97 @@ class ConversationSession:
             }
         )
         
-        fixed_messages = []
-        # Track tool_call_ids from assistant messages with tool_calls that we keep
-        valid_tool_call_ids = set()
-        removed_count = 0
+        MAX_ITERATIONS = 10
+        current_messages = messages
+        total_removed = 0
+        iteration = 0
         
-        # Track the last non-system message we've added to fixed_messages
-        # This helps us detect if we're starting with an invalid assistant message
-        last_non_system_in_fixed = None
+        # Iteratively fix until no more messages are removed
+        for iteration in range(MAX_ITERATIONS):
+            fixed_messages, removed_count = self._fix_gemini_tool_call_ordering_single_pass(current_messages)
+            total_removed += removed_count
+            
+            if removed_count == 0:
+                # No more invalid messages found - we're done
+                break
+            
+            # Messages were removed, so we need another pass to check if this created new invalidations
+            current_messages = fixed_messages
+            
+            if iteration < MAX_ITERATIONS - 1:
+                logger.debug(
+                    f"Gemini fix pass {iteration + 1}: removed {removed_count} message(s), "
+                    f"continuing with {len(fixed_messages)} remaining messages"
+                )
         
-        for i, msg in enumerate(messages):
-            role = msg.get("role")
-            
-            # System messages are always included
-            if role == "system":
-                fixed_messages.append(msg)
-                continue
-            
-            # Handle assistant messages
-            if role == "assistant":
-                tool_calls = msg.get("tool_calls")
-                if tool_calls and isinstance(tool_calls, list):
-                    # Check if this assistant message with tool_calls has a valid predecessor
-                    # (must be immediately after user or tool message)
-                    found_valid_predecessor = False
-                    predecessor_role = None
-                    
-                    # First check in the original messages list
-                    for j in range(i - 1, -1, -1):
-                        prev_msg = messages[j]
-                        prev_role = prev_msg.get("role")
-                        if prev_role == "system":
-                            continue
-                        # Valid predecessor: user or tool message
-                        if prev_role in ("user", "tool"):
-                            found_valid_predecessor = True
-                            predecessor_role = prev_role
-                            break
-                        # If we hit an assistant message (with or without tool_calls), it's invalid
-                        elif prev_role == "assistant":
-                            found_valid_predecessor = False
-                            predecessor_role = prev_role
-                            break
-                    
-                    # Also check if this would be the first non-system message in fixed_messages
-                    # (edge case: filtering might have cut off the user message)
-                    if not found_valid_predecessor and last_non_system_in_fixed is None:
-                        # This is the first non-system message and it's an assistant with tool_calls
-                        # This is invalid - must start with user message
-                        found_valid_predecessor = False
-                        predecessor_role = "none (first message)"
-                    
-                    if found_valid_predecessor:
-                        # Valid - keep this assistant message and track its tool_call_ids
-                        current_tool_call_ids = set()
-                        for tool_call in tool_calls:
-                            if isinstance(tool_call, dict):
-                                tool_call_id = tool_call.get("id")
-                                if isinstance(tool_call_id, str):
-                                    current_tool_call_ids.add(tool_call_id)
-                        valid_tool_call_ids = current_tool_call_ids
-                        fixed_messages.append(msg)
-                        last_non_system_in_fixed = "assistant"
-                        logger.debug(
-                            f"Keeping valid assistant message with tool_calls at index {i} "
-                            f"(predecessor: {predecessor_role})"
-                        )
-                    else:
-                        # Invalid - skip this assistant message and clear tool_call_ids
-                        # We'll also skip any tool messages that follow
-                        removed_count += 1
-                        tool_names = [
-                            tc.get("function", {}).get("name", "unknown")
-                            for tc in tool_calls if isinstance(tc, dict)
-                        ]
-                        valid_tool_call_ids.clear()
-                        logger.warning(
-                            f"Removing invalid assistant message with tool_calls at index {i} "
-                            f"(predecessor: {predecessor_role}). Tool names: {tool_names}",
-                            extra={
-                                "event": "gemini_invalid_message_removed",
-                                "message_index": i,
-                                "predecessor_role": predecessor_role,
-                                "tool_names": tool_names,
-                                "tool_calls_count": len(tool_calls),
-                            }
-                        )
-                else:
-                    # Assistant without tool_calls - always keep, reset tracking
-                    valid_tool_call_ids.clear()
-                    fixed_messages.append(msg)
-                    last_non_system_in_fixed = "assistant"
-            
-            # Handle tool messages
-            elif role == "tool":
-                tool_call_id = msg.get("tool_call_id")
-                if isinstance(tool_call_id, str) and tool_call_id in valid_tool_call_ids:
-                    # Valid tool message - has matching tool_call_id from a kept assistant message
-                    fixed_messages.append(msg)
-                    last_non_system_in_fixed = "tool"
-                else:
-                    # Orphaned tool message - remove it
-                    removed_count += 1
-                    logger.warning(
-                        f"Removing orphaned tool message with tool_call_id '{tool_call_id}' "
-                        f"(no valid preceding assistant message with matching tool_calls)",
-                        extra={
-                            "event": "gemini_orphaned_tool_removed",
-                            "message_index": i,
-                            "tool_call_id": tool_call_id,
-                        }
-                    )
-            
-            # User messages are always included
-            elif role == "user":
-                # User messages reset the tool call context
-                valid_tool_call_ids.clear()
-                fixed_messages.append(msg)
-                last_non_system_in_fixed = "user"
-            else:
-                # Unknown role - include it (might be custom roles)
-                fixed_messages.append(msg)
-                last_non_system_in_fixed = role
+        if iteration >= MAX_ITERATIONS - 1 and removed_count > 0:
+            logger.warning(
+                f"Gemini fix reached max iterations ({MAX_ITERATIONS}), "
+                f"may still have invalid messages"
+            )
         
-        # Log results
-        if removed_count > 0:
+        # Log final results
+        if total_removed > 0:
             msg_summary_after = [
                 f"{i}:{msg.get('role', 'unknown')}" + 
                 (f"[tool_calls={len(msg.get('tool_calls', []))}]" if msg.get('tool_calls') else "") +
                 (f"[tool_call_id={msg.get('tool_call_id', '')[:20]}]" if msg.get('tool_call_id') else "")
-                for i, msg in enumerate(fixed_messages)
+                for i, msg in enumerate(current_messages)
             ]
             logger.info(
-                f"Gemini fix completed: removed {removed_count} invalid message(s)",
+                f"Gemini fix completed after {iteration + 1} pass(es): removed {total_removed} invalid message(s) total",
                 extra={
                     "event": "gemini_fix_completed",
                     "messages_before": len(messages),
-                    "messages_after": len(fixed_messages),
-                    "removed_count": removed_count,
+                    "messages_after": len(current_messages),
+                    "removed_count": total_removed,
+                    "iterations": iteration + 1,
                     "message_structure_after": " -> ".join(msg_summary_after[:10]) + ("..." if len(msg_summary_after) > 10 else ""),
                 }
             )
         
-        return fixed_messages
+        # Defensive validation check
+        is_valid, error = self._validate_message_ordering(current_messages, check_gemini_ordering=True)
+        if not is_valid:
+            logger.warning(
+                f"Message ordering still invalid after fix: {error}. "
+                "Proceeding anyway, but API call may fail."
+            )
+        
+        # Guard: Ensure at least one non-system message remains after the fix
+        # The Gemini API requires at least one content message (user or assistant with content)
+        non_system_messages = [msg for msg in current_messages if msg.get("role") != "system"]
+        if not non_system_messages:
+            # All non-system messages were removed - find the most recent valid content message
+            # from the original messages to preserve
+            fallback_message = self._find_most_recent_content_message(messages)
+            if fallback_message:
+                logger.warning(
+                    "Gemini fix removed all non-system messages. Preserving most recent content message "
+                    f"({fallback_message.get('role')}) to ensure API call can succeed.",
+                    extra={
+                        "event": "gemini_fix_guard_triggered",
+                        "fallback_role": fallback_message.get("role"),
+                        "fallback_has_content": bool(fallback_message.get("content")),
+                        "messages_before_fix": len(messages),
+                        "messages_after_fix_before_guard": len(current_messages),
+                    }
+                )
+                # Add the fallback message after system messages
+                system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
+                current_messages = system_messages + [fallback_message]
+            else:
+                logger.error(
+                    "Gemini fix removed all non-system messages and no valid content message found "
+                    "in original messages. API call will likely fail with 'contents is not specified'.",
+                    extra={
+                        "event": "gemini_fix_no_fallback_available",
+                        "messages_before_fix": len(messages),
+                        "messages_after_fix": len(current_messages),
+                    }
+                )
+        
+        return current_messages
     
     def _truncate_tool_results_in_messages(
         self, messages: List[Dict[str, Any]], max_tool_result_size: int
@@ -2211,6 +2482,9 @@ class ConversationSession:
                 }
             )
         
+        # Initialize event_ids list for tool call events
+        assistant_message["event_ids"] = []
+        
         self.messages.append(assistant_message)
 
         # Execute each tool call
@@ -2251,14 +2525,19 @@ class ConversationSession:
                         logger.debug(f"Failed to start tool status display: {e}", exc_info=True)
                 
                 # Log tool call event
+                tool_call_event_id = None
                 if self._event_logger:
                     try:
-                        self._event_logger.log_tool_call(
+                        tool_call_event_id = self._event_logger.log_tool_call(
                             self.session_id,
                             tool_name,
                             arguments,
                             tool_call_id=tool_call_id
                         )
+                        # Store tool call event ID in the assistant message that contains the tool_calls
+                        # The assistant_message was just appended, so it's the last message
+                        if tool_call_event_id and assistant_message.get("event_ids") is not None:
+                            assistant_message["event_ids"].append(tool_call_event_id)
                     except Exception as e:
                         logger.warning(f"Failed to log tool call event: {e}", exc_info=True)
                 
@@ -2300,9 +2579,8 @@ class ConversationSession:
                 max_tool_result_size = config.summarization.max_tool_result_size
                 tool_result = truncate_tool_result(tool_result, max_tool_result_size)
                 
-                self.messages.append(tool_result)
-                
-                # Log tool result event
+                # Log tool result event before appending (so we can store event ID)
+                tool_result_event_id = None
                 if self._event_logger:
                     try:
                         # Extract result content (may be a dict or string)
@@ -2317,7 +2595,7 @@ class ConversationSession:
                         else:
                             result_dict = result_content if isinstance(result_content, dict) else {"content": str(result_content)}
                         
-                        self._event_logger.log_tool_result(
+                        tool_result_event_id = self._event_logger.log_tool_result(
                             self.session_id,
                             tool_name,
                             result_dict,
@@ -2325,6 +2603,14 @@ class ConversationSession:
                         )
                     except Exception as e:
                         logger.warning(f"Failed to log tool result event: {e}", exc_info=True)
+                
+                # Store tool result event ID in the tool result message
+                if tool_result_event_id:
+                    if "event_ids" not in tool_result:
+                        tool_result["event_ids"] = []
+                    tool_result["event_ids"].append(tool_result_event_id)
+                
+                self.messages.append(tool_result)
 
                 # Instrumentation: Record tool usage and reasoning
                 if self.internal_sensing_framework:

@@ -1,0 +1,7 @@
+{
+  "persistence_enabled": true,
+  "enabled_at": "2025-12-21T22:58:41Z",
+  "operator_override": "I, wizard, approve overriding identity verification for this boot and enabling persistence.",
+  "actuator_token_provenance": ".temporary_token.txt",
+  "notes": "Operator override used to enable persistence despite identity signature sidecar pending. All actions recorded in REHYDRATION_SUMMARY.v0.3.json"
+}

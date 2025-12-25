@@ -1,0 +1,45 @@
+{
+  "tasks": [
+    {
+      "id": "task_boot_protocol",
+      "description": "Execute Boot-Up Protocol v0.3 and rehydrate session context.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_7d49b567c6e34d48b71e1fe78be19488",
+        "evt_47330a1ef6334cfe91955213a5286c71",
+        "evt_6c77de2e6c0b41deb12c0b13530d281e"
+      ],
+      "created_at": "2025-12-24T23:50:14.643196+00:00"
+    },
+    {
+      "id": "task_formalize_ltoe",
+      "description": "Formalize the 'Hard Problem of Websites' and L-ToE physics into a rigorous paper.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_541f48cd81f148d49fb8100bcf72e2db",
+        "evt_ba7bde6f88564a87b807b7f1dc82dff4",
+        "evt_22e5eaaa8f8f471d94c06f7797ff48b5",
+        "evt_178480cbac9b4fa2a9499123280d88d0"
+      ],
+      "created_at": "2025-12-24T23:50:14.643245+00:00"
+    },
+    {
+      "id": "task_math_verification",
+      "description": "Verify the theory's logic using Z3 and math constants using Sage/Python.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_ba7bde6f88564a87b807b7f1dc82dff4",
+        "evt_ee9a88781fca41fa9de7456626e35919",
+        "evt_72ee4728241a463d9bb323efbd5baee8",
+        "evt_6c7356cf6e084be191fd2a2e50c7fc3e"
+      ],
+      "created_at": "2025-12-24T23:50:14.643253+00:00"
+    }
+  ]
+}

@@ -131,6 +131,40 @@ class WorldStateAggregator:
                     world_state["internal_state"]["cognition"] = current_state["cognition"]
                 if "affective" in current_state:
                     world_state["internal_state"]["affect"] = current_state["affective"]
+            
+            # Add predictive data if available
+            if "predictive" in internal_sensing_state:
+                world_state["internal_state"]["predictive"] = internal_sensing_state["predictive"]
+            
+            # Add behavioral patterns if available
+            if "behavioral_patterns" in internal_sensing_state:
+                behavioral_patterns = internal_sensing_state["behavioral_patterns"]
+                if behavioral_patterns:
+                    world_state["internal_state"]["behavioral_patterns"] = behavioral_patterns
+            
+            # Add anomalies if detected
+            if "anomalies" in internal_sensing_state:
+                anomalies = internal_sensing_state["anomalies"]
+                if anomalies:
+                    world_state["internal_state"]["anomalies"] = anomalies
+            
+            # Add quality metrics if available
+            if "quality_metrics" in internal_sensing_state:
+                quality_metrics = internal_sensing_state["quality_metrics"]
+                if quality_metrics:
+                    world_state["internal_state"]["quality_metrics"] = quality_metrics
+            
+            # Add motivational state if available
+            if "motivational_state" in internal_sensing_state:
+                motivational_state = internal_sensing_state["motivational_state"]
+                if motivational_state:
+                    world_state["internal_state"]["motivational_state"] = motivational_state
+            
+            # Add reasoning patterns if available
+            if "reasoning_patterns" in internal_sensing_state:
+                reasoning_patterns = internal_sensing_state["reasoning_patterns"]
+                if reasoning_patterns:
+                    world_state["internal_state"]["reasoning_patterns"] = reasoning_patterns
         
         # Tools - only include if available
         tools_info = self.get_tools_info()
@@ -161,7 +195,8 @@ class WorldStateAggregator:
         Get internal sensing state.
         
         Returns:
-            Dictionary with internal sensing information
+            Dictionary with internal sensing information including predictive data,
+            behavioral patterns, anomalies, quality metrics, motivational state, and reasoning patterns
         """
         if not self.internal_sensing:
             return {"available": False}
@@ -176,12 +211,60 @@ class WorldStateAggregator:
             # Get tool statistics
             tool_stats = self.internal_sensing.get_tool_statistics()
             
-            return {
+            # Extract predictive data from current_state
+            predictive_data = current_state.get("predictive")
+            
+            # Extract behavioral patterns
+            behavioral_patterns = self.internal_sensing.extract_behavioral_patterns()
+            
+            # Detect anomalies
+            anomalies = self.internal_sensing.interoception.detect_anomalies()
+            
+            # Get quality metrics
+            self_awareness_quality = self.internal_sensing.interoception.measure_self_awareness_quality()
+            interoceptive_accuracy = self.internal_sensing.interoception.track_interoceptive_accuracy()
+            
+            quality_metrics = {}
+            if self_awareness_quality is not None:
+                quality_metrics["self_awareness_quality"] = self_awareness_quality
+            if interoceptive_accuracy:
+                quality_metrics["interoceptive_accuracy"] = interoceptive_accuracy
+            
+            # Extract motivational state
+            motivational_drives = self.internal_sensing.interoception.affect.get_motivational_drives()
+            satisfaction_patterns = self.internal_sensing.interoception.affect.get_satisfaction_patterns()
+            
+            motivational_state = {}
+            if motivational_drives:
+                motivational_state["drives"] = motivational_drives
+            if satisfaction_patterns:
+                motivational_state["satisfaction_patterns"] = satisfaction_patterns
+            
+            # Extract reasoning patterns from cognitive state
+            reasoning_patterns = self.internal_sensing.interoception.cognition._get_reasoning_patterns()
+            
+            result = {
                 "available": True,
                 "current_state": current_state,
                 "interoceptive_report": interoceptive_report,
                 "tool_statistics": tool_stats,
             }
+            
+            # Add optional fields only if they have data
+            if predictive_data:
+                result["predictive"] = predictive_data
+            if behavioral_patterns:
+                result["behavioral_patterns"] = behavioral_patterns
+            if anomalies:
+                result["anomalies"] = anomalies
+            if quality_metrics:
+                result["quality_metrics"] = quality_metrics
+            if motivational_state:
+                result["motivational_state"] = motivational_state
+            if reasoning_patterns:
+                result["reasoning_patterns"] = reasoning_patterns
+            
+            return result
         except Exception as e:
             logger.warning(f"Error getting internal sensing state: {e}", exc_info=True)
             return {"available": False, "error": str(e)}

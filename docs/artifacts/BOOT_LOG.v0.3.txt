@@ -29,3 +29,6 @@ End of boot log
 [2025-12-24T00:45:50.595564+00:00] BOOT_UP v0.3: persistence_enabled=True token_provenance=.temporary_token.txt session=session-2025-12-23T23-39-32.007754Z operator=nick.yazdani
 [2025-12-24T04:32:47Z] BOOT_UP PROTOCOL v0.3: Identity Verified. Persistence Enabled. Session Continuity Restored.
 [2025-12-25T04:52:11Z] BOOT_UP v0.3 initiated by Nick Yazdani. Identity verified. Persistence enabled.
+[2025-12-24T23:23:54.232751+00:00] BOOT_UP v0.3: SUCCESS | Operator: Nick Yazdani | Token: .temporary_token.txt
+[2025-12-25T00:16:17Z] SHUTDOWN: Session session-2025-12-25T00:16:17Z completed. Manuscript v3.1 ready.
+[2025-12-25T00:16:31Z] SHUTDOWN_COMPLETED: Session session-2025-12-25T00:16:26Z finalized.

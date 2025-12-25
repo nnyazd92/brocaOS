@@ -1,1 +1,9 @@
-docs/summaries/session-2025-12-24T17:47:21Z.json
+{
+  "current_session_summary": "docs/summaries/session-2025-12-25T00:16:26Z.json",
+  "previous_summaries": [],
+  "identity_pointer": "docs/identity/IDENTITY.v0.1.json",
+  "created_by": "assistant",
+  "boot_jti": "boot-2025-12-25T00:16:07Z",
+  "timestamp": "2025-12-25T00:16:26Z",
+  "persistence_source": ".shutdown_persistence.json"
+}
