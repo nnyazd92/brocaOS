@@ -180,6 +180,14 @@ class TestWorldStateAggregator:
         assert "drives" in state["motivational_state"]
         assert state["motivational_state"]["drives"]["exploration"] == 0.7
         assert "satisfaction_patterns" in state["motivational_state"]
+        # Satisfaction patterns should be aggregated, not raw list
+        satisfaction = state["motivational_state"]["satisfaction_patterns"]
+        assert "total_count" in satisfaction
+        assert "satisfaction" in satisfaction
+        assert "frustration" in satisfaction
+        assert satisfaction["satisfaction"]["count"] == 1
+        assert satisfaction["satisfaction"]["average_level"] == 0.8
+        assert "recent" in satisfaction
         
         # Verify reasoning patterns
         assert len(state["reasoning_patterns"]) == 1
@@ -334,6 +342,11 @@ class TestWorldStateAggregator:
         # Verify motivational state structure
         assert "drives" in internal_state["motivational_state"]
         assert "satisfaction_patterns" in internal_state["motivational_state"]
+        # Satisfaction patterns should be aggregated format
+        satisfaction = internal_state["motivational_state"]["satisfaction_patterns"]
+        assert "total_count" in satisfaction
+        assert "satisfaction" in satisfaction
+        assert "frustration" in satisfaction
     
     def test_aggregate_omits_empty_internal_sensing_fields(self):
         """Test that empty internal sensing fields are omitted from world state."""

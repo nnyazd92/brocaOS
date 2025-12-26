@@ -1,0 +1,13 @@
+Archive timestamp: 20251225T044533Z
+Archive dir: docs/rehydration/verification_archive/20251225T044533Z
+Tarball: docs/rehydration/verification_archive/verification_archive_20251225T044533Z.tar.gz
+Moved items:
+total 1028
+drwxr-xr-x. 3 wizard wizard   4096 Dec 25 15:45 .
+drwxr-xr-x. 3 wizard wizard   4096 Dec 25 15:45 ..
+drwxr-xr-x. 2 wizard wizard   4096 Dec 25 15:45 backups
+-rw-r--r--. 1 wizard wizard 309387 Dec 25 14:30 L_TOEC_MASTER_V4.4.pdf
+-rw-r--r--. 1 wizard wizard  42495 Dec 25 14:37 L_TOEC_MASTER_V4.5.log
+-rw-r--r--. 1 wizard wizard 316397 Dec 25 14:37 L_TOEC_MASTER_V4.5.pdf
+-rw-r--r--. 1 wizard wizard  42370 Dec 25 15:06 L_TOEC_MASTER_V5.log
+-rw-r--r--. 1 wizard wizard 316385 Dec 25 15:06 L_TOEC_MASTER_V5.pdf

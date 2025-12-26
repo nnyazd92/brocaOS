@@ -22,9 +22,10 @@ from ..summarization.token_estimator import estimate_tokens
 logger = logging.getLogger(__name__)
 
 # Maximum tokens for embedding models (OpenAI embeddings typically support 8192 tokens)
-# Using ~4 chars per token, that's approximately 32768 characters
+# Using ~3 chars per token (safer ratio) for approximately 24576 characters
+# This accounts for variation in char-to-token ratios (typically 3-5 chars per token)
 DEFAULT_EMBEDDING_MAX_TOKENS = 8192
-DEFAULT_EMBEDDING_MAX_CHARS = DEFAULT_EMBEDDING_MAX_TOKENS * 4  # ~32768 chars
+DEFAULT_EMBEDDING_MAX_CHARS = DEFAULT_EMBEDDING_MAX_TOKENS * 3  # ~24576 chars (safer ratio)
 
 
 class EmbeddingService:
@@ -141,7 +142,8 @@ class EmbeddingService:
         Truncate text to fit within embedding model token limits.
         
         Uses character-based approximation to estimate tokens and truncates
-        if text exceeds the maximum allowed tokens.
+        if text exceeds the maximum allowed tokens. Re-validates tokens after
+        truncation to ensure we stay under the limit with a safety margin.
         
         Args:
             text: Text to potentially truncate
@@ -152,23 +154,47 @@ class EmbeddingService:
         # Estimate tokens using character-based approximation
         estimated_tokens = estimate_tokens(text)
         
-        if estimated_tokens <= self.max_tokens:
+        # Safety margin to account for estimation errors
+        safety_margin = 100  # tokens
+        target_max_tokens = self.max_tokens - safety_margin
+        
+        if estimated_tokens <= target_max_tokens:
             return text
         
         # Text exceeds limit - truncate to max_chars
-        # Use character-based truncation for simplicity and performance
         original_length = len(text)
         truncated_text = text[:self.max_chars]
         
+        # Re-validate tokens after truncation and truncate further if needed
+        MAX_TRUNCATION_ITERATIONS = 5
+        for iteration in range(MAX_TRUNCATION_ITERATIONS):
+            estimated_tokens_after = estimate_tokens(truncated_text)
+            if estimated_tokens_after <= target_max_tokens:
+                break
+            
+            # Truncate further (reduce by 10% each iteration)
+            target_chars = int(len(truncated_text) * 0.9)
+            if target_chars <= 0:
+                # Safety check to avoid empty text
+                target_chars = 1
+            truncated_text = text[:target_chars]
+        
+        # Final token check
+        final_estimated_tokens = estimate_tokens(truncated_text)
+        
         logger.warning(
-            f"Text exceeds embedding token limit ({estimated_tokens} > {self.max_tokens} tokens). "
-            f"Truncating from {original_length} to {len(truncated_text)} characters.",
+            f"Text exceeds embedding token limit ({estimated_tokens} > {target_max_tokens} tokens). "
+            f"Truncating from {original_length} to {len(truncated_text)} characters "
+            f"(final estimated tokens: {final_estimated_tokens}).",
             extra={
                 "event": "embedding_text_truncated",
                 "original_length": original_length,
                 "truncated_length": len(truncated_text),
-                "estimated_tokens": estimated_tokens,
+                "original_estimated_tokens": estimated_tokens,
+                "final_estimated_tokens": final_estimated_tokens,
                 "max_tokens": self.max_tokens,
+                "target_max_tokens": target_max_tokens,
+                "iterations": iteration + 1,
             }
         )
         

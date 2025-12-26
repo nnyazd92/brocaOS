@@ -362,9 +362,12 @@ class TestGeminiMessageOrderingFix:
         
         fixed = session._fix_gemini_tool_call_ordering(messages)
         
-        # System message should remain
-        assert len(fixed) == 1
+        # System message should remain, and a default user message should be injected
+        # to prevent API errors when all non-system messages are removed
+        assert len(fixed) == 2
         assert fixed[0]["role"] == "system"
+        assert fixed[1]["role"] == "user"
+        assert "continue" in fixed[1]["content"].lower()
         # All assistant messages with tool_calls should be removed
         # because first one is invalid (after system)
     

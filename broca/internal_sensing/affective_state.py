@@ -9,6 +9,7 @@ from .response_analyzer import ResponseAnalyzer
 
 import time
 import logging
+from collections import deque
 from typing import Dict, Any, List, Optional, TYPE_CHECKING, Union
 
 try:
@@ -46,7 +47,9 @@ class ComputationalAffectMonitor:
         }
         
         self._motivational_drives: Dict[str, float] = {}
-        self._satisfaction_patterns: List[Dict[str, Any]] = []
+        # Use bounded deque to prevent unbounded memory growth
+        # Limit to last 1000 satisfaction/frustration patterns
+        self._satisfaction_patterns: deque = deque(maxlen=1000)
         
         logger.info("Initialized ComputationalAffectMonitor")
     
@@ -271,7 +274,8 @@ class ComputationalAffectMonitor:
         Returns:
             List of pattern dictionaries
         """
-        return self._satisfaction_patterns.copy()
+        # Convert deque to list for compatibility
+        return list(self._satisfaction_patterns)
     
     def sample_affective_state(self) -> Dict[str, Any]:
         """

@@ -1,0 +1,148 @@
+{
+  "nodes": [
+    "Co0_Dimensionless",
+    "GroupOrder_Observed",
+    "DimensionalBridge",
+    "Mapping_Function_Specified",
+    "MappingLatencyDefined",
+    "Mapping_Latency_Positive",
+    "Mapping_Latency_Value_known",
+    "Derivation_Explicit",
+    "Uses_PlanckMass",
+    "PlanckMass_Independent",
+    "PlanckMass_Defined_Via_G",
+    "Units_Audit_Passed",
+    "Units_Consistent",
+    "NumericMatch_DM",
+    "Numeric_Error_Below_Eps",
+    "G_value",
+    "NoCircularity"
+  ],
+  "edges": [
+    [
+      "Co0_Dimensionless",
+      "GroupOrder_Observed"
+    ],
+    [
+      "GroupOrder_Observed",
+      "Mapping_Function_Specified"
+    ],
+    [
+      "DimensionalBridge",
+      "Mapping_Function_Specified"
+    ],
+    [
+      "Mapping_Function_Specified",
+      "MappingLatencyDefined"
+    ],
+    [
+      "Mapping_Latency_Positive",
+      "MappingLatencyDefined"
+    ],
+    [
+      "Units_Audit_Passed",
+      "Units_Consistent"
+    ],
+    [
+      "Numeric_Error_Below_Eps",
+      "NumericMatch_DM"
+    ],
+    [
+      "NumericMatch_DM",
+      "Derivation_Explicit"
+    ],
+    [
+      "Units_Consistent",
+      "Derivation_Explicit"
+    ],
+    [
+      "PlanckMass_Independent",
+      "Uses_PlanckMass"
+    ],
+    [
+      "PlanckMass_Defined_Via_G",
+      "Uses_PlanckMass"
+    ],
+    [
+      "Uses_PlanckMass",
+      "G_value"
+    ]
+  ],
+  "provenance": {
+    "Co0_Dimensionless": {
+      "file": "docs/physics/L_TOEC_MASTER_V5.tex"
+    },
+    "GroupOrder_Observed": {
+      "file": "docs/physics/L_TOEC_MASTER_V5.tex"
+    },
+    "DimensionalBridge": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "Mapping_Function_Specified": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "MappingLatencyDefined": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "Mapping_Latency_Positive": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "Mapping_Latency_Value_known": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "Derivation_Explicit": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "Uses_PlanckMass": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "PlanckMass_Independent": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "PlanckMass_Defined_Via_G": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "Units_Audit_Passed": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "Units_Consistent": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "NumericMatch_DM": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "Numeric_Error_Below_Eps": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    },
+    "G_value": {
+      "file": "docs/physics/L_TOEC_MASTER_V5.tex"
+    },
+    "NoCircularity": {
+      "file": "docs/physics/specs/z3_dag_expanded.py"
+    }
+  },
+  "full_assumptions": [
+    "Co0_Dimensionless",
+    "GroupOrder_Observed",
+    "DimensionalBridge",
+    "Mapping_Latency_Positive(0.1)",
+    "Mapping_Latency_Positive",
+    "Mapping_Latency_Value_known",
+    "Units_Audit_Passed(calculated)",
+    "Numeric_Error_Below_Eps(0.005)",
+    "PlanckMass_Independent",
+    "Uses_PlanckMass"
+  ],
+  "minimal_assumptions": [
+    "Co0_Dimensionless",
+    "GroupOrder_Observed",
+    "DimensionalBridge",
+    "Mapping_Latency_Positive(0.1)",
+    "Mapping_Latency_Positive",
+    "Mapping_Latency_Value_known",
+    "Units_Audit_Passed(calculated)",
+    "Numeric_Error_Below_Eps(0.005)",
+    "PlanckMass_Independent",
+    "Uses_PlanckMass"
+  ]
+}

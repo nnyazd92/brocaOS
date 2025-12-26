@@ -1,0 +1,7 @@
+/home/wizard/Documents/Code/BrocaOS/docs/physics/specs/z3_dag_refined.py:178: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  ts = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+Wrote docs/rehydration/verification_v5/z3_dag_refined.out
+Wrote docs/rehydration/verification_v5/z3_dag_refined.json
+Provable from universe: False
+Minimal sets: []
+Appended figure snippet to docs/physics/verification_includes.tex

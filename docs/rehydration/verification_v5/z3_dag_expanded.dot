@@ -1,0 +1,15 @@
+digraph z3_dag_expanded {
+  rankdir=LR;
+  Co0_Dimensionless -> GroupOrder_Observed;
+  GroupOrder_Observed -> Mapping_Function_Specified;
+  DimensionalBridge -> Mapping_Function_Specified;
+  Mapping_Function_Specified -> MappingLatencyDefined;
+  Mapping_Latency_Positive -> MappingLatencyDefined;
+  Units_Audit_Passed -> Units_Consistent;
+  Numeric_Error_Below_Eps -> NumericMatch_DM;
+  NumericMatch_DM -> Derivation_Explicit;
+  Units_Consistent -> Derivation_Explicit;
+  PlanckMass_Independent -> Uses_PlanckMass;
+  PlanckMass_Defined_Via_G -> Uses_PlanckMass;
+  Uses_PlanckMass -> G_value;
+}

@@ -1,0 +1,4 @@
+Full assumptions: ['Co0_Dimensionless', 'GroupOrder_Observed', 'DimensionalBridge', 'MappingLatencyDefined', 'PlanckMass_Independent', 'Uses_PlanckMass']
+Is G_value provable from full assumptions? True
+Greedy minimal assumptions for G_value: ['Uses_PlanckMass']
+Wrote docs/rehydration/verification_v5/z3_dag.out and z3_dag_provenance.json

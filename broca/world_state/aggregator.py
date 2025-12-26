@@ -136,11 +136,9 @@ class WorldStateAggregator:
             if "predictive" in internal_sensing_state:
                 world_state["internal_state"]["predictive"] = internal_sensing_state["predictive"]
             
-            # Add behavioral patterns if available
-            if "behavioral_patterns" in internal_sensing_state:
-                behavioral_patterns = internal_sensing_state["behavioral_patterns"]
-                if behavioral_patterns:
-                    world_state["internal_state"]["behavioral_patterns"] = behavioral_patterns
+            # Note: behavioral_patterns and reasoning_patterns are excluded from world state
+            # to prevent unbounded growth. These accumulate over time and represent historical
+            # data rather than current state, violating AGENTS.md guidelines for system prompt size limits.
             
             # Add anomalies if detected
             if "anomalies" in internal_sensing_state:
@@ -159,12 +157,6 @@ class WorldStateAggregator:
                 motivational_state = internal_sensing_state["motivational_state"]
                 if motivational_state:
                     world_state["internal_state"]["motivational_state"] = motivational_state
-            
-            # Add reasoning patterns if available
-            if "reasoning_patterns" in internal_sensing_state:
-                reasoning_patterns = internal_sensing_state["reasoning_patterns"]
-                if reasoning_patterns:
-                    world_state["internal_state"]["reasoning_patterns"] = reasoning_patterns
         
         # Tools - only include if available
         tools_info = self.get_tools_info()
@@ -238,7 +230,10 @@ class WorldStateAggregator:
             if motivational_drives:
                 motivational_state["drives"] = motivational_drives
             if satisfaction_patterns:
-                motivational_state["satisfaction_patterns"] = satisfaction_patterns
+                # Aggregate satisfaction patterns to prevent unbounded growth
+                aggregated = self._aggregate_satisfaction_patterns(satisfaction_patterns)
+                if aggregated:  # Only include if aggregation produced data
+                    motivational_state["satisfaction_patterns"] = aggregated
             
             # Extract reasoning patterns from cognitive state
             reasoning_patterns = self.internal_sensing.interoception.cognition._get_reasoning_patterns()
@@ -813,4 +808,56 @@ class WorldStateAggregator:
             health["latency_ms"] = latency_ms
         
         return {"health": health}
+    
+    def _aggregate_satisfaction_patterns(
+        self, satisfaction_patterns: List[Dict[str, Any]], max_recent: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Aggregate satisfaction patterns into compact summary statistics.
+        
+        Prevents unbounded growth by replacing the full list with aggregated statistics
+        and only the most recent entries for current context.
+        
+        Args:
+            satisfaction_patterns: Full list of satisfaction/frustration pattern dictionaries
+            max_recent: Maximum number of recent patterns to include (default: 10)
+            
+        Returns:
+            Aggregated satisfaction patterns dictionary with summary statistics and recent entries
+        """
+        if not satisfaction_patterns:
+            return {}
+        
+        # Separate satisfaction and frustration entries
+        satisfaction_entries = [p for p in satisfaction_patterns if p.get("type") == "satisfaction"]
+        frustration_entries = [p for p in satisfaction_patterns if p.get("type") == "frustration"]
+        
+        # Compute summary statistics
+        aggregated = {
+            "total_count": len(satisfaction_patterns),
+            "satisfaction": {
+                "count": len(satisfaction_entries),
+            },
+            "frustration": {
+                "count": len(frustration_entries),
+            },
+        }
+        
+        # Compute averages if we have entries
+        if satisfaction_entries:
+            satisfaction_levels = [p.get("level", 0.0) for p in satisfaction_entries]
+            aggregated["satisfaction"]["average_level"] = sum(satisfaction_levels) / len(satisfaction_levels)
+        
+        if frustration_entries:
+            frustration_levels = [p.get("level", 0.0) for p in frustration_entries]
+            aggregated["frustration"]["average_level"] = sum(frustration_levels) / len(frustration_levels)
+        
+        # Include most recent entries for current context (sorted by timestamp, most recent first)
+        sorted_patterns = sorted(satisfaction_patterns, key=lambda p: p.get("timestamp", 0.0), reverse=True)
+        recent_patterns = sorted_patterns[:max_recent]
+        
+        if recent_patterns:
+            aggregated["recent"] = recent_patterns
+        
+        return aggregated
 

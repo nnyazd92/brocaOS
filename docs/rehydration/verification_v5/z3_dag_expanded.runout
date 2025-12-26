@@ -1,0 +1,7 @@
+Full assumptions: ['Co0_Dimensionless', 'GroupOrder_Observed', 'DimensionalBridge', 'Mapping_Latency_Positive(0.1)', 'Mapping_Latency_Positive', 'Mapping_Latency_Value_known', 'Units_Audit_Passed(calculated)', 'Numeric_Error_Below_Eps(0.005)', 'PlanckMass_Independent', 'Uses_PlanckMass']
+Is G_value provable from full assumptions? False
+Greedy minimal assumptions for G_value: ['Co0_Dimensionless', 'GroupOrder_Observed', 'DimensionalBridge', 'Mapping_Latency_Positive(0.1)', 'Mapping_Latency_Positive', 'Mapping_Latency_Value_known', 'Units_Audit_Passed(calculated)', 'Numeric_Error_Below_Eps(0.005)', 'PlanckMass_Independent', 'Uses_PlanckMass']
+Unit exponents solution found: (1, 1, -2)
+Circularity scenario satisfiable? sat
+Can NoCircularity be true under circular-use conditions? sat
+Wrote outputs to docs/rehydration/verification_v5/

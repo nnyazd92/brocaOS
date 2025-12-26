@@ -1,0 +1,109 @@
+\contentsline {section}{\numberline {1}Symbol Table and SSOT Contract}{1}{section.1}%
+\contentsline {section}{\numberline {2}Claims and Status Ledger}{5}{section.2}%
+\contentsline {subsection}{\numberline {2.1}The Dependency DAG (Auditability)}{5}{subsection.2.1}%
+\contentsline {section}{\numberline {3}Introduction: The Information Pivot}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}The Crisis of Monolithic Ontology}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Intellectual Lineage}{6}{subsection.3.2}%
+\contentsline {section}{\numberline {4}The Layered Architecture (Visual Overview)}{6}{section.4}%
+\contentsline {section}{\numberline {5}The Algorithmic Foundation of Necessity}{6}{section.5}%
+\contentsline {subsection}{\numberline {5.1}The Universal Cost Functional: Algorithmic Complexity}{6}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Deriving the Quadratic Strain Functional}{7}{subsection.5.2}%
+\contentsline {section}{\numberline {6}The Dependency DAG (Causal Closure)}{7}{section.6}%
+\contentsline {section}{\numberline {7}Track A: Axiomatic Foundations and SSOT Contract}{7}{section.7}%
+\contentsline {subsection}{\numberline {7.1}The Four-Layer Ontology (The Stack)}{7}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}The Typed Layer Calculus}{7}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Notation and Dimensional Bridge}{8}{subsection.7.3}%
+\contentsline {subsection}{\numberline {7.4}The Dimensional Bridge: Status Clarification}{8}{subsection.7.4}%
+\contentsline {subsubsection}{\numberline {7.4.1}What We Have vs. What We Need}{8}{subsubsection.7.4.1}%
+\contentsline {paragraph}{Current Limitations}{9}{subsubsection.7.4.1}%
+\contentsline {subsubsection}{\numberline {7.4.2}Updated Protocol for κ-Dependent Claims}{9}{subsubsection.7.4.2}%
+\contentsline {subsubsection}{\numberline {7.4.3}Measurement Protocol for κ}{9}{subsubsection.7.4.3}%
+\contentsline {paragraph}{Concrete Proposal for $\mathcal {P}$}{9}{Item.11}%
+\contentsline {subsubsection}{\numberline {7.4.4}Updated Gravitational Constant Derivation Status}{10}{subsubsection.7.4.4}%
+\contentsline {subsubsection}{\numberline {7.4.5}Interim Workaround: Dimensionless Predictions}{10}{subsubsection.7.4.5}%
+\contentsline {paragraph}{Summary}{10}{subsubsection.7.4.5}%
+\contentsline {section}{\numberline {8}Track 1: Formal Toy Models}{11}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Lemma: IR Consistency with Lovelock under Metric-Only Assumptions}{11}{subsection.8.1}%
+\contentsline {paragraph}{What This Lemma Does \emph {Not} Give}{11}{equation.8.3}%
+\contentsline {paragraph}{Updated Status and Research Direction}{11}{equation.8.3}%
+\contentsline {subsubsection}{\numberline {8.1.1}Implications for the Claims Ledger}{12}{subsubsection.8.1.1}%
+\contentsline {paragraph}{Research Directions Enabled by Information-Theoretic Framing}{12}{subsubsection.8.1.1}%
+\contentsline {subsection}{\numberline {8.2}Deriving the Vacuum Einstein Equations ($R_{ab}=0$)}{13}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Stability Under Substrate Irregularity}{13}{subsection.8.3}%
+\contentsline {subsubsection}{\numberline {8.3.1}Conjecture: Continuum Limit of Substrate Graph Dynamics}{13}{subsubsection.8.3.1}%
+\contentsline {paragraph}{Precise Mathematical Formulation Needed}{13}{Item.28}%
+\contentsline {paragraph}{Connection to Modified Gravity}{14}{Item.28}%
+\contentsline {paragraph}{Updated Status in Claims Ledger}{14}{Item.32}%
+\contentsline {subsubsection}{\numberline {8.3.2}Numerical Verification Plan}{14}{subsubsection.8.3.2}%
+\contentsline {subsection}{\numberline {8.4}Interrupt Priority Levels (IPL) and Consciousness}{15}{subsection.8.4}%
+\contentsline {subsection}{\numberline {8.5}The Geometric Interrupt Vector}{15}{subsection.8.5}%
+\contentsline {subsection}{\numberline {8.6}The Phenomenal Interrupt Vector Table}{15}{subsection.8.6}%
+\contentsline {section}{\numberline {9}Particle Emergence: The Lattice Defect Model}{15}{section.9}%
+\contentsline {subsection}{\numberline {9.1}The Leech Selection Principle: Computational Minimality}{15}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}Uniqueness and Stability of the $\delta _e$ Defect}{16}{subsection.9.2}%
+\contentsline {section}{\numberline {10}Case Study: The Electron as a Lattice Defect}{16}{section.10}%
+\contentsline {subsection}{\numberline {10.1}Uniqueness and Stability of the $\delta _e$ Defect}{16}{subsection.10.1}%
+\contentsline {subsection}{\numberline {10.2}The $A_1^{24}$ Niemeier Substrate}{16}{subsection.10.2}%
+\contentsline {subsection}{\numberline {10.3}The Electron Defect ($\delta _e$)}{16}{subsection.10.3}%
+\contentsline {subsection}{\numberline {10.4}The Fine Structure Constant ($\alpha $)}{16}{subsection.10.4}%
+\contentsline {section}{\numberline {11}The Niemeier Mapping and Gauge Emergence}{17}{section.11}%
+\contentsline {subsection}{\numberline {11.1}The McKay Correspondence and Gauge Force}{17}{subsection.11.1}%
+\contentsline {subsection}{\numberline {11.2}The Crystallization Functor}{17}{subsection.11.2}%
+\contentsline {subsection}{\numberline {11.3}Emergence of the Standard Model (Continuum Limit)}{17}{subsection.11.3}%
+\contentsline {subsection}{\numberline {11.4}The Hydrodynamic Limit}{17}{subsection.11.4}%
+\contentsline {section}{\numberline {12}Track 2: Speculative Research}{17}{section.12}%
+\contentsline {subsection}{\numberline {12.1}Topos-Theoretic Qualia (Foundations)}{17}{subsection.12.1}%
+\contentsline {section}{\numberline {13}The Topos Dictionary of Phenomenal Categories}{18}{section.13}%
+\contentsline {subsection}{\numberline {13.1}Addressing Degeneracy: Higher-Order Invariants}{18}{subsection.13.1}%
+\contentsline {subsection}{\numberline {13.2}The Curvature Fork: Strict Separation of Physical and Informational Curvature}{18}{subsection.13.2}%
+\contentsline {subsubsection}{\numberline {13.2.1}Prohibition on Cross-Talk}{18}{subsubsection.13.2.1}%
+\contentsline {subsubsection}{\numberline {13.2.2}Explicit Mapping Theorems Required}{19}{subsubsection.13.2.2}%
+\contentsline {paragraph}{Current Status: No Such Theorem Exists}{19}{Item.42}%
+\contentsline {subsubsection}{\numberline {13.2.3}Updated Curvature-Qualia Mapping}{19}{subsubsection.13.2.3}%
+\contentsline {paragraph}{Critical Caveat}{19}{subsubsection.13.2.3}%
+\contentsline {subsubsection}{\numberline {13.2.4}Implementation in Code}{19}{subsubsection.13.2.4}%
+\contentsline {subsection}{\numberline {13.3}The Curvature-Qualia Mapping}{20}{subsection.13.3}%
+\contentsline {subsection}{\numberline {13.4}The Phenomenal Metric}{20}{subsection.13.4}%
+\contentsline {subsection}{\numberline {13.5}The Heyting Algebra of Qualia}{21}{subsection.13.5}%
+\contentsline {section}{\numberline {14}The Topos of Forbidden Experience}{21}{section.14}%
+\contentsline {subsection}{\numberline {14.1}Injectivity and Forbidden Qualia}{21}{subsection.14.1}%
+\contentsline {section}{\numberline {15}The Ouroboric Closure}{21}{section.15}%
+\contentsline {subsection}{\numberline {15.1}The Selection Principle: Computational Minimality}{21}{subsection.15.1}%
+\contentsline {subsection}{\numberline {15.2}Dynamical Convergence to the Fixed Point}{21}{subsection.15.2}%
+\contentsline {section}{\numberline {16}The Kill-Switch: Falsification by Aliasing}{22}{section.16}%
+\contentsline {subsection}{\numberline {16.1}The Nyquist Cutoff for Gravitational Waves}{22}{subsection.16.1}%
+\contentsline {section}{\numberline {17}Falsifiability Map and Measurement Protocols}{22}{section.17}%
+\contentsline {subsection}{\numberline {17.1}Forward Cosmological Predictions}{22}{subsection.17.1}%
+\contentsline {subsection}{\numberline {17.2}Derivation of the Dark Matter Ratio Formula (Revised)}{22}{subsection.17.2}%
+\contentsline {subsubsection}{\numberline {17.2.1}Structural Origin of the Constant 5}{22}{subsubsection.17.2.1}%
+\contentsline {subsubsection}{\numberline {17.2.2}Derivation of the Exponential Term from Poisson Statistics}{23}{subsubsection.17.2.2}%
+\contentsline {subsubsection}{\numberline {17.2.3}Natural Scale $\lambda = 1$}{23}{subsubsection.17.2.3}%
+\contentsline {subsubsection}{\numberline {17.2.4}Independent Testable Prediction}{23}{subsubsection.17.2.4}%
+\contentsline {subsubsection}{\numberline {17.2.5}Updated Status: Toy Model Result}{23}{subsubsection.17.2.5}%
+\contentsline {subsection}{\numberline {17.3}Identifiability and Model Selection Analysis}{24}{subsection.17.3}%
+\contentsline {subsubsection}{\numberline {17.3.1}Why $\lambda = 1$ is Natural (Not Just Narrative)}{24}{subsubsection.17.3.1}%
+\contentsline {subsubsection}{\numberline {17.3.2}Model Selection: Why Poisson Over Alternatives}{25}{subsubsection.17.3.2}%
+\contentsline {paragraph}{Information-Theoretic Model Selection}{25}{subsubsection.17.3.2}%
+\contentsline {subsubsection}{\numberline {17.3.3}Structural Constant 5: Representation-Theoretic Justification}{25}{subsubsection.17.3.3}%
+\contentsline {subsubsection}{\numberline {17.3.4}Updated Status: From Toy Model to Theorem}{25}{subsubsection.17.3.4}%
+\contentsline {paragraph}{Independent Testable Predictions}{26}{Item.55}%
+\contentsline {subsection}{\numberline {17.4}Measurement Map: The Electron as a Lattice Defect}{26}{subsection.17.4}%
+\contentsline {subsection}{\numberline {17.5}Measurement Map: Gravitational Latency}{26}{subsection.17.5}%
+\contentsline {section}{\numberline {18}Derivation Ledger and Reproducibility}{26}{section.18}%
+\contentsline {subsection}{\numberline {18.1}Planck 2018 Audit (Reproducibility Hook)}{26}{subsection.18.1}%
+\contentsline {subsection}{\numberline {18.2}Prediction: Cosmic Invariance of the DM Ratio}{27}{subsection.18.2}%
+\contentsline {subsection}{\numberline {18.3}Geodesic Acceleration Derivation}{27}{subsection.18.3}%
+\contentsline {subsection}{\numberline {18.4}Operationalizing the Universal Clock $f_U$}{27}{subsection.18.4}%
+\contentsline {subsection}{\numberline {18.5}The Ouroboric Fixed Point Proof}{28}{subsection.18.5}%
+\contentsline {subsection}{\numberline {18.6}Information-Theoretic Derivation of the Planck Scale}{28}{subsection.18.6}%
+\contentsline {subsection}{\numberline {18.7}The Derivation Ledger (CPU Invariant Audit)}{28}{subsection.18.7}%
+\contentsline {section}{\numberline {19}Appendix: Calibration and Ansätze}{29}{section.19}%
+\contentsline {subsection}{\numberline {19.1}The Gravitational Constant $G$ from $|Co_0|$}{29}{subsection.19.1}%
+\contentsline {subsection}{\numberline {19.2}Units Audit (Dimensional Analysis)}{29}{subsection.19.2}%
+\contentsline {section}{\numberline {20}Verification Artifacts}{29}{section.20}%
+\contentsline {section}{Appendix: DM-ratio sensitivity (v5.2)}{30}{table.5}%
+\contentsline {paragraph}{Summary:}{30}{table.5}%
+\contentsline {paragraph}{Figures:}{30}{table.5}%
+\contentsline {paragraph}{Reproducibility:}{30}{figure.3}%
+\contentsline {paragraph}{Interpretation:}{30}{figure.3}%
+\contentsline {paragraph}{Remarks.}{32}{Item.63}%

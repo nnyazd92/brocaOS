@@ -1,0 +1,47 @@
+% ============================================================================
+% PATCH v5.7.01: Address Category Errors and Notation
+% ============================================================================
+% Issue: Category errors between physical curvature, informational curvature,
+%        and topos truth values. Need explicit notation: C_phys ≠ C_info
+% ============================================================================
+
+% Add new notation commands for clarity
+\newcommand{\Cphys}{\mathcal{C}_{\mathrm{phys}}}
+\newcommand{\Cinfo}{\mathcal{C}_{\mathrm{info}}}
+\newcommand{\Ctopos}{\mathcal{C}_{\mathrm{topos}}}
+
+% Add warning about category errors in introduction
+\subsection{The Curvature Fork: Explicit Notation for Distinct Domains}
+
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black,title=Critical Notation Distinction]
+To avoid category errors that have plagued previous formulations, we introduce explicit notation for three distinct curvature-like objects:
+
+\begin{itemize}
+    \item \textbf{Physical Spacetime Curvature} ($\Cphys$): The Riemann tensor $R^a_{bcd}$ and its invariants in $\interface$ (layer L3).
+    
+    \item \textbf{Informational/Statistical Curvature} ($\Cinfo$): The Fisher-Rao metric curvature on parameter spaces in $\protocol$ (layer L1) and $\logic$ (layer L2).
+    
+    \item \textbf{Topos Truth-Value Curvature} ($\Ctopos$): Invariants in the subobject classifier $\Omega$ of observer topoi.
+\end{itemize}
+
+\textbf{Crucial:} $\Cphys \neq \Cinfo \neq \Ctopos$. These objects live in different mathematical categories. Any map between them must be explicitly defined as a functor with stated properties.
+\end{tcolorbox}
+
+\paragraph{Explicit Functor Definitions}
+To make the framework mathematically rigorous, we define:
+
+\begin{enumerate}
+    \item \textbf{Physical→Informational Map (when defined):} 
+    \[
+    F_{\mathrm{phys\to info}}: (\mathcal{M}, g) \to (\Theta, g_F)
+    \]
+    where $\mathcal{M}$ is spacetime manifold, $g$ is metric, $\Theta$ is parameter space, $g_F$ is Fisher metric. This map exists only when a statistical model $\rho(x|\theta)$ is specified.
+    
+    \item \textbf{Informational→Topos Map (when defined):}
+    \[
+    F_{\mathrm{info\to topos}}: (\Theta, g_F) \to (\mathcal{E}, \Omega)
+    \]
+    where $\mathcal{E}$ is an observer topos, $\Omega$ its subobject classifier. This requires specifying a proposition language $\mathcal{P}$ and valuation $V: \mathcal{P} \to \Gamma(\Omega)$.
+\end{enumerate}
+
+\textbf{Consequence:} Any claim of the form ``curvature $\to$ qualia'' must specify which curvature ($\Cphys$, $\Cinfo$, or $\Ctopos$) and which explicit functor is being used. Unspecified mappings are category errors.

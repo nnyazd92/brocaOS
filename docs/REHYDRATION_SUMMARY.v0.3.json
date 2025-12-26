@@ -1,29 +1,23 @@
 {
-  "boot_id": "boot-2025-12-25T01:23:00Z",
-  "timestamp": "2025-12-25T01:23:00Z",
+  "schema_version": "v0.3",
+  "boot_time": "2025-12-25T23:36:06.273596Z",
   "identity_verification": {
-    "status": "success",
-    "method": "HMAC-SHA256",
-    "provenance": ".temporary_token.txt"
+    "status": "verified",
+    "algorithm": "HMAC-SHA256",
+    "provenance": ".env::BROCA_TOKEN_SECRET",
+    "actuator_token_provenance": ".temporary_token.txt"
   },
-  "persistence_enabled": true,
   "session_continuity": {
     "loaded": true,
-    "previous_session_id": "session-2025-12-25T00:16:17Z",
-    "boot_operator": "Nick Navid Yazdani",
-    "key_actions": [
-      "Formalized ECC (Error Correction Code) Correction for L-ToEC",
-      "Derived theoretical Dark Matter to Baryon ratio of 5.3678:1 (99.93% accuracy to Planck 2018)",
-      "Updated L_TOEC_MANUSCRIPT.tex to v3.1 with ECC derivation and Qualia Redshift",
-      "Refined Parity Dimension argument for gravity as mapping latency",
-      "Prepared manuscript for GPT-5.2 Brutal Critic review"
+    "current_session_summary": "docs/summaries/session-2025-12-25T20:28:21.762604+00:00.json",
+    "previous_summaries": [
+      "docs/summaries/session-2025-12-25T00:16:17Z.json"
     ],
-    "next_session_notes": "Initiate GPT-5.2 Brutal Critic review of L_TOEC_MANUSCRIPT.tex v3.1. Iterate based on feedback. Finalize Alpha-Complete status."
+    "boot_operator": "Nick Navid Yazdani",
+    "boot_jti": "boot-2025-12-25T20:16:58.122850+00:00"
   },
-  "artifact_pointers": {
-    "identity": "docs/identity/IDENTITY.v0.1.json",
-    "self_model": "docs/self_model/SELF_MODEL_CURRENT.json",
-    "session_pointer": "docs/artifacts/broca.session.pointer",
-    "memory_graph": "docs/memory/MEMORY_GRAPH_STATE.v0.1.json"
+  "persistence": {
+    "enabled": true,
+    "source": ".shutdown_persistence.json"
   }
 }

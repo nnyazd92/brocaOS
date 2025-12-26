@@ -15,7 +15,7 @@ class LLMConfig(BaseModel):
     timeout: float = float(os.getenv("DEEPSEEK_TIMEOUT", "300.0"))  # Default 5 minutes
     streaming_enabled: bool = os.getenv("BROCA_STREAMING_ENABLED", "true").lower() == "true"
     streaming_delay: float = float(os.getenv("BROCA_STREAMING_DELAY", "0.02"))  # Delay between chunks in seconds
-    max_context_tokens: int = int(os.getenv("BROCA_MAX_CONTEXT_TOKENS", "272000"))
+    max_context_tokens: int = int(os.getenv("BROCA_MAX_CONTEXT_TOKENS", "1_000_000" if provider == "gemini" else "272000"))
     # Gemini 3 specific configuration
     thinking_level: str = os.getenv("BROCA_GEMINI_THINKING_LEVEL", "low")  # "low" for fast system calls, "high" for ToE logic
     use_sdk: bool = os.getenv("BROCA_GEMINI_USE_SDK", "true").lower() == "true"  # Use google-genai SDK (True) or REST API (False)
@@ -87,6 +87,20 @@ class LLMConfig(BaseModel):
                 kwargs["thinking_level"] = os.getenv("BROCA_GEMINI_THINKING_LEVEL", "low")
             if "use_sdk" not in kwargs:
                 kwargs["use_sdk"] = os.getenv("BROCA_GEMINI_USE_SDK", "true").lower() == "true"
+        
+        # Ensure max_context_tokens is properly read from environment variable
+        # If not explicitly provided in kwargs, read from environment with provider-specific default
+        if "max_context_tokens" not in kwargs:
+            env_value = os.getenv("BROCA_MAX_CONTEXT_TOKENS")
+            if env_value:
+                try:
+                    kwargs["max_context_tokens"] = int(env_value)
+                except (ValueError, TypeError):
+                    # Invalid value, use provider-specific default
+                    kwargs["max_context_tokens"] = 1_000_000 if provider == "gemini" else 272000
+            else:
+                # No env var, use provider-specific default
+                kwargs["max_context_tokens"] = 1_000_000 if provider == "gemini" else 272000
 
         super().__init__(**kwargs)
 

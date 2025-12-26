@@ -142,3 +142,4 @@ class TestEmbeddingTruncationMutationKillers:
         truncated = service._truncate_text_for_embedding(long_text)
         assert len(truncated) <= DEFAULT_EMBEDDING_MAX_CHARS
 
+

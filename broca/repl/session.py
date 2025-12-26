@@ -1460,8 +1460,8 @@ class ConversationSession:
             extra={
                 "event": "turn_after",
                 "context_stats": stats,
-                "assistant_preview": assistant_text[:200]
-                + ("..." if len(assistant_text) > 200 else ""),
+                "assistant_preview": (assistant_text[:200] if assistant_text else None)
+                + ("..." if assistant_text and len(assistant_text) > 200 else ""),
                 "usage": usage,
             },
         )
@@ -1610,14 +1610,14 @@ class ConversationSession:
         self, messages: List[Dict[str, Any]], max_tokens: int
     ) -> List[Dict[str, Any]]:
         """
-        Apply token-aware filtering to messages, truncating tool results if needed.
+        Apply token-aware filtering to messages, truncating tool results and removing messages if needed.
         
         Args:
             messages: List of messages to filter
             max_tokens: Maximum token limit
             
         Returns:
-            Filtered messages with tool results truncated if needed and tool message ordering fixed
+            Filtered messages with tool results truncated and messages removed if needed to stay under limit
         """
         from ..config import config
         
@@ -1631,38 +1631,91 @@ class ConversationSession:
         if is_gemini:
             messages = self._fix_gemini_tool_call_ordering(messages)
         
-        # Estimate tokens
-        estimated_tokens = estimate_messages_tokens(messages)
+        # Apply safety margin (5%) to account for token estimation inaccuracy
+        effective_max_tokens = int(max_tokens * 0.95)
         
-        # If under limit, just truncate tool results as safety measure
-        if estimated_tokens <= max_tokens:
-            result = self._truncate_tool_results_in_messages(
-                messages, config.summarization.max_tool_result_size
-            )
-            # Re-apply Gemini fix after truncation (defensive)
-            if is_gemini:
-                result = self._fix_gemini_tool_call_ordering(result)
-            return result
-        
-        # Over limit - truncate tool results
-        truncated_messages = self._truncate_tool_results_in_messages(
+        # Truncate tool results first (this is the least destructive operation)
+        messages = self._truncate_tool_results_in_messages(
             messages, config.summarization.max_tool_result_size
         )
         
         # Re-apply Gemini fix after truncation (defensive)
         if is_gemini:
-            truncated_messages = self._fix_gemini_tool_call_ordering(truncated_messages)
+            messages = self._fix_gemini_tool_call_ordering(messages)
         
-        # Re-estimate after truncation
-        estimated_tokens_after = estimate_messages_tokens(truncated_messages)
+        # Estimate tokens after tool result truncation
+        estimated_tokens = estimate_messages_tokens(messages)
         
-        if estimated_tokens_after > max_tokens:
+        # If under limit after tool result truncation, we're done
+        if estimated_tokens <= effective_max_tokens:
+            return messages
+        
+        # Still over limit - need to remove messages
+        # Separate system message from conversation messages
+        system_message = None
+        conversation_messages = []
+        
+        if messages and messages[0].get("role") == "system":
+            system_message = messages[0]
+            conversation_messages = messages[1:]
+        else:
+            conversation_messages = messages
+        
+        # If we only have system message or no conversation messages, return as-is
+        if not conversation_messages:
+            if estimated_tokens > max_tokens:
+                logger.warning(
+                    f"Messages exceed token limit ({estimated_tokens} > {max_tokens}) "
+                    "but cannot remove more messages"
+                )
+            return messages if system_message is None else [system_message]
+        
+        # Iteratively remove oldest non-system messages until under limit
+        filtered_messages = conversation_messages.copy()
+        
+        while filtered_messages and estimated_tokens > effective_max_tokens:
+            # Remove oldest message (first in list)
+            removed = filtered_messages.pop(0)
+            logger.debug(
+                f"Removing message to reduce token count: role={removed.get('role')}, "
+                f"estimated_tokens={estimated_tokens} > {effective_max_tokens}"
+            )
+            
+            # Reconstruct full message list with system message (if present)
+            if system_message:
+                current_messages = [system_message] + filtered_messages
+            else:
+                current_messages = filtered_messages
+            
+            # Re-estimate after removal
+            estimated_tokens = estimate_messages_tokens(current_messages)
+            
+            # Stop if we only have system message + last message remaining (minimum)
+            if len(filtered_messages) <= 1:
+                break
+        
+        # Reconstruct final message list
+        if system_message:
+            result = [system_message] + filtered_messages
+        else:
+            result = filtered_messages
+        
+        # Final check - if still over limit, log warning but return anyway
+        final_estimated_tokens = estimate_messages_tokens(result)
+        if final_estimated_tokens > max_tokens:
             logger.warning(
-                f"Messages still exceed token limit after truncation "
-                f"({estimated_tokens_after} > {max_tokens})"
+                f"Messages still exceed token limit after filtering "
+                f"({final_estimated_tokens} > {max_tokens}). "
+                f"Effective limit was {effective_max_tokens}. "
+                "This may cause API errors."
+            )
+        else:
+            logger.debug(
+                f"Token filtering complete: {final_estimated_tokens} <= {max_tokens} "
+                f"(removed {len(conversation_messages) - len(filtered_messages)} messages)"
             )
         
-        return truncated_messages
+        return result
     
     def _fix_tool_message_ordering(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -2018,15 +2071,19 @@ class ConversationSession:
                 system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
                 current_messages = system_messages + [fallback_message]
             else:
-                logger.error(
-                    "Gemini fix removed all non-system messages and no valid content message found "
-                    "in original messages. API call will likely fail with 'contents is not specified'.",
+                # No fallback found - inject a default user message to prevent API error
+                logger.warning(
+                    "Gemini fix removed all non-system messages and no valid content message found. "
+                    "Injecting default user message to prevent API error.",
                     extra={
-                        "event": "gemini_fix_no_fallback_available",
+                        "event": "gemini_fix_injecting_default_message",
                         "messages_before_fix": len(messages),
                         "messages_after_fix": len(current_messages),
                     }
                 )
+                system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
+                default_message = {"role": "user", "content": "Please continue the conversation."}
+                current_messages = system_messages + [default_message]
         
         return current_messages
     
@@ -2280,6 +2337,59 @@ class ConversationSession:
         
         return True, None
     
+    def _normalize_world_state_for_hash(self, world_state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize world state for stable hashing by removing volatile fields.
+        
+        Removes timestamp fields and other volatile data that changes frequently
+        but doesn't represent meaningful state changes. This ensures hash stability
+        when only timestamps change but meaningful content remains the same.
+        
+        Args:
+            world_state: Raw world state dictionary
+            
+        Returns:
+            Normalized world state dictionary suitable for hashing
+        """
+        def normalize_value(value: Any) -> Any:
+            """Recursively normalize values, removing timestamps."""
+            if isinstance(value, dict):
+                normalized = {}
+                for k, v in value.items():
+                    # Skip timestamp fields
+                    if k in ("timestamp", "last_indexed", "last_scan", "last_updated"):
+                        continue
+                    normalized[k] = normalize_value(v)
+                return normalized
+            elif isinstance(value, list):
+                return [normalize_value(item) for item in value]
+            else:
+                return value
+        
+        normalized = normalize_value(world_state)
+        return normalized
+    
+    def _calculate_stable_world_state_hash(self, world_state: Dict[str, Any]) -> str:
+        """
+        Calculate stable hash of world state using normalized data and deterministic JSON.
+        
+        Uses JSON serialization with sorted keys to ensure deterministic output,
+        and normalizes the world state to exclude volatile timestamp fields.
+        
+        Args:
+            world_state: World state dictionary
+            
+        Returns:
+            SHA256 hash hex digest
+        """
+        import hashlib
+        import json
+        
+        normalized = self._normalize_world_state_for_hash(world_state)
+        # Use JSON with sorted keys for deterministic serialization
+        json_str = json.dumps(normalized, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(json_str.encode('utf-8')).hexdigest()
+    
     def _update_system_prompt(self) -> None:
         """
         Update system prompt with current world state and session summary.
@@ -2301,14 +2411,12 @@ class ConversationSession:
 
         try:
             from ..config import config
-            import hashlib
             
             # Aggregate current world state
             world_state = self.world_state_aggregator.aggregate()
 
-            # Calculate hash of world state to detect changes
-            world_state_str = str(sorted(world_state.items()))
-            world_state_hash = hashlib.sha256(world_state_str.encode()).hexdigest()
+            # Calculate stable hash of world state to detect changes
+            world_state_hash = self._calculate_stable_world_state_hash(world_state)
             
             # Skip update if world state hasn't changed (hash-based change detection)
             if world_state_hash == self._last_world_state_hash:

@@ -1,0 +1,39 @@
+% Auto-generated verification includes
+\section*{Verification Artifacts}
+Verification scripts and outputs are available in \texttt{docs/rehydration/verification\_v5/}.
+\begin{itemize}
+  \item \verb|z3_full_axioms.py| and \verb|z3_dag.py| - logical consistency checks and provenance DAG.
+  \item \verb|sympy_dm_sensitivity.py| - symbolic derivations and sensitivity analysis.
+\end{itemize}
+
+% Inserted visualization figure
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.8\textwidth]{../../docs/rehydration/verification_v5/z3_dag_expanded.png}
+  \caption{Provenance DAG (expanded).}
+  \label{fig:z3_dag_expanded}
+\end{figure}
+
+% Verification summary table (auto-inserted)
+\begin{table}[ht]
+\centering
+\begin{tabular}{ll}
+\hline
+Item & Value \\
+\hline
+DM\_theory (SymPy) & 5.367879441171442 \\
+DM\_planck (SymPy) & 5.364327223960661 \\
+Numeric tolerance (eps) & 0.005 \\
+Provable (G\_value) & False \\
+Circularity satisfiable & See log (flagged) \\
+Minimal assumption sets & None enumerated \\
+\hline
+\end{tabular}
+\caption{Auto-generated verification summary (Z3 + SymPy).}
+\end{table}
+% dm_ratio v5.2 artifacts
+\item \verb|docs/physics/specs/dm_ratio_v5.2_run.py| - reproducible sensitivity script.
+\item \verb|docs/physics/notebooks/dm_ratio_sensitivity_report.txt| - numeric report.
+% composition law specs
+\item \verb|docs/physics/specs/z3_composition_axioms.py| - z3 consistency checks for composition axioms.
+\item \verb|docs/physics/specs/sympy_composition_checks.py| - symbolic checks for cost aggregation.

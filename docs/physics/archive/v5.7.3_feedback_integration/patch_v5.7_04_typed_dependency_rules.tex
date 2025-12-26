@@ -1,0 +1,92 @@
+% ============================================================================
+% PATCH v5.7.04: Add Typed Dependency Rules for Provenance
+% ============================================================================
+% Issue: Current audit boundary is porous. Need typed edges in dependency DAG:
+%        (Axiom), (Definition), (Lemma), (Empirical calibration), (Analogy)
+% ============================================================================
+
+\subsection{Formal Proof-Carrying Claim Objects}
+
+To enforce provenance discipline and prevent leakage, we define a formal claim object:
+
+\begin{mytheorem}{Definition (Proof-Carrying Claim)}
+\label{def:proof-carrying-claim}
+A \textbf{proof-carrying claim} is a 6-tuple:
+\[
+\textsf{Claim} = (\textsf{ID},\; \textsf{Statement},\; \textsf{Status},\; \textsf{Dependencies},\; \textsf{ProofArtifact},\; \textsf{Falsifier})
+\]
+where:
+\begin{itemize}
+    \item $\textsf{ID}$: Unique identifier (e.g., DMD-001, LOV-002)
+    \item $\textsf{Statement}$: Precise mathematical statement
+    \item $\textsf{Status} \in \{\text{Axiom}, \text{Definition}, \text{Lemma}, \text{Theorem}, \text{Conjecture}, \text{Empirical calibration}, \text{Analogy}\}$
+    \item $\textsf{Dependencies}$: List of (ClaimID, EdgeType) pairs
+    \item $\textsf{ProofArtifact}$: Path to verification script or proof
+    \item $\textsf{Falsifier}$: Experimental or logical condition that would refute the claim
+\end{itemize}
+\end{mytheorem}
+
+\paragraph{Edge Type System}
+Dependency edges are \textbf{typed} to prevent leakage:
+
+\begin{tcolorbox}[colback=blue!5!white,colframe=blue!75!black,title=Edge Type Constraints]
+\begin{tabular}{ll}
+\textbf{Edge Type} & \textbf{Allowed in Status = Theorem?} \\ \hline
+\texttt{(Axiom)} & \checkmark Yes \\
+\texttt{(Definition)} & \checkmark Yes \\
+\texttt{(Lemma)} & \checkmark Yes \\
+\texttt{(Theorem)} & \checkmark Yes (must be previously proven) \\
+\texttt{(Empirical calibration)} & \textbf{\texttimes No} \\
+\texttt{(Analogy)} & \textbf{\texttimes No} \\
+\texttt{(Conjecture)} & \textbf{\texttimes No} \\
+\end{tabular}
+\end{tcolorbox}
+
+\paragraph{Enforcement Rule}
+\begin{mytheorem}{Rule (Theorem Dependency Constraint)}
+\label{rule:theorem-dependency}
+If $\textsf{Status} = \text{Theorem}$, then every edge in $\textsf{Dependencies}$ must have type in $\{\text{Axiom}, \text{Definition}, \text{Lemma}, \text{Theorem}\}$ where any $\text{Theorem}$ dependencies are themselves theorems proven under this rule.
+
+If any dependency has type $\text{Empirical calibration}$ or $\text{Analogy}$, the claim's status must be downgraded to $\text{Conjecture}$ or $\text{Heuristic}$.
+\end{mytheorem}
+
+\subsection{Audit of Current Claims Against New Rules}
+
+Applying Rule \ref{rule:theorem-dependency} to key claims:
+
+\begin{tcolorbox}[colback=yellow!5!white,colframe=yellow!75!black,title=Audit Results]
+\begin{tabular}{p{0.15\textwidth}p{0.3\textwidth}p{0.2\textwidth}p{0.25\textwidth}}
+\textbf{Claim ID} & \textbf{Previous Status} & \textbf{New Status} & \textbf{Reason} \\ \hline
+LOV-001 & Theorem & \textbf{Lemma} & Depends on Lovelock (mathematical result) but overstates scope \\
+DMD-001 & Theorem & \textbf{Toy Model Result} & Depends on structural decomposition (conjectural) \\
+POI-001 & Narrative & \textbf{Theorem (Toy Model)} & Now has explicit functional and proof \\
+GRA-001 & Theorem & \textbf{Conjecture} & Depends on graph Laplacian → continuum (unproven) \\
+\end{tabular}
+\end{tcolorbox}
+
+\paragraph{Implementation in Verification Scripts}
+The edge type system is implemented in verification scripts. Example Z3 check:
+
+\begin{lstlisting}[language=Python,caption=Z3 check for theorem dependencies]
+def check_theorem_dependencies(claim):
+    """Enforce Rule: Theorem dependencies must be Axiom/Definition/Lemma/Theorem"""
+    if claim.status != "Theorem":
+        return True  # Rule only applies to theorems
+    
+    for dep_id, dep_type in claim.dependencies:
+        if dep_type not in {"Axiom", "Definition", "Lemma", "Theorem"}:
+            print(f"ERROR: Theorem {claim.id} depends on {dep_type} {dep_id}")
+            print(f"  Downgrade to Conjecture or provide alternative proof")
+            return False
+    return True
+\end{lstlisting}
+
+\paragraph{Consequences for the Framework}
+\begin{enumerate}
+    \item \textbf{Transparent provenance:} Every claim's justification is explicit and type-checked.
+    \item \textbf{No leakage:} Calibrations and analogies cannot silently support theorems.
+    \item \textbf{Clear boundaries:} The reader knows exactly what is proven vs. conjectured.
+    \item \textbf{Automated auditing:} The entire DAG can be verified algorithmically.
+\end{enumerate}
+
+This formalization turns the ``claims ledger'' from an organizational tool into an enforceable proof protocol.

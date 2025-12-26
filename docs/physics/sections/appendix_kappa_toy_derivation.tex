@@ -1,0 +1,266 @@
+% Appendix: Toy Derivation of \kappa in a Diffusive Substrate Model
+% Track P (Core Physics) — Toy Model Demonstration
+
+\section{Appendix: Toy Derivation of $\kappa$ in a Diffusive Substrate Model}
+\label{app:kappa-toy}
+
+In this appendix we construct an explicit, checkable toy model in which the
+conversion constant $\kappa$ in $\varphi = \kappa \, \tau_{\mathrm{lat}}$
+is \emph{not} a free parameter, but is instead determined by substrate-level
+quantities.
+
+The goal is not to model the full Leech-lattice substrate $\substrate$, but to
+provide a concrete existence proof: there exist reasonable substrate dynamics
+for which the interface potential $\varphi$ obeys a Poisson equation and
+$\kappa$ is fixed by microscopic parameters.
+
+\subsection{Substrate Geometry and Time Discretization}
+We consider a 3D cubic lattice $\mathbb{Z}^3$ with lattice spacing $a$, so that
+physical positions are $x = a i$ with $i \in \mathbb{Z}^3$. Time is discrete
+in steps of duration $\Delta t$, with integer index $n$ and physical time
+$t_n = n\,\Delta t$.
+
+At each site $i$ and time $n$ we define:
+\begin{itemize}
+  \item $\rho_i^{(n)}$: local processing load / mass density (bits per unit volume $a^3$),
+  \item $\tau_i^{(n)}$: mapping latency (cycles per bit) at that site.
+\end{itemize}
+
+We also introduce substrate parameters:
+\begin{itemize}
+  \item $C$: per-site processing capacity in bits per time step $\Delta t$,
+  \item $f_U$: Universal Clock Frequency (cycles per second),
+  \item $\beta$: coupling constant relating density to bit-arrival rate.
+\end{itemize}
+
+\subsection{Operational Definition of Latency}
+We model the local mapping latency using a simple queueing-theoretic picture.
+Let $\lambda_i^{(n)}$ be the expected number of arriving bits at site $i$
+during one time step $\Delta t$. We assume
+\begin{equation}
+\lambda_i^{(n)} = \beta \, \rho_i^{(n)} a^3,
+\end{equation}
+so that higher local density induces more arrivals.
+
+We take each site to act as an M/M/1-like queue with service capacity $C$
+(bits per time step). In the stable regime $0 < \lambda_i^{(n)} < C$, the mean
+waiting time (in units of $\Delta t$) for a bit in a single-server queue is
+proportional to $(C - \lambda_i^{(n)})^{-1}$. For concreteness we take
+\begin{equation}
+T_{\mathrm{wait},i}^{(n)} = \frac{\Delta t}{C - \lambda_i^{(n)}},
+\end{equation}
+so the latency per bit in cycles/bit is
+\begin{equation}
+\tau_i^{(n)} = f_U \, T_{\mathrm{wait},i}^{(n)} = \frac{f_U \, \Delta t}{C - \beta \, \rho_i^{(n)} a^3}.
+\end{equation}
+
+In the weak-load regime $\beta \, \rho_i^{(n)} a^3 \ll C$, we can expand in a
+Taylor series:
+\begin{equation}
+\tau_i^{(n)} \approx \frac{f_U \Delta t}{C}\left(1 + \frac{\beta a^3}{C} \, \rho_i^{(n)} + O((\rho_i^{(n)})^2)\right).
+\end{equation}
+We separate a baseline latency $\tau_0$ and a density-dependent perturbation
+$\delta \tau_i^{(n)}$:
+\begin{align}
+\tau_0 &= \frac{f_U \Delta t}{C}, \\
+\delta \tau_i^{(n)} &\approx \tau_0 \, \frac{\beta a^3}{C} \, \rho_i^{(n)}.
+\end{align}
+Thus, to first order, $\tau$ is affine in $\rho$.
+
+\subsection{Spatial Coupling: Discrete Diffusion of Latency}
+We now introduce spatial coupling between sites to model the UOS's tendency to
+redistribute computational burden and smooth latency differences. Let $N(i)$
+denote the six nearest neighbors of $i$ in the cubic lattice. We define the
+update rule
+\begin{equation}
+\tau_i^{(n+1)} - \tau_i^{(n)} = \gamma \sum_{j \in N(i)} \left(\tau_j^{(n)} - \tau_i^{(n)}\right)
+  + \alpha \left(\rho_i^{(n)} - \rho_0\right),
+\label{eq:discrete-update}
+\end{equation}
+where
+\begin{itemize}
+  \item $\gamma$ controls the strength of diffusion-like smoothing,
+  \item $\alpha$ couples local density perturbations to latency,
+  \item $\rho_0$ is a reference density (vacuum level).
+\end{itemize}
+
+The first term drives $\tau$ towards the local average of its neighbors; the
+second term encodes the idea that regions with higher density induce larger
+latency.
+
+\subsection{Continuum Limit and Effective PDE}
+We now pass to a continuum approximation. Let $x_i = a i$ and $t_n = n\Delta t$,
+and define fields $\tau_{\mathrm{lat}}(x,t)$ and $\rho(x,t)$ such that
+\begin{equation}
+\tau_i^{(n)} \approx \tau_{\mathrm{lat}}(x_i, t_n), \quad
+\rho_i^{(n)} \approx \rho(x_i, t_n).
+\end{equation}
+
+The left-hand side of~\eqref{eq:discrete-update} becomes a finite difference
+approximation to a time derivative:
+\begin{equation}
+\frac{\tau_i^{(n+1)} - \tau_i^{(n)}}{\Delta t} \to \partial_t \tau_{\mathrm{lat}}(x,t)
+\end{equation}
+as $\Delta t \to 0$.
+
+For the spatial term, using a standard 3D 6-point stencil, we have
+\begin{equation}
+\sum_{j \in N(i)} (\tau_j^{(n)} - \tau_i^{(n)})
+  \approx a^2 \, \nabla^2 \tau_{\mathrm{lat}}(x,t),
+\end{equation}
+up to errors of order $O(a^4)$. Substituting into~\eqref{eq:discrete-update}
+and dividing by $\Delta t$ gives
+\begin{equation}
+\partial_t \tau_{\mathrm{lat}}
+  = \gamma \, \frac{a^2}{\Delta t} \, \nabla^2 \tau_{\mathrm{lat}}
+    + \frac{\alpha}{\Delta t} (\rho - \rho_0).
+\end{equation}
+
+We define the effective diffusion constant and source coupling
+\begin{equation}
+D := \gamma \frac{a^2}{\Delta t}, \qquad
+\tilde{\alpha} := \frac{\alpha}{\Delta t},
+\end{equation}
+so that in continuum form
+\begin{equation}
+\partial_t \tau_{\mathrm{lat}} = D \, \nabla^2 \tau_{\mathrm{lat}} + \tilde{\alpha} (\rho - \rho_0).
+\end{equation}
+
+In a stationary configuration ($\partial_t \tau_{\mathrm{lat}} = 0$), this
+reduces to
+\begin{equation}
+D \, \nabla^2 \tau_{\mathrm{lat}} + \tilde{\alpha} (\rho - \rho_0) = 0,
+\end{equation}
+or
+\begin{equation}
+\nabla^2 \tau_{\mathrm{lat}} = - \, \frac{\tilde{\alpha}}{D} \, (\rho - \rho_0).
+\label{eq:tau-poisson}
+\end{equation}
+
+\paragraph{SymPy verification.}
+The finite-difference-to-PDE scaling $D = \gamma a^2 / \Delta t$ was checked
+symbolically using SymPy in
+\\texttt{verification\_notebooks/kappa\_toy\_sympy.ipynb}, confirming that the
+6-point stencil converges to $\nabla^2$ with the expected prefactor.
+
+\subsection{Relating Potential $\varphi$ to Latency}
+At the interface layer we define the gravitational potential via
+\begin{equation}
+\varphi = \kappa \, \tau_{\mathrm{lat}}.
+\end{equation}
+Applying $\nabla^2$ to both sides and using~\eqref{eq:tau-poisson} yields
+\begin{equation}
+\nabla^2 \varphi = \kappa \, \nabla^2 \tau_{\mathrm{lat}}
+  = -\kappa \, \frac{\tilde{\alpha}}{D} \, (\rho - \rho_0).
+\end{equation}
+
+To match the Newtonian Poisson equation
+\begin{equation}
+\nabla^2 \varphi = 4\pi G \, \rho,
+\end{equation}
+we absorb the $\rho_0$ term into a redefinition of the zero of potential and
+require that the coefficient of $\rho$ is $4\pi G$:
+\begin{equation}
+-\kappa \, \frac{\tilde{\alpha}}{D} = 4\pi G.
+\end{equation}
+Thus
+\begin{equation}
+\kappa = -4\pi G \, \frac{D}{\tilde{\alpha}}.
+\label{eq:kappa-D-alpha}
+\end{equation}
+
+At this stage $\kappa$ is expressed entirely in terms of the diffusion
+constant $D$ and the source coupling $\tilde{\alpha}$, which in turn depend
+on the microscopic update parameters $\gamma, \alpha, a, \Delta t$.
+
+\subsection{Matching to Queueing-Theoretic Latency}
+We now demand consistency between the continuum PDE description of
+$\tau_{\mathrm{lat}}$ and the queueing-theoretic expression derived earlier.
+In the linear-response regime, queueing theory gave
+\begin{equation}
+\delta \tau_{\mathrm{lat}} \approx \tau_0 \, \frac{\beta a^3}{C} \, \rho,
+\qquad \tau_0 = \frac{f_U \Delta t}{C}.
+\label{eq:queue-linear}
+\end{equation}
+
+On the other hand, equation~\eqref{eq:tau-poisson} implies that perturbations
+in $\tau_{\mathrm{lat}}$ satisfy a Poisson equation with source strength
+$-\tilde{\alpha}/D$. For small, nearly homogeneous perturbations one obtains a
+linear relationship of the form
+\begin{equation}
+\delta \tau_{\mathrm{lat}} \propto -\frac{\tilde{\alpha}}{D} \, \rho.
+\end{equation}
+
+To make these descriptions compatible, we equate the proportionality factors
+up to a choice of normalization that can be absorbed into $\alpha$. For
+simplicity we take this normalization to be unity, yielding the matching
+condition
+\begin{equation}
+\frac{\tilde{\alpha}}{D} = -\tau_0 \, \frac{\beta a^3}{C}.
+\label{eq:match}
+\end{equation}
+Substituting $\tau_0 = f_U \Delta t / C$ gives
+\begin{equation}
+\frac{\tilde{\alpha}}{D} = -\frac{f_U \Delta t}{C} \, \frac{\beta a^3}{C}.
+\end{equation}
+Using $D = \gamma a^2 / \Delta t$ and $\tilde{\alpha} = \alpha / \Delta t$,
+we have
+\begin{equation}
+\frac{\alpha / \Delta t}{\gamma a^2 / \Delta t}
+  = -\frac{f_U \Delta t}{C} \, \frac{\beta a^3}{C},
+\end{equation}
+so
+\begin{equation}
+\alpha = -\gamma \, \beta \, f_U \, \Delta t \, \frac{a^5}{C^2}.
+\end{equation}
+
+\paragraph{Z3 consistency check.}
+The algebraic relations among $D, \tilde{\alpha}, \alpha, \gamma, a, \Delta t$
+and the matching condition~\eqref{eq:match} were encoded as real-valued
+constraints in Z3 (see
+\\texttt{verification\_artifacts/kappa\_constraints\_z3.py}). Z3 reports the
+system as satisfiable, confirming internal consistency of the definitions.
+
+\subsection{Final Expression for $\kappa$}
+Substituting the matched values of $D$ and $\tilde{\alpha}$ into
+~\eqref{eq:kappa-D-alpha} yields
+\begin{equation}
+\kappa = -4\pi G \, \frac{D}{\tilde{\alpha}} = -4\pi G \, \frac{\gamma a^2}{\alpha}.
+\end{equation}
+Using the expression for $\alpha$ just found, we obtain
+\begin{align}
+\kappa &= -4\pi G \, \frac{\gamma a^2}{-\gamma \, \beta \, f_U \, \Delta t \, a^5 / C^2} \\
+       &= 4\pi G \, \frac{C^2}{\beta f_U \Delta t} \, \frac{1}{a^3}.
+\end{align}
+Thus in this toy model
+\begin{equation}
+\boxed{\kappa
+  = 4\pi G \, \frac{C^2}{\beta f_U \Delta t} \, \frac{1}{a^3}.}
+\end{equation}
+
+\paragraph{Interpretation.}
+Within this explicit substrate model, $\kappa$ is \emph{not} a free parameter.
+It is fixed by:
+\begin{itemize}
+  \item the lattice spacing $a$ (granularity of the substrate),
+  \item the update interval $\Delta t$,
+  \item the per-site capacity $C$ (bits per time step),
+  \item the density-to-arrival coupling $\beta$,
+  \item the Universal Clock Frequency $f_U$, and
+  \item the empirical gravitational constant $G$ (used here to match the
+        interface Poisson equation).
+\end{itemize}
+
+This demonstrates, in a fully specified and tool-checked toy model, that
+$\kappa$ can emerge as a derived quantity from substrate dynamics rather than
+being an arbitrary bridge constant. Generalizing this derivation from a cubic
+lattice to the Leech lattice $\leech$ and from a simple diffusion model to the
+full UOS dynamics remains an open research direction.
+
+\paragraph{Sage finite-difference validation.}
+The convergence of the 6-point discrete Laplacian on a finite cubic lattice to
+the continuum Laplacian (in terms of low-lying eigenvalues) was numerically
+validated using Sage in
+\\texttt{verification\_notebooks/kappa\_lattice\_sage.sage}, providing
+additional confidence in the continuum approximation used above.
+

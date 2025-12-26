@@ -1,0 +1,81 @@
+{
+  "header": {
+    "session_id": "f84d4acd-3281-40a9-a3a5-163797d9d073",
+    "created_at": "2025-12-25T04:15:22.895682+00:00",
+    "last_updated_at": "2025-12-25T04:50:45.993475+00:00",
+    "last_summarized_event_id": "evt_8df0b0747ec94b449b33ef08d657d4d2",
+    "revision": 1,
+    "scope": "Session f84d4acd-3281-40a9-a3a5-163797d9d073"
+  },
+  "summary_blocks": {
+    "current_goal": "Start the reproducibility + DM-ratio se...",
+    "what_we_built": [
+      "runtime/boot_state.json (boot record with actuator provenance)",
+      "runtime/env.bak (backup of .env) and appended logs/boot.log",
+      "Z3 full-axiom prototype and run (d..."
+    ],
+    "open_questions": [
+      "Do you want me to formalize the full mapping-latency axioms in Z3 now (priority)?",
+      "Do we keep circularity as a hard forbiddanc..."
+    ],
+    "constraints": [
+      "Do not modify .env, identity artifacts, or self-...",
+      "All filesystem writes ..."
+    ],
+    "next_steps": [
+      "Formalize the full axioms and dependency DAG in Z3 (encode mapping-latency, units rules, claim dependencies)",
+      "Create reproducibi..."
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "Operator actuator token was read...",
+      "event_ids": [
+        "evt_e45b03a28ccf46cc9e41c9fc6004e7c1",
+        "evt_07fbd1d64dae4929acc76150b8be7afc"
+      ]
+    },
+    {
+      "claim": ".env was read and contai...",
+      "event_ids": [
+        "evt_ca10f0db7e1c4e06a746af10df3321e9",
+        "evt_07fbd1d64dae4929acc76150b8be7afc"
+      ]
+    },
+    {
+      "claim": "Identity artifact signature verified suc...",
+      "event_ids": [
+        "evt_aa187b3657a34d0d85a35ddd265f8e49",
+        "evt_f8d908113990484f91e839dc5d7beb38"
+      ]
+    },
+    {
+      "claim": "Operator approved reading actuator token from file.",
+      "event_ids": [
+        "evt_a6897143467840079cdf57da04f9d570"
+      ]
+    },
+    {
+      "claim": "Full Z3 axiom prototyp...",
+      "event_ids": [
+        "evt_7a7c60fd4997498fa1844fe077cf4c08",
+        "evt_0b00ed21450846cfaf344f58b321bd3d",
+        "evt_24605d57831c4c4cac9fdc671bbc92aa"
+      ]
+    },
+    {
+      "claim": "Encode pro...",
+      "event_ids": [
+        "evt_f3bc7f36d893422a9f8cff9736457da1",
+        "evt_09bd894a14bb4fd2a88ada5061603e17"
+      ]
+    }
+  ],
+  "confidence": {
+    "current_goal": "high",
+    "what_we_built": [],
+    "open_questions": [],
+    "constraints": [],
+    "next_steps": []
+  }
+}

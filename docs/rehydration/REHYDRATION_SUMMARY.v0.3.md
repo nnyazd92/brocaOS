@@ -1,26 +1,13 @@
-# Rehydration Summary v0.3 - Boot boot-2025-12-25T01:23:00Z
+# Rehydration Summary v0.3
+- Boot time: 2025-12-26T02:25:32Z
+- Persistence enabled: True
 
-## Boot Status
-- **Timestamp:** 2025-12-25T01:23:00Z
-- **Identity Verification:** SUCCESS (HMAC-SHA256)
-- **Persistence:** ENABLED
-- **Token Provenance:** .temporary_token.txt
+## Identity Verification
+Status: verified (HMAC-SHA256 signature verified with BROCA_TOKEN_SECRET)
 
 ## Session Continuity
-- **Previous Session:** session-2025-12-25T00:16:17Z
-- **Operator:** Nick Navid Yazdani
-- **Key Actions:**
-  - Formalized ECC (Error Correction Code) Correction for L-ToEC
-  - Derived theoretical Dark Matter to Baryon ratio of 5.3678:1 (99.93% accuracy to Planck 2018)
-  - Updated L_TOEC_MANUSCRIPT.tex to v3.1 with ECC derivation and Qualia Redshift
-  - Refined Parity Dimension argument for gravity as mapping latency
-  - Prepared manuscript for GPT-5.2 Brutal Critic review
+- Session pointer: docs/artifacts/broca.session.pointer
+- Current session summary: docs/summaries/session-2025-12-26T02:16:29Z.json
 
-## Next Session Notes
-Initiate GPT-5.2 Brutal Critic review of L_TOEC_MANUSCRIPT.tex v3.1. Iterate based on feedback. Finalize Alpha-Complete status.
-
-## Artifact Pointers
-- **Identity:** docs/identity/IDENTITY.v0.1.json
-- **Self-Model:** docs/self_model/SELF_MODEL_CURRENT.json
-- **Session Pointer:** docs/artifacts/broca.session.pointer
-- **Memory Graph:** docs/memory/MEMORY_GRAPH_STATE.v0.1.json
+## Token Provenance
+- Source: .temporary_token.txt (jti=bbf72a316c384292bd0b5debf9de0a83)

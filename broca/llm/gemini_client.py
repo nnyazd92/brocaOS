@@ -155,6 +155,19 @@ class GeminiClient:
             elif role == "assistant":
                 sdk_messages.append({"role": "model", "parts": [{"text": content}]})
         
+        # Validate that we have at least one message to send
+        if not sdk_messages:
+            error_msg = "Cannot send empty contents to Gemini API. All messages were filtered out."
+            logger.error(
+                error_msg,
+                extra={
+                    "event": "gemini_empty_contents",
+                    "original_messages_count": len(messages),
+                    "mode": "sdk",
+                }
+            )
+            raise ValueError(error_msg)
+        
         try:
             # Build generation config
             generation_config = self._build_generation_config()
@@ -220,6 +233,20 @@ class GeminiClient:
         These features are only available when using the SDK (native API).
         """
         temp = temperature if temperature is not None else self.temperature
+
+        # Validate that we have at least one non-system message
+        non_system_messages = [msg for msg in messages if msg.get("role") != "system"]
+        if not non_system_messages:
+            error_msg = "Cannot send only system messages to Gemini REST API. At least one user message required."
+            logger.error(
+                error_msg,
+                extra={
+                    "event": "gemini_no_user_messages",
+                    "messages_count": len(messages),
+                    "mode": "rest",
+                }
+            )
+            raise ValueError(error_msg)
 
         payload: Dict[str, Any] = {
             "model": self.model,

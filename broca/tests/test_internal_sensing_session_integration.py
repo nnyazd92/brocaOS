@@ -316,7 +316,11 @@ class TestNoneHandlingInSessionInstrumentation:
             internal_sensing_framework=framework
         )
         
-        # Should not crash with empty response
+        # When response is None, response guard injects a fallback message
+        # So the return value will be the fallback message, not empty string
         response = session.send("Hello")
-        assert response == ""
+        assert response is not None
+        assert len(response) > 0
+        # Response guard injects a fallback containing "fallback"
+        assert "fallback" in response.lower()
 

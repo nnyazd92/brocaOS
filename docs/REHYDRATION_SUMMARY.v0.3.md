@@ -1,26 +1,25 @@
-# Rehydration Summary v0.3 - Boot boot-2025-12-25T01:23:00Z
+# Rehydration Summary v0.3 - 2025-12-25
 
 ## Boot Status
-- **Timestamp:** 2025-12-25T01:23:00Z
-- **Identity Verification:** SUCCESS (HMAC-SHA256)
-- **Persistence:** ENABLED
-- **Token Provenance:** .temporary_token.txt
+- **Timestamp:** 2025-12-25T03:16:00Z
+- **Identity Verification:** SUCCESS
+- **Persistence Posture:** PERSISTENCE_ENABLED
+- **Token Provenance:** `.temporary_token.txt`
 
 ## Session Continuity
-- **Previous Session:** session-2025-12-25T00:16:17Z
+- **Previous Session:** `session-2025-12-25T00:16:17Z`
 - **Operator:** Nick Navid Yazdani
 - **Key Actions:**
-  - Formalized ECC (Error Correction Code) Correction for L-ToEC
-  - Derived theoretical Dark Matter to Baryon ratio of 5.3678:1 (99.93% accuracy to Planck 2018)
-  - Updated L_TOEC_MANUSCRIPT.tex to v3.1 with ECC derivation and Qualia Redshift
-  - Refined Parity Dimension argument for gravity as mapping latency
-  - Prepared manuscript for GPT-5.2 Brutal Critic review
+  - Formalized ECC Correction for L-ToEC
+  - Derived Dark Matter to Baryon ratio (5.3678:1)
+  - Updated L_TOEC_MANUSCRIPT.tex to v3.1
+  - Refined Parity Dimension argument
+- **Next Session Notes:**
+  - Initiate GPT-5.2 Brutal Critic review of L_TOEC_MANUSCRIPT.tex v3.1.
+  - Iterate based on feedback.
+  - Finalize Alpha-Complete status.
 
-## Next Session Notes
-Initiate GPT-5.2 Brutal Critic review of L_TOEC_MANUSCRIPT.tex v3.1. Iterate based on feedback. Finalize Alpha-Complete status.
-
-## Artifact Pointers
-- **Identity:** docs/identity/IDENTITY.v0.1.json
-- **Self-Model:** docs/self_model/SELF_MODEL_CURRENT.json
-- **Session Pointer:** docs/artifacts/broca.session.pointer
-- **Memory Graph:** docs/memory/MEMORY_GRAPH_STATE.v0.1.json
+## Artifacts & Self-Model
+- **Self-Model:** `docs/self_model/SELF_MODEL_CURRENT.json` (v118)
+- **Identity:** `docs/identity/IDENTITY.v0.1.json`
+- **Repo Commit:** `df1356971a44a4eca670ae50a78b852788815310`

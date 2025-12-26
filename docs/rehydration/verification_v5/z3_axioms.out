@@ -1,0 +1,7 @@
+Case1: G derivable AND units NOT introduced -> unsat
+Unsat as expected: derivation requires units
+Case2: G derivable AND units introduced -> sat
+Model: [A_G_derivable = True, A_units_introduced = True]
+Checking numeric closeness with eps=0.0007
+Z3 numeric check status: unsat
+Does not hold for eps=0.0007

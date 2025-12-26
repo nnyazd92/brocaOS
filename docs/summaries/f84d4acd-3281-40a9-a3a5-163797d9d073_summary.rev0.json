@@ -1,0 +1,62 @@
+{
+  "header": {
+    "session_id": "f84d4acd-3281-40a9-a3a5-163797d9d073",
+    "created_at": "2025-12-25T04:15:22.895682+00:00",
+    "last_updated_at": "2025-12-25T04:15:22.895700+00:00",
+    "last_summarized_event_id": "evt_de22a0f0f760491cbf31455d4dd22785",
+    "revision": 0,
+    "scope": "Session f84d4acd-3281-40a9-a3a5-163797d9d073"
+  },
+  "summary_blocks": {
+    "current_goal": "Formalize the core axioms in Z3, produce reproducible SymPy verification notebooks for the DM ratio ...",
+    "what_we_built": [
+      "runtime/boot_state.json (boot record with actuator provenance)",
+      "runtime/env.bak (backup of .env) and appended logs/boot.log"
+    ],
+    "open_questions": [
+      "Do you want me to formalize the full mapping-latency axioms in Z3 now (priority)?"
+    ],
+    "constraints": [
+      "Do not modify .env, identity artifacts, or self-..."
+    ],
+    "next_steps": [
+      "Formalize the full axioms and dependency DAG in Z3 (encode mapping-latency, units rules, claim dependencies)"
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "Operator actuator token was read...",
+      "event_ids": [
+        "evt_e45b03a28ccf46cc9e41c9fc6004e7c1",
+        "evt_07fbd1d64dae4929acc76150b8be7afc"
+      ]
+    },
+    {
+      "claim": ".env was read and contai...",
+      "event_ids": [
+        "evt_ca10f0db7e1c4e06a746af10df3321e9",
+        "evt_07fbd1d64dae4929acc76150b8be7afc"
+      ]
+    },
+    {
+      "claim": "Identity artifact signature verified suc...",
+      "event_ids": [
+        "evt_aa187b3657a34d0d85a35ddd265f8e49",
+        "evt_f8d908113990484f91e839dc5d7beb38"
+      ]
+    },
+    {
+      "claim": "Operator approved reading actuator token from file.",
+      "event_ids": [
+        "evt_a6897143467840079cdf57da04f9d570"
+      ]
+    }
+  ],
+  "confidence": {
+    "current_goal": "high",
+    "what_we_built": [],
+    "open_questions": [],
+    "constraints": [],
+    "next_steps": []
+  }
+}

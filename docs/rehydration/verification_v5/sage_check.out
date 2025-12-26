@@ -1,0 +1,19 @@
+ninja: error: '/usr/lib64/libpari-gmp-tls.so.2.17.2', needed by 'src/sage/libs/pari/convert_flint.cpython-312-x86_64-linux-gnu.so', missing and no known rule to make it
+Traceback (most recent call last):
+  File "/home/wizard/Downloads/sage/local/var/lib/sage/venv-python3.12.5/lib/python3.12/site-packages/_sagemath_editable_loader.py", line 345, in _rebuild
+    subprocess.run(self._build_cmd, cwd=self._build_path, env=env, stdout=subprocess.DEVNULL, check=True)
+  File "/home/wizard/Downloads/sage/local/var/lib/sage/venv-python3.12.5/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/usr/bin/ninja']' returned non-zero exit status 1.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/wizard/Downloads/sage/src/bin/sage-eval", line 5, in <module>
+    from sage.all import *
+  File "/home/wizard/Downloads/sage/local/var/lib/sage/venv-python3.12.5/lib/python3.12/site-packages/_sagemath_editable_loader.py", line 311, in find_spec
+    tree = self._rebuild()
+           ^^^^^^^^^^^^^^^
+  File "/home/wizard/Downloads/sage/local/var/lib/sage/venv-python3.12.5/lib/python3.12/site-packages/_sagemath_editable_loader.py", line 347, in _rebuild
+    raise ImportError(f're-building the {self._name} meson-python editable wheel package failed') from exc
+ImportError: re-building the sagemath meson-python editable wheel package failed

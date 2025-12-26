@@ -16,3 +16,5 @@ textblob
 mutmut
 hypothesis
 google-genai>=1.0.0
+fastapi
+uvicorn

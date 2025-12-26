@@ -21,3 +21,4 @@ SHUTDOWN_SUMMARY*
 .hypothesis/
 .coverage
 broca_repl.log*
+env.bak

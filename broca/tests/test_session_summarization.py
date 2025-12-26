@@ -17,6 +17,7 @@ from broca.tests.utils import build_llm_response
 from broca.summarization.event_logger import EventLogger
 from broca.summarization.storage import SummaryStorage
 from broca.summarization.models import SessionSummary, SummaryHeader, SummaryBlocks
+from broca.summarization.prompt_builder import PromptBuilder
 
 
 @pytest.fixture
@@ -289,6 +290,147 @@ class TestSessionSummarizationIntegration:
                         min_expected = 1 + (config.summarization.last_turns_count * 2)  # system + K turns
                         assert messages_after >= min_expected or messages_before < min_expected, \
                             f"Should keep at least {min_expected} messages (system + last K turns)"
+    
+    def test_summary_formatted_as_historical_context(self, temp_dirs, mock_llm_client):
+        """Test that summaries are formatted as historical context, not directives."""
+        with pytest.MonkeyPatch().context() as m:
+            from broca.config import config
+            m.setattr(config.summarization, "enabled", True)
+            m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+            m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+            
+            session = ConversationSession(
+                system_prompt="Base prompt",
+                llm=mock_llm_client
+            )
+            
+            # Create a summary with goals and next steps
+            summary_storage = session._summarization_manager.summary_storage
+            summary = SessionSummary(
+                header=SummaryHeader(
+                    session_id=session.session_id,
+                    created_at="2024-01-01T00:00:00Z",
+                    last_updated_at="2024-01-01T00:00:00Z",
+                    revision=0
+                ),
+                summary_blocks=SummaryBlocks(
+                    current_goal="Build a web application",
+                    next_steps=["Set up database", "Create API endpoints"],
+                    what_we_built=["Initial project structure"],
+                    open_questions=["Which framework to use?"],
+                    constraints=["Must use Python"]
+                )
+            )
+            summary_storage.save_session_summary(session.session_id, summary)
+            
+            # Build context using PromptBuilder
+            prompt_builder = PromptBuilder(
+                summary_storage=summary_storage,
+                last_turns_count=3
+            )
+            context = prompt_builder.build_context(session.session_id, session.messages)
+            
+            # Verify the context contains historical context language
+            assert "Session Summary (Historical Context)" in context, \
+                "Summary should be labeled as historical context"
+            assert "may be outdated or completed" in context, \
+                "Summary should include disclaimer about outdated goals"
+            assert "Previous Goal Context" in context, \
+                "Goals should be labeled as 'Previous Goal Context', not 'Current Goal'"
+            assert "Previously Planned Steps" in context, \
+                "Next steps should be labeled as 'Previously Planned Steps', not 'Next Steps'"
+            
+            # Verify it does NOT contain directive language
+            assert "Current Goal:" not in context, \
+                "Should not use 'Current Goal:' directive language"
+            assert context.count("Next Steps:") == 0, \
+                "Should not use 'Next Steps:' directive language (should use 'Previously Planned Steps')"
+    
+    def test_summary_context_prioritizes_current_request(self, temp_dirs, mock_llm_client):
+        """Test that summary context includes language prioritizing current user request."""
+        with pytest.MonkeyPatch().context() as m:
+            from broca.config import config
+            m.setattr(config.summarization, "enabled", True)
+            m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+            m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+            
+            session = ConversationSession(
+                system_prompt="Base prompt",
+                llm=mock_llm_client
+            )
+            
+            # Create a summary with an old goal
+            summary_storage = session._summarization_manager.summary_storage
+            summary = SessionSummary(
+                header=SummaryHeader(
+                    session_id=session.session_id,
+                    created_at="2024-01-01T00:00:00Z",
+                    last_updated_at="2024-01-01T00:00:00Z",
+                    revision=0
+                ),
+                summary_blocks=SummaryBlocks(
+                    current_goal="Old goal that should be superseded"
+                )
+            )
+            summary_storage.save_session_summary(session.session_id, summary)
+            
+            # Build context
+            prompt_builder = PromptBuilder(
+                summary_storage=summary_storage,
+                last_turns_count=3
+            )
+            context = prompt_builder.build_context(session.session_id, session.messages)
+            
+            # Verify it includes language about prioritizing current request
+            assert "prioritize the current user request" in context.lower() or \
+                   "prioritize the current user request and recent conversation turns" in context.lower(), \
+                "Context should instruct to prioritize current user request over historical goals"
+    
+    def test_summary_formatting_with_all_fields(self, temp_dirs, mock_llm_client):
+        """Test that all summary fields are formatted with historical context language."""
+        with pytest.MonkeyPatch().context() as m:
+            from broca.config import config
+            m.setattr(config.summarization, "enabled", True)
+            m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+            m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+            
+            session = ConversationSession(
+                system_prompt="Base prompt",
+                llm=mock_llm_client
+            )
+            
+            # Create a comprehensive summary
+            summary_storage = session._summarization_manager.summary_storage
+            summary = SessionSummary(
+                header=SummaryHeader(
+                    session_id=session.session_id,
+                    created_at="2024-01-01T00:00:00Z",
+                    last_updated_at="2024-01-01T00:00:00Z",
+                    revision=0
+                ),
+                summary_blocks=SummaryBlocks(
+                    current_goal="Test goal",
+                    what_we_built=["Item 1", "Item 2"],
+                    open_questions=["Question 1"],
+                    constraints=["Constraint 1"],
+                    next_steps=["Step 1", "Step 2"]
+                )
+            )
+            summary_storage.save_session_summary(session.session_id, summary)
+            
+            # Format the summary
+            prompt_builder = PromptBuilder(
+                summary_storage=summary_storage,
+                last_turns_count=3
+            )
+            formatted = prompt_builder._format_summary(summary)
+            
+            # Verify all fields use historical context language
+            assert "Previous Goal Context" in formatted
+            assert "What Was Built (Historical)" in formatted
+            assert "Previous Open Questions" in formatted and "may be resolved" in formatted
+            assert "Previous Constraints" in formatted and "may no longer apply" in formatted
+            assert "Previously Planned Steps" in formatted and "may be completed or outdated" in formatted
 
 
 

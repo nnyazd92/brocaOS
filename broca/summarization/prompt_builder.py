@@ -70,12 +70,20 @@ class PromptBuilder:
         if system_prompt:
             parts.append(system_prompt)
         
-        # 2. Session summary
+        # 2. Session summary (historical context)
         summary = self.summary_storage.load_session_summary(session_id)
         if summary:
             summary_text = self._format_summary(summary)
             if summary_text:
-                parts.append(f"## Session Summary\n{summary_text}")
+                # Wrap with disclaimer that this is historical context, not current requirements
+                summary_section = (
+                    "## Session Summary (Historical Context)\n\n"
+                    "The following is historical context from earlier in this conversation. "
+                    "These goals and steps may be outdated or completed. Use them as context "
+                    "but prioritize the current user request and recent conversation turns.\n\n"
+                    f"{summary_text}"
+                )
+                parts.append(summary_section)
         
         # 3. Project state (if available)
         project_state = self.summary_storage.load_project_state()
@@ -113,30 +121,30 @@ class PromptBuilder:
         return result
     
     def _format_summary(self, summary: SessionSummary) -> str:
-        """Format session summary for prompt."""
+        """Format session summary for prompt as historical context."""
         blocks = summary.summary_blocks
         lines = []
         
         if blocks.current_goal:
-            lines.append(f"Current Goal: {blocks.current_goal}")
+            lines.append(f"Previous Goal Context: {blocks.current_goal} (may be outdated or completed)")
         
         if blocks.what_we_built:
-            lines.append("What We Built:")
+            lines.append("What Was Built (Historical):")
             for item in blocks.what_we_built[-5:]:  # Last 5 items
                 lines.append(f"  - {item}")
         
         if blocks.open_questions:
-            lines.append("Open Questions:")
+            lines.append("Previous Open Questions (may be resolved):")
             for item in blocks.open_questions[-5:]:  # Last 5 items
                 lines.append(f"  - {item}")
         
         if blocks.constraints:
-            lines.append("Constraints:")
+            lines.append("Previous Constraints (may no longer apply):")
             for item in blocks.constraints[-5:]:  # Last 5 items
                 lines.append(f"  - {item}")
         
         if blocks.next_steps:
-            lines.append("Next Steps:")
+            lines.append("Previously Planned Steps (may be completed or outdated):")
             for item in blocks.next_steps[-5:]:  # Last 5 items
                 lines.append(f"  - {item}")
         
