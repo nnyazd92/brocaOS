@@ -283,19 +283,6 @@ class TestToolDescriptionFormatter:
         
         assert "Running critic check" in description
     
-    def test_project_world_state_description(self):
-        """Test project world state tool description formatting."""
-        if ToolDescriptionFormatter is None:
-            pytest.skip("ToolDescriptionFormatter not yet implemented")
-        
-        formatter = ToolDescriptionFormatter()
-        tool_name = "project_world_state"
-        arguments = {}
-        
-        description = formatter.format(tool_name, arguments)
-        
-        assert "Updating project world state" in description
-    
     def test_query_self_model_description(self):
         """Test query self model tool description formatting."""
         if ToolDescriptionFormatter is None:

@@ -201,17 +201,6 @@ def _initialize_tool_registry(
             except Exception as e:
                 logger.warning(f"Failed to register critic tool: {e}", exc_info=True)
         
-        # Register project world state tool if enabled
-        if config.tools.enable_project_world_state:
-            try:
-                from .tools.project_world_state import ProjectWorldStateTool
-                project_root = config.tools.project_world_state_path
-                project_world_state_tool = ProjectWorldStateTool(project_root=project_root)
-                registry.register_tool(project_world_state_tool)
-                logger.info("Registered project world state tool")
-            except Exception as e:
-                logger.warning(f"Failed to register project world state tool: {e}", exc_info=True)
-        
         if len(registry.list_tools()) == 0:
             logger.debug("No tools registered")
             return None

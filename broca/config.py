@@ -118,6 +118,7 @@ class StorageConfig(BaseModel):
     storage_path: str = os.getenv("BROCA_STORAGE_PATH", "conversations")
     base_system_prompt: str = os.getenv("BROCA_BASE_SYSTEM_PROMPT", "")
     max_system_prompt_size: int = int(os.getenv("BROCA_MAX_SYSTEM_PROMPT_SIZE", str(50 * 1024)))  # Default 50KB
+    max_base_prompt_size: int = int(os.getenv("BROCA_MAX_BASE_PROMPT_SIZE", str(20 * 1024)))  # Default 20KB
     max_world_state_size: int = int(os.getenv("BROCA_MAX_WORLD_STATE_SIZE", str(30 * 1024)))  # Default 30KB
     max_summary_context_size: int = int(os.getenv("BROCA_MAX_SUMMARY_CONTEXT_SIZE", str(15 * 1024)))  # Default 15KB
 
@@ -134,13 +135,6 @@ class ToolsConfig(BaseModel):
     terminal_working_directory: str | None = os.getenv("BROCA_TERMINAL_WORKING_DIR", None)
     enable_critic: bool = os.getenv("BROCA_ENABLE_CRITIC", "false").lower() == "true"
     critic_system_prompt_template: str | None = os.getenv("BROCA_CRITIC_SYSTEM_PROMPT", None)
-    # Project world state tool configuration
-    enable_project_world_state: bool = os.getenv("BROCA_ENABLE_PROJECT_WORLD_STATE", "true").lower() == "true"
-    project_world_state_path: str | None = os.getenv("BROCA_PROJECT_WORLD_STATE_PATH", None)
-    project_world_state_file: str = os.getenv("BROCA_PROJECT_WORLD_STATE_FILE", "project_world_state.json")
-    project_world_state_header_lines: int = int(os.getenv("BROCA_PROJECT_WORLD_STATE_HEADER_LINES", "10"))
-    project_world_state_max_file_size: int = int(os.getenv("BROCA_PROJECT_WORLD_STATE_MAX_FILE_SIZE", str(1024 * 1024)))  # 1MB default
-    project_world_state_max_file_size: int = int(os.getenv("BROCA_PROJECT_WORLD_STATE_MAX_FILE_SIZE", str(1024 * 1024)))  # 1MB default
     # Policy: read-only mode and web search limits
     tools_mode: str = os.getenv("BROCA_TOOLS_MODE", "normal")  # "normal" or "read_only"
     web_search_max_queries: int = int(os.getenv("BROCA_WEB_SEARCH_MAX_QUERIES", "3"))
@@ -214,6 +208,11 @@ class SummarizationConfig(BaseModel):
     max_block_tokens: int = int(os.getenv("BROCA_SUMMARIZATION_MAX_BLOCK_TOKENS", "200"))
     last_turns_count: int = int(os.getenv("BROCA_SUMMARIZATION_LAST_TURNS", "3"))
     max_tool_result_size: int = int(os.getenv("BROCA_MAX_TOOL_RESULT_SIZE", "50000"))  # Maximum tool result size in characters (~12.5K tokens)
+    # Gradual pruning configuration
+    gradual_pruning_enabled: bool = os.getenv("BROCA_GRADUAL_PRUNING_ENABLED", "true").lower() == "true"
+    initial_buffer_turns: int = int(os.getenv("BROCA_INITIAL_BUFFER_TURNS", "10"))  # Number of turns to keep initially after first summarization
+    min_buffer_turns: int = int(os.getenv("BROCA_MIN_BUFFER_TURNS", "3"))  # Minimum turns to keep (current behavior)
+    buffer_reduction_rate: int = int(os.getenv("BROCA_BUFFER_REDUCTION_RATE", "2"))  # Reduce buffer by this many turns per summarization cycle
 
 
 class CacheConfig(BaseModel):

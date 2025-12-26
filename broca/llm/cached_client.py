@@ -6,7 +6,7 @@ This wraps an underlying LLM-like implementation and adds a
 world-state-aware request-level cache using broca.llm.cache.
 """
 
-from typing import List, Dict, Any, Optional, Protocol
+from typing import List, Dict, Any, Optional, Protocol, Iterator
 import hashlib
 import json
 import logging
@@ -35,6 +35,16 @@ class LLMLike(Protocol):
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
+        ...
+
+    def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        reasoning_content: Optional[str] = None,
+        thought_signature: Optional[str] = None,
+    ) -> Iterator[str]:
         ...
 
     @staticmethod
@@ -173,6 +183,39 @@ class CachedLLMClient:
             },
         )
         return response
+
+    def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        reasoning_content: Optional[str] = None,
+        thought_signature: Optional[str] = None,
+    ) -> Iterator[str]:
+        """Stream chat completion.
+        
+        Currently, streaming bypasses the cache to ensure real-time delivery.
+        """
+        if hasattr(self._underlying, "chat_stream"):
+            return self._underlying.chat_stream(
+                messages=messages,
+                temperature=temperature,
+                tools=tools,
+                reasoning_content=reasoning_content,
+                thought_signature=thought_signature,
+            )
+        else:
+            # Fallback: if underlying doesn't support streaming, use chat() and yield the whole thing
+            # This is a safety measure.
+            resp = self.chat(
+                messages=messages,
+                temperature=temperature,
+                tools=tools,
+                reasoning_content=reasoning_content,
+                thought_signature=thought_signature,
+            )
+            content = self.extract_assistant_content(resp)
+            return iter([content])
 
     @staticmethod
     def extract_assistant_content(response: Dict[str, Any]) -> str:

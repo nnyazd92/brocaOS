@@ -90,6 +90,7 @@ class ConversationSession:
 
         # Get base system prompt from parameter, system_prompt, or config
         # Track whether base_system_prompt was explicitly provided
+        # Store initial size to detect unbounded growth
         if base_system_prompt is not None:
             self.base_system_prompt = base_system_prompt
             self._base_system_prompt_explicit = True
@@ -104,6 +105,9 @@ class ConversationSession:
 
             self.base_system_prompt = config.storage.base_system_prompt
             self._base_system_prompt_explicit = False
+        
+        # Store initial base prompt size to detect unbounded growth
+        self._initial_base_prompt_size = len(self.base_system_prompt) if self.base_system_prompt else 0
 
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = self.created_at
@@ -177,6 +181,63 @@ class ConversationSession:
             },
         )
     
+    @classmethod
+    def from_storage(
+        cls,
+        session_id: str,
+        storage: "ConversationStorage",
+        tool_registry: Optional["ToolRegistry"] = None,
+        internal_sensing_framework: Optional["InternalSensingFramework"] = None,
+        world_state_aggregator: Optional["WorldStateAggregator"] = None,
+        base_system_prompt: Optional[str] = None,
+        color_manager: Optional[Any] = None,
+    ) -> "ConversationSession":
+        """Rehydrate a ConversationSession from stored conversation data.
+
+        Loads messages and metadata from the given storage backend and constructs
+        a ConversationSession instance bound to that session_id.
+
+        If no stored conversation exists, this behaves like creating a fresh
+        session with the provided session_id.
+        """
+        data = storage.load_conversation(session_id)
+
+        # Create a bare session with explicit session_id and dependencies
+        session = cls(
+            system_prompt=None,
+            llm=None,
+            storage=storage,
+            session_id=session_id,
+            tool_registry=tool_registry,
+            internal_sensing_framework=internal_sensing_framework,
+            world_state_aggregator=world_state_aggregator,
+            base_system_prompt=base_system_prompt,
+            color_manager=color_manager,
+        )
+
+        if not data:
+            return session
+
+        messages = data.get("messages", [])
+        metadata = data.get("metadata", {})
+
+        # Restore messages and basic metadata
+        session.messages = messages
+        session.created_at = metadata.get("created_at", session.created_at)
+        session.updated_at = metadata.get("updated_at", session.updated_at)
+
+        # If a system_prompt was stored and no explicit base_system_prompt was
+        # provided, respect the stored one as the base/system prompt going forward.
+        stored_system_prompt = None
+        for m in messages:
+            if m.get("role") == "system":
+                stored_system_prompt = m.get("content")
+                break
+        if stored_system_prompt and base_system_prompt is None:
+            session.base_system_prompt = stored_system_prompt
+
+        return session
+
     @property
     def tool_status_display(self):
         """
@@ -1268,6 +1329,59 @@ class ConversationSession:
         except Exception:
             return "Summary unavailable due to an internal error."
     
+    def _calculate_buffer_turns(self) -> int:
+        """
+        Calculate the number of turns to keep based on gradual pruning configuration.
+        
+        Returns:
+            Number of turns to keep in the buffer
+        """
+        from ..config import config
+        
+        # If gradual pruning is disabled, use the standard last_turns_count
+        if not config.summarization.gradual_pruning_enabled:
+            last_turns_count = config.summarization.last_turns_count
+            if not isinstance(last_turns_count, int):
+                return 3  # Default
+            return last_turns_count
+        
+        # Get the current summary to check cycle count
+        try:
+            if self._summarization_manager:
+                summary = self._summarization_manager.summary_storage.load_session_summary(self.session_id)
+                if summary:
+                    cycle_count = summary.header.summarization_cycle_count
+                else:
+                    # No summary yet, first summarization will have cycle_count = 0
+                    cycle_count = 0
+            else:
+                cycle_count = 0
+        except Exception as e:
+            logger.debug(f"Error loading summary for buffer calculation: {e}")
+            cycle_count = 0
+        
+        # Calculate buffer size using gradual reduction formula
+        initial_buffer = config.summarization.initial_buffer_turns
+        min_buffer = config.summarization.min_buffer_turns
+        reduction_rate = config.summarization.buffer_reduction_rate
+        
+        if not isinstance(initial_buffer, int):
+            initial_buffer = 10
+        if not isinstance(min_buffer, int):
+            min_buffer = 3
+        if not isinstance(reduction_rate, int):
+            reduction_rate = 2
+        
+        # Formula: buffer_size = max(min_buffer, initial_buffer - (cycle_count * reduction_rate))
+        buffer_size = max(min_buffer, initial_buffer - (cycle_count * reduction_rate))
+        
+        logger.debug(
+            f"Calculated buffer size: {buffer_size} turns "
+            f"(cycle_count={cycle_count}, initial={initial_buffer}, min={min_buffer}, reduction={reduction_rate})"
+        )
+        
+        return buffer_size
+    
     def _prune_summarized_messages(self, last_summarized_event_id: str) -> int:
         """
         Remove messages that correspond to summarized events, keeping only system message and last K turns.
@@ -1275,7 +1389,7 @@ class ConversationSession:
         After summarization, this method collapses the context by removing all messages that were
         summarized, leaving only:
         - System message (always preserved)
-        - Last K turns that occurred after the last summarized event
+        - Last K turns that occurred after the last summarized event (using gradual pruning if enabled)
         
         Args:
             last_summarized_event_id: The event ID of the last event that was summarized
@@ -1311,10 +1425,8 @@ class ConversationSession:
                 if event_id:
                     summarized_event_ids.add(event_id)
             
-            # Get last K turns count from config
-            last_turns_count = config.summarization.last_turns_count
-            if not isinstance(last_turns_count, int):
-                last_turns_count = 3  # Default
+            # Calculate buffer size using gradual pruning if enabled
+            last_turns_count = self._calculate_buffer_turns()
             
             # Get events after the last summarized event to determine which messages to keep
             events_after_summary = all_events[last_summarized_index + 1:]
@@ -1364,25 +1476,29 @@ class ConversationSession:
                     # Keep this message (either not summarized, or has events after summary)
                     pruned_messages.append(msg)
             
-            # Now ensure we keep at least last K turns
+            # Now ensure we keep at least last K turns (using gradual buffer calculation)
             # Count turns from the end (non-system messages)
             non_system_pruned = [m for m in pruned_messages if m.get("role") != "system"]
             
+            # Calculate minimum messages to keep based on buffer size
+            # Each turn is typically 2 messages (user + assistant), but can be more with tool calls
+            min_messages_to_keep = last_turns_count * 2
+            
             # If we removed too many, we need to keep more recent messages even if they have summarized events
             # This ensures continuity - prioritize recency
-            if len(non_system_pruned) < last_turns_count * 2:  # *2 because each turn is typically 2 messages (user + assistant)
+            if len(non_system_pruned) < min_messages_to_keep:
                 # We need to keep more messages - restore some from the end even if they were summarized
                 # This is a safety mechanism to ensure we always have some context
                 logger.debug(
                     f"Only {len(non_system_pruned)} non-system messages remain after pruning, "
-                    f"keeping last {last_turns_count * 2} messages for continuity"
+                    f"keeping last {min_messages_to_keep} messages for continuity (buffer size: {last_turns_count} turns)"
                 )
                 # Rebuild with system message + last K*2 messages
                 if system_message:
                     pruned_messages = [system_message]
                 else:
                     pruned_messages = []
-                pruned_messages.extend(other_messages[-(last_turns_count * 2):])
+                pruned_messages.extend(other_messages[-min_messages_to_keep:])
                 # Recalculate removed count
                 removed_count = len(self.messages) - len(pruned_messages)
             
@@ -1517,10 +1633,8 @@ class ConversationSession:
             return filtered
         
         # Summary exists - filter to system message + last K turns with token awareness
-        # Handle cases where config might be a MagicMock (e.g., in tests)
-        last_turns_count = config.summarization.last_turns_count
-        if not isinstance(last_turns_count, int):
-            last_turns_count = 10  # Default value
+        # Use gradual buffer calculation if enabled
+        last_turns_count = self._calculate_buffer_turns()
         
         max_context_tokens = config.llm.max_context_tokens
         if not isinstance(max_context_tokens, int):
@@ -2433,9 +2547,48 @@ class ConversationSession:
             parts = []
             
             # 1. Base system prompt (only include once, no duplicates)
+            # Enforce size limit to prevent unbounded growth
             if self.base_system_prompt:
                 base_prompt = self.base_system_prompt.strip()
                 if base_prompt:
+                    max_base_size = config.storage.max_base_prompt_size
+                    base_prompt_size = len(base_prompt)
+                    
+                    # Validate that base prompt hasn't grown unbounded since initialization
+                    if hasattr(self, '_initial_base_prompt_size'):
+                        growth_ratio = base_prompt_size / self._initial_base_prompt_size if self._initial_base_prompt_size > 0 else 1.0
+                        if growth_ratio > 1.1:  # More than 10% growth
+                            logger.warning(
+                                f"Base system prompt has grown {growth_ratio:.1f}x since initialization "
+                                f"({self._initial_base_prompt_size} -> {base_prompt_size} chars). "
+                                "This may indicate unbounded growth. Base prompt should be immutable.",
+                                extra={
+                                    "event": "base_prompt_growth_detected",
+                                    "initial_size": self._initial_base_prompt_size,
+                                    "current_size": base_prompt_size,
+                                    "growth_ratio": round(growth_ratio, 2),
+                                }
+                            )
+                    
+                    if base_prompt_size > max_base_size:
+                        # Truncate base prompt intelligently
+                        truncated_base = base_prompt[:max_base_size - 50]  # Leave room for truncation message
+                        # Try to truncate at a paragraph boundary
+                        last_double_newline = truncated_base.rfind("\n\n")
+                        if last_double_newline > max_base_size * 0.7:  # Only if we're keeping most of it
+                            truncated_base = truncated_base[:last_double_newline]
+                        else:
+                            # Fallback to single newline
+                            last_newline = truncated_base.rfind("\n")
+                            if last_newline > max_base_size * 0.8:
+                                truncated_base = truncated_base[:last_newline]
+                        
+                        base_prompt = truncated_base + "\n[Base system prompt truncated due to size limit]"
+                        logger.warning(
+                            f"Base system prompt truncated from {base_prompt_size} to {len(base_prompt)} characters "
+                            f"(limit: {max_base_size})"
+                        )
+                    
                     parts.append(base_prompt)
             
             # 2. Add summary context if summarization is enabled
@@ -2467,6 +2620,97 @@ class ConversationSession:
             if formatted_world_state and formatted_world_state.strip():
                 parts.append(formatted_world_state)
 
+            # Pre-validate component sizes before combining
+            # This prevents unbounded growth by checking totals before combination
+            max_size = config.storage.max_system_prompt_size
+            component_sizes = [len(part) for part in parts]
+            total_size = sum(component_sizes)
+            separator_size = len("\n\n") * (len(parts) - 1) if len(parts) > 1 else 0
+            estimated_total = total_size + separator_size
+            
+            # Log component sizes for monitoring
+            logger.debug(
+                "System prompt component sizes",
+                extra={
+                    "event": "system_prompt_component_sizes",
+                    "base_prompt_size": component_sizes[0] if len(parts) > 0 else 0,
+                    "summary_context_size": component_sizes[1] if len(parts) > 1 else 0,
+                    "world_state_size": component_sizes[2] if len(parts) > 2 else 0,
+                    "total_components": len(parts),
+                    "estimated_total_size": estimated_total,
+                    "max_size": max_size,
+                }
+            )
+            
+            # If estimated total exceeds limit, reduce components intelligently
+            # Priority: base prompt > summary context > world state
+            if estimated_total > max_size:
+                logger.warning(
+                    f"System prompt components exceed limit ({estimated_total} > {max_size}), "
+                    "reducing component sizes"
+                )
+                
+                # Calculate available space (leave some buffer for separators)
+                available_space = max_size - 100  # 100 char buffer for separators and truncation messages
+                
+                # Strategy: Preserve base prompt, reduce summary and world state proportionally
+                if len(parts) >= 1:
+                    base_size = component_sizes[0]
+                    remaining_space = available_space - base_size
+                    
+                    if remaining_space < 0:
+                        # Base prompt alone exceeds limit - it was already truncated above
+                        # Just keep base prompt
+                        parts = [parts[0]]
+                    elif len(parts) >= 2:
+                        # We have summary context and/or world state
+                        # Allocate remaining space: 40% to summary, 60% to world state (if both exist)
+                        if len(parts) == 3:
+                            # Both summary and world state exist
+                            summary_target = int(remaining_space * 0.4)
+                            world_state_target = remaining_space - summary_target
+                            
+                            # Truncate summary context if needed
+                            if component_sizes[1] > summary_target:
+                                summary_part = parts[1]
+                                truncated_summary = summary_part[:summary_target - 50]
+                                last_section = truncated_summary.rfind("##")
+                                if last_section > summary_target * 0.7:
+                                    truncated_summary = truncated_summary[:last_section]
+                                parts[1] = truncated_summary + "\n[Summary context truncated due to size limit]"
+                                logger.warning(
+                                    f"Summary context reduced from {component_sizes[1]} to {len(parts[1])} characters"
+                                )
+                            
+                            # Truncate world state if needed
+                            if component_sizes[2] > world_state_target:
+                                world_state_part = parts[2]
+                                truncated_world_state = world_state_part[:world_state_target - 50]
+                                # Try to truncate at JSON boundary
+                                last_brace = truncated_world_state.rfind("}")
+                                if last_brace > world_state_target * 0.8:
+                                    truncated_world_state = truncated_world_state[:last_brace + 1]
+                                else:
+                                    truncated_world_state = truncated_world_state.rstrip() + '\n}'
+                                truncated_world_state += '\n  "_truncated": true\n}'
+                                parts[2] = truncated_world_state
+                                logger.warning(
+                                    f"World state reduced from {component_sizes[2]} to {len(parts[2])} characters"
+                                )
+                        elif len(parts) == 2:
+                            # Only one of summary or world state
+                            if component_sizes[1] > remaining_space:
+                                part_to_truncate = parts[1]
+                                truncated = part_to_truncate[:remaining_space - 50]
+                                # Try to truncate at a reasonable boundary
+                                last_newline = truncated.rfind("\n")
+                                if last_newline > remaining_space * 0.8:
+                                    truncated = truncated[:last_newline]
+                                parts[1] = truncated + "\n[Component truncated due to size limit]"
+                                logger.warning(
+                                    f"Component reduced from {component_sizes[1]} to {len(parts[1])} characters"
+                                )
+
             # Join with double newline if multiple parts exist
             if len(parts) > 1:
                 complete_prompt = "\n\n".join(parts)
@@ -2475,8 +2719,7 @@ class ConversationSession:
             else:
                 complete_prompt = ""
 
-            # Apply overall size limit and truncation if needed
-            max_size = config.storage.max_system_prompt_size
+            # Apply overall size limit and truncation if needed (final safety check)
             original_size = len(complete_prompt)
             if original_size > max_size:
                 # Truncate intelligently: preserve base prompt if possible, truncate world state
@@ -2542,25 +2785,51 @@ class ConversationSession:
                     # Create new system message at the beginning
                     self.messages.insert(0, {"role": "system", "content": complete_prompt})
 
-                # Log system prompt size for monitoring
+                # Log system prompt size for monitoring with detailed component breakdown
                 prompt_size = len(complete_prompt)
                 size_kb = prompt_size / 1024
                 max_size_kb = config.storage.max_system_prompt_size / 1024
                 
+                # Calculate final component sizes for logging
+                final_parts = complete_prompt.split("\n\n")
+                final_component_sizes = [len(part) for part in final_parts]
+                
+                # Build detailed logging context
+                log_extra = {
+                    "event": "system_prompt_updated",
+                    "total_size": prompt_size,
+                    "total_size_kb": round(size_kb, 2),
+                    "max_size": config.storage.max_system_prompt_size,
+                    "max_size_kb": round(max_size_kb, 2),
+                    "size_percentage": round(prompt_size / config.storage.max_system_prompt_size * 100, 1),
+                    "component_count": len(final_parts),
+                }
+                
+                # Add component sizes if we have them
+                if len(final_parts) >= 1:
+                    log_extra["base_prompt_size"] = final_component_sizes[0]
+                if len(final_parts) >= 2:
+                    log_extra["summary_context_size"] = final_component_sizes[1]
+                if len(final_parts) >= 3:
+                    log_extra["world_state_size"] = final_component_sizes[2]
+                
                 if prompt_size > config.storage.max_system_prompt_size * 0.9:
                     logger.warning(
                         f"System prompt size is {size_kb:.1f}KB (90% of {max_size_kb:.1f}KB limit) - "
-                        f"consider reducing content"
+                        f"consider reducing content",
+                        extra=log_extra
                     )
                 elif prompt_size > config.storage.max_system_prompt_size * 0.7:
                     logger.info(
-                        f"System prompt size is {size_kb:.1f}KB ({prompt_size / config.storage.max_system_prompt_size * 100:.0f}% of limit)"
+                        f"System prompt size is {size_kb:.1f}KB ({prompt_size / config.storage.max_system_prompt_size * 100:.0f}% of limit)",
+                        extra=log_extra
                     )
-                
-                logger.debug(
-                    f"Updated system prompt with current world state and summary context "
-                    f"(size: {prompt_size} chars, {size_kb:.1f}KB)"
-                )
+                else:
+                    logger.debug(
+                        f"Updated system prompt with current world state and summary context "
+                        f"(size: {prompt_size} chars, {size_kb:.1f}KB)",
+                        extra=log_extra
+                    )
             else:
                 logger.debug("System prompt content unchanged, skipping update")
 
@@ -2747,11 +3016,34 @@ class ConversationSession:
         # Add assistant message with tool calls
         # For deepseek-reasoner, we must include reasoning_content in the assistant message
         # if it was present in the response
+        # For Gemini, we must preserve thought_signature in each tool_call
         assistant_message = {
             "role": "assistant",
             "content": self.llm.extract_assistant_content(response) or None,
             "tool_calls": tool_calls,
         }
+        
+        # Log thought_signature preservation for Gemini (for debugging)
+        is_gemini = self._is_gemini_client()
+        if is_gemini:
+            thought_sigs_in_tool_calls = sum(1 for tc in tool_calls if tc.get("thought_signature"))
+            if thought_sigs_in_tool_calls > 0:
+                logger.debug(
+                    f"Preserved thought_signature in {thought_sigs_in_tool_calls}/{len(tool_calls)} tool_calls",
+                    extra={
+                        "event": "thought_signature_in_tool_calls",
+                        "total_tool_calls": len(tool_calls),
+                        "tool_calls_with_signature": thought_sigs_in_tool_calls,
+                    }
+                )
+            elif len(tool_calls) > 0:
+                logger.warning(
+                    "No thought_signature found in tool_calls for Gemini - this may cause API errors",
+                    extra={
+                        "event": "missing_thought_signature_in_tool_calls",
+                        "total_tool_calls": len(tool_calls),
+                    }
+                )
         
         # Include reasoning_content in the assistant message for reasoner model
         # The API requires this field to be present in assistant messages with tool_calls

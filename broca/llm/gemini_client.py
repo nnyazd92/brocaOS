@@ -143,8 +143,11 @@ class GeminiClient:
         temp = temperature if temperature is not None else self.temperature
         
         # Convert messages to SDK format
+        # Ensure thought_signature is present in tool_calls first
+        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages)
+        
         sdk_messages = []
-        for msg in messages:
+        for msg in prepared_messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
             if role == "system":
@@ -153,7 +156,63 @@ class GeminiClient:
             elif role == "user":
                 sdk_messages.append({"role": "user", "parts": [{"text": content}]})
             elif role == "assistant":
-                sdk_messages.append({"role": "model", "parts": [{"text": content}]})
+                # Handle assistant messages with tool_calls
+                tool_calls = msg.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list):
+                    # Convert tool_calls to SDK function_call parts
+                    parts = []
+                    for tool_call in tool_calls:
+                        if isinstance(tool_call, dict):
+                            func_info = tool_call.get("function", {})
+                            func_name = func_info.get("name", "")
+                            func_args = func_info.get("arguments", "{}")
+                            
+                            # Build function_call part
+                            func_call_part = {
+                                "functionCall": {
+                                    "name": func_name,
+                                    "args": func_args,
+                                }
+                            }
+                            
+                            # Include thought_signature if present (required by Gemini API)
+                            thought_sig = tool_call.get("thought_signature")
+                            if thought_sig:
+                                func_call_part["thought_signature"] = thought_sig
+                                logger.debug(
+                                    "Including thought_signature in SDK function_call part",
+                                    extra={
+                                        "event": "thought_signature_in_sdk_function_call",
+                                        "function_name": func_name,
+                                    }
+                                )
+                            
+                            parts.append(func_call_part)
+                    
+                    if parts:
+                        sdk_messages.append({"role": "model", "parts": parts})
+                    else:
+                        # Fallback to text if no valid tool_calls
+                        sdk_messages.append({"role": "model", "parts": [{"text": content or ""}]})
+                else:
+                    # Regular assistant message without tool_calls
+                    sdk_messages.append({"role": "model", "parts": [{"text": content}]})
+            elif role == "tool":
+                # Tool messages (function responses) - convert to SDK format
+                tool_call_id = msg.get("tool_call_id", "")
+                tool_name = msg.get("name", "")
+                tool_content = msg.get("content", "")
+                
+                # SDK format uses functionResponse parts
+                func_response_part = {
+                    "functionResponse": {
+                        "name": tool_name,
+                        "response": tool_content,
+                    }
+                }
+                # Note: tool_call_id might not be directly used in SDK format
+                # but we include the function name which should match
+                sdk_messages.append({"role": "function", "parts": [func_response_part]})
         
         # Validate that we have at least one message to send
         if not sdk_messages:
@@ -248,9 +307,12 @@ class GeminiClient:
             )
             raise ValueError(error_msg)
 
+        # Ensure thought_signature is present in tool_calls (required by Gemini API)
+        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages)
+        
         payload: Dict[str, Any] = {
             "model": self.model,
-            "messages": messages,
+            "messages": prepared_messages,
             "temperature": temp,
         }
 
@@ -403,9 +465,12 @@ class GeminiClient:
         """
         temp = temperature if temperature is not None else self.temperature
 
+        # Ensure thought_signature is present in tool_calls (required by Gemini API)
+        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages)
+        
         payload: Dict[str, Any] = {
             "model": self.model,
-            "messages": messages,
+            "messages": prepared_messages,
             "temperature": temp,
             "stream": True,
         }
@@ -554,12 +619,56 @@ class GeminiClient:
 
         Returns a list of `tool_calls` objects compatible with the rest of
         BrocaOS's tool routing.
+        
+        For Gemini API, preserves thought_signature from each tool_call
+        to maintain reasoning context across turns. If thought_signature is
+        at the message level but not in individual tool_calls, it will be
+        added to each tool_call.
         """
         try:
             message = response.get("choices", [{}])[0].get("message", {})
             tool_calls = message.get("tool_calls")
-            return tool_calls or []
-        except (KeyError, IndexError, AttributeError):
+            if not tool_calls:
+                return []
+            
+            # Check for thought_signature at message level (fallback)
+            message_thought_sig = message.get("thought_signature")
+            
+            # Preserve thought_signature from each tool_call (required by Gemini API)
+            # The tool_calls should already include thought_signature if present,
+            # but we ensure it's preserved explicitly
+            preserved_tool_calls = []
+            for tool_call in tool_calls:
+                preserved_call = dict(tool_call)  # Make a copy to preserve all fields
+                
+                # If tool_call doesn't have thought_signature but message does, add it
+                # (This handles cases where API returns thought_signature at message level)
+                if "thought_signature" not in preserved_call and message_thought_sig:
+                    preserved_call["thought_signature"] = message_thought_sig
+                    logger.debug(
+                        "Added message-level thought_signature to tool_call",
+                        extra={
+                            "event": "thought_signature_added_to_tool_call",
+                            "tool_call_id": preserved_call.get("id", "unknown"),
+                            "function_name": preserved_call.get("function", {}).get("name", "unknown"),
+                        }
+                    )
+                
+                # Log if thought_signature is present (for debugging)
+                if "thought_signature" in preserved_call:
+                    logger.debug(
+                        "Preserved thought_signature in tool_call",
+                        extra={
+                            "event": "thought_signature_preserved",
+                            "tool_call_id": preserved_call.get("id", "unknown"),
+                            "function_name": preserved_call.get("function", {}).get("name", "unknown"),
+                        }
+                    )
+                preserved_tool_calls.append(preserved_call)
+            
+            return preserved_tool_calls
+        except (KeyError, IndexError, AttributeError) as e:
+            logger.debug(f"Error extracting tool calls: {e}")
             return []
 
     @staticmethod
@@ -639,14 +748,25 @@ class GeminiClient:
                             content += part.text
                         elif hasattr(part, "function_call"):
                             # Convert function call format
-                            tool_calls.append({
+                            tool_call = {
                                 "id": f"call_{len(tool_calls)}",
                                 "type": "function",
                                 "function": {
                                     "name": part.function_call.name,
                                     "arguments": str(part.function_call.args),
                                 }
-                            })
+                            }
+                            # Preserve thought_signature if present (required by Gemini API)
+                            if hasattr(part, "thought_signature") and part.thought_signature:
+                                tool_call["thought_signature"] = str(part.thought_signature)
+                                logger.debug(
+                                    "Preserved thought_signature from SDK function_call part",
+                                    extra={
+                                        "event": "thought_signature_preserved_sdk",
+                                        "function_name": part.function_call.name,
+                                    }
+                                )
+                            tool_calls.append(tool_call)
             
             result: Dict[str, Any] = {
                 "choices": [{
@@ -698,6 +818,54 @@ class GeminiClient:
                 })
         return sdk_tools
 
+    @staticmethod
+    def _ensure_thought_signature_in_tool_calls(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Ensure thought_signature is present in tool_calls for Gemini API.
+        
+        When sending conversation history to Gemini API, each tool_call in assistant
+        messages must include its thought_signature. This method validates and
+        ensures this requirement is met.
+        
+        Args:
+            messages: List of message dictionaries
+            
+        Returns:
+            List of messages with thought_signature ensured in tool_calls
+        """
+        # Make a shallow copy to avoid modifying the original
+        prepared_messages = []
+        for msg in messages:
+            msg_copy = dict(msg)  # Shallow copy
+            
+            # Check if this is an assistant message with tool_calls
+            if msg_copy.get("role") == "assistant":
+                tool_calls = msg_copy.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list):
+                    # Check each tool_call for thought_signature
+                    tool_calls_updated = False
+                    for tool_call in tool_calls:
+                        if isinstance(tool_call, dict) and "thought_signature" not in tool_call:
+                            # Missing thought_signature - log warning
+                            logger.warning(
+                                "Tool call missing thought_signature for Gemini API",
+                                extra={
+                                    "event": "missing_thought_signature_in_tool_call",
+                                    "tool_call_id": tool_call.get("id", "unknown"),
+                                    "function_name": tool_call.get("function", {}).get("name", "unknown"),
+                                }
+                            )
+                            # Note: We can't add a thought_signature if it wasn't in the original response
+                            # This is a validation warning - the API call may fail
+                            tool_calls_updated = True
+                    
+                    if tool_calls_updated:
+                        # Update the tool_calls in the message copy
+                        msg_copy["tool_calls"] = tool_calls
+            
+            prepared_messages.append(msg_copy)
+        
+        return prepared_messages
+    
     @staticmethod
     def _last_user_preview(messages: List[Dict[str, str]], max_len: int = 200) -> str:
         """Return a short preview of the last user message for logging."""

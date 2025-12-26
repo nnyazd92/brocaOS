@@ -1,0 +1,87 @@
+{
+  "header": {
+    "session_id": "e06718c5-7379-49ca-b58f-63c0cd31adfd",
+    "created_at": "2025-12-26T03:39:14.140399+00:00",
+    "last_updated_at": "2025-12-26T04:02:28.129160+00:00",
+    "last_summarized_event_id": "evt_f289f4fd4ef04d9bacf842c96e18ee30",
+    "revision": 1,
+    "scope": "Session e06718c5-7379-49ca-b58f-63c0cd31adfd"
+  },
+  "summary_blocks": {
+    "current_goal": "Finish wiring BrocaOS’s FastAPI backend and the separate Vite/React frontend into a multi-co...",
+    "what_we_built": [
+      "A FastAPI-based BrocaOS web API (`broca/web_api.py`) that expose...",
+      "Extended broca/web_api.py to support multi-conversation operations, including in-mem..."
+    ],
+    "open_questions": [
+      "How should conversation IDs be generated and persist...",
+      "Should conversation history for the web UI be fully backed by ConversationStorag..."
+    ],
+    "constraints": [
+      "Follow AGENTS.md: use tests/TDD and avoid regressions in exi...",
+      "Backend in-memory conversation store in broca/web_api.py does not persis..."
+    ],
+    "next_steps": [
+      "Implement and persist proper conversation IDs and metadata in the backend (e.g.,...",
+      "Finalize and verify the updated ChatResponse shape and chat endpoint logic i...",
+      "Update /home/wizard/broca/src/api.ts to the conversation-aware shape (sending co..."
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "A FastAPI-based web API for BrocaOS was added in broca/web_api.py, exposing a POST /api/...",
+      "event_ids": [
+        "evt_a5faf9ac49834938b346818adc81158f",
+        "evt_17b30717a8d140db91a5dbb973f2c037"
+      ]
+    },
+    {
+      "claim": "A new helper module broca/main_repl_runtime.py defines BrocaRuntime and init...",
+      "event_ids": [
+        "evt_3bce5f3638a5456b882c575746cada92",
+        "evt_a9f6aa4807644199a72a93f0e41c2a4b"
+      ]
+    },
+    {
+      "claim": "The web API now imports initialize_runtime and BrocaRunt...",
+      "event_ids": [
+        "evt_b1fbed8348ac478cb60095d5dbc87e5b",
+        "evt_109daa61ce0749e580fb842a25b2d38e"
+      ]
+    },
+    {
+      "claim": "Use a dedicated runtime helper module (main_repl_runtime.py) rather ...",
+      "event_ids": [
+        "evt_109daa61ce0749e580fb842a25b2d38e",
+        "evt_3bce5f3638a5456b882c575746cada92"
+      ]
+    },
+    {
+      "claim": "The FastAPI backend in broca/web_api.py now defines an in-memory conversations: Dict[str, Dict[str, ...",
+      "event_ids": [
+        "evt_a76fe173a2814e3ea9ab2f897b3c1d0d",
+        "evt_648df7b1ce7f457eadb483231aac4cc9"
+      ]
+    },
+    {
+      "claim": "ChatRequest on the backend has been extended to include an o...",
+      "event_ids": [
+        "evt_a76fe173a2814e3ea9ab2f897b3c1d0d"
+      ]
+    },
+    {
+      "claim": "Use an in-memory conversation registry in broca/web_api.py to back the multi...",
+      "event_ids": [
+        "evt_a76fe173a2814e3ea9ab2f897b3c1d0d",
+        "evt_1ce5390aa1ac45e8aadc40e8eb0a1363"
+      ]
+    }
+  ],
+  "confidence": {
+    "current_goal": "high",
+    "what_we_built": [],
+    "open_questions": [],
+    "constraints": [],
+    "next_steps": []
+  }
+}

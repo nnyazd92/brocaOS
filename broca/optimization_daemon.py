@@ -167,18 +167,6 @@ class OptimizationDaemon:
         if environment_system:
             logger.debug("Environment access tool skipped in optimization daemon (safety restriction)")
         
-        # Register project world state tool for sandbox directory
-        # This ensures the daemon tracks /home/wizard/broca, not the main project directory
-        if tool_registry:
-            try:
-                from .tools.project_world_state import ProjectWorldStateTool
-                # Use sandbox directory as project root (same as SandboxTool default)
-                project_world_state_tool = ProjectWorldStateTool(project_root="/home/wizard/broca")
-                tool_registry.register_tool(project_world_state_tool)
-                logger.info(f"Registered project world state tool for sandbox directory: /home/wizard/broca")
-            except Exception as e:
-                logger.warning(f"Failed to register project world state tool for sandbox: {e}", exc_info=True)
-        
         # Create directory structure generator for Broca house
         directory_structure_generator = None
         try:
