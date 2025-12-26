@@ -92,22 +92,23 @@ class ConversationSession:
         # Track whether base_system_prompt was explicitly provided
         # Store initial size to detect unbounded growth
         if base_system_prompt is not None:
-            self.base_system_prompt = base_system_prompt
+            self._base_system_prompt_internal = base_system_prompt
             self._base_system_prompt_explicit = True
         elif system_prompt:
             # If system_prompt is provided but base_system_prompt is not,
             # use system_prompt as the base (for backward compatibility)
-            self.base_system_prompt = system_prompt
+            self._base_system_prompt_internal = system_prompt
             self._base_system_prompt_explicit = True
         else:
             # Fall back to config if not provided
             from ..config import config
 
-            self.base_system_prompt = config.storage.base_system_prompt
+            self._base_system_prompt_internal = config.storage.base_system_prompt
             self._base_system_prompt_explicit = False
         
         # Store initial base prompt size to detect unbounded growth
-        self._initial_base_prompt_size = len(self.base_system_prompt) if self.base_system_prompt else 0
+        self._initial_base_prompt_size = len(self._base_system_prompt_internal) if self._base_system_prompt_internal else 0
+        self._base_prompt_initialized = True
 
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = self.created_at
@@ -226,18 +227,108 @@ class ConversationSession:
         session.created_at = metadata.get("created_at", session.created_at)
         session.updated_at = metadata.get("updated_at", session.updated_at)
 
-        # If a system_prompt was stored and no explicit base_system_prompt was
-        # provided, respect the stored one as the base/system prompt going forward.
-        stored_system_prompt = None
-        for m in messages:
-            if m.get("role") == "system":
-                stored_system_prompt = m.get("content")
-                break
-        if stored_system_prompt and base_system_prompt is None:
-            session.base_system_prompt = stored_system_prompt
+        # Extract base system prompt from metadata ONLY (never from system message content)
+        # The system message content is contaminated with world state/summary and should not be used
+        stored_base_prompt = metadata.get("system_prompt", "")
+        
+        # Clean contaminated base prompt if it contains JSON/world state
+        if stored_base_prompt:
+            cleaned_prompt = cls._clean_base_prompt(stored_base_prompt)
+            if cleaned_prompt != stored_base_prompt:
+                logger.warning(
+                    "Cleaned contaminated base prompt from storage",
+                    extra={
+                        "event": "base_prompt_cleaned",
+                        "original_length": len(stored_base_prompt),
+                        "cleaned_length": len(cleaned_prompt),
+                    }
+                )
+            stored_base_prompt = cleaned_prompt
+        
+        if stored_base_prompt and base_system_prompt is None:
+            session.base_system_prompt = stored_base_prompt
+        elif base_system_prompt is not None:
+            # Use explicitly provided base prompt (also clean it)
+            cleaned_provided = cls._clean_base_prompt(base_system_prompt)
+            session.base_system_prompt = cleaned_provided
+
+        # Remove system message from messages - it will be rebuilt correctly by _update_system_prompt()
+        # This prevents contamination from old system messages that may include world state/summary
+        if session.messages and session.messages[0].get("role") == "system":
+            session.messages.pop(0)
+
+        # Validate that base prompt hasn't been contaminated
+        if session.base_system_prompt:
+            base_prompt = session.base_system_prompt
+            if "{" in base_prompt and "\"timestamp\"" in base_prompt:
+                logger.warning(
+                    "Base system prompt appears to contain JSON (world state contamination detected). "
+                    "This may cause unbounded growth.",
+                    extra={
+                        "event": "base_prompt_contamination_detected",
+                        "base_prompt_size": len(base_prompt),
+                        "base_prompt_preview": base_prompt[:200],
+                    }
+                )
+            if "## Session Summary" in base_prompt or "Historical Context" in base_prompt:
+                logger.warning(
+                    "Base system prompt appears to contain summary content (contamination detected). "
+                    "This may cause unbounded growth.",
+                    extra={
+                        "event": "base_prompt_summary_contamination_detected",
+                        "base_prompt_size": len(base_prompt),
+                        "base_prompt_preview": base_prompt[:200],
+                    }
+                )
+
+        # If we have a world state aggregator, rebuild the system prompt correctly
+        if session.world_state_aggregator and session._world_state_formatter:
+            session._update_system_prompt()
 
         return session
 
+    @property
+    def base_system_prompt(self) -> Optional[str]:
+        """
+        Get the base system prompt (immutable after initialization).
+        
+        Returns:
+            Base system prompt string or None
+        """
+        return getattr(self, '_base_system_prompt_internal', None)
+    
+    @base_system_prompt.setter
+    def base_system_prompt(self, value: Optional[str]) -> None:
+        """
+        Set the base system prompt with immutability enforcement.
+        
+        Only allows modification during initialization. After initialization,
+        modifications are logged as errors and prevented.
+        """
+        # Allow setting during initialization (before _base_prompt_initialized is set)
+        if not hasattr(self, '_base_prompt_initialized') or not self._base_prompt_initialized:
+            self._base_system_prompt_internal = value
+            return
+        
+        # After initialization, prevent modification
+        old_value = getattr(self, '_base_system_prompt_internal', None)
+        if value != old_value:
+            logger.error(
+                f"Attempted to modify base_system_prompt after initialization! "
+                f"This is not allowed and may cause unbounded growth. "
+                f"Old size: {len(old_value) if old_value else 0}, "
+                f"New size: {len(value) if value else 0}",
+                extra={
+                    "event": "base_prompt_modification_attempted",
+                    "old_size": len(old_value) if old_value else 0,
+                    "new_size": len(value) if value else 0,
+                    "old_preview": old_value[:200] if old_value else None,
+                    "new_preview": value[:200] if value else None,
+                }
+            )
+            # Don't modify - keep the original value
+            # This prevents contamination from propagating
+    
     @property
     def tool_status_display(self):
         """
@@ -2504,6 +2595,110 @@ class ConversationSession:
         json_str = json.dumps(normalized, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(json_str.encode('utf-8')).hexdigest()
     
+    @staticmethod
+    def _clean_base_prompt(contaminated_prompt: str) -> str:
+        """
+        Extract clean base prompt from contaminated storage data.
+        
+        Removes world state JSON, summary context, and truncation messages
+        that may have been incorrectly stored as part of the base prompt.
+        
+        Args:
+            contaminated_prompt: Potentially contaminated base prompt string
+            
+        Returns:
+            Clean base prompt with all JSON/world state/summary content removed
+        """
+        if not contaminated_prompt:
+            return ""
+        
+        import json
+        import re
+        
+        cleaned = contaminated_prompt
+        
+        # Remove any JSON objects (world state) - look for { ... } patterns
+        # Try to find where JSON starts and remove everything from there
+        json_start_patterns = [
+            r'\n\s*\{',  # Newline followed by opening brace
+            r'\n\n\s*\{',  # Double newline followed by opening brace
+            r'^\s*\{',  # Start of string with opening brace
+        ]
+        
+        for pattern in json_start_patterns:
+            match = re.search(pattern, cleaned)
+            if match:
+                # Found JSON start - keep everything before it
+                cleaned = cleaned[:match.start()].rstrip()
+                break
+        
+        # Remove summary context markers
+        summary_markers = [
+            "## Session Summary",
+            "Historical Context",
+            "Session Summary (Historical Context)",
+        ]
+        for marker in summary_markers:
+            if marker in cleaned:
+                # Find where summary starts and remove everything from there
+                idx = cleaned.find(marker)
+                if idx > 0:
+                    # Try to find the section start (## or similar)
+                    section_start = cleaned.rfind("\n##", 0, idx)
+                    if section_start >= 0:
+                        cleaned = cleaned[:section_start].rstrip()
+                    else:
+                        cleaned = cleaned[:idx].rstrip()
+        
+        # Remove truncation messages (they shouldn't be in base prompt)
+        truncation_messages = [
+            "[Base system prompt truncated due to size limit]",
+            "[System prompt truncated due to size limit]",
+            "[World state omitted due to size limit]",
+            "[Summary context truncated due to size limit]",
+        ]
+        for msg in truncation_messages:
+            cleaned = cleaned.replace(msg, "").strip()
+        
+        # Remove any trailing JSON-like content
+        # Look for patterns like "}\n\n{" which indicate multiple JSON objects
+        if re.search(r'\}\s*\n\s*\n\s*\{', cleaned):
+            # Multiple JSON objects detected - remove all JSON
+            # Find the last non-JSON content
+            parts = re.split(r'\}\s*\n\s*\n\s*\{', cleaned)
+            if parts:
+                cleaned = parts[0].rstrip()
+                # Remove any trailing brace
+                cleaned = re.sub(r'\}\s*$', '', cleaned).rstrip()
+        
+        # Final cleanup: remove any remaining JSON structure
+        # If the cleaned string still looks like it starts with JSON, it's all contaminated
+        cleaned_stripped = cleaned.strip()
+        if cleaned_stripped.startswith('{') or cleaned_stripped.startswith('['):
+            # Entire prompt is JSON - return empty (no valid base prompt)
+            logger.warning(
+                "Base prompt appears to be entirely JSON/world state - returning empty base prompt",
+                extra={
+                    "event": "base_prompt_entirely_contaminated",
+                    "original_length": len(contaminated_prompt),
+                }
+            )
+            return ""
+        
+        # Validate that we actually have content left
+        if len(cleaned) < len(contaminated_prompt) * 0.1:
+            # Less than 10% of original - likely all was contamination
+            logger.warning(
+                "Base prompt cleaning removed >90% of content - likely all was contamination",
+                extra={
+                    "event": "base_prompt_mostly_contaminated",
+                    "original_length": len(contaminated_prompt),
+                    "cleaned_length": len(cleaned),
+                }
+            )
+        
+        return cleaned.strip()
+    
     def _update_system_prompt(self) -> None:
         """
         Update system prompt with current world state and session summary.
@@ -2583,7 +2778,13 @@ class ConversationSession:
                             if last_newline > max_base_size * 0.8:
                                 truncated_base = truncated_base[:last_newline]
                         
-                        base_prompt = truncated_base + "\n[Base system prompt truncated due to size limit]"
+                        # Check if truncation message already exists to prevent accumulation
+                        truncation_msg = "[Base system prompt truncated due to size limit]"
+                        if truncation_msg not in truncated_base:
+                            base_prompt = truncated_base + "\n" + truncation_msg
+                        else:
+                            # Already has truncation message - don't add another
+                            base_prompt = truncated_base
                         logger.warning(
                             f"Base system prompt truncated from {base_prompt_size} to {len(base_prompt)} characters "
                             f"(limit: {max_base_size})"
@@ -2677,7 +2878,12 @@ class ConversationSession:
                                 last_section = truncated_summary.rfind("##")
                                 if last_section > summary_target * 0.7:
                                     truncated_summary = truncated_summary[:last_section]
-                                parts[1] = truncated_summary + "\n[Summary context truncated due to size limit]"
+                                # Check if truncation message already exists to prevent accumulation
+                                truncation_msg = "[Summary context truncated due to size limit]"
+                                if truncation_msg not in truncated_summary:
+                                    parts[1] = truncated_summary + "\n" + truncation_msg
+                                else:
+                                    parts[1] = truncated_summary
                                 logger.warning(
                                     f"Summary context reduced from {component_sizes[1]} to {len(parts[1])} characters"
                                 )
@@ -2706,7 +2912,12 @@ class ConversationSession:
                                 last_newline = truncated.rfind("\n")
                                 if last_newline > remaining_space * 0.8:
                                     truncated = truncated[:last_newline]
-                                parts[1] = truncated + "\n[Component truncated due to size limit]"
+                                # Check if truncation message already exists to prevent accumulation
+                                truncation_msg = "[Component truncated due to size limit]"
+                                if truncation_msg not in truncated:
+                                    parts[1] = truncated + "\n" + truncation_msg
+                                else:
+                                    parts[1] = truncated
                                 logger.warning(
                                     f"Component reduced from {component_sizes[1]} to {len(parts[1])} characters"
                                 )
@@ -2732,7 +2943,12 @@ class ConversationSession:
                         last_newline = truncated_base.rfind("\n")
                         if last_newline > (max_size - 50) * 0.8:
                             truncated_base = truncated_base[:last_newline]
-                        complete_prompt = truncated_base + "\n[System prompt truncated due to size limit]"
+                        # Check if truncation message already exists to prevent accumulation
+                        truncation_msg = "[System prompt truncated due to size limit]"
+                        if truncation_msg not in truncated_base:
+                            complete_prompt = truncated_base + "\n" + truncation_msg
+                        else:
+                            complete_prompt = truncated_base
                     else:
                         # Keep base prompt and summary, truncate world state
                         base_and_summary = "\n\n".join(parts[:-1])  # All except world state
@@ -2760,7 +2976,10 @@ class ConversationSession:
                     last_newline = complete_prompt.rfind("\n")
                     if last_newline > (max_size - 50) * 0.8:
                         complete_prompt = complete_prompt[:last_newline]
-                    complete_prompt += "\n[System prompt truncated due to size limit]"
+                    # Check if truncation message already exists to prevent accumulation
+                    truncation_msg = "[System prompt truncated due to size limit]"
+                    if truncation_msg not in complete_prompt:
+                        complete_prompt += "\n" + truncation_msg
                 
                 logger.warning(
                     f"System prompt truncated from {original_size} to {len(complete_prompt)} characters "
@@ -2771,19 +2990,54 @@ class ConversationSession:
             self._validate_system_prompt_for_duplicates(complete_prompt)
             
             # Validate: ensure we're not duplicating existing content
+            # Check for ANY system messages (there should only be one, but handle multiple)
+            existing_system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system"]
             existing_system_content = None
-            if self.messages and self.messages[0].get("role") == "system":
-                existing_system_content = self.messages[0].get("content", "")
+            if existing_system_messages:
+                # Use the first system message's content for comparison
+                existing_system_content = self.messages[existing_system_messages[0]].get("content", "")
             
             # Only update if content actually changed (avoid unnecessary updates)
             if existing_system_content != complete_prompt:
-                # Update or create system message (always REPLACE, never append)
-                if self.messages and self.messages[0].get("role") == "system":
-                    # Update existing system message
-                    self.messages[0]["content"] = complete_prompt
-                else:
-                    # Create new system message at the beginning
-                    self.messages.insert(0, {"role": "system", "content": complete_prompt})
+                # Remove ALL system messages first (handle multiple system messages bug)
+                # This ensures we always REPLACE, never append
+                if existing_system_messages:
+                    # Remove in reverse order to maintain indices
+                    for idx in reversed(existing_system_messages):
+                        removed_msg = self.messages.pop(idx)
+                        logger.debug(
+                            f"Removed system message at index {idx} before replacing",
+                            extra={
+                                "event": "system_message_removed",
+                                "removed_content_length": len(removed_msg.get("content", "")),
+                            }
+                        )
+                    
+                    # Log warning if multiple system messages were found
+                    if len(existing_system_messages) > 1:
+                        logger.warning(
+                            f"Found {len(existing_system_messages)} system messages - removed all before replacing. "
+                            "This indicates a bug where system messages were being appended instead of replaced.",
+                            extra={
+                                "event": "multiple_system_messages_detected",
+                                "count": len(existing_system_messages),
+                            }
+                        )
+                
+                # Insert new system message at the beginning (always at index 0)
+                self.messages.insert(0, {"role": "system", "content": complete_prompt})
+                
+                # Validate: ensure only ONE system message exists after update
+                system_msg_count = sum(1 for msg in self.messages if msg.get("role") == "system")
+                if system_msg_count != 1:
+                    logger.error(
+                        f"CRITICAL: After system prompt update, found {system_msg_count} system messages "
+                        f"(expected 1). This is a bug.",
+                        extra={
+                            "event": "multiple_system_messages_after_update",
+                            "count": system_msg_count,
+                        }
+                    )
 
                 # Log system prompt size for monitoring with detailed component breakdown
                 prompt_size = len(complete_prompt)
@@ -3408,29 +3662,32 @@ class ConversationSession:
             messages = result.get("messages", [])
             metadata = result.get("metadata", {})
 
-            # Extract base system prompt from metadata (this is the user-defined base prompt)
+            # Extract base system prompt from metadata ONLY (never from system message content)
+            # The system message content is contaminated with world state/summary and should not be used
             # Use the saved value, even if empty (don't override with config when loading)
-            base_system_prompt = metadata.get("system_prompt", "")
-
-            # If messages contain a system message with combined prompt, try to extract base
-            # This handles cases where the system message has both base prompt and world state
-            if messages and messages[0].get("role") == "system":
-                system_content = messages[0].get("content", "")
-                # If the content contains both base prompt and JSON (separated by \n\n),
-                # and we don't have a base prompt in metadata, try to extract it
-                if "\n\n" in system_content and not base_system_prompt:
-                    parts = system_content.split("\n\n", 1)
-                    potential_base = parts[0].strip()
-                    # Only use if it doesn't look like JSON
-                    if potential_base and not potential_base.startswith("{"):
-                        base_system_prompt = potential_base
+            stored_base_prompt = metadata.get("system_prompt", "")
+            
+            # Clean contaminated base prompt if it contains JSON/world state
+            if stored_base_prompt:
+                cleaned_prompt = cls._clean_base_prompt(stored_base_prompt)
+                if cleaned_prompt != stored_base_prompt:
+                    logger.warning(
+                        "Cleaned contaminated base prompt from storage",
+                        extra={
+                            "event": "base_prompt_cleaned",
+                            "original_length": len(stored_base_prompt),
+                            "cleaned_length": len(cleaned_prompt),
+                        }
+                    )
+                base_system_prompt = cleaned_prompt
+            else:
+                base_system_prompt = ""
 
             # Create session with base system prompt
             # Note: We don't pass system_prompt parameter to avoid double-adding
-            # The messages will be restored below
             # Pass base_system_prompt explicitly (even if empty) to avoid using config
             session = cls(
-                system_prompt=None,  # Don't add system prompt here, we'll use messages
+                system_prompt=None,  # Don't add system prompt here, we'll rebuild it
                 llm=llm,
                 storage=storage,
                 session_id=session_id,
@@ -3438,9 +3695,11 @@ class ConversationSession:
                 base_system_prompt=base_system_prompt,  # Use saved value, not config
             )
 
-            # Restore messages directly (they already contain the system message)
+            # Restore messages but remove system message - it will be rebuilt correctly
+            # This prevents contamination from old system messages that may include world state/summary
             if messages:
-                session.messages = messages
+                # Filter out system message if present
+                session.messages = [m for m in messages if m.get("role") != "system"]
 
             # Restore timestamps
             session.created_at = metadata.get("created_at", session.created_at)
@@ -3451,8 +3710,29 @@ class ConversationSession:
             # If saved value is empty, set to None to indicate no system prompt was set
             session.system_prompt = base_system_prompt if base_system_prompt else None
 
+            # Validate that base prompt hasn't been contaminated
+            if base_system_prompt:
+                if "{" in base_system_prompt and "\"timestamp\"" in base_system_prompt:
+                    logger.warning(
+                        "Base system prompt appears to contain JSON (world state contamination detected). "
+                        "Using metadata value but this may be incorrect.",
+                        extra={
+                            "event": "base_prompt_contamination_detected",
+                            "base_prompt_preview": base_system_prompt[:200],
+                        }
+                    )
+                if "## Session Summary" in base_system_prompt or "Historical Context" in base_system_prompt:
+                    logger.warning(
+                        "Base system prompt appears to contain summary content (contamination detected). "
+                        "Using metadata value but this may be incorrect.",
+                        extra={
+                            "event": "base_prompt_summary_contamination_detected",
+                            "base_prompt_preview": base_system_prompt[:200],
+                        }
+                    )
+
             # If we have a world state aggregator, update the system prompt to refresh world state
-            # This ensures the world state is current even after loading
+            # This ensures the world state is current even after loading and rebuilds from clean base
             if world_state_aggregator and session._world_state_formatter:
                 session._update_system_prompt()
 
