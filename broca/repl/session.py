@@ -2760,6 +2760,8 @@ class ConversationSession:
             
             # Runtime monitoring: validate state before update
             self._validate_before_update()
+            # Ensure single system message before update (fixes any accumulation issues)
+            self._ensure_single_system_message()
             
             # Aggregate current world state
             world_state = self.world_state_aggregator.aggregate()
@@ -4011,8 +4013,34 @@ class ConversationSession:
             # Restore messages but remove system message - it will be rebuilt correctly
             # This prevents contamination from old system messages that may include world state/summary
             if messages:
-                # Filter out system message if present
+                # Validate loaded messages for contamination before filtering
+                system_messages_in_load = [m for m in messages if m.get("role") == "system"]
+                if len(system_messages_in_load) > 1:
+                    logger.warning(
+                        f"Loaded conversation has {len(system_messages_in_load)} system messages. "
+                        "This indicates contamination. All will be removed and rebuilt.",
+                        extra={
+                            "event": "multiple_system_messages_in_loaded_conversation",
+                            "count": len(system_messages_in_load),
+                        }
+                    )
+                
+                # Filter out all system messages if present
                 session.messages = [m for m in messages if m.get("role") != "system"]
+                
+                # Validate that no system messages remain after filtering
+                remaining_system = [m for m in session.messages if m.get("role") == "system"]
+                if remaining_system:
+                    logger.error(
+                        f"CRITICAL: System messages still present after filtering: {len(remaining_system)}. "
+                        "This is a bug in the filtering logic.",
+                        extra={
+                            "event": "system_messages_remain_after_load_filtering",
+                            "count": len(remaining_system),
+                        }
+                    )
+                    # Force remove any remaining system messages
+                    session.messages = [m for m in session.messages if m.get("role") != "system"]
 
             # Restore timestamps
             session.created_at = metadata.get("created_at", session.created_at)
@@ -4048,6 +4076,9 @@ class ConversationSession:
             # This ensures the world state is current even after loading and rebuilds from clean base
             if world_state_aggregator and session._world_state_formatter:
                 session._update_system_prompt()
+            
+            # Final validation after rebuild to ensure clean state
+            session._ensure_single_system_message()
 
             logger.info(f"Loaded conversation {session_id} from storage")
             return session
