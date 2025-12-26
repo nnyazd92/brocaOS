@@ -1,0 +1,26 @@
+{
+  "tasks": [
+    {
+      "id": "task_gov_demo",
+      "description": "Execute governance_demo.py and verify system behavior.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_adbe6519ea3d4c58bdb37bd7c13e2ef0"
+      ],
+      "created_at": "2025-12-24T23:09:13.445636+00:00"
+    },
+    {
+      "id": "task_ip_pilot",
+      "description": "Finalize the 'Cognitive IP' pilot.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_adbe6519ea3d4c58bdb37bd7c13e2ef0"
+      ],
+      "created_at": "2025-12-24T23:09:13.445675+00:00"
+    }
+  ]
+}

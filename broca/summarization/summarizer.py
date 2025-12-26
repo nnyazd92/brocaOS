@@ -81,6 +81,11 @@ class Summarizer:
                         "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
                         "still pending or in progress. If events show a task was completed, mark it complete "
                         "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
                         "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
                         "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
@@ -213,7 +218,13 @@ CRITICAL TASK MANAGEMENT RULES:
    - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
 
 4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
-   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated"."""
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     

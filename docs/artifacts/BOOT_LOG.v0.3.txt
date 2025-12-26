@@ -26,3 +26,22 @@ End of boot log
   identity_verification: verified (HMAC-SHA256, env=BROCA_TOKEN_SECRET)
   persistence: enabled (actuator token .temporary_token.txt)
   current_session_summary: docs/summaries/session-2025-12-23T23:19:37Z.json
+[2025-12-24T00:45:50.595564+00:00] BOOT_UP v0.3: persistence_enabled=True token_provenance=.temporary_token.txt session=session-2025-12-23T23-39-32.007754Z operator=nick.yazdani
+[2025-12-24T04:32:47Z] BOOT_UP PROTOCOL v0.3: Identity Verified. Persistence Enabled. Session Continuity Restored.
+[2025-12-25T04:52:11Z] BOOT_UP v0.3 initiated by Nick Yazdani. Identity verified. Persistence enabled.
+[2025-12-24T23:23:54.232751+00:00] BOOT_UP v0.3: SUCCESS | Operator: Nick Yazdani | Token: .temporary_token.txt
+[2025-12-25T00:16:17Z] SHUTDOWN: Session session-2025-12-25T00:16:17Z completed. Manuscript v3.1 ready.
+[2025-12-25T00:16:31Z] SHUTDOWN_COMPLETED: Session session-2025-12-25T00:16:26Z finalized.
+[2025-12-25T01:23:00Z] BOOT boot-2025-12-25T01:23:00Z - Identity Verified - Persistence Enabled - Token: .temporary_token.txt
+[2025-12-25T03:16:00Z] BOOT_UP_v0.3: Identity verified via .temporary_token.txt. Persistence enabled. Session session-2025-12-25T00:16:17Z rehydrated.
+[2025-12-25T03:52:34Z] APPROVAL: APPROVE — rehydrate-and-read-physics (use-token-from-file) | Actuator: .temporary_token.txt (jti=6cc5dd7cb9444aa992f81aee4eae7d73) | Wrote: docs/rehydration/REHYDRATION_SUMMARY.v0.3.md | Reader: physics directory
+[2025-12-25T03:53:15Z] APPROVAL: APPROVE — rehydrate-and-read-physics (use-token-from-file) | Actuator: .temporary_token.txt (jti=6cc5dd7cb9444aa992f81aee4eae7d73) | Wrote: docs/rehydration/REHYDRATION_SUMMARY.v0.3.md | Reader: docs/physics
+[2025-12-25T03:57:50Z] APPROVAL: APPROVE — consolidate-v4.6-and-llm-critic (use-token-from-file) | Actuator: .temporary_token.txt (jti=6cc5dd7cb9444aa992f81aee4eae7d73) | Wrote: docs/physics/L_TOEC_MASTER_V4.6.tex, docs/physics/CRITIQUE_V4.6.md, docs/rehydration/physics_index_v4.6.json, runtime/backups/L_TOEC_MASTER_pre_v4.6.tar.gz
+[2025-12-25T04:00:17Z] EXTERNAL_LLM_CRITIQUE: model=gpt-5-mini | approval="APPROVAL: APPROVE — consolidate-v4.6-and-llm-critic (use-token-from-file)" | actuator=.temporary_token.txt (jti=6cc5dd7cb9444aa992f81aee4eae7d73) | output=docs/physics/CRITIQUE_V4.6.md
+[2025-12-25T04:13:06Z] ACTION: Ran Z3 axioms and SymPy verification scripts; updated docs/physics/CRITIQUE_V5.md; outputs in docs/rehydration/verification_v5/ | Actuator: .temporary_token.txt (jti=6cc5dd7cb9444aa992f81aee4eae7d73)
+[2025-12-25T04:19:38Z] ACTION: Added Z3 DAG/provenance scripts and patched master to include verification_includes.tex | Approval: APPROVE — encode-dag-and-provenance | Actuator: .temporary_token.txt (jti=6cc5dd7cb9444aa992f81aee4eae7d73)
+[2025-12-25T04:22:14Z] ACTION: Expanded DAG, added numeric/unit constraints, produced DOT visualization; outputs in docs/rehydration/verification_v5/ | Approval: APPROVE — encode-dag-provenance-expand-and-visualize | Actuator: .temporary_token.txt (jti=6cc5dd7cb9444aa992f81aee4eae7d73)
+[2025-12-25T04:24:46Z] ACTION: Refined DAG circularity rules, enumerated minimal assumption sets, integrated SymPy values, appended visualization to include. Approval: APPROVE — refine-dag-circularity-enumerate-minimal-sets-and-visualize | Actuator: .temporary_token.txt (jti=6cc5dd7cb9444aa992f81aee4eae7d73)
+[2025-12-25T04:28:52Z] ACTION: Integrated live SymPy into Z3 verification, appended LaTeX summary table, created L_TOEC_MASTER_V5.1.tex, attempted pdf compile. Approval: Approve — integrate-live-sympy-and-patch-v5 | Actuator token provenance: .temporary_token.txt
+[2025-12-26T02:25:32Z] Boot-Up via conversational operator; persistence_enabled=False; token_jti=bbf72a316c384292bd0b5debf9de0a83
+[2025-12-26T02:25:32Z] Identity verified; persistence_enabled=True (gate lifted)

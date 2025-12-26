@@ -62,6 +62,7 @@ class PromptBuilder:
             
         Returns:
             Context string to include in prompt (summary context, not including base system prompt)
+            Truncated to max_summary_context_size if needed.
         """
         parts = []
         
@@ -69,12 +70,20 @@ class PromptBuilder:
         if system_prompt:
             parts.append(system_prompt)
         
-        # 2. Session summary
+        # 2. Session summary (historical context)
         summary = self.summary_storage.load_session_summary(session_id)
         if summary:
             summary_text = self._format_summary(summary)
             if summary_text:
-                parts.append(f"## Session Summary\n{summary_text}")
+                # Wrap with disclaimer that this is historical context, not current requirements
+                summary_section = (
+                    "## Session Summary (Historical Context)\n\n"
+                    "The following is historical context from earlier in this conversation. "
+                    "These goals and steps may be outdated or completed. Use them as context "
+                    "but prioritize the current user request and recent conversation turns.\n\n"
+                    f"{summary_text}"
+                )
+                parts.append(summary_section)
         
         # 3. Project state (if available)
         project_state = self.summary_storage.load_project_state()
@@ -86,35 +95,78 @@ class PromptBuilder:
         # Note: Last K turns are handled separately by filtering messages before LLM call
         # They are not included in the system prompt context to keep it focused on summaries
         
-        return "\n\n".join(parts)
+        result = "\n\n".join(parts)
+        
+        # Apply size limit
+        max_size = config.storage.max_summary_context_size
+        original_size = len(result)
+        if original_size > max_size:
+            # Truncate from the end, preserving structure
+            truncated = result[:max_size]
+            # Try to truncate at a section boundary
+            last_section = truncated.rfind("##")
+            if last_section > max_size * 0.7:  # Only if we're keeping most of it
+                truncated = truncated[:last_section].rstrip()
+            else:
+                # Truncate at last newline
+                last_newline = truncated.rfind("\n")
+                if last_newline > max_size * 0.8:
+                    truncated = truncated[:last_newline]
+            result = truncated + "\n\n[Summary context truncated due to size limit]"
+            logger.warning(
+                f"Summary context truncated from {original_size} to {len(result)} characters "
+                f"(limit: {max_size})"
+            )
+        
+        return result
     
     def _format_summary(self, summary: SessionSummary) -> str:
-        """Format session summary for prompt."""
+        """Format session summary for prompt as historical context.
+        
+        Enforces per-item size limits (500 chars) to prevent unbounded growth.
+        """
         blocks = summary.summary_blocks
         lines = []
+        max_item_size = 500  # Maximum characters per item to prevent unbounded growth
+        
+        def truncate_item(item: str, max_size: int = max_item_size) -> str:
+            """Truncate an item to max_size, preserving structure."""
+            if not item or len(item) <= max_size:
+                return item
+            truncated = item[:max_size - 20]  # Leave room for truncation marker
+            # Try to truncate at word boundary
+            last_space = truncated.rfind(" ")
+            if last_space > max_size * 0.8:
+                truncated = truncated[:last_space]
+            return truncated + " [truncated]"
         
         if blocks.current_goal:
-            lines.append(f"Current Goal: {blocks.current_goal}")
+            goal_text = truncate_item(blocks.current_goal)
+            lines.append(f"Previous Goal Context: {goal_text} (may be outdated or completed)")
         
         if blocks.what_we_built:
-            lines.append("What We Built:")
+            lines.append("What Was Built (Historical):")
             for item in blocks.what_we_built[-5:]:  # Last 5 items
-                lines.append(f"  - {item}")
+                truncated_item = truncate_item(str(item))
+                lines.append(f"  - {truncated_item}")
         
         if blocks.open_questions:
-            lines.append("Open Questions:")
+            lines.append("Previous Open Questions (may be resolved):")
             for item in blocks.open_questions[-5:]:  # Last 5 items
-                lines.append(f"  - {item}")
+                truncated_item = truncate_item(str(item))
+                lines.append(f"  - {truncated_item}")
         
         if blocks.constraints:
-            lines.append("Constraints:")
+            lines.append("Previous Constraints (may no longer apply):")
             for item in blocks.constraints[-5:]:  # Last 5 items
-                lines.append(f"  - {item}")
+                truncated_item = truncate_item(str(item))
+                lines.append(f"  - {truncated_item}")
         
         if blocks.next_steps:
-            lines.append("Next Steps:")
+            lines.append("Previously Planned Steps (may be completed or outdated):")
             for item in blocks.next_steps[-5:]:  # Last 5 items
-                lines.append(f"  - {item}")
+                truncated_item = truncate_item(str(item))
+                lines.append(f"  - {truncated_item}")
         
         return "\n".join(lines) if lines else ""
     

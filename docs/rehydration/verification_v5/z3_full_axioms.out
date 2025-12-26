@@ -1,0 +1,60 @@
+=== Z3 FULL AXIOM FORMALIZATION RUN ===
+
+Check A: G derivable from Co0 (dimensionless) AND NO dimensional bridge:
+Status: unsat
+UNSAT as expected (dimensional bridge required)
+
+Check B: G derivable from Co0 AND uses Planck mass which is defined via G (circular):
+Status: sat
+Model (circular): [Uses_PlanckMass = True,
+ Co0_Dimensionless = True,
+ DimensionalBridgeDefined = True,
+ PlanckMass_Independent = False,
+ Derivation_Explicit = False,
+ G_Derivable_From_Co0 = True,
+ MappingLatencyDefined = True,
+ PlanckMass_Defined_Via_G = True,
+ UnitsIntroduced = True,
+ CircularDefinition = True]
+
+Check C: G derivable from Co0 AND uses independent Planck mass:
+Status: sat
+Model (allowed): [Uses_PlanckMass = True,
+ Co0_Dimensionless = True,
+ DimensionalBridgeDefined = True,
+ PlanckMass_Independent = True,
+ G_Derivable_From_Co0 = True,
+ MappingLatencyDefined = True,
+ PlanckMass_Defined_Via_G = False,
+ UnitsIntroduced = True,
+ CircularDefinition = False]
+
+Check D: Explicit derivation that uses Planck mass defined via G (should conflict):
+Status: unsat
+UNSAT as expected (explicit derivation conflicts with circularity rule)
+
+Check E: Plausible consistent configuration:
+Status: sat
+Model (consistent): [Uses_PlanckMass = True,
+ Co0_Dimensionless = True,
+ DimensionalBridgeDefined = True,
+ PlanckMass_Independent = True,
+ Derivation_Explicit = True,
+ G_Derivable_From_Co0 = True,
+ MappingLatencyDefined = True,
+ PlanckMass_Defined_Via_G = False,
+ UnitsIntroduced = True,
+ CircularDefinition = False]
+
+Base axioms / assertions:
+ - Implies(And(G_Derivable_From_Co0, Co0_Dimensionless),
+        And(DimensionalBridgeDefined, UnitsIntroduced))
+ - Implies(Uses_PlanckMass,
+        Or(PlanckMass_Independent, PlanckMass_Defined_Via_G))
+ - Not(And(PlanckMass_Independent, PlanckMass_Defined_Via_G))
+ - Implies(And(PlanckMass_Defined_Via_G,
+            Uses_PlanckMass,
+            G_Derivable_From_Co0),
+        CircularDefinition)
+ - Implies(CircularDefinition, Not(Derivation_Explicit))
+ - Implies(DimensionalBridgeDefined, MappingLatencyDefined)

@@ -12,6 +12,7 @@ from ..config import config
 from .deepseek_client import DeepSeekClient
 from .openai_client import OpenAIClient
 from .cached_client import CachedLLMClient
+from .gemini_client import GeminiClient
 
 
 class LLMClient(Protocol):
@@ -27,6 +28,7 @@ class LLMClient(Protocol):
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         reasoning_content: Optional[str] = None,
+        thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Send a chat completion request and return the raw JSON response.
         
@@ -35,6 +37,7 @@ class LLMClient(Protocol):
             temperature: Optional temperature override
             tools: Optional list of tools in OpenAI function calling format
             reasoning_content: Optional reasoning_content for deepseek-reasoner model
+            thought_signature: Optional thought_signature for Gemini 3 to maintain reasoning context
             
         Returns:
             Raw API response dictionary
@@ -114,10 +117,12 @@ def create_llm_client(
         return DeepSeekClient(**client_kwargs)
     elif provider_name == "openai":
         return OpenAIClient(**client_kwargs)
+    elif provider_name == "gemini":
+        return GeminiClient(**client_kwargs)
     else:
         raise ValueError(
             f"Unknown LLM provider: {provider_name}. "
-            "Supported providers are 'deepseek' and 'openai'."
+            "Supported providers are 'deepseek', 'openai', and 'gemini'."
         )
 
 

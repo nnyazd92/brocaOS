@@ -1,0 +1,30 @@
+{
+  "tasks": [
+    {
+      "id": "task_markdown_hierarchy",
+      "description": "Improve markdown rendering hierarchy (h1-h4) and list indentation.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_29770af017fb4705973d2f368cccf067",
+        "evt_7ed68ff401e247d998b9d99e716de399",
+        "evt_96253405049b4c078349a995eb02d09e"
+      ],
+      "created_at": "2025-12-26T04:52:31.261149+00:00"
+    },
+    {
+      "id": "task_auto_titling",
+      "description": "Implement AI-powered auto-titling for conversations.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_29770af017fb4705973d2f368cccf067",
+        "evt_7ed68ff401e247d998b9d99e716de399",
+        "evt_96253405049b4c078349a995eb02d09e"
+      ],
+      "created_at": "2025-12-26T04:52:31.261189+00:00"
+    }
+  ]
+}

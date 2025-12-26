@@ -283,19 +283,6 @@ class TestToolDescriptionFormatter:
         
         assert "Running critic check" in description
     
-    def test_project_world_state_description(self):
-        """Test project world state tool description formatting."""
-        if ToolDescriptionFormatter is None:
-            pytest.skip("ToolDescriptionFormatter not yet implemented")
-        
-        formatter = ToolDescriptionFormatter()
-        tool_name = "project_world_state"
-        arguments = {}
-        
-        description = formatter.format(tool_name, arguments)
-        
-        assert "Updating project world state" in description
-    
     def test_query_self_model_description(self):
         """Test query self model tool description formatting."""
         if ToolDescriptionFormatter is None:
@@ -1248,21 +1235,37 @@ class TestContinuousSpinnerAnimation:
             pytest.skip("ToolStatusDisplay not yet implemented")
         
         output = io.StringIO()
-        with patch('sys.stdout', output):
-            with patch('sys.stdout.isatty', return_value=True):
+        # Create a mock stdout that has isatty() method
+        class MockStdout:
+            def __init__(self, output):
+                self.output = output
+                self.isatty = Mock(return_value=True)
+            
+            def write(self, text):
+                return self.output.write(text)
+            
+            def flush(self):
+                return self.output.flush()
+        
+        mock_stdout = MockStdout(output)
+        with patch('sys.stdout', mock_stdout):
+            # Also patch isatty at module level for the thread
+            with patch('broca.repl.tool_status.sys.stdout', mock_stdout):
                 display = ToolStatusDisplay(enabled=True)
+                # Force the display to treat output as NOT captured so spinner animates
+                display._output_captured = False
                 display.start_tool_call("terminal", {"command": "sleep 0.3"})
-                
-                # Wait for multiple spinner updates
-                time.sleep(0.35)  # Wait longer than spinner update interval
-                
-                display.complete_tool_call(success=True)
+            
+            # Wait for multiple spinner updates (spinner updates every 0.1s)
+            time.sleep(0.35)  # Wait longer than spinner update interval
+            
+            display.complete_tool_call(success=True)
         
         output_str = output.getvalue()
         # Check that we got multiple write calls (indicating animation)
         # Should have multiple \r characters indicating updates
         write_count = output_str.count('\r')
-        assert write_count > 1, "Spinner should animate multiple times"
+        assert write_count > 1, f"Spinner should animate multiple times, got {write_count} updates. Output: {repr(output_str[:200])}"
     
     def test_spinner_updates_on_same_line(self):
         """Test that spinner updates occur on the same line using \\r."""

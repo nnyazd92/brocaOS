@@ -19,6 +19,7 @@ class SummaryHeader(BaseModel):
     last_summarized_event_id: Optional[str] = None
     revision: int = 0
     scope: str = ""  # Description of what this summary covers
+    summarization_cycle_count: int = 0  # Number of summarization cycles completed (for gradual pruning)
 
 
 class SummaryBlocks(BaseModel):

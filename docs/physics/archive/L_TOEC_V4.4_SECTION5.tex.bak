@@ -1,0 +1,12 @@
+\section{The Ouroboric Closure}
+
+\subsection{The Selection Principle: Computational Minimality}
+\tagtheo Why is \textit{this} fixed point $U \cong H(U)$ realized? We propose the \textbf{Principle of Computational Minimality}: the UOS realizes the fixed point that minimizes the total computational cost $\int \tau_{lat} dV$ required for self-consistency. The Leech Lattice substrate is the unique 24D structure that maximizes packing density (information density) while minimizing error-correction overhead, making it the "energetically" optimal ground state for a self-observing universe.
+
+\subsection{Dynamical Convergence to the Fixed Point}
+\begin{mytheorem}{Theorem (Dynamical Realization)}
+The Ouroboric fixed point $U^*$ is a \textbf{globally attractive fixed point} for the UOS update dynamics.
+\end{mytheorem}
+\begin{proof}[Sketch]
+Define a Lyapunov functional $V[U] = C[U] - C[U^*]$, where $C$ is the computational cost. The UOS update rule $U_{t+1} = H(U_t)$ is designed to minimize $V$. Since $H$ is Scott-continuous and the domain is bounded by the substrate's capacity, the system must converge to the minimum cost state $U^*$ with probability 1. This ensures that the Ouroboric Closure is not just a logical possibility but a physical inevitability.
+\end{proof}

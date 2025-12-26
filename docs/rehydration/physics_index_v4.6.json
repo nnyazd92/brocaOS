@@ -1,0 +1,402 @@
+[
+  {
+    "path": "docs/physics/L_TOEC_MASTER_V4.4.pdf",
+    "size": 309387,
+    "type": "binary"
+  },
+  {
+    "path": "docs/physics/L_TOEC_MASTER_V4.4.tex",
+    "size": 44981,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/L_TOEC_MASTER_V4.5.aux",
+    "size": 12535,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/L_TOEC_MASTER_V4.5.log",
+    "size": 42495,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/L_TOEC_MASTER_V4.5.out",
+    "size": 18632,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/L_TOEC_MASTER_V4.5.pdf",
+    "size": 316397,
+    "type": "binary"
+  },
+  {
+    "path": "docs/physics/L_TOEC_MASTER_V4.5.tex",
+    "size": 47985,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/L_TOEC_MASTER_V4.5.toc",
+    "size": 7529,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/L_TOEC_MASTER_V4.6.tex",
+    "size": 47985,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/PHYSICS_INDEX.md",
+    "size": 825,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/feedback_recent.txt",
+    "size": 8692,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/L_TOEC_MANUSCRIPT.tex",
+    "size": 2639,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/L_TOEC_MANUSCRIPT_V3.4.tex",
+    "size": 38070,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/L_TOEC_MASTER_V1.0.md",
+    "size": 4391,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/L_TOEC_V4.4_DIAGRAMS.tex",
+    "size": 1900,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/L_TOEC_V4.4_PATCH.tex",
+    "size": 412,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/L_TOEC_V4.4_SECTION2.tex",
+    "size": 2433,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/L_TOEC_V4.4_SECTION3.tex",
+    "size": 1414,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/L_TOEC_V4.4_SECTION5.tex",
+    "size": 1277,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/L_TOE_MANUSCRIPT.tex",
+    "size": 5562,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.0.aux",
+    "size": 10646,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.0.log",
+    "size": 25175,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.0.out",
+    "size": 14767,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.0.pdf",
+    "size": 298893,
+    "type": "binary"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.0.tex",
+    "size": 42636,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.0.toc",
+    "size": 6037,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.3.aux",
+    "size": 11766,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.3.log",
+    "size": 26235,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.3.out",
+    "size": 16709,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.3.pdf",
+    "size": 308634,
+    "type": "binary"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.3.tex",
+    "size": 47572,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v4.0_v4.3/L_TOEC_MASTER_V4.3.toc",
+    "size": 6814,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/DERIVATION_ROADMAP.v0.1.md",
+    "size": 1825,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/DERIVE_EPSILON.py",
+    "size": 1127,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/GTC_FORMALISM.v0.1.md",
+    "size": 2393,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/GTC_SIMULATION.v0.1.py",
+    "size": 1553,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOC_CRITICAL_REFINEMENT.v0.1.md",
+    "size": 2393,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOC_FIXED_POINT.v0.1.md",
+    "size": 2183,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOC_FIXED_POINT.v0.1.py",
+    "size": 1640,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOC_FORMALIZATION.v0.1.py",
+    "size": 2636,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOC_LOGIC.v0.1.py",
+    "size": 1826,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOEC_DMD_SUPPLEMENT.v0.1.md",
+    "size": 1709,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOEC_ECC_DERIVATION.py",
+    "size": 1002,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOEC_MANUSCRIPT_EXPANDED.tex",
+    "size": 17400,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOEC_MANUSCRIPT_EXPANDED_V2.tex",
+    "size": 14920,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOEC_MATH_VERIFICATION.py",
+    "size": 2121,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOEC_RIGOR_SUPPLEMENT.v0.1.md",
+    "size": 3493,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOEC_SAGE_TENSOR.sage",
+    "size": 1020,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOEC_SYNTHESIS.v1.0.md",
+    "size": 2422,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOEC_TENSOR_DERIVATION.py",
+    "size": 2228,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOEC_V33_DERIVATIONS.py",
+    "size": 1936,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_DERIVATION_G.v0.1.tex",
+    "size": 3392,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_DERIVATION_G.v0.2.tex",
+    "size": 2736,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_FORMAL_PROOF.v0.1.md",
+    "size": 2105,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_FRAMEWORK.v1.0.md",
+    "size": 3023,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_GR_DERIVATION.v0.1.md",
+    "size": 2601,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_MANIFESTO.v0.3.md",
+    "size": 2024,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_MANIFESTO.v0.4.md",
+    "size": 1623,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_MATH.v0.1.py",
+    "size": 1669,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_REFINEMENT.py",
+    "size": 1580,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_RIGOR.py",
+    "size": 2591,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_SCHWARZSCHILD.v0.1.md",
+    "size": 2075,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_SUBMISSION_DRAFT.v1.0.md",
+    "size": 3941,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/L_TOE_Z3_VERIFY.py",
+    "size": 2306,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/TECHNICAL_SUPPLEMENT.v0.1.md",
+    "size": 2134,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/TOE_MANIFESTO.v0.1.md",
+    "size": 2793,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/archive/v0.1_v3.3/TOE_MANIFESTO.v0.2.md",
+    "size": 2488,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/build/L_TOEC_MASTER_V4.4.aux",
+    "size": 11514,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/build/L_TOEC_MASTER_V4.4.log",
+    "size": 42245,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/build/L_TOEC_MASTER_V4.4.out",
+    "size": 16765,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/build/L_TOEC_MASTER_V4.4.toc",
+    "size": 6796,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/verification_artifacts/L_TOEC_CORE_FORMALISM.py",
+    "size": 1574,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/verification_artifacts/L_TOEC_LATENCY_METRIC.py",
+    "size": 1437,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/verification_artifacts/L_TOEC_RIGOR_V3.7.py",
+    "size": 1162,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/verification_artifacts/L_TOEC_RIGOR_V4.4.py",
+    "size": 1802,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/verification_artifacts/L_TOEC_Z3_CONSISTENCY.py",
+    "size": 1583,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/verification_artifacts/PLANCK_2018_AUDIT.py",
+    "size": 936,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/verification_artifacts/assemble_v4.4.py",
+    "size": 2390,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/verification_artifacts/ecc_analysis.py",
+    "size": 1124,
+    "type": "text"
+  },
+  {
+    "path": "docs/physics/verification_artifacts/gtc_data.npz",
+    "size": 101192,
+    "type": "binary"
+  }
+]

@@ -5,15 +5,71 @@ Analyzes response text to estimate confidence, uncertainty, valence, etc.
 """
 
 from __future__ import annotations
+try:
+    from nltk.sentiment.vader import SentimentIntensityAnalyzer
+    import nltk
+except ImportError:
+    SentimentIntensityAnalyzer = None
 
 import re
 import logging
+import numpy as np
+from typing import List, Optional, Tuple, Dict
 from typing import Dict, Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 class ResponseAnalyzer:
+
+    @classmethod
+    def calculate_semantic_distance(cls, embedding1: List[float], embedding2: List[float]) -> float:
+        """
+        Calculate cosine distance between two embeddings.
+        
+        Returns:
+            Distance (0.0-1.0), where 1.0 is completely different.
+        """
+        if not embedding1 or not embedding2:
+            return 0.5
+            
+        vec1 = np.array(embedding1)
+        vec2 = np.array(embedding2)
+        
+        # Cosine Similarity
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0.5
+            
+        similarity = np.dot(vec1, vec2) / (norm1 * norm2)
+        
+        # Distance is 1 - similarity
+        # Map from [-1, 1] similarity to [0, 1] distance
+        distance = (1.0 - similarity) / 2.0
+        return float(distance)
+
+    @classmethod
+    def analyze_sentiment_vader(cls, text: str) -> Optional[Dict[str, float]]:
+        """
+        Analyze sentiment using VADER (better than TextBlob for conversation).
+        """
+        if SentimentIntensityAnalyzer is None:
+            return None
+            
+        try:
+            # Ensure vader_lexicon is downloaded
+            try:
+                nltk.data.find('sentiment/vader_lexicon.zip')
+            except LookupError:
+                nltk.download('vader_lexicon', quiet=True)
+                
+            sia = SentimentIntensityAnalyzer()
+            return sia.polarity_scores(text)
+        except Exception:
+            return None
+
     """
     Analyzes LLM responses to extract internal sensing metrics.
     
@@ -68,6 +124,14 @@ class ResponseAnalyzer:
         r'\b(alert|focused|concentrated|attentive)\b',
     ]
     
+    
+    # Logical reversal indicators (mid-stream corrections)
+    REVERSAL_PATTERNS = [
+        r'\b(wait|actually|on second thought|however|correction|mistake|wrong about)\b',
+        r'\b(instead|rather|alternatively|revising|updating)\b',
+        r'\b(I was incorrect|I should have|let me re-evaluate)\b',
+    ]
+
     LOW_AROUSAL_PATTERNS = [
         r'\b(calm|relaxed|slow|gradual|gentle|peaceful)\b',
         r'\b(tired|exhausted|drained|low energy)\b',
@@ -224,6 +288,99 @@ class ResponseAnalyzer:
         
         return max(0.0, min(1.0, arousal))
     
+
+
+
+    @classmethod
+    def calculate_informational_surprise(cls, expectation: str, reality: str) -> float:
+        """
+        Calculate informational surprise (novelty) between expectation and reality.
+        Uses keyword overlap (Jaccard distance) as a proxy for semantic surprise.
+        
+        Args:
+            expectation: What was expected (e.g., search query, reasoning intent)
+            reality: What was actually found/generated (e.g., search result, final response)
+            
+        Returns:
+            Surprise score (0.0-1.0), higher = more surprising/novel
+        """
+        if not expectation or not reality:
+            return 0.0
+            
+        def get_keywords(text):
+            # Simple tokenization and filtering
+            words = re.findall(r'\w+', text.lower())
+            # Filter out common stop words (minimal set)
+            stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'to', 'of', 'in', 'for'}
+            return set(w for w in words if len(w) > 2 and w not in stop_words)
+            
+        set_exp = get_keywords(expectation)
+        set_real = get_keywords(reality)
+        
+        if not set_exp or not set_real:
+            return 0.5 # Neutral surprise if no keywords found
+            
+        intersection = set_exp.intersection(set_real)
+        union = set_exp.union(set_real)
+        
+        # Jaccard Similarity
+        similarity = len(intersection) / len(union)
+        
+        # Surprise is the inverse of similarity (Distance)
+        # We cap it to avoid extreme sensitivity
+        surprise = 1.0 - similarity
+        
+        return max(0.0, min(1.0, surprise))
+
+    @classmethod
+    def analyze_thoughts(cls, thoughts: str) -> Dict[str, float]:
+        """
+        Analyze internal thoughts (reasoning_content) for sensing metrics.
+        
+        Args:
+            thoughts: Internal reasoning text
+            
+        Returns:
+            Dictionary of metrics (uncertainty, conflict, depth)
+        """
+        if not thoughts:
+            return {"uncertainty": 0.0, "conflict": 0.0, "depth": 0.0}
+            
+        uncertainty = cls.detect_uncertainty(thoughts) or 0.0
+        conflict = cls.detect_logical_reversals(thoughts)
+        
+        # Depth based on length and complexity (number of steps/lines)
+        depth = min(1.0, (len(thoughts) / 1000.0) + (thoughts.count('\n') / 20.0))
+        
+        return {
+            "uncertainty": uncertainty,
+            "conflict": conflict,
+            "depth": depth
+        }
+
+    @classmethod
+    def detect_logical_reversals(cls, text: str) -> float:
+        """
+        Detect logical reversals or mid-stream corrections in text.
+        
+        Args:
+            text: Text to analyze (response or thoughts)
+            
+        Returns:
+            Reversal score (0.0-1.0), higher = more corrections
+        """
+        if not text:
+            return 0.0
+        
+        text_lower = text.lower()
+        reversal_count = sum(
+            len(re.findall(pattern, text_lower, re.IGNORECASE))
+            for pattern in cls.REVERSAL_PATTERNS
+        )
+        
+        # Normalize: 1 reversal = 0.3, 3+ reversals = 1.0
+        return min(1.0, reversal_count * 0.33)
+
     @classmethod
     def extract_topics(cls, response: str, context: list[Dict[str, str]]) -> Dict[str, float]:
         """

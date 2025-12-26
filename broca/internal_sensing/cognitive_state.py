@@ -11,6 +11,7 @@ import time
 import logging
 from typing import Dict, Any, List, Optional, Union
 from collections import deque, defaultdict
+from .response_analyzer import ResponseAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +83,12 @@ class CognitiveStateMonitor:
     
     def _update_confidence_level(self) -> None:
         """Update average confidence level from history."""
+        was_none = self.states.get("confidence_level") is None
         if len(self._confidence_history) > 0:
             avg = sum(entry["confidence"] for entry in self._confidence_history) / len(self._confidence_history)
             self.states["confidence_level"] = avg
+            if was_none:
+                logger.debug(f"State transition: confidence_level None -> {avg:.3f}")
         else:
             self.states["confidence_level"] = None
     
@@ -151,34 +155,44 @@ class CognitiveStateMonitor:
         if len(self._reasoning_steps) > 50:
             self._reasoning_steps = self._reasoning_steps[-50:]
         
-        self._update_coherence()
+        # Only update coherence if we have at least 2 steps
+        if len(self._reasoning_steps) >= 2:
+            self._update_coherence()
+        else:
+            self.states["conceptual_coherence"] = None
+    
     
     def _update_coherence(self) -> None:
-        """Update conceptual coherence from reasoning steps."""
-        if len(self._reasoning_steps) < 2:
-            self.states["conceptual_coherence"] = None  # Need at least 2 steps to compare
+        """Update conceptual coherence from reasoning steps and logical reversals."""
+        was_none = self.states.get("conceptual_coherence") is None
+        if not self._reasoning_steps:
+            self.states["conceptual_coherence"] = None
             return
         
-        # Simple coherence check: look for contradictions
+        # 1. Check for explicit contradictions in steps
         contradictions = 0
         total_comparisons = 0
-        
         for i, step1 in enumerate(self._reasoning_steps):
             for step2 in self._reasoning_steps[i+1:]:
                 total_comparisons += 1
-                # Check if conclusions contradict
                 if (step1.get("premise") == step2.get("premise") and
                     step1.get("conclusion") != step2.get("conclusion")):
                     contradictions += 1
         
-        if total_comparisons == 0:
-            coherence = 0.5
-        else:
-            # Coherence is inverse of contradiction rate
-            contradiction_rate = contradictions / total_comparisons
-            coherence = 1.0 - contradiction_rate
+        step_coherence = 1.0 - (contradictions / total_comparisons) if total_comparisons > 0 else 1.0
         
-        self.states["conceptual_coherence"] = max(0.0, min(1.0, coherence))
+        # 2. Check for logical reversals in the latest conclusion
+        latest_conclusion = self._reasoning_steps[-1].get("conclusion", "")
+        reversal_score = ResponseAnalyzer.detect_logical_reversals(latest_conclusion)
+        
+        # Coherence is reduced by reversals (mid-stream corrections)
+        # A reversal score of 1.0 reduces coherence by 0.5
+        final_coherence = step_coherence * (1.0 - (reversal_score * 0.5))
+        
+        self.states["conceptual_coherence"] = max(0.0, min(1.0, final_coherence))
+        if was_none:
+            logger.debug(f"State transition: conceptual_coherence None -> {final_coherence:.3f}")
+
     
     def _calculate_coherence(self) -> Optional[float]:
         """
@@ -275,9 +289,12 @@ class CognitiveStateMonitor:
     
     def _update_uncertainty(self) -> None:
         """Update average uncertainty from history."""
+        was_none = self.states.get("uncertainty_tracking") is None
         if len(self._uncertainty_history) > 0:
             avg = sum(entry["uncertainty"] for entry in self._uncertainty_history) / len(self._uncertainty_history)
             self.states["uncertainty_tracking"] = avg
+            if was_none:
+                logger.debug(f"State transition: uncertainty_tracking None -> {avg:.3f}")
         else:
             self.states["uncertainty_tracking"] = None
     

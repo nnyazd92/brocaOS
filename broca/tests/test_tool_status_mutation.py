@@ -150,9 +150,28 @@ class TestMutationResistance:
             pytest.skip("ToolStatusDisplay not yet implemented")
         
         output = io.StringIO()
-        with patch('sys.stdout', output):
-            with patch('sys.stdout.isatty', return_value=True):
+        # Create a mock stdout that properly supports isatty() for the spinner thread
+        class MockStdout:
+            def __init__(self, output):
+                self.output = output
+                self._isatty = True
+            
+            def isatty(self):
+                return self._isatty
+            
+            def write(self, text):
+                return self.output.write(text)
+            
+            def flush(self):
+                return self.output.flush()
+        
+        mock_stdout = MockStdout(output)
+        with patch('sys.stdout', mock_stdout):
+            # Also patch isatty at module level for the thread
+            with patch('broca.repl.tool_status.sys.stdout', mock_stdout):
                 display = ToolStatusDisplay(enabled=True)
+                # Force the display to treat output as NOT captured so spinner animates
+                display._output_captured = False
                 display.start_tool_call("test", {}, tool_call_id="test1")
                 
                 # Wait for multiple updates
@@ -165,7 +184,7 @@ class TestMutationResistance:
         update_count = output_str.count('\r')
         
         # Mutation: Removed background thread, only one update
-        assert update_count > 1, "Spinner must update multiple times (continuous animation)"
+        assert update_count > 1, f"Spinner must update multiple times (continuous animation), got {update_count} updates. Output: {repr(output_str[:200])}"
     
     def test_no_blank_lines_between_calls(self):
         """Mutation: If blank lines appear between calls, test fails."""

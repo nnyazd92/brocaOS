@@ -5,12 +5,12 @@ from broca.repl.session import ConversationSession
 class DummyLLM:
     """Simulate an LLM client that supports chat_stream but yields no chunks."""
 
-    def chat_stream(self, messages, tools=None, reasoning_content=None):
+    def chat_stream(self, messages, tools=None, reasoning_content=None, thought_signature=None):
         # Yield nothing to simulate empty streaming
         if False:
             yield
 
-    def chat(self, messages, tools=None, reasoning_content=None):
+    def chat(self, messages, tools=None, reasoning_content=None, thought_signature=None):
         # Fallback non-streaming: return a minimal assistant message
         return {"choices": [{"message": {"content": "", "role": "assistant"}}]}
 

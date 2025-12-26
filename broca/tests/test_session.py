@@ -41,18 +41,19 @@ class TestConversationSessionInitialization:
     
     def test_init_with_default_llm(self):
         """
-        Test initialization creates default DeepSeekClient when none provided.
+        Test initialization creates default LLM client when none provided.
         
         Rationale: Ensures dependency injection is optional and defaults work correctly.
         """
-        # The actual client type depends on configured provider (deepseek or openai).
+        # The actual client type depends on configured provider (deepseek, openai, or gemini).
         # This test should verify that a real LLM client is created, not which provider.
         from broca.llm.deepseek_client import DeepSeekClient
         from broca.llm.openai_client import OpenAIClient
+        from broca.llm.gemini_client import GeminiClient
 
         session = ConversationSession()
         assert session.llm is not None
-        assert isinstance(session.llm, (DeepSeekClient, OpenAIClient))
+        assert isinstance(session.llm, (DeepSeekClient, OpenAIClient, GeminiClient))
     
     def test_init_with_custom_llm(self, mock_llm_client: Mock):
         """

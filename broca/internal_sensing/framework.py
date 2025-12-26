@@ -29,6 +29,7 @@ class InternalSensingFramework:
         self,
         sampling_rate: Optional[float] = None,
         history_window: Optional[int] = None,
+        embedding_service: Optional[Any] = None,
     ) -> None:
         """
         Initialize internal sensing framework.
@@ -41,7 +42,7 @@ class InternalSensingFramework:
         self.history_window = history_window or config.internal_sensing.history_window
         
         # Initialize integrated interoception
-        self.interoception = IntegratedInteroception(history_window=self.history_window)
+        self.interoception = IntegratedInteroception(history_window=self.history_window, embedding_service=embedding_service)
         
         # Internal state log
         self.internal_state_log: deque = deque(maxlen=int(self.history_window * self.sampling_rate))
@@ -172,6 +173,39 @@ class InternalSensingFramework:
         
         return patterns
     
+
+
+    def record_informational_surprise(self, expectation: str, reality: str) -> None:
+        """
+        Record informational surprise (novelty).
+        
+        Args:
+            expectation: Predicted content
+            reality: Actual content
+        """
+        self.interoception.record_informational_surprise(expectation, reality)
+
+    def record_cognitive_impact(self, tool_name: str, impact_level: int = 1) -> None:
+        """
+        Record the cognitive impact of an operation.
+        
+        Args:
+            tool_name: Name of the tool or operation
+            impact_level: Depth/complexity of the operation
+        """
+        if self.interoception.cognition:
+            # Record processing depth
+            self.interoception.cognition.record_processing_depth(
+                f'tool_{tool_name}_{time.time()}', 
+                impact_level
+            )
+            
+            # Record reasoning pattern
+            self.interoception.cognition.record_reasoning_pattern(
+                'tool_usage', 
+                tool_name
+            )
+
     def get_llm_description(self) -> str:
         """
         Generate LLM-readable description of internal state.

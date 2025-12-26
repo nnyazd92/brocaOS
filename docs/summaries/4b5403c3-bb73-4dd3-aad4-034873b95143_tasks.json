@@ -1,0 +1,16 @@
+{
+  "tasks": [
+    {
+      "id": "task_verify_gemini_client",
+      "description": "Verify GeminiClient behavior in live workflows and consider native reasoning client.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_92544d42fc36475bad0ac6c077863801",
+        "evt_96088d3c34c0475182909c117854f3a7"
+      ],
+      "created_at": "2025-12-24T03:04:00.363938+00:00"
+    }
+  ]
+}

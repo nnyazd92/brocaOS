@@ -586,3 +586,175 @@ class TestConversationSessionReasonerModel:
         # Field should exist (even if empty string)
         assert assistant_with_tools.get("reasoning_content") is not None
 
+
+class TestConversationSessionThoughtSignature:
+    """Test thought_signature handling in ConversationSession for Gemini."""
+    
+    def test_thought_signature_added_to_tool_calls_when_missing(self):
+        """
+        Test that thought_signature is added to tool_calls when missing.
+        
+        Rationale: Ensures Gemini API requirements are met - each tool_call must have thought_signature.
+        """
+        from broca.llm.gemini_client import GeminiClient
+        
+        registry = ToolRegistry()
+        tool = MockTool("test_tool")
+        registry.register_tool(tool)
+        
+        # Create a Gemini client mock
+        gemini_client = Mock(spec=GeminiClient)
+        
+        # Mock the client to return tool calls without thought_signature
+        tool_call_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "test_tool",
+                            "arguments": json.dumps({"param": "value"})
+                        }
+                        # Missing thought_signature
+                    }]
+                }
+            }],
+            "thought_signature": "test-sig-123"  # Signature in response
+        }
+        
+        final_response = build_llm_response(content="Final answer")
+        
+        tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
+        gemini_client.chat.side_effect = [tool_call_response, final_response]
+        gemini_client.extract_tool_calls.side_effect = [tool_calls_list, []]
+        gemini_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        gemini_client.extract_thought_signature.return_value = "test-sig-123"
+        gemini_client._is_gemini_client = lambda: True
+        
+        session = ConversationSession(llm=gemini_client, tool_registry=registry)
+        response = session.send("Use tool")
+        
+        assert response == "Final answer"
+        
+        # Check that tool_calls in conversation history have thought_signature
+        assistant_messages = [msg for msg in session.messages if msg.get("role") == "assistant" and "tool_calls" in msg]
+        assert len(assistant_messages) > 0
+        assistant_with_tools = assistant_messages[0]
+        tool_calls = assistant_with_tools.get("tool_calls", [])
+        assert len(tool_calls) > 0
+        # All tool_calls should have thought_signature
+        for tool_call in tool_calls:
+            assert "thought_signature" in tool_call
+            assert tool_call["thought_signature"] == "test-sig-123"
+    
+    def test_thought_signature_preserved_when_present(self):
+        """
+        Test that existing thought_signature in tool_calls is preserved.
+        
+        Rationale: Ensures we don't overwrite existing thought_signature values.
+        """
+        from broca.llm.gemini_client import GeminiClient
+        
+        registry = ToolRegistry()
+        tool = MockTool("test_tool")
+        registry.register_tool(tool)
+        
+        gemini_client = Mock(spec=GeminiClient)
+        
+        # Tool calls already have thought_signature
+        tool_call_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "test_tool",
+                            "arguments": json.dumps({"param": "value"})
+                        },
+                        "thought_signature": "existing-sig-456"  # Already present
+                    }]
+                }
+            }],
+            "thought_signature": "new-sig-789"
+        }
+        
+        final_response = build_llm_response(content="Final answer")
+        
+        tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
+        gemini_client.chat.side_effect = [tool_call_response, final_response]
+        gemini_client.extract_tool_calls.side_effect = [tool_calls_list, []]
+        gemini_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        gemini_client.extract_thought_signature.return_value = "new-sig-789"
+        gemini_client._is_gemini_client = lambda: True
+        
+        session = ConversationSession(llm=gemini_client, tool_registry=registry)
+        response = session.send("Use tool")
+        
+        assert response == "Final answer"
+        
+        # Check that existing thought_signature is preserved
+        assistant_messages = [msg for msg in session.messages if msg.get("role") == "assistant" and "tool_calls" in msg]
+        assert len(assistant_messages) > 0
+        assistant_with_tools = assistant_messages[0]
+        tool_calls = assistant_with_tools.get("tool_calls", [])
+        assert len(tool_calls) > 0
+        # Existing thought_signature should be preserved
+        assert tool_calls[0]["thought_signature"] == "existing-sig-456"
+    
+    def test_thought_signature_not_added_for_non_gemini(self, mock_llm_client: Mock):
+        """
+        Test that thought_signature is not added for non-Gemini clients.
+        
+        Rationale: Ensures we don't modify tool_calls for clients that don't need thought_signature.
+        """
+        registry = ToolRegistry()
+        tool = MockTool("test_tool")
+        registry.register_tool(tool)
+        
+        tool_call_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "test_tool",
+                            "arguments": json.dumps({"param": "value"})
+                        }
+                        # No thought_signature (not needed for non-Gemini)
+                    }]
+                }
+            }]
+        }
+        
+        final_response = build_llm_response(content="Final answer")
+        
+        tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
+        mock_llm_client.chat.side_effect = [tool_call_response, final_response]
+        mock_llm_client.extract_tool_calls.side_effect = [tool_calls_list, []]
+        mock_llm_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        # Non-Gemini client
+        mock_llm_client._is_gemini_client = lambda: False
+        
+        session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
+        response = session.send("Use tool")
+        
+        assert response == "Final answer"
+        
+        # Check that tool_calls don't have thought_signature (not needed for non-Gemini)
+        assistant_messages = [msg for msg in session.messages if msg.get("role") == "assistant" and "tool_calls" in msg]
+        assert len(assistant_messages) > 0
+        assistant_with_tools = assistant_messages[0]
+        tool_calls = assistant_with_tools.get("tool_calls", [])
+        assert len(tool_calls) > 0
+        # Non-Gemini clients don't need thought_signature
+        assert "thought_signature" not in tool_calls[0]
+

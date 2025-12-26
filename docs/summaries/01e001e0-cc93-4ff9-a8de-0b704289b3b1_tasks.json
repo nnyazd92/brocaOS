@@ -1,0 +1,73 @@
+{
+  "tasks": [
+    {
+      "id": "task_create_roadmap",
+      "description": "Create docs/whitepaper/PRODUCT_ROADMAP_v1.0.md",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_a41675daae3f42a9bbad98d516005a53",
+        "evt_c9cbe35817c7443ab328d9bc5b1c6877",
+        "evt_5752b83c06ac4b4cb0fa867411c64b97"
+      ],
+      "created_at": "2025-12-24T05:28:44.096826+00:00"
+    },
+    {
+      "id": "task_test_demo",
+      "description": "Test the governance_demo.py script to ensure log output is correct",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_e918409908134c05a1b0a1f7ddbba32b",
+        "evt_0685c2f62ca24c05958363e25687f780"
+      ],
+      "created_at": "2025-12-24T05:28:44.096886+00:00"
+    },
+    {
+      "id": "task_visualize_deck",
+      "description": "Finalize Pitch Deck visuals based on the v1.0 Outline.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_3198ebb4e4984adea3c194f64e7e23e4"
+      ],
+      "created_at": "2025-12-24T07:03:47.328503+00:00"
+    },
+    {
+      "id": "task_validation_roadmap",
+      "description": "Incorporate benchmarking and formal validation into the Product Roadmap based on Yasir's critique.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_758e7042fb184244a1365030e1e8b345"
+      ],
+      "created_at": "2025-12-24T07:03:47.328526+00:00"
+    },
+    {
+      "id": "task_internal_sensing_wiring",
+      "description": "Wire up internal_sensing modules (affective_state, cognitive_state, computational_physiology) to output meaningful data.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_0c4beac0a4d0499eb3582a2f138f92c9"
+      ],
+      "created_at": "2025-12-24T17:40:55.833160+00:00"
+    },
+    {
+      "id": "task_exec_summary",
+      "description": "Draft 1-page Executive Summary/Teaser for investors.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_9aa19035c4da497ea5af38bef6046aec"
+      ],
+      "created_at": "2025-12-24T17:40:55.833193+00:00"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "generated_at": "2025-12-20T21:57:31+1100",
+  "items": [
+    {
+      "path": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/ARTIFACT_MAP.json",
+      "name": "ARTIFACT_MAP.json",
+      "size": 1296,
+      "sha256": "bd96f05dffed7bd2d83f0bc00910ba4d897040e6516caac42f5c4c0225cec404"
+    },
+    {
+      "path": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/ARTIFACT_MAP.json.provenance.json",
+      "name": "ARTIFACT_MAP.json.provenance.json",
+      "size": 344,
+      "sha256": "6ae213afba3e6aee2a81f737a1440f3bb7bfa7ae04f744d200c949af3ffe7b28"
+    },
+    {
+      "path": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/broca.artifacts",
+      "name": "broca.artifacts",
+      "size": 693,
+      "sha256": "dd7a29b3bc6f4e467a648e3bc23beae810b2cc856a29b13ca190890b5121b01a"
+    },
+    {
+      "path": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/broca.artifacts.provenance.json",
+      "name": "broca.artifacts.provenance.json",
+      "size": 340,
+      "sha256": "b768eb91daadbdfdaba5154541a2dbb5ba1afa055275e7705b35d131f1e82c1e"
+    },
+    {
+      "path": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/broca.session.pointer",
+      "name": "broca.session.pointer",
+      "size": 271,
+      "sha256": "9f5b6bfeac05b7cb4d97a95f16a2fa6ed2628c578047fa57249f9ec0613ac29f"
+    },
+    {
+      "path": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/broca.session.pointer.provenance.json",
+      "name": "broca.session.pointer.provenance.json",
+      "size": 346,
+      "sha256": "978c38982710318cf3a2efaa52fe51b9d4aff7ac642db8959123e8b750da0df5"
+    }
+  ]
+}

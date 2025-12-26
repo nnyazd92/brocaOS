@@ -324,3 +324,200 @@ class TestEmbeddingServiceBatchGeneration:
         with pytest.raises(ValueError, match="No valid texts provided"):
             service.generate_embeddings_batch(["", "   ", "\t"])
 
+
+class TestEmbeddingServiceTruncation:
+    """Test embedding text truncation for context length limits."""
+    
+    @patch('broca.memory.embeddings.OpenAI')
+    def test_generate_embedding_truncates_long_text(self, mock_openai_class):
+        """
+        Test that text exceeding token limit is truncated before API call.
+        
+        Rationale: Ensures embeddings can be generated for long texts by truncating
+        to fit within model's context length (8192 tokens ~32768 chars).
+        """
+        from broca.summarization.token_estimator import estimate_tokens
+        from broca.memory.embeddings import DEFAULT_EMBEDDING_MAX_CHARS
+        
+        # Create text that exceeds the limit (35000 chars > 32768 max)
+        long_text = "x" * 35000
+        estimated_tokens = estimate_tokens(long_text)
+        assert estimated_tokens > 8192  # Should exceed limit
+        
+        mock_response = Mock()
+        mock_response.data = [Mock(embedding=[0.1] * 1536)]
+        
+        mock_client = Mock()
+        mock_client.embeddings.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+        
+        service = EmbeddingService(api_key="test-key", dimension=1536)
+        
+        # Should not raise, but truncate and log warning
+        with patch('broca.memory.embeddings.logger') as mock_logger:
+            embedding = service.generate_embedding(long_text)
+            
+            # Verify truncation occurred - API should be called with truncated text
+            call_args = mock_client.embeddings.create.call_args
+            input_text = call_args[1]["input"]
+            assert len(input_text) <= DEFAULT_EMBEDDING_MAX_CHARS
+            assert len(input_text) < len(long_text)
+            
+            # Verify warning was logged
+            mock_logger.warning.assert_called_once()
+            warning_call = mock_logger.warning.call_args
+            warning_msg = str(warning_call)
+            assert "exceeds embedding token limit" in warning_msg or "Truncating" in warning_msg
+            
+            # Embedding should still be generated successfully
+            assert len(embedding) == 1536
+    
+    @patch('broca.memory.embeddings.OpenAI')
+    def test_generate_embedding_does_not_truncate_short_text(self, mock_openai_class):
+        """
+        Test that text within token limit is not truncated.
+        
+        Rationale: Ensures normal-sized texts are processed without truncation.
+        """
+        # Create text well under the limit
+        short_text = "This is a short text for embedding."
+        
+        mock_response = Mock()
+        mock_response.data = [Mock(embedding=[0.1] * 1536)]
+        
+        mock_client = Mock()
+        mock_client.embeddings.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+        
+        service = EmbeddingService(api_key="test-key", dimension=1536)
+        
+        with patch('broca.memory.embeddings.logger') as mock_logger:
+            embedding = service.generate_embedding(short_text)
+            
+            # Verify original text was sent to API
+            call_args = mock_client.embeddings.create.call_args
+            input_text = call_args[1]["input"]
+            assert input_text == short_text
+            
+            # Verify no warning was logged
+            mock_logger.warning.assert_not_called()
+            
+            assert len(embedding) == 1536
+    
+    @patch('broca.memory.embeddings.OpenAI')
+    def test_generate_embedding_exact_limit_boundary(self, mock_openai_class):
+        """
+        Test text at exactly the token limit boundary.
+        
+        Rationale: Ensures boundary conditions are handled correctly.
+        """
+        from broca.memory.embeddings import DEFAULT_EMBEDDING_MAX_CHARS
+        
+        # Create text exactly at the character limit
+        text_at_limit = "x" * DEFAULT_EMBEDDING_MAX_CHARS
+        
+        mock_response = Mock()
+        mock_response.data = [Mock(embedding=[0.1] * 1536)]
+        
+        mock_client = Mock()
+        mock_client.embeddings.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+        
+        service = EmbeddingService(api_key="test-key", dimension=1536)
+        
+        with patch('broca.memory.embeddings.logger') as mock_logger:
+            embedding = service.generate_embedding(text_at_limit)
+            
+            # Text at limit should be sent as-is (estimate_tokens may be slightly under)
+            call_args = mock_client.embeddings.create.call_args
+            input_text = call_args[1]["input"]
+            # Should be at or under the limit
+            assert len(input_text) <= DEFAULT_EMBEDDING_MAX_CHARS
+            
+            assert len(embedding) == 1536
+    
+    @patch('broca.memory.embeddings.OpenAI')
+    def test_generate_embedding_just_over_limit(self, mock_openai_class):
+        """
+        Test text just over the token limit.
+        
+        Rationale: Ensures text slightly exceeding limit is properly truncated.
+        """
+        from broca.memory.embeddings import DEFAULT_EMBEDDING_MAX_CHARS
+        
+        # Create text just over the limit (100 chars over)
+        text_just_over = "x" * (DEFAULT_EMBEDDING_MAX_CHARS + 100)
+        
+        mock_response = Mock()
+        mock_response.data = [Mock(embedding=[0.1] * 1536)]
+        
+        mock_client = Mock()
+        mock_client.embeddings.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+        
+        service = EmbeddingService(api_key="test-key", dimension=1536)
+        
+        with patch('broca.memory.embeddings.logger') as mock_logger:
+            embedding = service.generate_embedding(text_just_over)
+            
+            # Should be truncated to max_chars
+            call_args = mock_client.embeddings.create.call_args
+            input_text = call_args[1]["input"]
+            assert len(input_text) == DEFAULT_EMBEDDING_MAX_CHARS
+            assert len(input_text) < len(text_just_over)
+            
+            # Warning should be logged
+            mock_logger.warning.assert_called_once()
+            
+            assert len(embedding) == 1536
+    
+    @patch('broca.memory.embeddings.OpenAI')
+    def test_generate_embeddings_batch_truncates_long_texts(self, mock_openai_class):
+        """
+        Test that batch embedding truncates individual texts if needed.
+        
+        Rationale: Ensures batch operation also handles truncation correctly.
+        """
+        from broca.memory.embeddings import DEFAULT_EMBEDDING_MAX_CHARS
+        
+        # Mix of short and long texts
+        texts = [
+            "Short text",
+            "x" * 35000,  # Exceeds limit
+            "Another short text",
+            "y" * (DEFAULT_EMBEDDING_MAX_CHARS + 50)  # Just over limit
+        ]
+        
+        mock_response = Mock()
+        mock_response.data = [
+            Mock(embedding=[0.1] * 1536),
+            Mock(embedding=[0.2] * 1536),
+            Mock(embedding=[0.3] * 1536),
+            Mock(embedding=[0.4] * 1536)
+        ]
+        
+        mock_client = Mock()
+        mock_client.embeddings.create.return_value = mock_response
+        mock_openai_class.return_value = mock_client
+        
+        service = EmbeddingService(api_key="test-key", dimension=1536)
+        
+        with patch('broca.memory.embeddings.logger') as mock_logger:
+            embeddings = service.generate_embeddings_batch(texts)
+            
+            # Verify all texts were processed (2 should be truncated)
+            call_args = mock_client.embeddings.create.call_args
+            input_texts = call_args[1]["input"]
+            assert len(input_texts) == 4
+            
+            # Verify long texts were truncated
+            assert len(input_texts[0]) == len("Short text")  # Short text unchanged
+            assert len(input_texts[1]) <= DEFAULT_EMBEDDING_MAX_CHARS  # Long text truncated
+            assert len(input_texts[2]) == len("Another short text")  # Short text unchanged
+            assert len(input_texts[3]) == DEFAULT_EMBEDDING_MAX_CHARS  # Just over limit truncated
+            
+            # Should have logged warnings for truncated texts
+            assert mock_logger.warning.call_count >= 2  # At least 2 warnings for 2 long texts
+            
+            assert len(embeddings) == 4
+

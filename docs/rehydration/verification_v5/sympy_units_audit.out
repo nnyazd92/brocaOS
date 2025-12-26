@@ -1,0 +1,5 @@
+Solution for exponents [a,b,c] such that hbar^a * c^b * Mp^c has units of G:
+{a: 1, b: 1, c: -2}
+
+Interpretation: G can be expressed as hbar^1 * c^1 * Mp^-2 (i.e., G ~ hbar*c / Mp^2).
+This shows a route to introduce dimensionful scales but note: using Mp (Planck mass) introduces circularity if Mp is defined using G.

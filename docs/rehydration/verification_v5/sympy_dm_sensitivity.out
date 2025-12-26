@@ -1,0 +1,8 @@
+dm_theory numeric: 5.36787944117
+dm_planck numeric: 5.364327223960661
+absolute error: 0.003552217211019837
+percent error: 0.06621924917542814
+
+Sensitivity: d(ratio)/d(omega_b) at point = -239.80005471437912
+Sensitivity: d(ratio)/d(omega_c) at point = 44.70272686633884
+Approx ratio change for 0.1% change in omega_b: -0.005364327223960661

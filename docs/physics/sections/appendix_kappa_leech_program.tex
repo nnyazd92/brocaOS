@@ -1,0 +1,361 @@
+% Appendix: κ on a Leech-Lattice Substrate -- Program
+
+\section{Appendix: $\kappa$ on a Leech-Lattice Substrate -- A Program}
+\label{app:kappa-leech}
+
+In Appendix~\ref{app:kappa-toy} we constructed an explicit, fully specified
+toy model on a cubic lattice and showed that the conversion constant
+$\kappa$ in $\varphi = \kappa\,\tau_{\mathrm{lat}}$ can be derived from
+microscopic substrate parameters by matching a discrete Poisson-like equation
+for $\tau_{\mathrm{lat}}$ to the continuum Poisson equation for the
+Newtonian potential $\varphi$.
+
+In this appendix we outline a corresponding program for a Leech-lattice-based
+substrate. The goal is to transplant the structural pattern of the cubic
+lattice derivation to a substrate built on the Leech lattice $\leech$, and
+thereby obtain $\kappa$ as a derived quantity $\kappa_{\Lambda}(H)$ that
+depends only on:
+\begin{itemize}
+  \item the geometry of $\leech$, including the distribution of its minimal
+        vectors;
+  \item a choice of $4$-dimensional ``physical'' subspace
+        $H \subset \mathbb{R}^{24}$;
+  \item a specific local UOS update rule on $\leech$;
+  \item interface identifications between UOS densities and macroscopic mass
+        density $\rho$.
+\end{itemize}
+Throughout, we are explicit about what is structurally fixed by the Leech
+lattice and what remains an open design choice. This appendix is therefore a
+\emph{program} rather than a completed derivation; its role is to make the
+open problems about $\kappa$ on $\leech$ mathematically sharp.
+
+\subsection{Recap: Structural Pattern from the Cubic Toy Model}
+\label{subsec:kappa-leech-recap}
+
+The cubic lattice derivation in Appendix~\ref{app:kappa-toy} has the following
+structural ingredients:
+\begin{enumerate}
+  \item A discrete substrate (sites on a regular cubic lattice with spacing
+        $a$) carrying microscopic degrees of freedom.
+  \item A local update rule or work functional that induces, in an appropriate
+        coarse-grained limit, a discrete Poisson-like equation for a
+        lattice-time field $\tau_{\mathrm{lat}}$:
+        \begin{equation}
+          \Delta_{\text{disc}} \tau_{\mathrm{lat}} =
+          -\tilde{\alpha}\, (\rho - \rho_0),
+        \end{equation}
+        where $\Delta_{\text{disc}}$ is a discrete Laplacian and
+        $\tilde{\alpha}$ encodes microscopic couplings.
+  \item A continuum limit in which $\Delta_{\text{disc}}$ converges to the
+        standard Laplacian $\nabla^2$ in $\mathbb{R}^3$ (validated
+        numerically using Sage), yielding
+        \begin{equation}
+          \nabla^2 \tau_{\mathrm{lat}} =
+          -\frac{\tilde{\alpha}}{D} \, (\rho - \rho_0),
+        \end{equation}
+        with $D$ a diffusion-like constant determined by the microscopic
+        dynamics.
+  \item An interface identification $\varphi = \kappa\,\tau_{\mathrm{lat}}$
+        combined with the macroscopic Poisson equation
+        \begin{equation}
+          \nabla^2 \varphi = 4\pi G\,\rho,
+        \end{equation}
+        which fixes $\kappa$ up to the choice of microscopic parameters.
+\end{enumerate}
+
+In that toy model, $\kappa$ ends up expressed entirely in terms of the lattice
+spacing $a$, microscopic couplings (entering through $D$ and $\tilde{\alpha}$)
+and the empirical constant $G$. The essential pattern is:
+\begin{equation}
+  \kappa \propto \frac{\text{(effective stiffness / diffusion)}}
+                       {\text{(coupling to source density)}}.
+\end{equation}
+
+Our aim here is not to redo these calculations, but to use this structural
+pattern as a template for a Leech-lattice-based substrate.
+
+\subsection{Leech Lattice Geometry as Substrate}
+\label{subsec:kappa-leech-geometry}
+
+The Leech lattice $\leech$ is a $24$-dimensional even unimodular lattice with
+no vectors of squared norm $2$ and minimal squared norm $4$. Concretely:
+\begin{itemize}
+  \item $\leech \subset \mathbb{R}^{24}$ is a discrete additive subgroup that
+        spans $\mathbb{R}^{24}$.
+  \item Evenness means $x\cdot x \in 2\mathbb{Z}$ for all $x \in \leech$.
+  \item Unimodularity means the fundamental cell of $\leech$ has volume $1$.
+  \item The set of minimal vectors $\mathcal{M} \subset \leech$ consists of
+        all $m \in \leech$ with $m\cdot m = 4$; there are $196{,}560$ such
+        vectors.
+\end{itemize}
+
+We will treat $\leech$ as the underlying discrete substrate on which the UOS
+dynamics lives. Each lattice site $x \in \leech$ carries microscopic degrees
+of freedom, and interactions are local with respect to the $\leech$-nearest
+neighbor relation: $x \sim y$ if $y - x \in \mathcal{M}$.
+
+For physical applications, we assume a physical length scale $a$ that assigns
+a length dimension to the lattice; e.g. we may take minimal vectors to have
+physical squared length $(2a)^2$, so that inner products in $\mathbb{R}^{24}$
+are measured in units of $a^2$.
+
+\subsection{Choice of 4D Physical Subspace}
+\label{subsec:kappa-leech-embedding}
+
+To interpret $\leech$ as giving rise to an emergent $4$-dimensional spacetime,
+we introduce a $4$-dimensional subspace $H \subset \mathbb{R}^{24}$, together
+with its orthogonal complement $H^\perp$ of dimension $20$. Let
+$\{e_1,\dots,e_4\}$ be an orthonormal basis for $H$.
+
+We define orthogonal projections
+\begin{equation}
+  \pi : \mathbb{R}^{24} \to H, \qquad
+  \pi_\perp : \mathbb{R}^{24} \to H^\perp,
+\end{equation}
+so that any $x \in \mathbb{R}^{24}$ decomposes as $x = \pi(x) + \pi_\perp(x)$.
+
+We interpret:
+\begin{itemize}
+  \item $X = \pi(x)$ as the emergent $4$-dimensional spacetime coordinate of
+the site $x \in \leech$;
+  \item $Y = \pi_\perp(x)$ as internal coordinates associated with hidden or
+        non-spatiotemporal degrees of freedom.
+\end{itemize}
+
+Different choices of $H$ will, in general, lead to different effective
+continuum dynamics. In this appendix we keep $H$ arbitrary, but fixed, to make
+explicit that $\kappa$ can depend on this choice via geometric factors.
+
+\subsection{Local UOS Work Functional on $\leech$}
+\label{subsec:kappa-leech-work}
+
+Let $\psi: \leech \to \mathbb{R}^k$ denote a collection of microscopic fields
+living on the lattice sites. We assume a nearest-neighbor quadratic work
+functional of the general form
+\begin{equation}
+  W[\psi] = \sum_{x \sim y} w(x \to y),
+\end{equation}
+with local contributions
+\begin{equation}
+  w(x \to y) = J\,\big\|\psi(x) - \psi(y)\big\|^2,
+  \qquad x \sim y,
+\end{equation}
+where $J$ is a coupling constant setting the overall stiffness of the field.
+
+For a discrete path $\gamma = (x_0,\dots,x_N)$ in $\leech$, we introduce a
+per-step microscopic contribution to lattice time,
+\begin{equation}
+  f_{\text{step}}(x_i \to x_{i+1}) = \alpha\, w(x_i \to x_{i+1}) + \beta,
+\end{equation}
+where $\alpha$ and $\beta$ are parameters analogous to those appearing in the
+cubic toy model.
+
+Given a path $\gamma$, the associated lattice time is then
+\begin{equation}
+  \tau_{\mathrm{lat}}(\gamma) =
+  \sum_{i=0}^{N-1} f_{\text{step}}(x_i \to x_{i+1}).
+\end{equation}
+
+In a full UOS model, $\tau_{\mathrm{lat}}$ would be defined in terms of the
+actual update rule (including stochastic and nonlocal ingredients), not merely
+through a quadratic work functional. The purpose of this construction is to
+mirror the role played by the discrete diffusion operator in the cubic toy
+example, and to highlight how microscopic parameters ($J$, $\alpha$, $\beta$,
+$lattice\ spacing\ a$, and the choice of $H$) enter the continuum limit.
+
+\subsection{Effective 4D Continuum Limit}
+\label{subsec:kappa-leech-continuum}
+
+To connect the Leech-lattice dynamics to a $4$-dimensional continuum equation,
+we consider slowly varying configurations with respect to the projected
+coordinate $X = \pi(x) \in H$. The heuristic procedure is:
+\begin{enumerate}
+  \item Assign a physical length scale $a$ so that minimal vectors in
+        $\leech$ have physical squared length $4a^2$.
+  \item For $x \in \leech$ and any minimal vector $m \in \mathcal{M}$, write
+        $y = x + m$ and approximate finite differences
+        $\psi(y) - \psi(x)$ in terms of derivatives of a coarse-grained field
+        $\Phi(X)$ defined on $H$.
+  \item Average over the set of minimal vectors to obtain an effective
+        continuum kinetic term in $4$ dimensions.
+\end{enumerate}
+
+Concretely, define a coarse-grained field $\Phi : H \to \mathbb{R}^k$ by
+suitably averaging $\psi$ over fibres of $\pi$ (details depend on the
+coarse-graining scheme and are left open here). For slowly varying fields we
+approximate, to leading order in $a$,
+\begin{equation}
+  \psi(x + m) - \psi(x) \approx (m \cdot \nabla_{24})\,\psi(x),
+\end{equation}
+where $\nabla_{24}$ is the gradient in $\mathbb{R}^{24}$. Projecting onto $H$
+and averaging over minimal vectors, the quadratic form
+$\sum_{x\sim y} \|\psi(x) - \psi(y)\|^2$ induces an effective continuum term
+of the form
+\begin{equation}
+  W[\psi] \approx \int d^4X\; Z_{\Lambda}(H)
+  \, (\partial_\mu \Phi)(\partial^\mu \Phi) + \cdots,
+\end{equation}
+where indices $\mu = 0,1,2,3$ run over an orthonormal basis of $H$ and
+$Z_{\Lambda}(H)$ is an effective stiffness (or wavefunction renormalization)
+that depends on:
+\begin{itemize}
+  \item the coupling $J$ and lattice scale $a$;
+  \item the set of minimal vectors $\mathcal{M}$ of $\leech$;
+  \item the projection $\pi$ defining the physical subspace $H$.
+\end{itemize}
+
+Schematicallly,
+\begin{equation}
+  Z_{\Lambda}(H) \sim
+  \frac{J}{a^2}\,\frac{1}{|\mathcal{M}|} \sum_{m \in \mathcal{M}}
+  \big(\pi(m) \cdot \pi(m)\big),
+  \label{eq:ZLambda-schematic}
+\end{equation}
+up to dimensionless factors of order unity. Computing $Z_{\Lambda}(H)$ more
+precisely is a concrete numerical task: one constructs $\leech$ (e.g. in Sage),
+enumerates its minimal vectors, projects them into $H$, and evaluates the
+average in~\eqref{eq:ZLambda-schematic}.
+
+In an effective description of $\tau_{\mathrm{lat}}$ one expects a continuum
+equation of the schematic form
+\begin{equation}
+  \nabla^2_{\text{eff}}\, \tau_{\mathrm{lat}} =
+  -\lambda_{\Lambda}(H)\,\big(\rho_{\mathrm{UOS}} -
+  \rho_{0,\mathrm{UOS}}\big),
+  \label{eq:tau-leech-continuum}
+\end{equation}
+where:
+\begin{itemize}
+  \item $\nabla^2_{\text{eff}}$ is the effective Laplacian on $H$ induced by
+        the Leech-lattice geometry and coarse-graining procedure;
+  \item $\rho_{\mathrm{UOS}}$ is an effective UOS source density (e.g. local
+        rate of certain microscopic events);
+  \item $\lambda_{\Lambda}(H)$ is an effective coupling that plays the role
+        analogous to $\tilde{\alpha}/D$ in the cubic model.
+\end{itemize}
+
+Deriving~\eqref{eq:tau-leech-continuum} and expressing $\lambda_{\Lambda}(H)$
+explicitly in terms of microscopic parameters is an open problem; it requires
+a specific UOS update rule on $\leech$ and a careful discrete-to-continuum
+limit. Here we simply parameterize our ignorance in $\lambda_{\Lambda}(H)$ and
+track its role in fixing $\kappa$.
+
+\subsection{Matching to Poisson Equation and Extracting $\kappa$}
+\label{subsec:kappa-leech-matching}
+
+We now mirror the interface logic of the cubic toy model. Assume that, in the
+relevant regime, $\tau_{\mathrm{lat}}$ obeys the continuum equation
+\eqref{eq:tau-leech-continuum}. Impose the bridge relation
+\begin{equation}
+  \varphi = \kappa\,\tau_{\mathrm{lat}},
+\end{equation}
+where $\kappa$ is taken to be a constant in the regime of interest.
+
+Taking the effective Laplacian of both sides gives
+\begin{equation}
+  \nabla^2_{\text{eff}} \varphi =
+  \kappa\,\nabla^2_{\text{eff}} \tau_{\mathrm{lat}} =
+  -\kappa\,\lambda_{\Lambda}(H)
+  \,\big(\rho_{\mathrm{UOS}} - \rho_{0,\mathrm{UOS}}\big).
+\end{equation}
+
+To match to the macroscopic Poisson equation
+\begin{equation}
+  \nabla^2 \varphi = 4\pi G\,\rho,
+\end{equation}
+we assume that, at the scales of interest, $\nabla^2_{\text{eff}}$ reduces to
+(or closely approximates) the standard Laplacian $\nabla^2$ on $H \cong
+\mathbb{R}^4$. We also assume an interface identification between UOS source
+density and physical mass density of the form
+\begin{equation}
+  \rho = c_{\rho}\,\big(\rho_{\mathrm{UOS}} - \rho_{0,\mathrm{UOS}}\big),
+\end{equation}
+for some constant $c_{\rho}$ that encodes how UOS ``events'' map onto
+macroscopic mass.
+
+Under these assumptions we have
+\begin{equation}
+  4\pi G\,\rho =
+  -\kappa\,\lambda_{\Lambda}(H)
+   \,\big(\rho_{\mathrm{UOS}} - \rho_{0,\mathrm{UOS}}\big) =
+  -\kappa\,\lambda_{\Lambda}(H)\,c_{\rho}^{-1}\,\rho.
+\end{equation}
+For nonzero $\rho$ this yields
+\begin{equation}
+  4\pi G = -\kappa\,\lambda_{\Lambda}(H)\,c_{\rho}^{-1}.
+\end{equation}
+Solving for $\kappa$ gives the formal expression
+\begin{equation}
+  \boxed{
+    \kappa_{\Lambda}(H) =
+    -4\pi G\,\frac{c_{\rho}}{\lambda_{\Lambda}(H)}
+  }
+  \label{eq:kappa-leech-formal}
+\end{equation}
+which is the Leech-lattice analogue of the cubic-lattice expression in
+Eq.~\eqref{eq:kappa-D-alpha}.
+
+In this formulation, all dependence on the Leech-lattice substrate and its
+embedding into an emergent $4$-dimensional spacetime is captured by the single
+effective coupling $\lambda_{\Lambda}(H)$ (and the interface constant
+$c_{\rho}$). Once a specific UOS update rule on $\leech$ is fixed, together
+with a choice of physical subspace $H$ and coarse-graining scheme, one can in
+principle compute $\lambda_{\Lambda}(H)$ and thereby obtain a concrete value
+for $\kappa_{\Lambda}(H)$.
+
+\subsection{Epistemic Status and Computational Agenda}
+\label{subsec:kappa-leech-status}
+
+The cubic toy model of Appendix~\ref{app:kappa-toy} is fully specified,
+computationally checked, and yields an explicit expression for $\kappa$ in
+terms of microscopic parameters. By contrast, the Leech-lattice program
+outlined here leaves several crucial elements open:
+\begin{itemize}
+  \item the detailed UOS update rule on $\leech$;
+  \item the choice (or dynamical selection) of the physical subspace
+        $H \subset \mathbb{R}^{24}$;
+  \item the coarse-graining procedure used to define $\Phi$ and
+        $\tau_{\mathrm{lat}}$;
+  \item the precise computation of $\lambda_{\Lambda}(H)$ in
+        Eq.~\eqref{eq:tau-leech-continuum}.
+\end{itemize}
+
+Accordingly, Eq.~\eqref{eq:kappa-leech-formal} should be read as a structural
+relation that \emph{defines the target} of a more detailed derivation, rather
+than as a completed result. It sharpens the open problem identified in the
+grand challenge discussion of $\kappa$:
+\begin{quote}
+  \emph{Given a concrete UOS dynamics on $\leech$ and a choice of physical
+  subspace $H$, compute $\lambda_{\Lambda}(H)$ and thus obtain
+  $\kappa_{\Lambda}(H)$ from~\eqref{eq:kappa-leech-formal}.}
+\end{quote}
+
+A plausible computational agenda for addressing this problem is:
+\begin{enumerate}
+  \item Implement $\leech$ in Sage, including an efficient enumeration of its
+        minimal vectors and computation of their projections $\pi(m)$ into
+        candidate subspaces $H$.
+  \item For a family of choices of $H$, numerically estimate the stiffness
+        factor $Z_{\Lambda}(H)$ via expressions of the form
+        Eq.~\eqref{eq:ZLambda-schematic}.
+  \item Specify a minimal UOS update rule on $\leech$ consistent with the
+        structural constraints from the main text, and derive an explicit
+        discrete equation for $\tau_{\mathrm{lat}}$ whose continuum limit has
+        the form~\eqref{eq:tau-leech-continuum}.
+  \item Extract $\lambda_{\Lambda}(H)$ from that limit, either analytically
+        or via numerical eigenmode analysis of the discrete operator on
+        finite $\leech$-based complexes projected into $H$.
+  \item Substitute the resulting $\lambda_{\Lambda}(H)$ into
+        Eq.~\eqref{eq:kappa-leech-formal} and compare the implied
+        $\kappa_{\Lambda}(H)$ with the phenomenological expression
+        $\kappa = \hbar f_U/(m_P c^2)$ used in the main text, checking for
+        consistency of scales and dimensions.
+\end{enumerate}
+
+Within this program, the cubic toy model serves as a sanity check that the
+basic strategy---deriving $\kappa$ from substrate dynamics by matching a
+lattice equation for $\tau_{\mathrm{lat}}$ to the Poisson equation for
+$\varphi$---is viable in at least one fully worked example. The Leech-lattice
+appendix then identifies the precise geometric and dynamical quantities that
+must be computed to extend that viability to the physically relevant case.
+

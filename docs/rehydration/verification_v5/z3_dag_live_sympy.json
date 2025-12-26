@@ -1,0 +1,15 @@
+{
+  "DM_theory": 5.367879441171442,
+  "DM_planck": 5.364327223960661,
+  "universe": [
+    "Co0_Dimensionless",
+    "GroupOrder_Observed",
+    "DimensionalBridge",
+    "Mapping_Latency_Positive(0.1)",
+    "Units_Audit_Passed(calculated)",
+    "Numeric_Error_Below_Eps(0.005)",
+    "PlanckMass_Independent"
+  ],
+  "provable": false,
+  "circularity_satisfiable": true
+}

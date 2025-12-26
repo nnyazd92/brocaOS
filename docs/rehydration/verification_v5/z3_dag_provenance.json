@@ -1,0 +1,92 @@
+{
+  "nodes": [
+    "Co0_Dimensionless",
+    "GroupOrder_Observed",
+    "DimensionalBridge",
+    "MappingLatencyDefined",
+    "PlanckMass_Independent",
+    "PlanckMass_Defined_Via_G",
+    "Uses_PlanckMass",
+    "G_value",
+    "Derivation_Explicit"
+  ],
+  "edges": [
+    [
+      "GroupOrder_Observed",
+      "DimensionalBridge"
+    ],
+    [
+      "DimensionalBridge",
+      "MappingLatencyDefined"
+    ],
+    [
+      "MappingLatencyDefined",
+      "Derivation_Explicit"
+    ],
+    [
+      "Uses_PlanckMass",
+      "G_value"
+    ],
+    [
+      "PlanckMass_Independent",
+      "Uses_PlanckMass"
+    ],
+    [
+      "PlanckMass_Defined_Via_G",
+      "Uses_PlanckMass"
+    ],
+    [
+      "Co0_Dimensionless",
+      "GroupOrder_Observed"
+    ]
+  ],
+  "provenance": {
+    "Co0_Dimensionless": {
+      "source": "manuscript_section_co0",
+      "file": "docs/physics/L_TOEC_MASTER_V5.tex"
+    },
+    "GroupOrder_Observed": {
+      "source": "data_table_grouporder",
+      "file": "docs/physics/L_TOEC_MASTER_V5.tex"
+    },
+    "DimensionalBridge": {
+      "source": "specs/z3_full_axioms.py",
+      "file": "docs/physics/specs/z3_full_axioms.py"
+    },
+    "MappingLatencyDefined": {
+      "source": "specs/z3_full_axioms.py",
+      "file": "docs/physics/specs/z3_full_axioms.py"
+    },
+    "PlanckMass_Independent": {
+      "source": "appendix_constants",
+      "file": "docs/physics/L_TOEC_MASTER_V5.tex"
+    },
+    "PlanckMass_Defined_Via_G": {
+      "source": "notes",
+      "file": "docs/physics/CRITIQUE_V5.md"
+    },
+    "Uses_PlanckMass": {
+      "source": "spec_proof_sketch",
+      "file": "docs/physics/CRITIQUE_V5.md"
+    },
+    "G_value": {
+      "source": "main_claim",
+      "file": "docs/physics/L_TOEC_MASTER_V5.tex"
+    },
+    "Derivation_Explicit": {
+      "source": "proof_section",
+      "file": "docs/physics/L_TOEC_MASTER_V5.tex"
+    }
+  },
+  "full_assumptions": [
+    "Co0_Dimensionless",
+    "GroupOrder_Observed",
+    "DimensionalBridge",
+    "MappingLatencyDefined",
+    "PlanckMass_Independent",
+    "Uses_PlanckMass"
+  ],
+  "minimal_assumptions": [
+    "Uses_PlanckMass"
+  ]
+}

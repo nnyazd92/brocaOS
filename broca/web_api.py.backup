@@ -1,0 +1,206 @@
+from typing import Literal, List, Optional, Dict, Any
+from uuid import uuid4
+from datetime import datetime
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import uvicorn
+
+from .main_repl_runtime import initialize_runtime, BrocaRuntime
+
+
+runtime: Optional[BrocaRuntime] = None
+
+# In-memory conversation store for web API layer.
+# This is intentionally simple for the alpha UI and does not persist
+# across process restarts. Backend storage is still handled by the
+# ConversationSession / ConversationStorage stack.
+conversations: Dict[str, Dict[str, Any]] = {}
+
+
+app = FastAPI(title="BrocaOS Web API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class NewConversationRequest(BaseModel):
+    system_prompt: Optional[str] = None
+
+
+class NewConversationResponse(BaseModel):
+    conversation_id: str
+
+
+class Message(BaseModel):
+    role: Literal["user", "assistant", "system"]
+    content: str
+
+
+class LoadConversationResponse(BaseModel):
+    conversation_id: str
+    messages: List[Message]
+
+
+class ConversationSummary(BaseModel):
+    conversation_id: str
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ListConversationsResponse(BaseModel):
+    conversations: List[ConversationSummary]
+
+
+class ChatRequest(BaseModel):
+    conversation_id: Optional[str] = None
+    messages: List[Message]
+
+
+class ChatResponse(BaseModel):
+    conversation_id: str
+    reply: Message
+
+
+def get_runtime() -> BrocaRuntime:
+    global runtime
+    if runtime is None:
+        runtime = initialize_runtime()
+    return runtime
+
+
+@app.post("/api/conversations", response_model=NewConversationResponse)
+async def create_conversation(req: NewConversationRequest) -> NewConversationResponse:
+    conversation_id = str(uuid4())
+    now = datetime.utcnow()
+    conversations[conversation_id] = {
+        "conversation_id": conversation_id,
+        "system_prompt": req.system_prompt,
+        "messages": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    return NewConversationResponse(conversation_id=conversation_id)
+
+
+@app.get("/api/conversations", response_model=ListConversationsResponse)
+async def list_conversations() -> ListConversationsResponse:
+    items: List[ConversationSummary] = []
+    for data in conversations.values():
+        title = "Untitled conversation"
+        msgs = data.get("messages") or []
+        if msgs:
+            # Use first user message content as title prefix when available
+            for m in msgs:
+                if m.get("role") == "user" and m.get("content"):
+                    title = str(m["content"])[:80]
+                    break
+        items.append(
+            ConversationSummary(
+                conversation_id=data["conversation_id"],
+                title=title,
+                created_at=data["created_at"],
+                updated_at=data["updated_at"],
+            )
+        )
+    # Sort by updated_at descending for convenience
+    items.sort(key=lambda c: c.updated_at, reverse=True)
+    return ListConversationsResponse(conversations=items)
+
+
+@app.get("/api/conversations/{conversation_id}", response_model=LoadConversationResponse)
+async def load_conversation(conversation_id: str) -> LoadConversationResponse:
+    data = conversations.get(conversation_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    msgs = [Message(**m) for m in data.get("messages", [])]
+    return LoadConversationResponse(conversation_id=conversation_id, messages=msgs)
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest) -> ChatResponse:
+    rt = get_runtime()
+    session = rt.session
+
+    if not req.messages:
+        return ChatResponse(
+            conversation_id=req.conversation_id or "",
+            reply=Message(role="assistant", content="No messages provided."),
+        )
+
+    last = req.messages[-1]
+    if last.role != "user":
+        return ChatResponse(
+            conversation_id=req.conversation_id or "",
+            reply=Message(
+                role="assistant",
+                content=(
+                    "Please send a user message as the last item in 'messages'."
+                ),
+            )
+        )
+
+    reply_text = session.send(last.content, stream=False)
+
+    # Attach to a conversation if provided/known
+    if req.conversation_id is None:
+        # Create a conversation id when not provided
+        conversation_id = str(uuid4())
+        now = datetime.utcnow()
+        conversations[conversation_id] = {
+            "conversation_id": conversation_id,
+            "system_prompt": None,
+            "messages": [],
+            "created_at": now,
+            "updated_at": now,
+        }
+        req.conversation_id = conversation_id
+
+    # Ensure we have a backing record even if an unknown id is passed
+    if req.conversation_id not in conversations:
+        now = datetime.utcnow()
+        conversations[req.conversation_id] = {
+            "conversation_id": req.conversation_id,
+            "system_prompt": None,
+            "messages": [],
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    conv = conversations.get(req.conversation_id)
+    if conv is None:
+        # Auto-create if client sent unknown id
+        now = datetime.utcnow()
+        conv = {
+            "conversation_id": req.conversation_id,
+            "system_prompt": None,
+            "messages": [],
+            "created_at": now,
+            "updated_at": now,
+        }
+        conversations[req.conversation_id] = conv
+
+    # Append messages and reply to history
+    for m in req.messages:
+        conv["messages"].append({"role": m.role, "content": m.content})
+    conv["messages"].append({"role": "assistant", "content": reply_text})
+    conv["updated_at"] = datetime.utcnow()
+
+    return ChatResponse(
+        conversation_id=req.conversation_id,
+        reply=Message(
+            role="assistant",
+            content=reply_text,
+        )
+    )
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="127.0.0.1", port=8000)

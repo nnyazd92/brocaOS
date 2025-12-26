@@ -1,0 +1,4 @@
+Full assumptions: ['Co0_Dimensionless', 'GroupOrder_Observed', 'DimensionalBridge', 'Mapping_Latency_Positive(0.1)', 'Mapping_Latency_Positive', 'Mapping_Latency_Value_known', 'Units_Audit_Passed(calculated)', 'Numeric_Error_Below_Eps(0.005)', 'PlanckMass_Independent', 'Uses_PlanckMass']
+Provable: False
+Greedy minimal assumptions: ['Co0_Dimensionless', 'GroupOrder_Observed', 'DimensionalBridge', 'Mapping_Latency_Positive(0.1)', 'Mapping_Latency_Positive', 'Mapping_Latency_Value_known', 'Units_Audit_Passed(calculated)', 'Numeric_Error_Below_Eps(0.005)', 'PlanckMass_Independent', 'Uses_PlanckMass']
+Circularity check satisfiable: sat

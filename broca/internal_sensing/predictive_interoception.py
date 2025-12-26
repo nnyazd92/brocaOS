@@ -151,7 +151,7 @@ class PredictiveInteroception:
         horizon: int = 2
     ) -> Dict[str, Any]:
         """
-        Predict future affective state.
+        Predict future affective state using trend analysis.
         
         Args:
             affective: ComputationalAffectMonitor instance
@@ -160,54 +160,64 @@ class PredictiveInteroception:
         Returns:
             Dictionary with predicted affective states
         """
-        # For now, predict current state (affective states are more stable)
-        # In future, could add trend analysis
         current = affective.affective_states.copy()
-        current["timestamp"] = time.time() + horizon
         
-        return current
+        predicted = {}
+        for key, val in current.items():
+            if isinstance(val, (int, float)):
+                # Decay toward 0.5 (neutral) for most metrics, 0.0 for valence
+                target = 0.0 if key == 'valence' else 0.5
+                decay_factor = 0.1 * horizon
+                predicted[key] = val + (target - val) * decay_factor
+            else:
+                predicted[key] = val
+                
+        predicted["timestamp"] = time.time() + horizon
+        return predicted
     
     def predict_error_probability(
         self,
         cognitive: "CognitiveStateMonitor",
-        physiology: "ComputationalPhysiologyMonitor"
+        physiology: "ComputationalPhysiologyMonitor",
+        affective: Optional["ComputationalAffectMonitor"] = None
     ) -> Optional[float]:
         """
-        Predict probability of errors.
+        Predict probability of errors based on cognitive, physiological, and affective load.
         
         Args:
             cognitive: CognitiveStateMonitor instance
             physiology: ComputationalPhysiologyMonitor instance
+            affective: Optional ComputationalAffectMonitor instance
             
         Returns:
             Error probability (0.0-1.0), or None if required metrics unavailable
         """
-        # Error probability increases with:
-        # - Low confidence
-        # - High computational load
-        # - Low coherence
-        
         confidence = cognitive.states.get("confidence_level")
         load = physiology.metrics.get("computational_load")
         coherence = cognitive.states.get("conceptual_coherence")
+        surprise = affective.affective_states.get("surprise") if affective else None
         
-        # Need at least one metric to make a prediction
         if confidence is None and load is None and coherence is None:
             return None
         
-        # Use available metrics, default missing ones to neutral (0.5)
         conf_value = confidence if confidence is not None else 0.5
         load_value = load if load is not None else 0.5
         coherence_value = coherence if coherence is not None else 0.5
+        surprise_value = surprise if surprise is not None else 0.0
         
-        # Combine factors
-        error_risk = (
-            (1.0 - conf_value) * 0.4 +  # Low confidence increases risk
-            load_value * 0.3 +  # High load increases risk
-            (1.0 - coherence_value) * 0.3  # Low coherence increases risk
+        # Error risk formula:
+        # - Low confidence (30%)
+        # - High computational load (20%)
+        # - Low coherence (30%)
+        # - High surprise/distraction (20%)
+        risk = (
+            (1.0 - conf_value) * 0.3 + 
+            load_value * 0.2 + 
+            (1.0 - coherence_value) * 0.3 + 
+            surprise_value * 0.2
         )
         
-        return min(1.0, max(0.0, error_risk))
+        return min(1.0, max(0.0, risk))
     
     def compute_prediction_error(
         self,
@@ -313,4 +323,3 @@ class PredictiveInteroception:
         accuracy = 1.0 - min(avg_error, 1.0)
         
         return accuracy
-

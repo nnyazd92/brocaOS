@@ -1,0 +1,43 @@
+\section{The Layered Architecture (Visual Overview)}
+\begin{center}
+\begin{tikzpicture}[node distance=2cm]
+\tikzstyle{layer} = [rectangle, rounded corners, minimum width=4cm, minimum height=1cm,text centered, draw=black, fill=blue!10]
+\tikzstyle{arrow} = [thick,->,>=stealth]
+
+\node (l0) [layer, fill=red!20] {$\substrate$: Substrate (Leech Lattice)};
+\node (l1) [layer, below of=l0, fill=orange!20] {$\protocol$: Protocol (UOS / Error Correction)};
+\node (l2) [layer, below of=l1, fill=yellow!20] {$\logic$: Logic (Topos / Categories)};
+\node (l3) [layer, below of=l2, fill=green!20] {$\interface$: Interface (4D Spacetime / Qualia)};
+
+\draw [arrow] (l0) -- node[anchor=west] {Mapping} (l1);
+\draw [arrow] (l1) -- node[anchor=west] {Consistency} (l2);
+\draw [arrow] (l2) -- node[anchor=west] {Observation} (l3);
+\draw [arrow] (l3.east) .. controls +(2,0) and +(2,0) .. node[anchor=west] {Ouroboric Closure} (l0.east);
+
+\end{tikzpicture}
+\end{center}
+
+\section{The Dependency DAG (Causal Closure)}
+\begin{center}
+\begin{tikzpicture}[node distance=1.5cm]
+\tikzstyle{block} = [rectangle, draw, fill=gray!10, text width=5em, text centered, rounded corners, minimum height=3em]
+\tikzstyle{line} = [draw, -latex']
+
+\node [block] (axiom1) {Axiom 1: Substrate};
+\node [block, right=of axiom1] (axiom2) {Axiom 2: Efficiency};
+\node [block, below=of axiom1] (theo1) {Theorem: Leech Selection};
+\node [block, below=of axiom2] (theo2) {Theorem: Exclusivity};
+\node [block, below=of theo1] (result1) {DM Ratio};
+\node [block, below=of theo2] (result2) {Einstein Eqs};
+\node [block, below=of result2] (closure) {Ouroboric Closure};
+
+\path [line] (axiom1) -- (theo1);
+\path [line] (axiom2) -- (theo2);
+\path [line] (theo1) -- (result1);
+\path [line] (theo2) -- (result2);
+\path [line] (result1) -- (closure);
+\path [line] (result2) -- (closure);
+\path [line] (closure) -- (axiom1);
+
+\end{tikzpicture}
+\end{center}

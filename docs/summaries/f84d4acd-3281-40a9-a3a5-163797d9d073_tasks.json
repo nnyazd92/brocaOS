@@ -1,0 +1,55 @@
+{
+  "tasks": [
+    {
+      "id": "task_z3_full_formalization",
+      "description": "Encode full mapping-latency axioms, CPU labe...",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_df06e1783adc41d5b021ceb93c361f9c",
+        "evt_5735c19bd2be4fcb86a87764ca38a684"
+      ],
+      "created_at": "2025-12-25T04:15:22.900494+00:00"
+    },
+    {
+      "id": "task_encode_dag_provenance",
+      "description": "Encode ...",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_f3bc7f36d893422a9f8cff9736457da1",
+        "evt_09bd894a14bb4fd2a88ada5061603e17",
+        "evt_09bd894a14bb4fd2a88ada5061603e17",
+        "evt_9513ff9e711f4a848af15b44dc452691",
+        "evt_69ed1e05b4d14e9e95879d5e6a65d177"
+      ],
+      "created_at": "2025-12-25T04:50:46.001938+00:00"
+    },
+    {
+      "id": "task_v5.2_build",
+      "description": "Regenerate DM-ratio plots, build v5....",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_20ad842ee55c4a43b2bf911a2366e9ce",
+        "evt_cb0e78e291024e96bf02711ece3baba4"
+      ],
+      "created_at": "2025-12-25T05:38:02.083841+00:00"
+    },
+    {
+      "id": "task_compute_alpha_toy",
+      "description": "Compute optimal microscopic coupling e* (toy analog of α) by minimizing ...",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_498cefbc6fa34040ab89c3c025d5e26e",
+        "evt_76d8d6dae34f424990ab563a5a5898a2"
+      ],
+      "created_at": "2025-12-25T07:39:33.085472+00:00"
+    }
+  ]
+}

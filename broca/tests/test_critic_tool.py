@@ -24,14 +24,15 @@ class TestCriticToolInitialization:
         
         Rationale: Ensures tool can be created without explicit LLM client.
         """
-        # The actual client type depends on configured provider (deepseek or openai).
+        # The actual client type depends on configured provider (gemini, deepseek or openai).
         # This test should verify that a real LLM client is created, not which provider.
         from broca.llm.deepseek_client import DeepSeekClient
         from broca.llm.openai_client import OpenAIClient
-
+        from broca.llm.gemini_client import GeminiClient
+        
         tool = CriticTool()
         assert tool._llm is not None
-        assert isinstance(tool._llm, (DeepSeekClient, OpenAIClient))
+        assert isinstance(tool._llm, (DeepSeekClient, OpenAIClient, GeminiClient))
     
     def test_init_with_custom_llm(self):
         """

@@ -1,0 +1,13 @@
+=== Z3 DAG Provenance Run ===
+Edges:
+ - GroupOrder_Observed -> DimensionalBridge
+ - DimensionalBridge -> MappingLatencyDefined
+ - MappingLatencyDefined -> Derivation_Explicit
+ - Uses_PlanckMass -> G_value
+ - PlanckMass_Independent -> Uses_PlanckMass
+ - PlanckMass_Defined_Via_G -> Uses_PlanckMass
+ - Co0_Dimensionless -> GroupOrder_Observed
+
+Full assumptions: ['Co0_Dimensionless', 'GroupOrder_Observed', 'DimensionalBridge', 'MappingLatencyDefined', 'PlanckMass_Independent', 'Uses_PlanckMass']
+Provable from full assumptions: True
+Greedy minimal assumptions: ['Uses_PlanckMass']

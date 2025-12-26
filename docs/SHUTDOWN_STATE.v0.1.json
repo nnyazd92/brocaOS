@@ -1,36 +1,6 @@
 {
   "schema_version": "v0.1",
-  "timestamp": "2025-12-23T23:39:32.007754Z",
-  "session_summary_created": "docs/summaries/session-2025-12-23T23-39-32.007754Z.json",
-  "actuator_token_provenance": ".temporary_token.txt",
-  "llm_cache": {
-    "policy": {
-      "ttl_seconds": 604800,
-      "max_rows": 20000
-    },
-    "stats": {
-      "row_count": 87,
-      "created_at_min": "2025-12-23T23:05:41.444208+00:00",
-      "created_at_max": "2025-12-23T23:39:31.949676+00:00",
-      "last_used_at_min": "2025-12-23T23:05:41.444208+00:00",
-      "last_used_at_max": "2025-12-23T23:39:31.949676+00:00"
-    },
-    "health": {
-      "stats": {
-        "row_count": 87,
-        "created_at_min": "2025-12-23T23:05:41.444208+00:00",
-        "created_at_max": "2025-12-23T23:39:31.949676+00:00",
-        "last_used_at_min": "2025-12-23T23:05:41.444208+00:00",
-        "last_used_at_max": "2025-12-23T23:39:31.949676+00:00"
-      },
-      "has_stale_entries": false,
-      "oversized": false
-    },
-    "note": "Maintenance helpers (evict_stale_entries, enforce_max_rows) are implemented and ready to be called from broca/ops/shutdown.py."
-  },
-  "next_steps": [
-    "Implement broca/ops/shutdown.py to follow PROTOCOL.SHUT_DOWN.v0.3 end-to-end",
-    "Integrate LLM cache maintenance into the shutdown orchestrator",
-    "Ensure REHYDRATION_SUMMARY includes llm_cache stats and policy on next boot"
-  ]
+  "status": "shutdown_completed",
+  "timestamp": "2025-12-24T01:16:09Z",
+  "session_summary": "docs/summaries/session-2025-12-24T01:16:09Z.json"
 }

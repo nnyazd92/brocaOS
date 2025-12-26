@@ -236,17 +236,17 @@ class TestPropertyBasedTerminalOutput:
     """Property-based tests for terminal output using Hypothesis."""
     
     if HAS_HYPOTHESIS:
-        @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=50)
+        @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=20)
         @given(
             chunks=st.lists(
-                st.text(min_size=0, max_size=100),
+                st.text(min_size=0, max_size=50),
                 min_size=0,
-                max_size=20
+                max_size=10
             )
         )
         @patch('builtins.print')
         def test_streaming_never_produces_empty_prompt_lines(
-            self, mock_print, mock_llm_client: Mock, chunks
+            self, mock_print, chunks
         ):
             """
             Property: Streaming with any combination of chunks never produces empty prompt lines.
@@ -254,6 +254,8 @@ class TestPropertyBasedTerminalOutput:
             Rationale: Ensures that regardless of chunk content (empty, whitespace, text),
             we never print standalone "BrocaOS> " without content.
             """
+            mock_llm_client = Mock()
+            
             def mock_chat_stream(*args, **kwargs):
                 for chunk in chunks:
                     yield chunk

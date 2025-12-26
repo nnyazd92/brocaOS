@@ -1,0 +1,9 @@
+{
+  "has_brocaos_prompt": false,
+  "no_empty_prompt": true,
+  "notes": [
+    "Empty streaming responses should not print 'BrocaOS> '",
+    "Response guard should inject fallback message if needed",
+    "No empty prompt lines should appear"
+  ]
+}

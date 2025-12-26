@@ -1,2 +1,15 @@
 2025-12-22T06:09:04Z | operator: wizard (Nick Navid Yazdani) | action: shutdown | actuator_provenance: .temporary_token.txt | token_jti: d4ce2d7dab0848df97d330efd10f5fd8 | session_summary: /home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T06:09:04Z.json
 [2025-12-22T21:52:26Z] SHUTDOWN: session_summary=/home/wizard/Documents/Code/BrocaOS/docs/summaries/session-2025-12-22T21:52:26Z.json, token_jti=f24d4d1f57ad4bfbbcb7c3ee8123a379, verified=True
+=== SESSION RECOVERY 2025-12-26T08:46:26Z ===
+Recovered session: b3946ffb-1fa9-4059-9a8d-a3a990286060
+Session time: 2025-12-26 08:33:55 AEST
+Work context: L-ToEC v5.6 technical feedback incorporation
+Files preserved:
+  - docs/summaries/session-2025-12-26T08:33:55.762762+00:00.json
+  - docs/physics/L_TOEC_MASTER_V5.6.pdf
+  - docs/physics/L_TOEC_MASTER_V5.6.tex
+  - Updated .shutdown_persistence.json
+  - Updated SHUTDOWN_MARKER.txt
+Recovery completed by: assistant
+Operator: Nick Navid Yazdani
+Token provenance: .temporary_token.txt

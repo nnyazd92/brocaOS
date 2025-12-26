@@ -1,0 +1,5 @@
+dm_theory (symbolic): exp(-1) + 5
+dm_theory (numeric): 5.367879441
+dm_planck (numeric): 5.364327223960661
+absolute error: 0.00355221722193377
+percent error: 0.0662192493788821

@@ -1,0 +1,26 @@
+{
+  "tasks": [
+    {
+      "id": "task_rigor_upgrade_sm",
+      "description": "Formally derive Standard Model gauge groups from Leech Lattice sublattices.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_a5d336b91d25462fa82935445b22b0e3"
+      ],
+      "created_at": "2025-12-25T00:52:13.868534+00:00"
+    },
+    {
+      "id": "task_external_critique_v3_5",
+      "description": "Present v3.5 'Rigor Upgrade' for external review.",
+      "status": "pending",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_f4609f8a6e6c4da39f3b312ce6e31794"
+      ],
+      "created_at": "2025-12-25T00:52:13.868601+00:00"
+    }
+  ]
+}

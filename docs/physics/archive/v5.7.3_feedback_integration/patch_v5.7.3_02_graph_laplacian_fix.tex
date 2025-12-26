@@ -1,0 +1,74 @@
+% ============================================================================
+% PATCH v5.7.3.02: Graph Laplacian Theorem Fix
+% ============================================================================
+% Issue: 'Theorem (Isotropic Emergence)' overstates CLT for graphs claim
+% Fix: Downgrade to Conjecture/Research Direction, specify precise convergence
+% ============================================================================
+
+\subsubsection{Conjecture: Continuum Limit of Substrate Graph Dynamics}
+\label{conj:graph-continuum}
+
+\begin{tcolorbox}[colback=yellow!5!white,colframe=yellow!75!black,title=Research Direction (Graph Continuum Limit)]
+\label{conj:graph-limit}
+Consider a family of random geometric graphs $\{G_n\}_{n=1}^\infty$ where each $G_n$ approximates points in a Riemannian manifold $(M,g)$. Under appropriate scaling of edge weights and graph density, we conjecture that:
+
+\begin{enumerate}
+\item \textbf{Spectral convergence:} The rescaled graph Laplacian $\Delta_{G_n}$ converges to the Laplace--Beltrami operator $\Delta_g$ on $M$ in the sense of spectral graph theory \cite{Chung1997}.
+
+\item \textbf{Operator convergence:} For sufficiently smooth test functions $f \in C^\infty(M)$,
+\[
+\lim_{n \to \infty} \langle f, \Delta_{G_n} f \rangle_{L^2(G_n)} = \langle f, \Delta_g f \rangle_{L^2(M)}
+\]
+where the inner product on $G_n$ is appropriately weighted.
+
+\item \textbf{Higher-order corrections:} Deviations from regularity in the substrate graph produce effective higher-derivative terms in the continuum action, e.g.,
+\[
+S_{\text{eff}} = S_{\text{EH}} + \epsilon \int_M (\nabla^2 \tau)^2 \sqrt{-g} d^4x + O(\epsilon^2)
+\]
+where $\epsilon \sim (\text{graph irregularity})$.
+\end{enumerate}
+\end{tcolorbox}
+
+\paragraph{Precise Mathematical Formulation Needed}
+The statement ``CLT for graphs $\Rightarrow \Delta_G \to \nabla^2$'' in the original text is a heuristic. To make it rigorous, one must specify:
+
+\begin{itemize}
+\item \textbf{Graph model:} Random geometric graphs, Erdős--Rényi, stochastic block model, etc.
+\item \textbf{Convergence notion:} Spectral convergence, Mosco convergence, $\Gamma$-convergence, or Benamou--Brenier transport.
+\item \textbf{Scaling regime:} How edge weights and vertex density scale with $n$.
+\item \textbf{Manifold approximation:} Embedding of $G_n$ into $M$ and metric reconstruction.
+\end{itemize}
+
+\paragraph{Connection to Modified Gravity}
+The conjecture that graph irregularities could produce ``MOND-like effects'' requires substantial additional work:
+
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black,title=Warning: Speculative Connection]
+The phrase ``MOND-like effects'' in the original text is \emph{highly speculative}. To justify it, one would need to:
+\begin{enumerate}
+\item Derive an effective modified Poisson equation from the graph irregularity corrections.
+\item Show this equation reduces to Newtonian gravity in high-density regions but deviates as $\nabla^2 \phi \to 0$.
+\item Demonstrate the deviation matches MOND phenomenology with a specific interpolating function.
+\item Predict a \emph{new} observable not already fit by MOND.
+\end{enumerate}
+Currently, this remains an open research direction rather than an established result.
+\end{tcolorbox}
+
+\paragraph{Updated Status in Claims Ledger}
+\begin{itemize}
+\item \textbf{Status:} \textbf{[Conjecture / Research Direction]} (downgraded from Theorem)
+\item \textbf{Dependencies:} Graph theory, spectral geometry, continuum limits
+\item \textbf{Evidence:} Numerical simulations of graph Laplacians on toy manifolds
+\item \textbf{Falsifiability:} Could be tested by simulating substrate graphs and measuring effective action
+\end{itemize}
+
+\subsubsection{Numerical Verification Plan}
+To support this conjecture, we propose the following verification protocol:
+
+\begin{enumerate}
+\item \textbf{Toy model:} Generate random geometric graphs on $S^2$ and $T^2$.
+\item \textbf{Laplacian computation:} Compute spectrum of $\Delta_{G_n}$ for increasing $n$.
+\item \textbf{Convergence test:} Measure $|\lambda_k(G_n) - \lambda_k(M)|$ for low-lying eigenvalues.
+\item \textbf{Effective action:} Extract coefficients of $\nabla^2$, $\nabla^4$, etc. from graph dynamics.
+\end{enumerate}
+
+This transforms an overclaimed ``theorem'' into a concrete, falsifiable research program.

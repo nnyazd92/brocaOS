@@ -5,40 +5,73 @@ import os
 load_dotenv()
 
 
+
 class LLMConfig(BaseModel):
-    provider: str = os.getenv("BROCA_LLM_PROVIDER", "deepseek")  # "deepseek" or "openai"
+    provider: str = os.getenv("BROCA_LLM_PROVIDER", "deepseek")  # "deepseek", "openai", or "gemini"
     api_base: str = os.getenv("DEEPSEEK_API_BASE", "")  # Will default based on provider
     api_key: str = os.getenv("DEEPSEEK_API_KEY", "")  # Will default based on provider
     model: str = os.getenv("DEEPSEEK_MODEL", "")  # Will default based on provider
     temperature: float = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.3"))
     timeout: float = float(os.getenv("DEEPSEEK_TIMEOUT", "300.0"))  # Default 5 minutes
     streaming_enabled: bool = os.getenv("BROCA_STREAMING_ENABLED", "true").lower() == "true"
-    streaming_delay: float = float(os.getenv("BROCA_STREAMING_DELAY", "0.02"))  # Delay between chunks in seconds (default 20ms)
-    max_context_tokens: int = int(os.getenv("BROCA_MAX_CONTEXT_TOKENS", "272000"))  # Maximum context window size (matches API limit)
-    
+    streaming_delay: float = float(os.getenv("BROCA_STREAMING_DELAY", "0.02"))  # Delay between chunks in seconds
+    max_context_tokens: int = int(os.getenv("BROCA_MAX_CONTEXT_TOKENS", "1_000_000" if provider == "gemini" else "272000"))
+    # Gemini 3 specific configuration
+    thinking_level: str = os.getenv("BROCA_GEMINI_THINKING_LEVEL", "low")  # "low" for fast system calls, "high" for ToE logic
+    use_sdk: bool = os.getenv("BROCA_GEMINI_USE_SDK", "true").lower() == "true"  # Use google-genai SDK (True) or REST API (False)
+
     def __init__(self, **kwargs):
         # Get provider first
         provider = kwargs.get("provider", os.getenv("BROCA_LLM_PROVIDER", "deepseek"))
-        
+
         # Set defaults based on provider
         if provider == "openai":
             default_base = kwargs.get("api_base") or os.getenv("DEEPSEEK_API_BASE") or "https://api.openai.com/v1"
             # For OpenAI provider, prioritize OPENAI_API_KEY over DEEPSEEK_API_KEY
-            # Explicit kwargs take precedence, then OPENAI_API_KEY, then DEEPSEEK_API_KEY as fallback
-            default_key = kwargs.get("api_key") or os.getenv("OPENAI_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or ""
+            default_key = (
+                kwargs.get("api_key")
+                or os.getenv("OPENAI_API_KEY")
+                or os.getenv("DEEPSEEK_API_KEY")
+                or ""
+            )
             # Model precedence: OPENAI_MODEL > BROCA_LLM_MODEL > DEEPSEEK_MODEL > default
             default_model = (
-                kwargs.get("model") or
-                os.getenv("OPENAI_MODEL") or
-                os.getenv("BROCA_LLM_MODEL") or
-                os.getenv("DEEPSEEK_MODEL") or
-                "gpt-5.2"
+                kwargs.get("model")
+                or os.getenv("OPENAI_MODEL")
+                or os.getenv("BROCA_LLM_MODEL")
+                or os.getenv("DEEPSEEK_MODEL")
+                or "gpt-5.2"
+            )
+        elif provider == "gemini":
+            # Gemini via OpenAI-compatible chat completions endpoint
+            # See: https://ai.google.dev/gemini-api/docs/openai
+            default_base = (
+                kwargs.get("api_base")
+                or os.getenv("GEMINI_API_BASE")
+                or "https://generativelanguage.googleapis.com/v1beta/openai"
+            )
+            default_key = kwargs.get("api_key") or os.getenv("GEMINI_API_KEY") or ""
+            # Prefer explicit model, then GEMINI_MODEL, then BROCA_LLM_MODEL as fallback
+            default_model = (
+                kwargs.get("model")
+                or os.getenv("GEMINI_MODEL")
+                or os.getenv("BROCA_LLM_MODEL")
+                or "gemini-3.0-flash-001"
             )
         else:  # deepseek (default)
-            default_base = kwargs.get("api_base") or os.getenv("DEEPSEEK_API_BASE") or "https://api.deepseek.com/v1"
+            default_base = (
+                kwargs.get("api_base")
+                or os.getenv("DEEPSEEK_API_BASE")
+                or "https://api.deepseek.com/v1"
+            )
             default_key = kwargs.get("api_key") or os.getenv("DEEPSEEK_API_KEY") or ""
-            default_model = kwargs.get("model") or os.getenv("BROCA_LLM_MODEL") or os.getenv("DEEPSEEK_MODEL") or "deepseek-chat"
-        
+            default_model = (
+                kwargs.get("model")
+                or os.getenv("BROCA_LLM_MODEL")
+                or os.getenv("DEEPSEEK_MODEL")
+                or "deepseek-chat"
+            )
+
         # Update kwargs with defaults
         if "api_base" not in kwargs:
             kwargs["api_base"] = default_base
@@ -48,7 +81,27 @@ class LLMConfig(BaseModel):
             kwargs["model"] = default_model
         if "provider" not in kwargs:
             kwargs["provider"] = provider
-            
+        # Set Gemini-specific defaults if not provided
+        if provider == "gemini":
+            if "thinking_level" not in kwargs:
+                kwargs["thinking_level"] = os.getenv("BROCA_GEMINI_THINKING_LEVEL", "low")
+            if "use_sdk" not in kwargs:
+                kwargs["use_sdk"] = os.getenv("BROCA_GEMINI_USE_SDK", "true").lower() == "true"
+        
+        # Ensure max_context_tokens is properly read from environment variable
+        # If not explicitly provided in kwargs, read from environment with provider-specific default
+        if "max_context_tokens" not in kwargs:
+            env_value = os.getenv("BROCA_MAX_CONTEXT_TOKENS")
+            if env_value:
+                try:
+                    kwargs["max_context_tokens"] = int(env_value)
+                except (ValueError, TypeError):
+                    # Invalid value, use provider-specific default
+                    kwargs["max_context_tokens"] = 1_000_000 if provider == "gemini" else 272000
+            else:
+                # No env var, use provider-specific default
+                kwargs["max_context_tokens"] = 1_000_000 if provider == "gemini" else 272000
+
         super().__init__(**kwargs)
 
 
@@ -64,6 +117,10 @@ class StorageConfig(BaseModel):
     storage_type: str = os.getenv("BROCA_STORAGE_TYPE", "json")
     storage_path: str = os.getenv("BROCA_STORAGE_PATH", "conversations")
     base_system_prompt: str = os.getenv("BROCA_BASE_SYSTEM_PROMPT", "")
+    max_system_prompt_size: int = int(os.getenv("BROCA_MAX_SYSTEM_PROMPT_SIZE", str(50 * 1024)))  # Default 50KB
+    max_base_prompt_size: int = int(os.getenv("BROCA_MAX_BASE_PROMPT_SIZE", str(20 * 1024)))  # Default 20KB
+    max_world_state_size: int = int(os.getenv("BROCA_MAX_WORLD_STATE_SIZE", str(30 * 1024)))  # Default 30KB
+    max_summary_context_size: int = int(os.getenv("BROCA_MAX_SUMMARY_CONTEXT_SIZE", str(15 * 1024)))  # Default 15KB
 
 
 class ToolsConfig(BaseModel):
@@ -78,13 +135,6 @@ class ToolsConfig(BaseModel):
     terminal_working_directory: str | None = os.getenv("BROCA_TERMINAL_WORKING_DIR", None)
     enable_critic: bool = os.getenv("BROCA_ENABLE_CRITIC", "false").lower() == "true"
     critic_system_prompt_template: str | None = os.getenv("BROCA_CRITIC_SYSTEM_PROMPT", None)
-    # Project world state tool configuration
-    enable_project_world_state: bool = os.getenv("BROCA_ENABLE_PROJECT_WORLD_STATE", "true").lower() == "true"
-    project_world_state_path: str | None = os.getenv("BROCA_PROJECT_WORLD_STATE_PATH", None)
-    project_world_state_file: str = os.getenv("BROCA_PROJECT_WORLD_STATE_FILE", "project_world_state.json")
-    project_world_state_header_lines: int = int(os.getenv("BROCA_PROJECT_WORLD_STATE_HEADER_LINES", "10"))
-    project_world_state_max_file_size: int = int(os.getenv("BROCA_PROJECT_WORLD_STATE_MAX_FILE_SIZE", str(1024 * 1024)))  # 1MB default
-    project_world_state_max_file_size: int = int(os.getenv("BROCA_PROJECT_WORLD_STATE_MAX_FILE_SIZE", str(1024 * 1024)))  # 1MB default
     # Policy: read-only mode and web search limits
     tools_mode: str = os.getenv("BROCA_TOOLS_MODE", "normal")  # "normal" or "read_only"
     web_search_max_queries: int = int(os.getenv("BROCA_WEB_SEARCH_MAX_QUERIES", "3"))
@@ -158,6 +208,11 @@ class SummarizationConfig(BaseModel):
     max_block_tokens: int = int(os.getenv("BROCA_SUMMARIZATION_MAX_BLOCK_TOKENS", "200"))
     last_turns_count: int = int(os.getenv("BROCA_SUMMARIZATION_LAST_TURNS", "3"))
     max_tool_result_size: int = int(os.getenv("BROCA_MAX_TOOL_RESULT_SIZE", "50000"))  # Maximum tool result size in characters (~12.5K tokens)
+    # Gradual pruning configuration
+    gradual_pruning_enabled: bool = os.getenv("BROCA_GRADUAL_PRUNING_ENABLED", "true").lower() == "true"
+    initial_buffer_turns: int = int(os.getenv("BROCA_INITIAL_BUFFER_TURNS", "10"))  # Number of turns to keep initially after first summarization
+    min_buffer_turns: int = int(os.getenv("BROCA_MIN_BUFFER_TURNS", "3"))  # Minimum turns to keep (current behavior)
+    buffer_reduction_rate: int = int(os.getenv("BROCA_BUFFER_REDUCTION_RATE", "2"))  # Reduce buffer by this many turns per summarization cycle
 
 
 class CacheConfig(BaseModel):
