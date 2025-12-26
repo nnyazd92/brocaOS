@@ -5,6 +5,7 @@ import logging
 import uuid
 import time
 import sys
+import re
 from datetime import datetime, timezone
 from ..llm import create_llm_client, LLMClient
 from .response_guard import ensure_non_empty
@@ -90,20 +91,25 @@ class ConversationSession:
 
         # Get base system prompt from parameter, system_prompt, or config
         # Track whether base_system_prompt was explicitly provided
+        # Store initial size to detect unbounded growth
         if base_system_prompt is not None:
-            self.base_system_prompt = base_system_prompt
+            self._base_system_prompt_internal = base_system_prompt
             self._base_system_prompt_explicit = True
         elif system_prompt:
             # If system_prompt is provided but base_system_prompt is not,
             # use system_prompt as the base (for backward compatibility)
-            self.base_system_prompt = system_prompt
+            self._base_system_prompt_internal = system_prompt
             self._base_system_prompt_explicit = True
         else:
             # Fall back to config if not provided
             from ..config import config
 
-            self.base_system_prompt = config.storage.base_system_prompt
+            self._base_system_prompt_internal = config.storage.base_system_prompt
             self._base_system_prompt_explicit = False
+        
+        # Store initial base prompt size to detect unbounded growth
+        self._initial_base_prompt_size = len(self._base_system_prompt_internal) if self._base_system_prompt_internal else 0
+        self._base_prompt_initialized = True
 
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = self.created_at
@@ -156,13 +162,17 @@ class ConversationSession:
         # Store color manager for colorizing output
         self._color_manager = color_manager
 
-        if system_prompt:
-            self.messages.append({"role": "system", "content": system_prompt})
-
         # Update system prompt with world state immediately if aggregator is available
         # This ensures world state is populated even before first user message
+        # Note: We don't manually add system_prompt here because _update_system_prompt() will
+        # create the system message from base_system_prompt + world state + summary.
+        # This prevents duplicate system messages if _update_system_prompt() is called.
         if self.world_state_aggregator and self._world_state_formatter:
             self._update_system_prompt()
+        elif system_prompt and not self.world_state_aggregator:
+            # Only add system_prompt directly if world_state_aggregator is not available
+            # (in which case _update_system_prompt() won't run)
+            self.messages.append({"role": "system", "content": system_prompt})
 
         logger.info(
             "Conversation session started",
@@ -176,6 +186,195 @@ class ConversationSession:
                 "world_state_enabled": world_state_aggregator is not None,
             },
         )
+    
+    @classmethod
+    def from_storage(
+        cls,
+        session_id: str,
+        storage: "ConversationStorage",
+        tool_registry: Optional["ToolRegistry"] = None,
+        internal_sensing_framework: Optional["InternalSensingFramework"] = None,
+        world_state_aggregator: Optional["WorldStateAggregator"] = None,
+        base_system_prompt: Optional[str] = None,
+        color_manager: Optional[Any] = None,
+    ) -> "ConversationSession":
+        """Rehydrate a ConversationSession from stored conversation data.
+
+        Loads messages and metadata from the given storage backend and constructs
+        a ConversationSession instance bound to that session_id.
+
+        If no stored conversation exists, this behaves like creating a fresh
+        session with the provided session_id.
+        """
+        data = storage.load_conversation(session_id)
+
+        # Create a bare session with explicit session_id and dependencies
+        session = cls(
+            system_prompt=None,
+            llm=None,
+            storage=storage,
+            session_id=session_id,
+            tool_registry=tool_registry,
+            internal_sensing_framework=internal_sensing_framework,
+            world_state_aggregator=world_state_aggregator,
+            base_system_prompt=base_system_prompt,
+            color_manager=color_manager,
+        )
+
+        if not data:
+            return session
+
+        messages = data.get("messages", [])
+        metadata = data.get("metadata", {})
+
+        # Validate loaded messages for contamination before processing
+        # This is critical - we need to detect multiple system messages before they contaminate the session
+        system_messages_in_load = [m for m in messages if m.get("role") == "system"]
+        if len(system_messages_in_load) > 1:
+            logger.warning(
+                f"Loaded conversation has {len(system_messages_in_load)} system messages in from_storage(). "
+                "This indicates contamination. All will be removed and rebuilt.",
+                extra={
+                    "event": "multiple_system_messages_in_from_storage",
+                    "count": len(system_messages_in_load),
+                }
+            )
+
+        # Restore messages but filter out ALL system messages - they will be rebuilt correctly by _update_system_prompt()
+        # This prevents contamination from old system messages that may include world state/summary
+        # CRITICAL: Filter ALL system messages, not just the first one
+        session.messages = [m for m in messages if m.get("role") != "system"]
+        
+        # Validate that no system messages remain after filtering
+        remaining_system = [m for m in session.messages if m.get("role") == "system"]
+        if remaining_system:
+            logger.error(
+                f"CRITICAL: System messages still present after filtering in from_storage(): {len(remaining_system)}. "
+                "This is a bug in the filtering logic.",
+                extra={
+                    "event": "system_messages_remain_after_from_storage_filtering",
+                    "count": len(remaining_system),
+                }
+            )
+            # Force remove any remaining system messages
+            session.messages = [m for m in session.messages if m.get("role") != "system"]
+        
+        session.created_at = metadata.get("created_at", session.created_at)
+        session.updated_at = metadata.get("updated_at", session.updated_at)
+
+        # Extract base system prompt from metadata ONLY (never from system message content)
+        # The system message content is contaminated with world state/summary and should not be used
+        stored_base_prompt = metadata.get("system_prompt", "")
+        
+        # Clean contaminated base prompt if it contains JSON/world state
+        if stored_base_prompt:
+            cleaned_prompt = cls._clean_base_prompt(stored_base_prompt)
+            if cleaned_prompt != stored_base_prompt:
+                logger.warning(
+                    "Cleaned contaminated base prompt from storage",
+                    extra={
+                        "event": "base_prompt_cleaned",
+                        "original_length": len(stored_base_prompt),
+                        "cleaned_length": len(cleaned_prompt),
+                    }
+                )
+            stored_base_prompt = cleaned_prompt
+        
+        if stored_base_prompt and base_system_prompt is None:
+            session.base_system_prompt = stored_base_prompt
+        elif base_system_prompt is not None:
+            # Use explicitly provided base prompt (also clean it)
+            cleaned_provided = cls._clean_base_prompt(base_system_prompt)
+            session.base_system_prompt = cleaned_provided
+
+        # Validate that base prompt hasn't been contaminated
+        if session.base_system_prompt:
+            base_prompt = session.base_system_prompt
+            if "{" in base_prompt and "\"timestamp\"" in base_prompt:
+                logger.warning(
+                    "Base system prompt appears to contain JSON (world state contamination detected). "
+                    "This may cause unbounded growth.",
+                    extra={
+                        "event": "base_prompt_contamination_detected",
+                        "base_prompt_size": len(base_prompt),
+                        "base_prompt_preview": base_prompt[:200],
+                    }
+                )
+            if "## Session Summary" in base_prompt or "Historical Context" in base_prompt:
+                logger.warning(
+                    "Base system prompt appears to contain summary content (contamination detected). "
+                    "This may cause unbounded growth.",
+                    extra={
+                        "event": "base_prompt_summary_contamination_detected",
+                        "base_prompt_size": len(base_prompt),
+                        "base_prompt_preview": base_prompt[:200],
+                    }
+                )
+
+        # Validate system message state before rebuilding
+        # At this point, session.messages should have no system messages
+        system_messages_before_rebuild = [m for m in session.messages if m.get("role") == "system"]
+        if system_messages_before_rebuild:
+            logger.error(
+                f"CRITICAL: System messages found before rebuild in from_storage(): {len(system_messages_before_rebuild)}. "
+                "Removing them before rebuilding.",
+                extra={
+                    "event": "system_messages_before_rebuild_in_from_storage",
+                    "count": len(system_messages_before_rebuild),
+                }
+            )
+            session.messages = [m for m in session.messages if m.get("role") != "system"]
+
+        # If we have a world state aggregator, rebuild the system prompt correctly
+        if session.world_state_aggregator and session._world_state_formatter:
+            session._update_system_prompt()
+        
+        # Final validation after rebuild to ensure clean state
+        session._ensure_single_system_message()
+
+        return session
+
+    @property
+    def base_system_prompt(self) -> Optional[str]:
+        """
+        Get the base system prompt (immutable after initialization).
+        
+        Returns:
+            Base system prompt string or None
+        """
+        return getattr(self, '_base_system_prompt_internal', None)
+    
+    @base_system_prompt.setter
+    def base_system_prompt(self, value: Optional[str]) -> None:
+        """
+        Set the base system prompt with immutability enforcement.
+        
+        Only allows modification during initialization. After initialization,
+        modifications are logged as errors and prevented.
+        """
+        # Allow setting during initialization (before _base_prompt_initialized is set)
+        if not hasattr(self, '_base_prompt_initialized') or not self._base_prompt_initialized:
+            self._base_system_prompt_internal = value
+            return
+        
+        # After initialization, prevent modification
+        old_value = getattr(self, '_base_system_prompt_internal', None)
+        if value != old_value:
+            logger.error(
+                f"Attempted to modify base_system_prompt after initialization! "
+                f"This is not allowed and may cause unbounded growth. "
+                f"Old size: {len(old_value) if old_value else 0}, "
+                f"New size: {len(value) if value else 0}",
+                extra={
+                    "event": "base_prompt_modification_attempted",
+                    "old_size": len(old_value) if old_value else 0,
+                    "new_size": len(value) if value else 0,
+                    "old_preview": old_value[:200] if old_value else None,
+                    "new_preview": value[:200] if value else None,
+                }
+            )
+            # Don't modify - keep the original value
+            # This prevents contamination from propagating
     
     @property
     def tool_status_display(self):
@@ -873,16 +1072,18 @@ class ConversationSession:
                             "iteration": iterations,
                         },
                     )
-                    # Inject message that allows tool usage but reminds about critic requirement
+                    # Inject reminder as user message to avoid accumulating system messages
+                    # This is a directive from the system (critic) but represented as user message
+                    # to prevent system message accumulation bugs
                     self.messages.append(
                         {
-                            "role": "system",
+                            "role": "user",
                             "content": (
-                                "The critic has rejected your response. You may use tools (terminal, web_search, etc.) "
-                                "to gather information, execute code, or improve your response. However, you MUST "
-                                "call the critic tool again with your revised response before providing a final "
-                                "response to the user. The critic must accept your response before you can respond "
-                                "to the user."
+                                "[SYSTEM DIRECTIVE] The critic has rejected your response. You may use tools "
+                                "(terminal, web_search, etc.) to gather information, execute code, or improve "
+                                "your response. However, you MUST call the critic tool again with your revised "
+                                "response before providing a final response to the user. The critic must accept "
+                                "your response before you can respond to the user."
                             ),
                         }
                     )
@@ -1082,9 +1283,33 @@ class ConversationSession:
                                 # Compute valence and arousal
                                 # Use conversation history for valence (excluding system prompts)
                                 # Include current assistant response in history
+                                # CRITICAL: Validate system message count before accessing self.messages in background thread
+                                # This prevents multiple system messages from propagating to internal sensing
+                                self._ensure_single_system_message()
+                                
                                 conversation_messages = self.messages + [
                                     {"role": "assistant", "content": assistant_text}
                                 ]
+                                
+                                # Validate the concatenated list doesn't have multiple system messages
+                                system_count = sum(1 for m in conversation_messages if m.get("role") == "system")
+                                if system_count > 1:
+                                    logger.warning(
+                                        f"Background thread: conversation_messages contains {system_count} system messages. "
+                                        "Filtering to single system message.",
+                                        extra={
+                                            "event": "multiple_system_messages_in_background_thread",
+                                            "count": system_count,
+                                        }
+                                    )
+                                    # Filter to keep only first system message
+                                    system_msgs = [m for m in conversation_messages if m.get("role") == "system"]
+                                    non_system_msgs = [m for m in conversation_messages if m.get("role") != "system"]
+                                    if system_msgs:
+                                        conversation_messages = [system_msgs[0]] + non_system_msgs
+                                    else:
+                                        conversation_messages = non_system_msgs
+                                
                                 self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
                                     conversation_messages
                                 )
@@ -1268,6 +1493,59 @@ class ConversationSession:
         except Exception:
             return "Summary unavailable due to an internal error."
     
+    def _calculate_buffer_turns(self) -> int:
+        """
+        Calculate the number of turns to keep based on gradual pruning configuration.
+        
+        Returns:
+            Number of turns to keep in the buffer
+        """
+        from ..config import config
+        
+        # If gradual pruning is disabled, use the standard last_turns_count
+        if not config.summarization.gradual_pruning_enabled:
+            last_turns_count = config.summarization.last_turns_count
+            if not isinstance(last_turns_count, int):
+                return 3  # Default
+            return last_turns_count
+        
+        # Get the current summary to check cycle count
+        try:
+            if self._summarization_manager:
+                summary = self._summarization_manager.summary_storage.load_session_summary(self.session_id)
+                if summary:
+                    cycle_count = summary.header.summarization_cycle_count
+                else:
+                    # No summary yet, first summarization will have cycle_count = 0
+                    cycle_count = 0
+            else:
+                cycle_count = 0
+        except Exception as e:
+            logger.debug(f"Error loading summary for buffer calculation: {e}")
+            cycle_count = 0
+        
+        # Calculate buffer size using gradual reduction formula
+        initial_buffer = config.summarization.initial_buffer_turns
+        min_buffer = config.summarization.min_buffer_turns
+        reduction_rate = config.summarization.buffer_reduction_rate
+        
+        if not isinstance(initial_buffer, int):
+            initial_buffer = 10
+        if not isinstance(min_buffer, int):
+            min_buffer = 3
+        if not isinstance(reduction_rate, int):
+            reduction_rate = 2
+        
+        # Formula: buffer_size = max(min_buffer, initial_buffer - (cycle_count * reduction_rate))
+        buffer_size = max(min_buffer, initial_buffer - (cycle_count * reduction_rate))
+        
+        logger.debug(
+            f"Calculated buffer size: {buffer_size} turns "
+            f"(cycle_count={cycle_count}, initial={initial_buffer}, min={min_buffer}, reduction={reduction_rate})"
+        )
+        
+        return buffer_size
+    
     def _prune_summarized_messages(self, last_summarized_event_id: str) -> int:
         """
         Remove messages that correspond to summarized events, keeping only system message and last K turns.
@@ -1275,7 +1553,7 @@ class ConversationSession:
         After summarization, this method collapses the context by removing all messages that were
         summarized, leaving only:
         - System message (always preserved)
-        - Last K turns that occurred after the last summarized event
+        - Last K turns that occurred after the last summarized event (using gradual pruning if enabled)
         
         Args:
             last_summarized_event_id: The event ID of the last event that was summarized
@@ -1311,10 +1589,8 @@ class ConversationSession:
                 if event_id:
                     summarized_event_ids.add(event_id)
             
-            # Get last K turns count from config
-            last_turns_count = config.summarization.last_turns_count
-            if not isinstance(last_turns_count, int):
-                last_turns_count = 3  # Default
+            # Calculate buffer size using gradual pruning if enabled
+            last_turns_count = self._calculate_buffer_turns()
             
             # Get events after the last summarized event to determine which messages to keep
             events_after_summary = all_events[last_summarized_index + 1:]
@@ -1364,30 +1640,37 @@ class ConversationSession:
                     # Keep this message (either not summarized, or has events after summary)
                     pruned_messages.append(msg)
             
-            # Now ensure we keep at least last K turns
+            # Now ensure we keep at least last K turns (using gradual buffer calculation)
             # Count turns from the end (non-system messages)
             non_system_pruned = [m for m in pruned_messages if m.get("role") != "system"]
             
+            # Calculate minimum messages to keep based on buffer size
+            # Each turn is typically 2 messages (user + assistant), but can be more with tool calls
+            min_messages_to_keep = last_turns_count * 2
+            
             # If we removed too many, we need to keep more recent messages even if they have summarized events
             # This ensures continuity - prioritize recency
-            if len(non_system_pruned) < last_turns_count * 2:  # *2 because each turn is typically 2 messages (user + assistant)
+            if len(non_system_pruned) < min_messages_to_keep:
                 # We need to keep more messages - restore some from the end even if they were summarized
                 # This is a safety mechanism to ensure we always have some context
                 logger.debug(
                     f"Only {len(non_system_pruned)} non-system messages remain after pruning, "
-                    f"keeping last {last_turns_count * 2} messages for continuity"
+                    f"keeping last {min_messages_to_keep} messages for continuity (buffer size: {last_turns_count} turns)"
                 )
                 # Rebuild with system message + last K*2 messages
                 if system_message:
                     pruned_messages = [system_message]
                 else:
                     pruned_messages = []
-                pruned_messages.extend(other_messages[-(last_turns_count * 2):])
+                pruned_messages.extend(other_messages[-min_messages_to_keep:])
                 # Recalculate removed count
                 removed_count = len(self.messages) - len(pruned_messages)
             
             # Update messages
             self.messages = pruned_messages
+            
+            # Validate system message count after pruning to prevent accumulation
+            self._ensure_single_system_message()
             
             logger.info(
                 f"Pruned {removed_count} messages after summarization (kept {len(pruned_messages)} messages)",
@@ -1517,14 +1800,15 @@ class ConversationSession:
             return filtered
         
         # Summary exists - filter to system message + last K turns with token awareness
-        # Handle cases where config might be a MagicMock (e.g., in tests)
-        last_turns_count = config.summarization.last_turns_count
-        if not isinstance(last_turns_count, int):
-            last_turns_count = 10  # Default value
+        # Use gradual buffer calculation if enabled
+        last_turns_count = self._calculate_buffer_turns()
         
         max_context_tokens = config.llm.max_context_tokens
         if not isinstance(max_context_tokens, int):
             max_context_tokens = 100000  # Default value
+        
+        # Validate system message count before filtering to prevent accumulation issues
+        self._ensure_single_system_message()
         
         # Get system message (if exists)
         system_message = None
@@ -1621,6 +1905,30 @@ class ConversationSession:
         """
         from ..config import config
         
+        # Validate system message count in the messages list before filtering
+        # If messages is self.messages, validate directly; otherwise check the list
+        if messages is self.messages:
+            self._ensure_single_system_message()
+        else:
+            # Check for multiple system messages in the provided list
+            system_messages = [i for i, msg in enumerate(messages) if msg.get("role") == "system"]
+            if len(system_messages) > 1:
+                logger.warning(
+                    f"Found {len(system_messages)} system messages in filtering list. "
+                    "Keeping only the first.",
+                    extra={
+                        "event": "multiple_system_messages_in_filtering",
+                        "count": len(system_messages),
+                    }
+                )
+                # Keep only the first system message
+                first_system_msg = messages[system_messages[0]]
+                # Remove all system messages
+                for idx in reversed(system_messages):
+                    messages.pop(idx)
+                # Insert at index 0
+                messages.insert(0, first_system_msg)
+        
         # Check if we're using Gemini client (for Gemini-specific ordering fixes)
         is_gemini = self._is_gemini_client()
         
@@ -1670,8 +1978,14 @@ class ConversationSession:
                 )
             return messages if system_message is None else [system_message]
         
+        # Validate conversation_messages before copying to prevent contamination
+        self._validate_message_list_for_system_messages(conversation_messages)
+        
         # Iteratively remove oldest non-system messages until under limit
         filtered_messages = conversation_messages.copy()
+        
+        # Validate filtered_messages after copy
+        self._validate_message_list_for_system_messages(filtered_messages)
         
         while filtered_messages and estimated_tokens > effective_max_tokens:
             # Remove oldest message (first in list)
@@ -1684,6 +1998,8 @@ class ConversationSession:
             # Reconstruct full message list with system message (if present)
             if system_message:
                 current_messages = [system_message] + filtered_messages
+                # Validate concatenated list
+                self._validate_message_list_for_system_messages(current_messages)
             else:
                 current_messages = filtered_messages
             
@@ -1697,8 +2013,12 @@ class ConversationSession:
         # Reconstruct final message list
         if system_message:
             result = [system_message] + filtered_messages
+            # Validate concatenated result
+            self._validate_message_list_for_system_messages(result)
         else:
             result = filtered_messages
+            # Validate result
+            self._validate_message_list_for_system_messages(result)
         
         # Final check - if still over limit, log warning but return anyway
         final_estimated_tokens = estimate_messages_tokens(result)
@@ -2069,7 +2389,20 @@ class ConversationSession:
                 )
                 # Add the fallback message after system messages
                 system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
+                # Ensure only one system message before concatenation
+                if len(system_messages) > 1:
+                    logger.warning(
+                        f"Found {len(system_messages)} system messages in Gemini fix. "
+                        "Keeping only the first.",
+                        extra={
+                            "event": "multiple_system_messages_in_gemini_fix",
+                            "count": len(system_messages),
+                        }
+                    )
+                    system_messages = [system_messages[0]]
                 current_messages = system_messages + [fallback_message]
+                # Validate concatenated result
+                self._validate_message_list_for_system_messages(current_messages)
             else:
                 # No fallback found - inject a default user message to prevent API error
                 logger.warning(
@@ -2082,8 +2415,21 @@ class ConversationSession:
                     }
                 )
                 system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
+                # Ensure only one system message before concatenation
+                if len(system_messages) > 1:
+                    logger.warning(
+                        f"Found {len(system_messages)} system messages in Gemini fix fallback. "
+                        "Keeping only the first.",
+                        extra={
+                            "event": "multiple_system_messages_in_gemini_fix_fallback",
+                            "count": len(system_messages),
+                        }
+                    )
+                    system_messages = [system_messages[0]]
                 default_message = {"role": "user", "content": "Please continue the conversation."}
                 current_messages = system_messages + [default_message]
+                # Validate concatenated result
+                self._validate_message_list_for_system_messages(current_messages)
         
         return current_messages
     
@@ -2390,6 +2736,110 @@ class ConversationSession:
         json_str = json.dumps(normalized, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(json_str.encode('utf-8')).hexdigest()
     
+    @staticmethod
+    def _clean_base_prompt(contaminated_prompt: str) -> str:
+        """
+        Extract clean base prompt from contaminated storage data.
+        
+        Removes world state JSON, summary context, and truncation messages
+        that may have been incorrectly stored as part of the base prompt.
+        
+        Args:
+            contaminated_prompt: Potentially contaminated base prompt string
+            
+        Returns:
+            Clean base prompt with all JSON/world state/summary content removed
+        """
+        if not contaminated_prompt:
+            return ""
+        
+        import json
+        import re
+        
+        cleaned = contaminated_prompt
+        
+        # Remove any JSON objects (world state) - look for { ... } patterns
+        # Try to find where JSON starts and remove everything from there
+        json_start_patterns = [
+            r'\n\s*\{',  # Newline followed by opening brace
+            r'\n\n\s*\{',  # Double newline followed by opening brace
+            r'^\s*\{',  # Start of string with opening brace
+        ]
+        
+        for pattern in json_start_patterns:
+            match = re.search(pattern, cleaned)
+            if match:
+                # Found JSON start - keep everything before it
+                cleaned = cleaned[:match.start()].rstrip()
+                break
+        
+        # Remove summary context markers
+        summary_markers = [
+            "## Session Summary",
+            "Historical Context",
+            "Session Summary (Historical Context)",
+        ]
+        for marker in summary_markers:
+            if marker in cleaned:
+                # Find where summary starts and remove everything from there
+                idx = cleaned.find(marker)
+                if idx > 0:
+                    # Try to find the section start (## or similar)
+                    section_start = cleaned.rfind("\n##", 0, idx)
+                    if section_start >= 0:
+                        cleaned = cleaned[:section_start].rstrip()
+                    else:
+                        cleaned = cleaned[:idx].rstrip()
+        
+        # Remove truncation messages (they shouldn't be in base prompt)
+        truncation_messages = [
+            "[Base system prompt truncated due to size limit]",
+            "[System prompt truncated due to size limit]",
+            "[World state omitted due to size limit]",
+            "[Summary context truncated due to size limit]",
+        ]
+        for msg in truncation_messages:
+            cleaned = cleaned.replace(msg, "").strip()
+        
+        # Remove any trailing JSON-like content
+        # Look for patterns like "}\n\n{" which indicate multiple JSON objects
+        if re.search(r'\}\s*\n\s*\n\s*\{', cleaned):
+            # Multiple JSON objects detected - remove all JSON
+            # Find the last non-JSON content
+            parts = re.split(r'\}\s*\n\s*\n\s*\{', cleaned)
+            if parts:
+                cleaned = parts[0].rstrip()
+                # Remove any trailing brace
+                cleaned = re.sub(r'\}\s*$', '', cleaned).rstrip()
+        
+        # Final cleanup: remove any remaining JSON structure
+        # If the cleaned string still looks like it starts with JSON, it's all contaminated
+        cleaned_stripped = cleaned.strip()
+        if cleaned_stripped.startswith('{') or cleaned_stripped.startswith('['):
+            # Entire prompt is JSON - return empty (no valid base prompt)
+            logger.warning(
+                "Base prompt appears to be entirely JSON/world state - returning empty base prompt",
+                extra={
+                    "event": "base_prompt_entirely_contaminated",
+                    "original_length": len(contaminated_prompt),
+                }
+            )
+            return ""
+        
+        # Validate that we actually have content left
+        if len(cleaned) < len(contaminated_prompt) * 0.1:
+            # Less than 10% of original - likely all was contamination
+            logger.warning(
+                "Base prompt cleaning removed >90% of content - likely all was contamination",
+                extra={
+                    "event": "base_prompt_mostly_contaminated",
+                    "original_length": len(contaminated_prompt),
+                    "cleaned_length": len(cleaned),
+                }
+            )
+        
+        return cleaned.strip()
+    
     def _update_system_prompt(self) -> None:
         """
         Update system prompt with current world state and session summary.
@@ -2412,6 +2862,11 @@ class ConversationSession:
         try:
             from ..config import config
             
+            # Runtime monitoring: validate state before update
+            self._validate_before_update()
+            # Ensure single system message before update (fixes any accumulation issues)
+            self._ensure_single_system_message()
+            
             # Aggregate current world state
             world_state = self.world_state_aggregator.aggregate()
 
@@ -2433,9 +2888,54 @@ class ConversationSession:
             parts = []
             
             # 1. Base system prompt (only include once, no duplicates)
+            # Enforce size limit to prevent unbounded growth
             if self.base_system_prompt:
                 base_prompt = self.base_system_prompt.strip()
                 if base_prompt:
+                    max_base_size = config.storage.max_base_prompt_size
+                    base_prompt_size = len(base_prompt)
+                    
+                    # Validate that base prompt hasn't grown unbounded since initialization
+                    if hasattr(self, '_initial_base_prompt_size'):
+                        growth_ratio = base_prompt_size / self._initial_base_prompt_size if self._initial_base_prompt_size > 0 else 1.0
+                        if growth_ratio > 1.1:  # More than 10% growth
+                            logger.warning(
+                                f"Base system prompt has grown {growth_ratio:.1f}x since initialization "
+                                f"({self._initial_base_prompt_size} -> {base_prompt_size} chars). "
+                                "This may indicate unbounded growth. Base prompt should be immutable.",
+                                extra={
+                                    "event": "base_prompt_growth_detected",
+                                    "initial_size": self._initial_base_prompt_size,
+                                    "current_size": base_prompt_size,
+                                    "growth_ratio": round(growth_ratio, 2),
+                                }
+                            )
+                    
+                    if base_prompt_size > max_base_size:
+                        # Truncate base prompt intelligently
+                        truncated_base = base_prompt[:max_base_size - 50]  # Leave room for truncation message
+                        # Try to truncate at a paragraph boundary
+                        last_double_newline = truncated_base.rfind("\n\n")
+                        if last_double_newline > max_base_size * 0.7:  # Only if we're keeping most of it
+                            truncated_base = truncated_base[:last_double_newline]
+                        else:
+                            # Fallback to single newline
+                            last_newline = truncated_base.rfind("\n")
+                            if last_newline > max_base_size * 0.8:
+                                truncated_base = truncated_base[:last_newline]
+                        
+                        # Check if truncation message already exists to prevent accumulation
+                        truncation_msg = "[Base system prompt truncated due to size limit]"
+                        if truncation_msg not in truncated_base:
+                            base_prompt = truncated_base + "\n" + truncation_msg
+                        else:
+                            # Already has truncation message - don't add another
+                            base_prompt = truncated_base
+                        logger.warning(
+                            f"Base system prompt truncated from {base_prompt_size} to {len(base_prompt)} characters "
+                            f"(limit: {max_base_size})"
+                        )
+                    
                     parts.append(base_prompt)
             
             # 2. Add summary context if summarization is enabled
@@ -2467,6 +2967,107 @@ class ConversationSession:
             if formatted_world_state and formatted_world_state.strip():
                 parts.append(formatted_world_state)
 
+            # Pre-validate component sizes before combining
+            # This prevents unbounded growth by checking totals before combination
+            max_size = config.storage.max_system_prompt_size
+            component_sizes = [len(part) for part in parts]
+            total_size = sum(component_sizes)
+            separator_size = len("\n\n") * (len(parts) - 1) if len(parts) > 1 else 0
+            estimated_total = total_size + separator_size
+            
+            # Log component sizes for monitoring
+            logger.debug(
+                "System prompt component sizes",
+                extra={
+                    "event": "system_prompt_component_sizes",
+                    "base_prompt_size": component_sizes[0] if len(parts) > 0 else 0,
+                    "summary_context_size": component_sizes[1] if len(parts) > 1 else 0,
+                    "world_state_size": component_sizes[2] if len(parts) > 2 else 0,
+                    "total_components": len(parts),
+                    "estimated_total_size": estimated_total,
+                    "max_size": max_size,
+                }
+            )
+            
+            # If estimated total exceeds limit, reduce components intelligently
+            # Priority: base prompt > summary context > world state
+            if estimated_total > max_size:
+                logger.warning(
+                    f"System prompt components exceed limit ({estimated_total} > {max_size}), "
+                    "reducing component sizes"
+                )
+                
+                # Calculate available space (leave some buffer for separators)
+                available_space = max_size - 100  # 100 char buffer for separators and truncation messages
+                
+                # Strategy: Preserve base prompt, reduce summary and world state proportionally
+                if len(parts) >= 1:
+                    base_size = component_sizes[0]
+                    remaining_space = available_space - base_size
+                    
+                    if remaining_space < 0:
+                        # Base prompt alone exceeds limit - it was already truncated above
+                        # Just keep base prompt
+                        parts = [parts[0]]
+                    elif len(parts) >= 2:
+                        # We have summary context and/or world state
+                        # Allocate remaining space: 40% to summary, 60% to world state (if both exist)
+                        if len(parts) == 3:
+                            # Both summary and world state exist
+                            summary_target = int(remaining_space * 0.4)
+                            world_state_target = remaining_space - summary_target
+                            
+                            # Truncate summary context if needed
+                            if component_sizes[1] > summary_target:
+                                summary_part = parts[1]
+                                truncated_summary = summary_part[:summary_target - 50]
+                                last_section = truncated_summary.rfind("##")
+                                if last_section > summary_target * 0.7:
+                                    truncated_summary = truncated_summary[:last_section]
+                                # Check if truncation message already exists to prevent accumulation
+                                truncation_msg = "[Summary context truncated due to size limit]"
+                                if truncation_msg not in truncated_summary:
+                                    parts[1] = truncated_summary + "\n" + truncation_msg
+                                else:
+                                    parts[1] = truncated_summary
+                                logger.warning(
+                                    f"Summary context reduced from {component_sizes[1]} to {len(parts[1])} characters"
+                                )
+                            
+                            # Truncate world state if needed
+                            if component_sizes[2] > world_state_target:
+                                world_state_part = parts[2]
+                                truncated_world_state = world_state_part[:world_state_target - 50]
+                                # Try to truncate at JSON boundary
+                                last_brace = truncated_world_state.rfind("}")
+                                if last_brace > world_state_target * 0.8:
+                                    truncated_world_state = truncated_world_state[:last_brace + 1]
+                                else:
+                                    truncated_world_state = truncated_world_state.rstrip() + '\n}'
+                                truncated_world_state += '\n  "_truncated": true\n}'
+                                parts[2] = truncated_world_state
+                                logger.warning(
+                                    f"World state reduced from {component_sizes[2]} to {len(parts[2])} characters"
+                                )
+                        elif len(parts) == 2:
+                            # Only one of summary or world state
+                            if component_sizes[1] > remaining_space:
+                                part_to_truncate = parts[1]
+                                truncated = part_to_truncate[:remaining_space - 50]
+                                # Try to truncate at a reasonable boundary
+                                last_newline = truncated.rfind("\n")
+                                if last_newline > remaining_space * 0.8:
+                                    truncated = truncated[:last_newline]
+                                # Check if truncation message already exists to prevent accumulation
+                                truncation_msg = "[Component truncated due to size limit]"
+                                if truncation_msg not in truncated:
+                                    parts[1] = truncated + "\n" + truncation_msg
+                                else:
+                                    parts[1] = truncated
+                                logger.warning(
+                                    f"Component reduced from {component_sizes[1]} to {len(parts[1])} characters"
+                                )
+
             # Join with double newline if multiple parts exist
             if len(parts) > 1:
                 complete_prompt = "\n\n".join(parts)
@@ -2475,8 +3076,7 @@ class ConversationSession:
             else:
                 complete_prompt = ""
 
-            # Apply overall size limit and truncation if needed
-            max_size = config.storage.max_system_prompt_size
+            # Apply overall size limit and truncation if needed (final safety check)
             original_size = len(complete_prompt)
             if original_size > max_size:
                 # Truncate intelligently: preserve base prompt if possible, truncate world state
@@ -2489,7 +3089,12 @@ class ConversationSession:
                         last_newline = truncated_base.rfind("\n")
                         if last_newline > (max_size - 50) * 0.8:
                             truncated_base = truncated_base[:last_newline]
-                        complete_prompt = truncated_base + "\n[System prompt truncated due to size limit]"
+                        # Check if truncation message already exists to prevent accumulation
+                        truncation_msg = "[System prompt truncated due to size limit]"
+                        if truncation_msg not in truncated_base:
+                            complete_prompt = truncated_base + "\n" + truncation_msg
+                        else:
+                            complete_prompt = truncated_base
                     else:
                         # Keep base prompt and summary, truncate world state
                         base_and_summary = "\n\n".join(parts[:-1])  # All except world state
@@ -2517,7 +3122,10 @@ class ConversationSession:
                     last_newline = complete_prompt.rfind("\n")
                     if last_newline > (max_size - 50) * 0.8:
                         complete_prompt = complete_prompt[:last_newline]
-                    complete_prompt += "\n[System prompt truncated due to size limit]"
+                    # Check if truncation message already exists to prevent accumulation
+                    truncation_msg = "[System prompt truncated due to size limit]"
+                    if truncation_msg not in complete_prompt:
+                        complete_prompt += "\n" + truncation_msg
                 
                 logger.warning(
                     f"System prompt truncated from {original_size} to {len(complete_prompt)} characters "
@@ -2528,39 +3136,103 @@ class ConversationSession:
             self._validate_system_prompt_for_duplicates(complete_prompt)
             
             # Validate: ensure we're not duplicating existing content
+            # Check for ANY system messages (there should only be one, but handle multiple)
+            existing_system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system"]
             existing_system_content = None
-            if self.messages and self.messages[0].get("role") == "system":
-                existing_system_content = self.messages[0].get("content", "")
+            if existing_system_messages:
+                # Use the first system message's content for comparison
+                existing_system_content = self.messages[existing_system_messages[0]].get("content", "")
             
             # Only update if content actually changed (avoid unnecessary updates)
             if existing_system_content != complete_prompt:
-                # Update or create system message (always REPLACE, never append)
-                if self.messages and self.messages[0].get("role") == "system":
-                    # Update existing system message
-                    self.messages[0]["content"] = complete_prompt
-                else:
-                    # Create new system message at the beginning
-                    self.messages.insert(0, {"role": "system", "content": complete_prompt})
+                # Remove ALL system messages first (handle multiple system messages bug)
+                # This ensures we always REPLACE, never append
+                if existing_system_messages:
+                    # Remove in reverse order to maintain indices
+                    for idx in reversed(existing_system_messages):
+                        removed_msg = self.messages.pop(idx)
+                        logger.debug(
+                            f"Removed system message at index {idx} before replacing",
+                            extra={
+                                "event": "system_message_removed",
+                                "removed_content_length": len(removed_msg.get("content", "")),
+                            }
+                        )
+                    
+                    # Log warning if multiple system messages were found
+                    if len(existing_system_messages) > 1:
+                        logger.warning(
+                            f"Found {len(existing_system_messages)} system messages - removed all before replacing. "
+                            "This indicates a bug where system messages were being appended instead of replaced.",
+                            extra={
+                                "event": "multiple_system_messages_detected",
+                                "count": len(existing_system_messages),
+                            }
+                        )
+                
+                # Insert new system message at the beginning (always at index 0)
+                self.messages.insert(0, {"role": "system", "content": complete_prompt})
+                
+                # Runtime monitoring: validate state after update
+                self._validate_after_update(complete_prompt)
+                
+                # Validate: ensure only ONE system message exists after update
+                system_msg_count = sum(1 for msg in self.messages if msg.get("role") == "system")
+                if system_msg_count != 1:
+                    logger.error(
+                        f"CRITICAL: After system prompt update, found {system_msg_count} system messages "
+                        f"(expected 1). This is a bug.",
+                        extra={
+                            "event": "multiple_system_messages_after_update",
+                            "count": system_msg_count,
+                        }
+                    )
 
-                # Log system prompt size for monitoring
+                # Log system prompt size for monitoring with detailed component breakdown
                 prompt_size = len(complete_prompt)
                 size_kb = prompt_size / 1024
                 max_size_kb = config.storage.max_system_prompt_size / 1024
                 
+                # Calculate final component sizes for logging
+                final_parts = complete_prompt.split("\n\n")
+                final_component_sizes = [len(part) for part in final_parts]
+                
+                # Build detailed logging context
+                log_extra = {
+                    "event": "system_prompt_updated",
+                    "total_size": prompt_size,
+                    "total_size_kb": round(size_kb, 2),
+                    "max_size": config.storage.max_system_prompt_size,
+                    "max_size_kb": round(max_size_kb, 2),
+                    "size_percentage": round(prompt_size / config.storage.max_system_prompt_size * 100, 1),
+                    "component_count": len(final_parts),
+                }
+                
+                # Add component sizes if we have them
+                if len(final_parts) >= 1:
+                    log_extra["base_prompt_size"] = final_component_sizes[0]
+                if len(final_parts) >= 2:
+                    log_extra["summary_context_size"] = final_component_sizes[1]
+                if len(final_parts) >= 3:
+                    log_extra["world_state_size"] = final_component_sizes[2]
+                
                 if prompt_size > config.storage.max_system_prompt_size * 0.9:
                     logger.warning(
                         f"System prompt size is {size_kb:.1f}KB (90% of {max_size_kb:.1f}KB limit) - "
-                        f"consider reducing content"
+                        f"consider reducing content",
+                        extra=log_extra
                     )
                 elif prompt_size > config.storage.max_system_prompt_size * 0.7:
                     logger.info(
-                        f"System prompt size is {size_kb:.1f}KB ({prompt_size / config.storage.max_system_prompt_size * 100:.0f}% of limit)"
+                        f"System prompt size is {size_kb:.1f}KB ({prompt_size / config.storage.max_system_prompt_size * 100:.0f}% of limit)",
+                        extra=log_extra
                     )
-                
-                logger.debug(
-                    f"Updated system prompt with current world state and summary context "
-                    f"(size: {prompt_size} chars, {size_kb:.1f}KB)"
-                )
+                else:
+                    logger.debug(
+                        f"Updated system prompt with current world state and summary context "
+                        f"(size: {prompt_size} chars, {size_kb:.1f}KB)",
+                        extra=log_extra
+                    )
             else:
                 logger.debug("System prompt content unchanged, skipping update")
 
@@ -2649,6 +3321,251 @@ class ConversationSession:
                 f"Detected {len(duplicates_found)} potential duplicate section(s) in system prompt. "
                 f"This may indicate content accumulation. Sections: {duplicates_found[:3]}"
             )
+    
+    def _validate_before_update(self) -> None:
+        """
+        Validate system state before updating system prompt.
+        
+        Checks for issues that could lead to accumulation:
+        - Multiple system messages
+        - Base prompt growth
+        - JSON contamination in base prompt
+        """
+        # Check for multiple system messages
+        system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system"]
+        if len(system_messages) > 1:
+            logger.warning(
+                f"Found {len(system_messages)} system messages before update (expected 0-1). "
+                "This may indicate accumulation bug.",
+                extra={
+                    "event": "multiple_system_messages_before_update",
+                    "count": len(system_messages),
+                    "indices": system_messages,
+                }
+            )
+        
+        # Check base prompt hasn't grown unexpectedly
+        if hasattr(self, '_initial_base_prompt_size') and self.base_system_prompt:
+            current_size = len(self.base_system_prompt)
+            if self._initial_base_prompt_size > 0:
+                growth_ratio = current_size / self._initial_base_prompt_size
+                if growth_ratio > 1.1:  # More than 10% growth
+                    logger.warning(
+                        f"Base prompt has grown {growth_ratio:.1f}x before update "
+                        f"({self._initial_base_prompt_size} -> {current_size} chars). "
+                        "Base prompt should be immutable.",
+                        extra={
+                            "event": "base_prompt_growth_before_update",
+                            "initial_size": self._initial_base_prompt_size,
+                            "current_size": current_size,
+                            "growth_ratio": round(growth_ratio, 2),
+                        }
+                    )
+        
+        # Check for JSON contamination in base prompt
+        if self.base_system_prompt:
+            self._validate_base_prompt_clean()
+    
+    def _validate_after_update(self, prompt_content: str) -> None:
+        """
+        Validate system state after updating system prompt.
+        
+        Checks for issues that could indicate accumulation:
+        - Multiple system messages
+        - Duplicate world state JSON
+        - System message not at index 0
+        
+        Args:
+            prompt_content: The system prompt content that was just set
+        """
+        # Check system message count
+        system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system"]
+        if len(system_messages) != 1:
+            logger.error(
+                f"CRITICAL: After system prompt update, found {len(system_messages)} system messages "
+                f"(expected 1). This is a bug.",
+                extra={
+                    "event": "invalid_system_message_count_after_update",
+                    "count": len(system_messages),
+                    "indices": system_messages,
+                }
+            )
+        elif system_messages[0] != 0:
+            logger.warning(
+                f"System message is at index {system_messages[0]} instead of 0. "
+                "This may indicate ordering issues.",
+                extra={
+                    "event": "system_message_wrong_index",
+                    "index": system_messages[0],
+                }
+            )
+        
+        # Check for duplicate world state JSON in prompt
+        if prompt_content:
+            # Count JSON objects (look for opening braces followed by timestamp-like keys)
+            json_pattern = r'\{\s*"[^"]*"\s*:\s*"[^"]*"\s*,\s*"[^"]*"\s*:\s*"[^"]*"'
+            json_matches = len(re.findall(json_pattern, prompt_content))
+            if json_matches > 1:
+                # Check if they're actually separate JSON objects (not nested)
+                # Look for patterns like "}\n\n{" which indicate multiple top-level objects
+                if re.search(r'\}\s*\n\s*\n\s*\{', prompt_content):
+                    logger.warning(
+                        f"Detected {json_matches} potential duplicate JSON objects in system prompt. "
+                        "This may indicate world state accumulation.",
+                        extra={
+                            "event": "duplicate_json_detected_after_update",
+                            "json_count": json_matches,
+                        }
+                    )
+    
+    def _validate_base_prompt_clean(self) -> None:
+        """
+        Validate that base prompt is clean (no JSON contamination, no summary markers, etc.).
+        
+        Logs warnings if contamination is detected.
+        """
+        if not self.base_system_prompt:
+            return
+        
+        base_prompt = self.base_system_prompt
+        contamination_detected = False
+        contamination_types = []
+        
+        # Check for JSON objects (world state contamination)
+        if "{" in base_prompt and "\"timestamp\"" in base_prompt:
+            contamination_detected = True
+            contamination_types.append("JSON/world_state")
+        
+        # Check for summary markers
+        summary_markers = [
+            "## Session Summary",
+            "Historical Context",
+            "Session Summary (Historical Context)",
+        ]
+        for marker in summary_markers:
+            if marker in base_prompt:
+                contamination_detected = True
+                contamination_types.append("summary_marker")
+                break
+        
+        # Check for multiple truncation messages (indicates accumulation)
+        truncation_messages = [
+            "[Base system prompt truncated due to size limit]",
+            "[System prompt truncated due to size limit]",
+        ]
+        truncation_count = sum(1 for msg in truncation_messages if msg in base_prompt)
+        if truncation_count > 1:
+            contamination_detected = True
+            contamination_types.append("multiple_truncation_messages")
+        
+        if contamination_detected:
+            logger.error(
+                f"Base prompt contamination detected: {', '.join(contamination_types)}. "
+                "Base prompt should be clean and immutable. This may cause unbounded growth.",
+                extra={
+                    "event": "base_prompt_contamination_detected",
+                    "contamination_types": contamination_types,
+                    "base_prompt_length": len(base_prompt),
+                    "base_prompt_preview": base_prompt[:200],
+                }
+            )
+    
+    def _ensure_single_system_message(self) -> bool:
+        """
+        Ensure only one system message exists and it's at index 0.
+        
+        This is a critical validation method that prevents system message accumulation.
+        It should be called at all critical points where system messages might be modified.
+        
+        Returns:
+            True if validation passed (no issues found), False if issues were found and fixed
+        """
+        system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system"]
+        
+        if len(system_messages) == 0:
+            # No system message - this is OK if world_state_aggregator will create one
+            return True
+        
+        if len(system_messages) == 1 and system_messages[0] == 0:
+            # Perfect: exactly one system message at index 0
+            return True
+        
+        # Issues found - fix them
+        if len(system_messages) > 1:
+            logger.error(
+                f"Found {len(system_messages)} system messages - keeping only the first. "
+                "This indicates a bug where system messages were being accumulated.",
+                extra={
+                    "event": "multiple_system_messages_fixed",
+                    "count": len(system_messages),
+                    "indices": system_messages,
+                }
+            )
+        elif system_messages[0] != 0:
+            logger.warning(
+                f"System message is at index {system_messages[0]} instead of 0. "
+                "Moving it to index 0.",
+                extra={
+                    "event": "system_message_wrong_index_fixed",
+                    "original_index": system_messages[0],
+                }
+            )
+        
+        # Keep only the first system message
+        first_system_idx = system_messages[0]
+        first_system_msg = self.messages[first_system_idx].copy()  # Copy to avoid reference issues
+        
+        # Remove all system messages (in reverse order to maintain indices)
+        for idx in reversed(system_messages):
+            self.messages.pop(idx)
+        
+        # Insert system message at index 0
+        self.messages.insert(0, first_system_msg)
+        
+        # Validate fix worked
+        final_system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system"]
+        if len(final_system_messages) != 1 or final_system_messages[0] != 0:
+            logger.error(
+                f"CRITICAL: Failed to fix system message issues. "
+                f"After fix: {len(final_system_messages)} system messages at indices {final_system_messages}",
+                extra={
+                    "event": "system_message_fix_failed",
+                    "final_count": len(final_system_messages),
+                    "final_indices": final_system_messages,
+                }
+            )
+        
+        return False  # Issues were found and fixed
+    
+    def _validate_message_list_for_system_messages(self, messages: List[Dict[str, Any]]) -> bool:
+        """
+        Validate a message list for system message issues.
+        
+        This helper method checks if a message list (which may not be self.messages)
+        contains multiple system messages, which would indicate contamination.
+        
+        Args:
+            messages: Message list to validate
+            
+        Returns:
+            True if valid (0-1 system messages), False if invalid (multiple system messages)
+        """
+        system_messages = [i for i, msg in enumerate(messages) if msg.get("role") == "system"]
+        
+        if len(system_messages) <= 1:
+            return True
+        
+        logger.warning(
+            f"Message list contains {len(system_messages)} system messages (expected 0-1). "
+            "This indicates contamination or accumulation.",
+            extra={
+                "event": "multiple_system_messages_in_list",
+                "count": len(system_messages),
+                "indices": system_messages,
+                "list_length": len(messages),
+            }
+        )
+        return False
 
     # ---------- Critic enforcement helpers ----------
 
@@ -2747,6 +3664,67 @@ class ConversationSession:
         # Add assistant message with tool calls
         # For deepseek-reasoner, we must include reasoning_content in the assistant message
         # if it was present in the response
+        # For Gemini, we must preserve thought_signature in each tool_call
+        is_gemini = self._is_gemini_client()
+        
+        # For Gemini, ensure each tool_call has thought_signature
+        # If missing, add the current thought_signature from the response
+        if is_gemini and tool_calls:
+            current_sig = getattr(self, '_current_thought_signature', None)
+            tool_calls_fixed = False
+            for tool_call in tool_calls:
+                if isinstance(tool_call, dict) and "thought_signature" not in tool_call:
+                    if current_sig:
+                        tool_call["thought_signature"] = current_sig
+                        tool_calls_fixed = True
+                        logger.debug(
+                            "Added thought_signature to tool_call using current signature",
+                            extra={
+                                "event": "thought_signature_added_to_tool_call",
+                                "tool_call_id": tool_call.get("id", "unknown"),
+                                "function_name": tool_call.get("function", {}).get("name", "unknown"),
+                            }
+                        )
+                    else:
+                        logger.warning(
+                            "Tool call missing thought_signature and no current signature available",
+                            extra={
+                                "event": "missing_thought_signature_in_tool_call",
+                                "tool_call_id": tool_call.get("id", "unknown"),
+                                "function_name": tool_call.get("function", {}).get("name", "unknown"),
+                            }
+                        )
+            
+            if tool_calls_fixed:
+                logger.info(
+                    "Fixed missing thought_signature in tool_calls for Gemini",
+                    extra={
+                        "event": "thought_signature_fixed_in_tool_calls",
+                        "total_tool_calls": len(tool_calls),
+                    }
+                )
+        
+        # Log thought_signature preservation for Gemini (for debugging)
+        if is_gemini:
+            thought_sigs_in_tool_calls = sum(1 for tc in tool_calls if tc.get("thought_signature"))
+            if thought_sigs_in_tool_calls > 0:
+                logger.debug(
+                    f"Preserved thought_signature in {thought_sigs_in_tool_calls}/{len(tool_calls)} tool_calls",
+                    extra={
+                        "event": "thought_signature_in_tool_calls",
+                        "total_tool_calls": len(tool_calls),
+                        "tool_calls_with_signature": thought_sigs_in_tool_calls,
+                    }
+                )
+            elif len(tool_calls) > 0:
+                logger.warning(
+                    "No thought_signature found in tool_calls for Gemini - this may cause API errors",
+                    extra={
+                        "event": "missing_thought_signature_in_tool_calls",
+                        "total_tool_calls": len(tool_calls),
+                    }
+                )
+        
         assistant_message = {
             "role": "assistant",
             "content": self.llm.extract_assistant_content(response) or None,
@@ -3053,6 +4031,9 @@ class ConversationSession:
             return
 
         try:
+            # Validate system message count before saving to prevent saving contaminated state
+            # This is critical - we don't want to persist multiple system messages
+            self._ensure_single_system_message()
             # Use base_system_prompt if it was explicitly set, otherwise use system_prompt
             # If base_system_prompt came from config and system_prompt is None, save empty string
             # to indicate no explicit system prompt was set
@@ -3066,6 +4047,58 @@ class ConversationSession:
                 # Base prompt came from config - only save if system_prompt was also set
                 # This preserves the behavior: if user didn't set system_prompt, save empty
                 saved_system_prompt = self.system_prompt or ""
+            
+            # Validate and clean base prompt before saving to prevent contamination
+            if saved_system_prompt:
+                # Check for contamination
+                original_prompt = saved_system_prompt
+                cleaned_prompt = self._clean_base_prompt(saved_system_prompt)
+                
+                if cleaned_prompt != original_prompt:
+                    logger.error(
+                        "Base prompt contamination detected before save! Cleaning before saving. "
+                        "This indicates a bug where base prompt was modified or contaminated.",
+                        extra={
+                            "event": "base_prompt_contamination_before_save",
+                            "original_length": len(original_prompt),
+                            "cleaned_length": len(cleaned_prompt),
+                            "original_preview": original_prompt[:200],
+                            "cleaned_preview": cleaned_prompt[:200],
+                        }
+                    )
+                    saved_system_prompt = cleaned_prompt
+                
+                # Additional validation: ensure no JSON, summary markers, or multiple truncation messages
+                contamination_detected = False
+                contamination_types = []
+                
+                if "{" in saved_system_prompt and "\"timestamp\"" in saved_system_prompt:
+                    contamination_detected = True
+                    contamination_types.append("JSON/world_state")
+                
+                summary_markers = ["## Session Summary", "Historical Context"]
+                for marker in summary_markers:
+                    if marker in saved_system_prompt:
+                        contamination_detected = True
+                        contamination_types.append("summary_marker")
+                        break
+                
+                truncation_count = saved_system_prompt.count("[Base system prompt truncated due to size limit]")
+                if truncation_count > 1:
+                    contamination_detected = True
+                    contamination_types.append("multiple_truncation_messages")
+                
+                if contamination_detected:
+                    logger.error(
+                        f"Base prompt still contains contamination after cleaning: {', '.join(contamination_types)}. "
+                        "This is a critical bug. Saving cleaned version.",
+                        extra={
+                            "event": "base_prompt_still_contaminated_after_cleaning",
+                            "contamination_types": contamination_types,
+                        }
+                    )
+                    # Force clean again
+                    saved_system_prompt = self._clean_base_prompt(saved_system_prompt)
 
             metadata = {
                 "created_at": self.created_at,
@@ -3116,29 +4149,32 @@ class ConversationSession:
             messages = result.get("messages", [])
             metadata = result.get("metadata", {})
 
-            # Extract base system prompt from metadata (this is the user-defined base prompt)
+            # Extract base system prompt from metadata ONLY (never from system message content)
+            # The system message content is contaminated with world state/summary and should not be used
             # Use the saved value, even if empty (don't override with config when loading)
-            base_system_prompt = metadata.get("system_prompt", "")
-
-            # If messages contain a system message with combined prompt, try to extract base
-            # This handles cases where the system message has both base prompt and world state
-            if messages and messages[0].get("role") == "system":
-                system_content = messages[0].get("content", "")
-                # If the content contains both base prompt and JSON (separated by \n\n),
-                # and we don't have a base prompt in metadata, try to extract it
-                if "\n\n" in system_content and not base_system_prompt:
-                    parts = system_content.split("\n\n", 1)
-                    potential_base = parts[0].strip()
-                    # Only use if it doesn't look like JSON
-                    if potential_base and not potential_base.startswith("{"):
-                        base_system_prompt = potential_base
+            stored_base_prompt = metadata.get("system_prompt", "")
+            
+            # Clean contaminated base prompt if it contains JSON/world state
+            if stored_base_prompt:
+                cleaned_prompt = cls._clean_base_prompt(stored_base_prompt)
+                if cleaned_prompt != stored_base_prompt:
+                    logger.warning(
+                        "Cleaned contaminated base prompt from storage",
+                        extra={
+                            "event": "base_prompt_cleaned",
+                            "original_length": len(stored_base_prompt),
+                            "cleaned_length": len(cleaned_prompt),
+                        }
+                    )
+                base_system_prompt = cleaned_prompt
+            else:
+                base_system_prompt = ""
 
             # Create session with base system prompt
             # Note: We don't pass system_prompt parameter to avoid double-adding
-            # The messages will be restored below
             # Pass base_system_prompt explicitly (even if empty) to avoid using config
             session = cls(
-                system_prompt=None,  # Don't add system prompt here, we'll use messages
+                system_prompt=None,  # Don't add system prompt here, we'll rebuild it
                 llm=llm,
                 storage=storage,
                 session_id=session_id,
@@ -3146,9 +4182,37 @@ class ConversationSession:
                 base_system_prompt=base_system_prompt,  # Use saved value, not config
             )
 
-            # Restore messages directly (they already contain the system message)
+            # Restore messages but remove system message - it will be rebuilt correctly
+            # This prevents contamination from old system messages that may include world state/summary
             if messages:
-                session.messages = messages
+                # Validate loaded messages for contamination before filtering
+                system_messages_in_load = [m for m in messages if m.get("role") == "system"]
+                if len(system_messages_in_load) > 1:
+                    logger.warning(
+                        f"Loaded conversation has {len(system_messages_in_load)} system messages. "
+                        "This indicates contamination. All will be removed and rebuilt.",
+                        extra={
+                            "event": "multiple_system_messages_in_loaded_conversation",
+                            "count": len(system_messages_in_load),
+                        }
+                    )
+                
+                # Filter out all system messages if present
+                session.messages = [m for m in messages if m.get("role") != "system"]
+                
+                # Validate that no system messages remain after filtering
+                remaining_system = [m for m in session.messages if m.get("role") == "system"]
+                if remaining_system:
+                    logger.error(
+                        f"CRITICAL: System messages still present after filtering: {len(remaining_system)}. "
+                        "This is a bug in the filtering logic.",
+                        extra={
+                            "event": "system_messages_remain_after_load_filtering",
+                            "count": len(remaining_system),
+                        }
+                    )
+                    # Force remove any remaining system messages
+                    session.messages = [m for m in session.messages if m.get("role") != "system"]
 
             # Restore timestamps
             session.created_at = metadata.get("created_at", session.created_at)
@@ -3159,10 +4223,34 @@ class ConversationSession:
             # If saved value is empty, set to None to indicate no system prompt was set
             session.system_prompt = base_system_prompt if base_system_prompt else None
 
+            # Validate that base prompt hasn't been contaminated
+            if base_system_prompt:
+                if "{" in base_system_prompt and "\"timestamp\"" in base_system_prompt:
+                    logger.warning(
+                        "Base system prompt appears to contain JSON (world state contamination detected). "
+                        "Using metadata value but this may be incorrect.",
+                        extra={
+                            "event": "base_prompt_contamination_detected",
+                            "base_prompt_preview": base_system_prompt[:200],
+                        }
+                    )
+                if "## Session Summary" in base_system_prompt or "Historical Context" in base_system_prompt:
+                    logger.warning(
+                        "Base system prompt appears to contain summary content (contamination detected). "
+                        "Using metadata value but this may be incorrect.",
+                        extra={
+                            "event": "base_prompt_summary_contamination_detected",
+                            "base_prompt_preview": base_system_prompt[:200],
+                        }
+                    )
+
             # If we have a world state aggregator, update the system prompt to refresh world state
-            # This ensures the world state is current even after loading
+            # This ensures the world state is current even after loading and rebuilds from clean base
             if world_state_aggregator and session._world_state_formatter:
                 session._update_system_prompt()
+            
+            # Final validation after rebuild to ensure clean state
+            session._ensure_single_system_message()
 
             logger.info(f"Loaded conversation {session_id} from storage")
             return session

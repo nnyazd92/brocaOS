@@ -389,53 +389,6 @@ class TestSessionWorldState:
             # Other fields should still be present
             assert "interoceptive_report" in internal_state or "tool_statistics" in internal_state
     
-    def test_system_prompt_excludes_project_files_and_directory_tree(self, mock_llm_client):
-        """Test that system prompt does NOT include project files and directory_tree."""
-        from broca.tools.project_world_state import ProjectWorldStateTool
-        
-        # Create a real project world state tool with test data
-        import tempfile
-        from pathlib import Path
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create test files
-            (Path(tmpdir) / "test1.py").write_text("print('test1')")
-            (Path(tmpdir) / "test2.py").write_text("print('test2')")
-            subdir = Path(tmpdir) / "subdir"
-            subdir.mkdir()
-            (subdir / "test3.py").write_text("print('test3')")
-            
-            # Build world state (tool is now callable, not in aggregator)
-            project_tool = ProjectWorldStateTool(project_root=tmpdir)
-            project_tool.build_world_state(project_root=tmpdir)
-            
-            # Create aggregator without project tool (project data no longer in aggregator)
-            aggregator = WorldStateAggregator()
-            
-            # Create session
-            session = ConversationSession(
-                system_prompt=None,
-                llm=mock_llm_client,
-                world_state_aggregator=aggregator,
-            )
-            
-            # Get system prompt content
-            assert len(session.messages) == 1
-            assert session.messages[0]["role"] == "system"
-            system_content = session.messages[0]["content"]
-            
-            # Extract JSON part
-            if "\n\n" in system_content:
-                json_part = system_content.split("\n\n", 1)[1]
-            else:
-                json_part = system_content
-            
-            # Parse JSON
-            parsed = json.loads(json_part)
-            
-            # Verify project section does NOT exist (project data no longer in world state)
-            assert "project" not in parsed
-    
     def test_system_prompt_includes_memory_namespace_hierarchy(self, mock_llm_client):
         """Test that system prompt includes memory namespace hierarchy when available."""
         from broca.memory.manager import MemoryManager

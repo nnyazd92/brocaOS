@@ -331,6 +331,8 @@ class SummarizationManager:
                 # Use new ID, or fall back to previous value if somehow empty
                 header.last_summarized_event_id = new_last_summarized_event_id or header.last_summarized_event_id or ""
                 header.revision += 1
+                # Increment summarization cycle count for gradual pruning
+                header.summarization_cycle_count += 1
             else:
                 header = SummaryHeader(
                     session_id=session_id,
@@ -338,7 +340,8 @@ class SummarizationManager:
                     last_updated_at=datetime.now(timezone.utc).isoformat(),
                     last_summarized_event_id=new_last_summarized_event_id or "",
                     revision=0,
-                    scope=f"Session {session_id}"
+                    scope=f"Session {session_id}",
+                    summarization_cycle_count=0  # First summarization, cycle count starts at 0
                 )
             
             # Merge summary blocks

@@ -433,6 +433,373 @@ class TestSessionSummarizationIntegration:
             assert "Previously Planned Steps" in formatted and "may be completed or outdated" in formatted
 
 
+class TestGradualPruning:
+    """Tests for gradual context reduction after summarization."""
+    
+    def test_buffer_calculation_first_cycle(self, temp_dirs, mock_llm_client):
+        """Test that first summarization uses initial buffer size."""
+        with pytest.MonkeyPatch().context() as m:
+            from broca.config import config
+            m.setattr(config.summarization, "enabled", True)
+            m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+            m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+            m.setattr(config.summarization, "gradual_pruning_enabled", True)
+            m.setattr(config.summarization, "initial_buffer_turns", 10)
+            m.setattr(config.summarization, "min_buffer_turns", 3)
+            m.setattr(config.summarization, "buffer_reduction_rate", 2)
+            
+            session = ConversationSession(
+                system_prompt="Test",
+                llm=mock_llm_client
+            )
+            
+            # Create a summary with cycle_count = 0 (first summarization)
+            summary_storage = session._summarization_manager.summary_storage
+            summary = SessionSummary(
+                header=SummaryHeader(
+                    session_id=session.session_id,
+                    created_at="2024-01-01T00:00:00Z",
+                    last_updated_at="2024-01-01T00:00:00Z",
+                    revision=0,
+                    summarization_cycle_count=0
+                ),
+                summary_blocks=SummaryBlocks()
+            )
+            summary_storage.save_session_summary(session.session_id, summary)
+            
+            # Calculate buffer size
+            buffer_size = session._calculate_buffer_turns()
+            
+            # First cycle should use initial buffer
+            assert buffer_size == 10, f"First cycle should use initial buffer (10), got {buffer_size}"
+    
+    def test_buffer_calculation_gradual_reduction(self, temp_dirs, mock_llm_client):
+        """Test that buffer size reduces gradually over cycles."""
+        with pytest.MonkeyPatch().context() as m:
+            from broca.config import config
+            m.setattr(config.summarization, "enabled", True)
+            m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+            m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+            m.setattr(config.summarization, "gradual_pruning_enabled", True)
+            m.setattr(config.summarization, "initial_buffer_turns", 10)
+            m.setattr(config.summarization, "min_buffer_turns", 3)
+            m.setattr(config.summarization, "buffer_reduction_rate", 2)
+            
+            session = ConversationSession(
+                system_prompt="Test",
+                llm=mock_llm_client
+            )
+            
+            summary_storage = session._summarization_manager.summary_storage
+            
+            # Test cycle 0: initial buffer
+            summary = SessionSummary(
+                header=SummaryHeader(
+                    session_id=session.session_id,
+                    created_at="2024-01-01T00:00:00Z",
+                    last_updated_at="2024-01-01T00:00:00Z",
+                    revision=0,
+                    summarization_cycle_count=0
+                ),
+                summary_blocks=SummaryBlocks()
+            )
+            summary_storage.save_session_summary(session.session_id, summary)
+            assert session._calculate_buffer_turns() == 10
+            
+            # Test cycle 1: 10 - (1 * 2) = 8
+            summary.header.summarization_cycle_count = 1
+            summary_storage.save_session_summary(session.session_id, summary)
+            assert session._calculate_buffer_turns() == 8
+            
+            # Test cycle 2: 10 - (2 * 2) = 6
+            summary.header.summarization_cycle_count = 2
+            summary_storage.save_session_summary(session.session_id, summary)
+            assert session._calculate_buffer_turns() == 6
+            
+            # Test cycle 3: 10 - (3 * 2) = 4
+            summary.header.summarization_cycle_count = 3
+            summary_storage.save_session_summary(session.session_id, summary)
+            assert session._calculate_buffer_turns() == 4
+            
+            # Test cycle 4: 10 - (4 * 2) = 2, but min is 3, so should be 3
+            summary.header.summarization_cycle_count = 4
+            summary_storage.save_session_summary(session.session_id, summary)
+            assert session._calculate_buffer_turns() == 3, "Should not go below min_buffer_turns"
+    
+    def test_buffer_calculation_with_gradual_disabled(self, temp_dirs, mock_llm_client):
+        """Test that disabling gradual pruning uses standard last_turns_count."""
+        with pytest.MonkeyPatch().context() as m:
+            from broca.config import config
+            m.setattr(config.summarization, "enabled", True)
+            m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+            m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+            m.setattr(config.summarization, "gradual_pruning_enabled", False)
+            m.setattr(config.summarization, "last_turns_count", 5)
+            
+            session = ConversationSession(
+                system_prompt="Test",
+                llm=mock_llm_client
+            )
+            
+            # Even with a summary with high cycle count, should use last_turns_count
+            summary_storage = session._summarization_manager.summary_storage
+            summary = SessionSummary(
+                header=SummaryHeader(
+                    session_id=session.session_id,
+                    created_at="2024-01-01T00:00:00Z",
+                    last_updated_at="2024-01-01T00:00:00Z",
+                    revision=0,
+                    summarization_cycle_count=10  # High cycle count
+                ),
+                summary_blocks=SummaryBlocks()
+            )
+            summary_storage.save_session_summary(session.session_id, summary)
+            
+            buffer_size = session._calculate_buffer_turns()
+            assert buffer_size == 5, "Should use last_turns_count when gradual pruning is disabled"
+    
+    def test_cycle_count_increments_on_summarization(self, temp_dirs, mock_llm_client):
+        """Test that cycle count increments when summarization occurs."""
+        with pytest.MonkeyPatch().context() as m:
+            from broca.config import config
+            m.setattr(config.summarization, "enabled", True)
+            m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+            m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+            m.setattr(config.summarization, "trigger_turns", 2)
+            
+            session = ConversationSession(
+                system_prompt="Test",
+                llm=mock_llm_client
+            )
+            
+            # Send messages to trigger summarization
+            for i in range(3):
+                session.send(f"Message {i}")
+            
+            # Check that summary was created and cycle count is tracked
+            summary_storage = session._summarization_manager.summary_storage
+            summary = summary_storage.load_session_summary(session.session_id)
+            
+            if summary:
+                # First summarization should have cycle_count = 0
+                assert summary.header.summarization_cycle_count == 0, \
+                    "First summarization should have cycle_count = 0"
+    
+    def test_gradual_pruning_keeps_more_messages_initially(self, temp_dirs, mock_llm_client):
+        """Test that gradual pruning keeps more messages initially than standard pruning."""
+        with pytest.MonkeyPatch().context() as m:
+            from broca.config import config
+            m.setattr(config.summarization, "enabled", True)
+            m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+            m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+            m.setattr(config.summarization, "gradual_pruning_enabled", True)
+            m.setattr(config.summarization, "initial_buffer_turns", 10)
+            m.setattr(config.summarization, "min_buffer_turns", 3)
+            m.setattr(config.summarization, "buffer_reduction_rate", 2)
+            m.setattr(config.summarization, "last_turns_count", 3)  # Standard would be 3
+            
+            session = ConversationSession(
+                system_prompt="Test",
+                llm=mock_llm_client
+            )
+            
+            # Send many messages
+            for i in range(20):
+                session.send(f"Message {i}")
+            
+            # Create summary with cycle_count = 0 (first summarization)
+            summary_storage = session._summarization_manager.summary_storage
+            summary = SessionSummary(
+                header=SummaryHeader(
+                    session_id=session.session_id,
+                    created_at="2024-01-01T00:00:00Z",
+                    last_updated_at="2024-01-01T00:00:00Z",
+                    revision=0,
+                    summarization_cycle_count=0,
+                    last_summarized_event_id="evt_mid"
+                ),
+                summary_blocks=SummaryBlocks()
+            )
+            summary_storage.save_session_summary(session.session_id, summary)
+            
+            # Simulate events for pruning
+            if session._event_logger:
+                events = session._event_logger.get_events(session.session_id)
+                if len(events) > 4:
+                    # Use an event from the middle
+                    mid_event_id = events[len(events) // 2].get("event_id")
+                    if mid_event_id:
+                        messages_before = len(session.messages)
+                        session._prune_summarized_messages(mid_event_id)
+                        messages_after = len(session.messages)
+                        
+                        # With gradual pruning (initial_buffer=10), should keep more messages
+                        # than standard (last_turns_count=3)
+                        # Standard would keep ~7 messages (1 system + 3*2 turns)
+                        # Gradual should keep ~21 messages (1 system + 10*2 turns)
+                        assert messages_after > 7, \
+                            f"Gradual pruning should keep more messages initially (got {messages_after})"
+    
+    def test_filtering_uses_same_buffer_calculation(self, temp_dirs, mock_llm_client):
+        """Test that message filtering uses the same buffer calculation as pruning."""
+        with pytest.MonkeyPatch().context() as m:
+            from broca.config import config
+            m.setattr(config.summarization, "enabled", True)
+            m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+            m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+            m.setattr(config.summarization, "gradual_pruning_enabled", True)
+            m.setattr(config.summarization, "initial_buffer_turns", 8)
+            m.setattr(config.summarization, "min_buffer_turns", 3)
+            m.setattr(config.summarization, "buffer_reduction_rate", 2)
+            
+            session = ConversationSession(
+                system_prompt="Test",
+                llm=mock_llm_client
+            )
+            
+            # Send messages
+            for i in range(15):
+                session.send(f"Message {i}")
+            
+            # Create summary with cycle_count = 1
+            summary_storage = session._summarization_manager.summary_storage
+            summary = SessionSummary(
+                header=SummaryHeader(
+                    session_id=session.session_id,
+                    created_at="2024-01-01T00:00:00Z",
+                    last_updated_at="2024-01-01T00:00:00Z",
+                    revision=0,
+                    summarization_cycle_count=1  # Should give buffer = 8 - (1*2) = 6
+                ),
+                summary_blocks=SummaryBlocks()
+            )
+            summary_storage.save_session_summary(session.session_id, summary)
+            
+            # Get filtered messages
+            filtered = session._get_filtered_messages()
+            
+            # Calculate expected buffer
+            expected_buffer = 6  # 8 - (1 * 2)
+            # Each turn is ~2 messages, so should have ~12 non-system messages
+            non_system_filtered = [m for m in filtered if m.get("role") != "system"]
+            
+            # Should have approximately expected_buffer * 2 messages (allowing some variance)
+            # Buffer of 6 turns = ~12 messages
+            assert len(non_system_filtered) >= expected_buffer * 2 - 2, \
+                f"Filtered messages should use gradual buffer calculation (expected ~{expected_buffer * 2}, got {len(non_system_filtered)})"
+    
+    def test_buffer_never_below_minimum(self, temp_dirs, mock_llm_client):
+        """Test that buffer size never goes below min_buffer_turns."""
+        with pytest.MonkeyPatch().context() as m:
+            from broca.config import config
+            m.setattr(config.summarization, "enabled", True)
+            m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+            m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+            m.setattr(config.summarization, "gradual_pruning_enabled", True)
+            m.setattr(config.summarization, "initial_buffer_turns", 10)
+            m.setattr(config.summarization, "min_buffer_turns", 3)
+            m.setattr(config.summarization, "buffer_reduction_rate", 2)
+            
+            session = ConversationSession(
+                system_prompt="Test",
+                llm=mock_llm_client
+            )
+            
+            summary_storage = session._summarization_manager.summary_storage
+            
+            # Test with very high cycle count
+            for cycle_count in [10, 20, 50, 100]:
+                summary = SessionSummary(
+                    header=SummaryHeader(
+                        session_id=session.session_id,
+                        created_at="2024-01-01T00:00:00Z",
+                        last_updated_at="2024-01-01T00:00:00Z",
+                        revision=0,
+                        summarization_cycle_count=cycle_count
+                    ),
+                    summary_blocks=SummaryBlocks()
+                )
+                summary_storage.save_session_summary(session.session_id, summary)
+                
+                buffer_size = session._calculate_buffer_turns()
+                assert buffer_size >= 3, \
+                    f"Buffer should never go below min_buffer_turns (3), got {buffer_size} at cycle {cycle_count}"
 
+
+class TestGradualPruningPropertyBased:
+    """Property-based tests for gradual pruning buffer calculation."""
+    
+    try:
+        from hypothesis import given, strategies as st, settings, HealthCheck
+        
+        @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=50)
+        @given(
+            initial_buffer=st.integers(min_value=3, max_value=20),
+            min_buffer=st.integers(min_value=1, max_value=10),
+            reduction_rate=st.integers(min_value=1, max_value=5),
+            cycle_count=st.integers(min_value=0, max_value=20)
+        )
+        def test_buffer_calculation_property(
+            self, temp_dirs, mock_llm_client, initial_buffer, min_buffer, reduction_rate, cycle_count
+        ):
+            """Property: Buffer size is always between min_buffer and initial_buffer."""
+            # Ensure min_buffer <= initial_buffer
+            if min_buffer > initial_buffer:
+                return
+            
+            with pytest.MonkeyPatch().context() as m:
+                from broca.config import config
+                m.setattr(config.summarization, "enabled", True)
+                m.setattr(config.summarization, "event_log_path", temp_dirs["event"])
+                m.setattr(config.summarization, "summary_path", temp_dirs["summary"])
+                m.setattr(config.summarization, "gradual_pruning_enabled", True)
+                m.setattr(config.summarization, "initial_buffer_turns", initial_buffer)
+                m.setattr(config.summarization, "min_buffer_turns", min_buffer)
+                m.setattr(config.summarization, "buffer_reduction_rate", reduction_rate)
+                
+                session = ConversationSession(
+                    system_prompt="Test",
+                    llm=mock_llm_client
+                )
+                
+                summary_storage = session._summarization_manager.summary_storage
+                summary = SessionSummary(
+                    header=SummaryHeader(
+                        session_id=session.session_id,
+                        created_at="2024-01-01T00:00:00Z",
+                        last_updated_at="2024-01-01T00:00:00Z",
+                        revision=0,
+                        summarization_cycle_count=cycle_count
+                    ),
+                    summary_blocks=SummaryBlocks()
+                )
+                summary_storage.save_session_summary(session.session_id, summary)
+                
+                buffer_size = session._calculate_buffer_turns()
+                
+                # Property: buffer_size is always >= min_buffer
+                assert buffer_size >= min_buffer, \
+                    f"Buffer size {buffer_size} should be >= min_buffer {min_buffer}"
+                
+                # Property: buffer_size is always <= initial_buffer
+                assert buffer_size <= initial_buffer, \
+                    f"Buffer size {buffer_size} should be <= initial_buffer {initial_buffer}"
+                
+                # Property: buffer_size decreases (or stays same) as cycle_count increases
+                if cycle_count > 0:
+                    summary.header.summarization_cycle_count = cycle_count - 1
+                    summary_storage.save_session_summary(session.session_id, summary)
+                    prev_buffer = session._calculate_buffer_turns()
+                    
+                    summary.header.summarization_cycle_count = cycle_count
+                    summary_storage.save_session_summary(session.session_id, summary)
+                    curr_buffer = session._calculate_buffer_turns()
+                    
+                    assert curr_buffer <= prev_buffer, \
+                        f"Buffer should decrease or stay same as cycle increases (prev={prev_buffer}, curr={curr_buffer})"
+        
+    except ImportError:
+        # Hypothesis not available, skip property-based tests
+        pass
 
 

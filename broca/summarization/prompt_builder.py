@@ -121,32 +121,52 @@ class PromptBuilder:
         return result
     
     def _format_summary(self, summary: SessionSummary) -> str:
-        """Format session summary for prompt as historical context."""
+        """Format session summary for prompt as historical context.
+        
+        Enforces per-item size limits (500 chars) to prevent unbounded growth.
+        """
         blocks = summary.summary_blocks
         lines = []
+        max_item_size = 500  # Maximum characters per item to prevent unbounded growth
+        
+        def truncate_item(item: str, max_size: int = max_item_size) -> str:
+            """Truncate an item to max_size, preserving structure."""
+            if not item or len(item) <= max_size:
+                return item
+            truncated = item[:max_size - 20]  # Leave room for truncation marker
+            # Try to truncate at word boundary
+            last_space = truncated.rfind(" ")
+            if last_space > max_size * 0.8:
+                truncated = truncated[:last_space]
+            return truncated + " [truncated]"
         
         if blocks.current_goal:
-            lines.append(f"Previous Goal Context: {blocks.current_goal} (may be outdated or completed)")
+            goal_text = truncate_item(blocks.current_goal)
+            lines.append(f"Previous Goal Context: {goal_text} (may be outdated or completed)")
         
         if blocks.what_we_built:
             lines.append("What Was Built (Historical):")
             for item in blocks.what_we_built[-5:]:  # Last 5 items
-                lines.append(f"  - {item}")
+                truncated_item = truncate_item(str(item))
+                lines.append(f"  - {truncated_item}")
         
         if blocks.open_questions:
             lines.append("Previous Open Questions (may be resolved):")
             for item in blocks.open_questions[-5:]:  # Last 5 items
-                lines.append(f"  - {item}")
+                truncated_item = truncate_item(str(item))
+                lines.append(f"  - {truncated_item}")
         
         if blocks.constraints:
             lines.append("Previous Constraints (may no longer apply):")
             for item in blocks.constraints[-5:]:  # Last 5 items
-                lines.append(f"  - {item}")
+                truncated_item = truncate_item(str(item))
+                lines.append(f"  - {truncated_item}")
         
         if blocks.next_steps:
             lines.append("Previously Planned Steps (may be completed or outdated):")
             for item in blocks.next_steps[-5:]:  # Last 5 items
-                lines.append(f"  - {item}")
+                truncated_item = truncate_item(str(item))
+                lines.append(f"  - {truncated_item}")
         
         return "\n".join(lines) if lines else ""
     

@@ -221,9 +221,6 @@ class ToolDescriptionFormatter:
         elif tool_name == "critic":
             return "Running critic check"
         
-        elif tool_name == "project_world_state":
-            return "Updating project world state"
-        
         elif tool_name == "query_self_model":
             return "Querying self model"
         

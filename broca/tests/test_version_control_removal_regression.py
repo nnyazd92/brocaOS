@@ -31,7 +31,6 @@ class TestToolRegistryWithoutVersionControl:
         mock_config.tools.enable_web_search = False
         mock_config.tools.enable_terminal = False
         mock_config.tools.enable_critic = False
-        mock_config.tools.enable_project_world_state = False
         
         # Initialize registry
         registry = _initialize_tool_registry(
@@ -60,7 +59,6 @@ class TestToolRegistryWithoutVersionControl:
         mock_config.tools.enable_web_search = False
         mock_config.tools.enable_terminal = True
         mock_config.tools.enable_critic = False
-        mock_config.tools.enable_project_world_state = False
         
         # Initialize registry
         registry = _initialize_tool_registry(
@@ -221,15 +219,10 @@ class TestMainReplWithoutVersionControl:
         mock_config.tools.enable_web_search = False
         mock_config.tools.enable_terminal = False
         mock_config.tools.enable_critic = False
-        mock_config.tools.enable_project_world_state = False
         mock_config.tools.tavily_api_key = ""
         mock_config.tools.terminal_command_whitelist = []
         mock_config.tools.terminal_working_directory = None
         mock_config.tools.critic_system_prompt_template = None
-        mock_config.tools.project_world_state_path = None
-        mock_config.tools.project_world_state_file = "project_world_state.json"
-        mock_config.tools.project_world_state_header_lines = 10
-        mock_config.tools.project_world_state_max_file_size = 1024 * 1024
         mock_config.tools.tools_mode = "normal"
         mock_config.tools.web_search_max_queries = 3
         mock_config.tools.web_search_cooldown_turns = 3
@@ -285,7 +278,6 @@ class TestPropertyBasedToolRegistry:
         enable_web_search=st.booleans(),
         enable_terminal=st.booleans(),
         enable_critic=st.booleans(),
-        enable_project_world_state=st.booleans(),
     )
     @patch('broca.main_repl.config')
     def test_tool_registry_with_various_combinations(
@@ -293,8 +285,7 @@ class TestPropertyBasedToolRegistry:
         mock_config,
         enable_web_search,
         enable_terminal,
-        enable_critic,
-        enable_project_world_state
+        enable_critic
     ):
         """
         Property-based test: tool registry should work with any combination of tools.
@@ -307,15 +298,10 @@ class TestPropertyBasedToolRegistry:
         mock_config.tools.enable_web_search = enable_web_search
         mock_config.tools.enable_terminal = enable_terminal
         mock_config.tools.enable_critic = enable_critic
-        mock_config.tools.enable_project_world_state = enable_project_world_state
         mock_config.tools.tavily_api_key = "test_key" if enable_web_search else ""
         mock_config.tools.terminal_command_whitelist = []
         mock_config.tools.terminal_working_directory = None
         mock_config.tools.critic_system_prompt_template = None
-        mock_config.tools.project_world_state_path = None
-        mock_config.tools.project_world_state_file = "project_world_state.json"
-        mock_config.tools.project_world_state_header_lines = 10
-        mock_config.tools.project_world_state_max_file_size = 1024 * 1024
         
         # Initialize registry
         registry = _initialize_tool_registry(
