@@ -315,11 +315,20 @@ class OptimizationDaemon:
         if not self.session:
             return
         
-        # Keep only system prompt if present
-        system_messages = [msg for msg in self.session.messages if msg.get("role") == "system"]
+        # Validate and ensure only one system message exists before keeping it
+        # This prevents accumulation of multiple system messages
+        self.session._ensure_single_system_message()
         
-        # Clear all other messages
-        self.session.messages = system_messages
+        # Keep only the first system message (should be at index 0 after validation)
+        system_message = None
+        if self.session.messages and self.session.messages[0].get("role") == "system":
+            system_message = self.session.messages[0]
+        
+        # Clear all messages and restore only the single system message
+        if system_message:
+            self.session.messages = [system_message]
+        else:
+            self.session.messages = []
         
         logger.debug("Cleared conversation context to prevent overflow")
     
