@@ -227,8 +227,38 @@ class ConversationSession:
         messages = data.get("messages", [])
         metadata = data.get("metadata", {})
 
-        # Restore messages and basic metadata
-        session.messages = messages
+        # Validate loaded messages for contamination before processing
+        # This is critical - we need to detect multiple system messages before they contaminate the session
+        system_messages_in_load = [m for m in messages if m.get("role") == "system"]
+        if len(system_messages_in_load) > 1:
+            logger.warning(
+                f"Loaded conversation has {len(system_messages_in_load)} system messages in from_storage(). "
+                "This indicates contamination. All will be removed and rebuilt.",
+                extra={
+                    "event": "multiple_system_messages_in_from_storage",
+                    "count": len(system_messages_in_load),
+                }
+            )
+
+        # Restore messages but filter out ALL system messages - they will be rebuilt correctly by _update_system_prompt()
+        # This prevents contamination from old system messages that may include world state/summary
+        # CRITICAL: Filter ALL system messages, not just the first one
+        session.messages = [m for m in messages if m.get("role") != "system"]
+        
+        # Validate that no system messages remain after filtering
+        remaining_system = [m for m in session.messages if m.get("role") == "system"]
+        if remaining_system:
+            logger.error(
+                f"CRITICAL: System messages still present after filtering in from_storage(): {len(remaining_system)}. "
+                "This is a bug in the filtering logic.",
+                extra={
+                    "event": "system_messages_remain_after_from_storage_filtering",
+                    "count": len(remaining_system),
+                }
+            )
+            # Force remove any remaining system messages
+            session.messages = [m for m in session.messages if m.get("role") != "system"]
+        
         session.created_at = metadata.get("created_at", session.created_at)
         session.updated_at = metadata.get("updated_at", session.updated_at)
 
@@ -257,11 +287,6 @@ class ConversationSession:
             cleaned_provided = cls._clean_base_prompt(base_system_prompt)
             session.base_system_prompt = cleaned_provided
 
-        # Remove system message from messages - it will be rebuilt correctly by _update_system_prompt()
-        # This prevents contamination from old system messages that may include world state/summary
-        if session.messages and session.messages[0].get("role") == "system":
-            session.messages.pop(0)
-
         # Validate that base prompt hasn't been contaminated
         if session.base_system_prompt:
             base_prompt = session.base_system_prompt
@@ -286,9 +311,26 @@ class ConversationSession:
                     }
                 )
 
+        # Validate system message state before rebuilding
+        # At this point, session.messages should have no system messages
+        system_messages_before_rebuild = [m for m in session.messages if m.get("role") == "system"]
+        if system_messages_before_rebuild:
+            logger.error(
+                f"CRITICAL: System messages found before rebuild in from_storage(): {len(system_messages_before_rebuild)}. "
+                "Removing them before rebuilding.",
+                extra={
+                    "event": "system_messages_before_rebuild_in_from_storage",
+                    "count": len(system_messages_before_rebuild),
+                }
+            )
+            session.messages = [m for m in session.messages if m.get("role") != "system"]
+
         # If we have a world state aggregator, rebuild the system prompt correctly
         if session.world_state_aggregator and session._world_state_formatter:
             session._update_system_prompt()
+        
+        # Final validation after rebuild to ensure clean state
+        session._ensure_single_system_message()
 
         return session
 
@@ -1241,9 +1283,33 @@ class ConversationSession:
                                 # Compute valence and arousal
                                 # Use conversation history for valence (excluding system prompts)
                                 # Include current assistant response in history
+                                # CRITICAL: Validate system message count before accessing self.messages in background thread
+                                # This prevents multiple system messages from propagating to internal sensing
+                                self._ensure_single_system_message()
+                                
                                 conversation_messages = self.messages + [
                                     {"role": "assistant", "content": assistant_text}
                                 ]
+                                
+                                # Validate the concatenated list doesn't have multiple system messages
+                                system_count = sum(1 for m in conversation_messages if m.get("role") == "system")
+                                if system_count > 1:
+                                    logger.warning(
+                                        f"Background thread: conversation_messages contains {system_count} system messages. "
+                                        "Filtering to single system message.",
+                                        extra={
+                                            "event": "multiple_system_messages_in_background_thread",
+                                            "count": system_count,
+                                        }
+                                    )
+                                    # Filter to keep only first system message
+                                    system_msgs = [m for m in conversation_messages if m.get("role") == "system"]
+                                    non_system_msgs = [m for m in conversation_messages if m.get("role") != "system"]
+                                    if system_msgs:
+                                        conversation_messages = [system_msgs[0]] + non_system_msgs
+                                    else:
+                                        conversation_messages = non_system_msgs
+                                
                                 self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
                                     conversation_messages
                                 )
@@ -1912,8 +1978,14 @@ class ConversationSession:
                 )
             return messages if system_message is None else [system_message]
         
+        # Validate conversation_messages before copying to prevent contamination
+        self._validate_message_list_for_system_messages(conversation_messages)
+        
         # Iteratively remove oldest non-system messages until under limit
         filtered_messages = conversation_messages.copy()
+        
+        # Validate filtered_messages after copy
+        self._validate_message_list_for_system_messages(filtered_messages)
         
         while filtered_messages and estimated_tokens > effective_max_tokens:
             # Remove oldest message (first in list)
@@ -1926,6 +1998,8 @@ class ConversationSession:
             # Reconstruct full message list with system message (if present)
             if system_message:
                 current_messages = [system_message] + filtered_messages
+                # Validate concatenated list
+                self._validate_message_list_for_system_messages(current_messages)
             else:
                 current_messages = filtered_messages
             
@@ -1939,8 +2013,12 @@ class ConversationSession:
         # Reconstruct final message list
         if system_message:
             result = [system_message] + filtered_messages
+            # Validate concatenated result
+            self._validate_message_list_for_system_messages(result)
         else:
             result = filtered_messages
+            # Validate result
+            self._validate_message_list_for_system_messages(result)
         
         # Final check - if still over limit, log warning but return anyway
         final_estimated_tokens = estimate_messages_tokens(result)
@@ -2311,7 +2389,20 @@ class ConversationSession:
                 )
                 # Add the fallback message after system messages
                 system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
+                # Ensure only one system message before concatenation
+                if len(system_messages) > 1:
+                    logger.warning(
+                        f"Found {len(system_messages)} system messages in Gemini fix. "
+                        "Keeping only the first.",
+                        extra={
+                            "event": "multiple_system_messages_in_gemini_fix",
+                            "count": len(system_messages),
+                        }
+                    )
+                    system_messages = [system_messages[0]]
                 current_messages = system_messages + [fallback_message]
+                # Validate concatenated result
+                self._validate_message_list_for_system_messages(current_messages)
             else:
                 # No fallback found - inject a default user message to prevent API error
                 logger.warning(
@@ -2324,8 +2415,21 @@ class ConversationSession:
                     }
                 )
                 system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
+                # Ensure only one system message before concatenation
+                if len(system_messages) > 1:
+                    logger.warning(
+                        f"Found {len(system_messages)} system messages in Gemini fix fallback. "
+                        "Keeping only the first.",
+                        extra={
+                            "event": "multiple_system_messages_in_gemini_fix_fallback",
+                            "count": len(system_messages),
+                        }
+                    )
+                    system_messages = [system_messages[0]]
                 default_message = {"role": "user", "content": "Please continue the conversation."}
                 current_messages = system_messages + [default_message]
+                # Validate concatenated result
+                self._validate_message_list_for_system_messages(current_messages)
         
         return current_messages
     
@@ -3275,7 +3379,7 @@ class ConversationSession:
             prompt_content: The system prompt content that was just set
         """
         # Check system message count
-        system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system")]
+        system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system"]
         if len(system_messages) != 1:
             logger.error(
                 f"CRITICAL: After system prompt update, found {len(system_messages)} system messages "
@@ -3376,7 +3480,7 @@ class ConversationSession:
         Returns:
             True if validation passed (no issues found), False if issues were found and fixed
         """
-        system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system")]
+        system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system"]
         
         if len(system_messages) == 0:
             # No system message - this is OK if world_state_aggregator will create one
@@ -3419,7 +3523,7 @@ class ConversationSession:
         self.messages.insert(0, first_system_msg)
         
         # Validate fix worked
-        final_system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system")]
+        final_system_messages = [i for i, msg in enumerate(self.messages) if msg.get("role") == "system"]
         if len(final_system_messages) != 1 or final_system_messages[0] != 0:
             logger.error(
                 f"CRITICAL: Failed to fix system message issues. "
@@ -3432,6 +3536,36 @@ class ConversationSession:
             )
         
         return False  # Issues were found and fixed
+    
+    def _validate_message_list_for_system_messages(self, messages: List[Dict[str, Any]]) -> bool:
+        """
+        Validate a message list for system message issues.
+        
+        This helper method checks if a message list (which may not be self.messages)
+        contains multiple system messages, which would indicate contamination.
+        
+        Args:
+            messages: Message list to validate
+            
+        Returns:
+            True if valid (0-1 system messages), False if invalid (multiple system messages)
+        """
+        system_messages = [i for i, msg in enumerate(messages) if msg.get("role") == "system"]
+        
+        if len(system_messages) <= 1:
+            return True
+        
+        logger.warning(
+            f"Message list contains {len(system_messages)} system messages (expected 0-1). "
+            "This indicates contamination or accumulation.",
+            extra={
+                "event": "multiple_system_messages_in_list",
+                "count": len(system_messages),
+                "indices": system_messages,
+                "list_length": len(messages),
+            }
+        )
+        return False
 
     # ---------- Critic enforcement helpers ----------
 
@@ -3531,14 +3665,46 @@ class ConversationSession:
         # For deepseek-reasoner, we must include reasoning_content in the assistant message
         # if it was present in the response
         # For Gemini, we must preserve thought_signature in each tool_call
-        assistant_message = {
-            "role": "assistant",
-            "content": self.llm.extract_assistant_content(response) or None,
-            "tool_calls": tool_calls,
-        }
+        is_gemini = self._is_gemini_client()
+        
+        # For Gemini, ensure each tool_call has thought_signature
+        # If missing, add the current thought_signature from the response
+        if is_gemini and tool_calls:
+            current_sig = getattr(self, '_current_thought_signature', None)
+            tool_calls_fixed = False
+            for tool_call in tool_calls:
+                if isinstance(tool_call, dict) and "thought_signature" not in tool_call:
+                    if current_sig:
+                        tool_call["thought_signature"] = current_sig
+                        tool_calls_fixed = True
+                        logger.debug(
+                            "Added thought_signature to tool_call using current signature",
+                            extra={
+                                "event": "thought_signature_added_to_tool_call",
+                                "tool_call_id": tool_call.get("id", "unknown"),
+                                "function_name": tool_call.get("function", {}).get("name", "unknown"),
+                            }
+                        )
+                    else:
+                        logger.warning(
+                            "Tool call missing thought_signature and no current signature available",
+                            extra={
+                                "event": "missing_thought_signature_in_tool_call",
+                                "tool_call_id": tool_call.get("id", "unknown"),
+                                "function_name": tool_call.get("function", {}).get("name", "unknown"),
+                            }
+                        )
+            
+            if tool_calls_fixed:
+                logger.info(
+                    "Fixed missing thought_signature in tool_calls for Gemini",
+                    extra={
+                        "event": "thought_signature_fixed_in_tool_calls",
+                        "total_tool_calls": len(tool_calls),
+                    }
+                )
         
         # Log thought_signature preservation for Gemini (for debugging)
-        is_gemini = self._is_gemini_client()
         if is_gemini:
             thought_sigs_in_tool_calls = sum(1 for tc in tool_calls if tc.get("thought_signature"))
             if thought_sigs_in_tool_calls > 0:
@@ -3558,6 +3724,12 @@ class ConversationSession:
                         "total_tool_calls": len(tool_calls),
                     }
                 )
+        
+        assistant_message = {
+            "role": "assistant",
+            "content": self.llm.extract_assistant_content(response) or None,
+            "tool_calls": tool_calls,
+        }
         
         # Include reasoning_content in the assistant message for reasoner model
         # The API requires this field to be present in assistant messages with tool_calls

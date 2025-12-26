@@ -3,7 +3,9 @@ from uuid import uuid4
 from datetime import datetime, timezone
 import json
 import logging
+import time
 
+import psutil
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -19,6 +21,44 @@ logger = logging.getLogger(__name__)
 _runtime: Optional[BrocaRuntime] = None
 
 app = FastAPI(title="BrocaOS Web API")
+
+# --- Activity / Metrics State ---
+LAST_WORK_TS: float = 0.0
+ACTIVE_REQUESTS: int = 0
+
+
+def mark_work() -> None:
+    """Mark that the system is actively processing work.
+
+    Updates the last-activity timestamp used by /api/metrics to decide
+    whether the system is in a WORKING vs IDLE state for the NeuralCore.
+    """
+    global LAST_WORK_TS
+    LAST_WORK_TS = time.time()
+
+
+def begin_request() -> None:
+    """Mark the start of a request that may involve tools / cognition.
+
+    Increments ACTIVE_REQUESTS and updates the last-work timestamp.
+    """
+    global ACTIVE_REQUESTS
+    ACTIVE_REQUESTS += 1
+    mark_work()
+
+
+def end_request() -> None:
+    """Mark the end of an active request.
+
+    Decrements ACTIVE_REQUESTS (safely) and bumps last-work timestamp so
+    the system remains in WORKING state briefly after completion.
+    """
+    global ACTIVE_REQUESTS
+    if ACTIVE_REQUESTS > 0:
+        ACTIVE_REQUESTS -= 1
+    mark_work()
+
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -102,6 +142,40 @@ def generate_title(user_message: str) -> str:
     except Exception as e:
         logger.warning(f"Failed to generate title: {e}")
         return user_message[:40] + "..."
+
+
+@app.get("/api/metrics")
+async def metrics():
+    """System + activity metrics for NeuralCore.
+
+    Returns CPU, memory pressure, uptime, and a boolean isWorking flag
+    based on recent chat activity, matching the shape expected by the
+    NeuralCore visualization in broca-www.
+    """
+    # Live CPU usage as fraction [0,1]
+    cpu_percent = psutil.cpu_percent(interval=0.1) / 100.0
+
+    # Memory pressure: used / total
+    vm = psutil.virtual_memory()
+    mem_pressure = vm.used / vm.total if vm.total else 0.0
+
+    # Uptime: seconds since boot
+    boot_time = psutil.boot_time()
+    now_sec = time.time()
+    uptime = int(now_sec - boot_time)
+
+    # "Working" if there is an active request OR recent activity
+    RECENT_WINDOW = 5.0  # seconds
+    is_working = ACTIVE_REQUESTS > 0 or (now_sec - LAST_WORK_TS) < RECENT_WINDOW
+
+    return {
+        "cpu": max(0.0, min(cpu_percent, 1.0)),
+        "memory": max(0.0, min(mem_pressure, 1.0)),
+        "uptime": uptime,
+        "isWorking": is_working,
+        "timestamp": int(now_sec * 1000),
+    }
+
 
 @app.post("/api/conversations", response_model=NewConversationResponse)
 async def create_conversation(req: NewConversationRequest) -> NewConversationResponse:
@@ -191,6 +265,9 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
     rt = get_runtime()
     storage = get_storage()
     session = create_session(conversation_id)
+
+    # Mark that we're actively processing a streaming user chat request
+    mark_work()
     
     session.messages.append({"role": "user", "content": user_message})
     
@@ -281,39 +358,43 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
-    if not req.messages:
-        raise HTTPException(status_code=400, detail="No messages provided")
+    begin_request()
+    try:
+        if not req.messages:
+            raise HTTPException(status_code=400, detail="No messages provided")
 
-    last = req.messages[-1]
-    if last.role != "user":
-        raise HTTPException(status_code=400, detail="Last message must be from user")
+        last = req.messages[-1]
+        if last.role != "user":
+            raise HTTPException(status_code=400, detail="Last message must be from user")
 
-    if req.conversation_id is None:
-        res = await create_conversation(NewConversationRequest())
-        req.conversation_id = res.conversation_id
+        if req.conversation_id is None:
+            res = await create_conversation(NewConversationRequest())
+            req.conversation_id = res.conversation_id
 
-    if req.stream:
-        return StreamingResponse(
-            stream_response(req.conversation_id, last.content),
-            media_type="application/x-ndjson"
+        if req.stream:
+            return StreamingResponse(
+                stream_response(req.conversation_id, last.content),
+                media_type="application/x-ndjson"
+            )
+
+        # Non-streaming
+        session = create_session(req.conversation_id)
+        reply_text = session.send(last.content, stream=False)
+        
+        storage = get_storage()
+        data = storage.load_conversation(req.conversation_id)
+        metadata = data.get("metadata", {}) if data else {}
+        if metadata.get("title") == "New conversation":
+            metadata["title"] = generate_title(last.content)
+        metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+        storage.save_conversation(req.conversation_id, session.messages, metadata)
+        
+        return ChatResponse(
+            conversation_id=req.conversation_id,
+            reply=Message(role="assistant", content=reply_text)
         )
-
-    # Non-streaming
-    session = create_session(req.conversation_id)
-    reply_text = session.send(last.content, stream=False)
-    
-    storage = get_storage()
-    data = storage.load_conversation(req.conversation_id)
-    metadata = data.get("metadata", {}) if data else {}
-    if metadata.get("title") == "New conversation":
-        metadata["title"] = generate_title(last.content)
-    metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
-    storage.save_conversation(req.conversation_id, session.messages, metadata)
-    
-    return ChatResponse(
-        conversation_id=req.conversation_id,
-        reply=Message(role="assistant", content=reply_text)
-    )
+    finally:
+        end_request()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)

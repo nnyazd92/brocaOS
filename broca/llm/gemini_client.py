@@ -144,7 +144,7 @@ class GeminiClient:
         
         # Convert messages to SDK format
         # Ensure thought_signature is present in tool_calls first
-        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages)
+        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages, thought_signature)
         
         sdk_messages = []
         for msg in prepared_messages:
@@ -308,7 +308,7 @@ class GeminiClient:
             raise ValueError(error_msg)
 
         # Ensure thought_signature is present in tool_calls (required by Gemini API)
-        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages)
+        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages, thought_signature)
         
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -466,7 +466,7 @@ class GeminiClient:
         temp = temperature if temperature is not None else self.temperature
 
         # Ensure thought_signature is present in tool_calls (required by Gemini API)
-        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages)
+        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages, thought_signature)
         
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -819,15 +819,20 @@ class GeminiClient:
         return sdk_tools
 
     @staticmethod
-    def _ensure_thought_signature_in_tool_calls(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _ensure_thought_signature_in_tool_calls(
+        messages: List[Dict[str, Any]], 
+        thought_signature: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Ensure thought_signature is present in tool_calls for Gemini API.
         
         When sending conversation history to Gemini API, each tool_call in assistant
         messages must include its thought_signature. This method validates and
-        ensures this requirement is met.
+        ensures this requirement is met by adding thought_signature to tool_calls
+        that are missing it.
         
         Args:
             messages: List of message dictionaries
+            thought_signature: Optional thought_signature to use when tool_calls are missing it
             
         Returns:
             List of messages with thought_signature ensured in tool_calls
@@ -845,18 +850,29 @@ class GeminiClient:
                     tool_calls_updated = False
                     for tool_call in tool_calls:
                         if isinstance(tool_call, dict) and "thought_signature" not in tool_call:
-                            # Missing thought_signature - log warning
-                            logger.warning(
-                                "Tool call missing thought_signature for Gemini API",
-                                extra={
-                                    "event": "missing_thought_signature_in_tool_call",
-                                    "tool_call_id": tool_call.get("id", "unknown"),
-                                    "function_name": tool_call.get("function", {}).get("name", "unknown"),
-                                }
-                            )
-                            # Note: We can't add a thought_signature if it wasn't in the original response
-                            # This is a validation warning - the API call may fail
-                            tool_calls_updated = True
+                            # Missing thought_signature - try to add it
+                            if thought_signature:
+                                tool_call["thought_signature"] = thought_signature
+                                tool_calls_updated = True
+                                logger.debug(
+                                    "Added thought_signature to tool_call",
+                                    extra={
+                                        "event": "thought_signature_added_to_tool_call",
+                                        "tool_call_id": tool_call.get("id", "unknown"),
+                                        "function_name": tool_call.get("function", {}).get("name", "unknown"),
+                                    }
+                                )
+                            else:
+                                # No thought_signature available - log warning
+                                logger.warning(
+                                    "Tool call missing thought_signature for Gemini API",
+                                    extra={
+                                        "event": "missing_thought_signature_in_tool_call",
+                                        "tool_call_id": tool_call.get("id", "unknown"),
+                                        "function_name": tool_call.get("function", {}).get("name", "unknown"),
+                                    }
+                                )
+                                tool_calls_updated = True
                     
                     if tool_calls_updated:
                         # Update the tool_calls in the message copy

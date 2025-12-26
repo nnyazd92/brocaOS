@@ -127,8 +127,14 @@ class ComputationalAffectMonitor:
         # Combine all conversation text
         combined_text = " ".join(conversation_texts)
         
+        # Track state transition
+        was_none = self.affective_states.get("valence") is None
+        
         # Compute valence from combined text
         self.compute_valence_from_text(combined_text)
+        
+        if was_none and self.affective_states.get("valence") is not None:
+            logger.debug(f"State transition: valence None -> {self.affective_states['valence']:.3f}")
     
     def compute_arousal(self, activation_level: float) -> None:
         """
@@ -137,7 +143,10 @@ class ComputationalAffectMonitor:
         Args:
             activation_level: Activation level (0.0-1.0)
         """
+        was_none = self.affective_states.get("arousal") is None
         self.affective_states["arousal"] = max(0.0, min(1.0, activation_level))
+        if was_none:
+            logger.debug(f"State transition: arousal None -> {self.affective_states['arousal']:.3f}")
     
     def update_certainty_affect(self, confidence: float) -> None:
         """
@@ -202,21 +211,35 @@ class ComputationalAffectMonitor:
         # Update certainty affect from confidence
         confidence = cognitive_monitor.states.get("confidence_level")
         if confidence is not None:
+            was_none = self.affective_states.get("certainty_affect") is None
             self.update_certainty_affect(confidence)
+            if was_none:
+                logger.debug(f"State transition: certainty_affect None -> {self.affective_states['certainty_affect']:.3f}")
         
         # Update coherence pleasure from coherence
         coherence = cognitive_monitor.states.get("conceptual_coherence")
         if coherence is not None:
+            was_none = self.affective_states.get("coherence_pleasure") is None
             self.update_coherence_pleasure(coherence)
+            if was_none:
+                logger.debug(f"State transition: coherence_pleasure None -> {self.affective_states['coherence_pleasure']:.3f}")
         
         # Update curiosity from uncertainty
         uncertainty = cognitive_monitor.states.get("uncertainty_tracking")
         # Use attention as proxy for interest
-        attention_total = sum(cognitive_monitor.states.get("attention_allocation", {}).values())
+        attention_allocation = cognitive_monitor.states.get("attention_allocation", {})
+        attention_total = sum(attention_allocation.values())
         interest = min(attention_total, 1.0) if attention_total > 0 else 0.0
         
         if uncertainty is not None:
+            was_none = self.affective_states.get("curiosity_drive") is None
             self.compute_curiosity_drive(uncertainty, interest)
+            if was_none:
+                logger.debug(
+                    f"State transition: curiosity_drive None -> {self.affective_states['curiosity_drive']:.3f} "
+                    f"(uncertainty={uncertainty:.3f}, interest={interest:.3f})"
+                )
+                logger.debug(f"State transition: curiosity_drive None -> {self.affective_states['curiosity_drive']:.3f}")
     
     def record_motivational_drive(self, drive_type: str, level: float) -> None:
         """

@@ -120,7 +120,6 @@ class WorldStateAggregator:
         if internal_sensing_state.get("available"):
             current_state = internal_sensing_state.get("current_state", {})
             world_state["internal_state"] = {
-                "interoceptive_report": internal_sensing_state.get("interoceptive_report"),
                 "tool_statistics": internal_sensing_state.get("tool_statistics", {}),
             }
             # Add physiology, cognition, affect from current_state if available

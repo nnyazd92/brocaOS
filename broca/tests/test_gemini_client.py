@@ -418,3 +418,127 @@ def test_chat_with_thought_signature_parameter(monkeypatch):
 
     monkeypatch.setattr(client._client, "post", fake_post)
     client.chat(messages=[{"role": "user", "content": "test"}], thought_signature="param-sig")
+
+
+def test_ensure_thought_signature_in_tool_calls_adds_missing():
+    """Test that _ensure_thought_signature_in_tool_calls adds thought_signature when missing."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "test", "arguments": "{}"},
+                    # Missing thought_signature
+                }
+            ],
+        }
+    ]
+    
+    result = GeminiClient._ensure_thought_signature_in_tool_calls(messages, thought_signature="test-sig-123")
+    
+    assert len(result) == 1
+    assert result[0]["role"] == "assistant"
+    assert len(result[0]["tool_calls"]) == 1
+    assert result[0]["tool_calls"][0]["thought_signature"] == "test-sig-123"
+
+
+def test_ensure_thought_signature_in_tool_calls_preserves_existing():
+    """Test that _ensure_thought_signature_in_tool_calls preserves existing thought_signature."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "test", "arguments": "{}"},
+                    "thought_signature": "existing-sig",
+                }
+            ],
+        }
+    ]
+    
+    result = GeminiClient._ensure_thought_signature_in_tool_calls(messages, thought_signature="new-sig")
+    
+    assert len(result) == 1
+    assert result[0]["tool_calls"][0]["thought_signature"] == "existing-sig"  # Preserved
+
+
+def test_ensure_thought_signature_in_tool_calls_no_signature_available():
+    """Test that _ensure_thought_signature_in_tool_calls warns when no signature available."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "test", "arguments": "{}"},
+                    # Missing thought_signature
+                }
+            ],
+        }
+    ]
+    
+    # No thought_signature provided
+    result = GeminiClient._ensure_thought_signature_in_tool_calls(messages)
+    
+    assert len(result) == 1
+    assert "thought_signature" not in result[0]["tool_calls"][0]  # Still missing
+
+
+def test_ensure_thought_signature_in_tool_calls_multiple_tool_calls():
+    """Test that _ensure_thought_signature_in_tool_calls handles multiple tool_calls."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "test1", "arguments": "{}"},
+                    # Missing thought_signature
+                },
+                {
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {"name": "test2", "arguments": "{}"},
+                    "thought_signature": "existing-sig",
+                },
+                {
+                    "id": "call_3",
+                    "type": "function",
+                    "function": {"name": "test3", "arguments": "{}"},
+                    # Missing thought_signature
+                },
+            ],
+        }
+    ]
+    
+    result = GeminiClient._ensure_thought_signature_in_tool_calls(messages, thought_signature="new-sig")
+    
+    assert len(result) == 1
+    assert len(result[0]["tool_calls"]) == 3
+    assert result[0]["tool_calls"][0]["thought_signature"] == "new-sig"  # Added
+    assert result[0]["tool_calls"][1]["thought_signature"] == "existing-sig"  # Preserved
+    assert result[0]["tool_calls"][2]["thought_signature"] == "new-sig"  # Added
+
+
+def test_ensure_thought_signature_in_tool_calls_non_assistant_messages():
+    """Test that _ensure_thought_signature_in_tool_calls ignores non-assistant messages."""
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "system", "content": "You are a helper"},
+    ]
+    
+    result = GeminiClient._ensure_thought_signature_in_tool_calls(messages, thought_signature="sig")
+    
+    assert len(result) == 2
+    assert result[0]["role"] == "user"
+    assert result[1]["role"] == "system"

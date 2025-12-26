@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from collections import deque
 
 from .computational_physiology import ComputationalPhysiologyMonitor
@@ -50,12 +50,35 @@ class IntegratedInteroception:
         """
         Generate unified interoceptive awareness.
         
+        This method automatically wires up state computations:
+        - Cognitive states (confidence, coherence, uncertainty) are sampled from their monitors
+        - Affective states are automatically updated from cognitive states via update_from_cognitive()
+          * certainty_affect computed from confidence_level
+          * coherence_pleasure computed from conceptual_coherence
+          * curiosity_drive computed from uncertainty_tracking and attention_allocation
+        - Valence and arousal are computed in session.py when conversation data is available
+        - Surprise is computed from prediction error when previous prediction exists
+        
         Returns:
             Dictionary containing unified internal state
         """
         # Sample all components
         computational = self.physiology.sample_resources()
         cognitive = self.cognition.sample_cognitive_state()
+        
+        # Update affective states from cognitive states automatically
+        # This ensures certainty_affect, coherence_pleasure, and curiosity_drive are computed
+        # when cognitive data is available
+        # This is called before sampling affective state to ensure all derived states are computed
+        self.affect.update_from_cognitive(self.cognition)
+        
+        # Log if states were computed (for debugging state transitions)
+        if self.affect.affective_states.get("certainty_affect") is not None:
+            logger.debug("Affective states updated from cognitive: certainty_affect computed")
+        if self.affect.affective_states.get("curiosity_drive") is not None:
+            logger.debug("Affective states updated from cognitive: curiosity_drive computed")
+        if self.affect.affective_states.get("coherence_pleasure") is not None:
+            logger.debug("Affective states updated from cognitive: coherence_pleasure computed")
         
         # Calculate Surprise (Prediction Error) from PREVIOUS turn's prediction vs CURRENT reality
         if hasattr(self, '_last_prediction') and self._last_prediction:
@@ -118,7 +141,9 @@ class IntegratedInteroception:
         Returns:
             Natural language description of internal state
         """
-        state = self.interoceptive_map
+        # Use fresh state instead of stale interoceptive_map
+        # Generate fresh awareness to ensure we have the latest computed values
+        state = self.generate_interoceptive_awareness()
         
         if not state:
             return "No internal state data available."
