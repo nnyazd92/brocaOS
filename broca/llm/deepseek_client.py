@@ -363,34 +363,48 @@ class DeepSeekClient:
         
         DeepSeek reasoner model requires that reasoning_content from previous
         responses is not included in subsequent requests. However, assistant messages
-        with tool_calls MUST retain their reasoning_content field.
+        with tool_calls MUST have their reasoning_content field (even if empty).
         
-        This method removes reasoning_content from:
-        - Final assistant responses (no tool_calls)
-        - But keeps reasoning_content in assistant messages with tool_calls
+        This method:
+        - Removes reasoning_content from final assistant responses (no tool_calls)
+        - Ensures assistant messages with tool_calls have reasoning_content field
+          (adds empty string if missing, preserves existing value if present)
         
         Args:
             messages: List of message dictionaries (may contain reasoning_content)
             
         Returns:
-            New list of messages with reasoning_content removed from final responses only
+            New list of messages with reasoning_content properly handled
         """
         cleaned = []
-        for msg in messages:
+        for i, msg in enumerate(messages):
             # Create a copy to avoid mutating the original
             cleaned_msg = msg.copy()
             role = cleaned_msg.get("role")
             
-            # Only remove reasoning_content from assistant messages that DON'T have tool_calls
-            # Assistant messages with tool_calls MUST keep reasoning_content (API requirement)
-            if role == "assistant" and "reasoning_content" in cleaned_msg:
+            # Handle assistant messages
+            if role == "assistant":
                 # Check if this assistant message has tool_calls
                 has_tool_calls = "tool_calls" in cleaned_msg and cleaned_msg.get("tool_calls")
                 
-                # Remove reasoning_content only if it's a final response (no tool_calls)
-                if not has_tool_calls:
-                    del cleaned_msg["reasoning_content"]
-                # If it has tool_calls, keep reasoning_content (required by API)
+                if has_tool_calls:
+                    # Assistant messages with tool_calls MUST have reasoning_content field (API requirement)
+                    # Add it if missing (set to empty string), preserve if present
+                    if "reasoning_content" not in cleaned_msg:
+                        cleaned_msg["reasoning_content"] = ""
+                        logger.debug(
+                            f"Added missing reasoning_content field to assistant message with tool_calls at index {i}",
+                            extra={
+                                "event": "reasoning_content_added_to_message",
+                                "message_index": i,
+                                "has_tool_calls": True,
+                            }
+                        )
+                    # If reasoning_content exists, keep it (required by API)
+                else:
+                    # Final assistant response (no tool_calls) - remove reasoning_content
+                    if "reasoning_content" in cleaned_msg:
+                        del cleaned_msg["reasoning_content"]
             elif "reasoning_content" in cleaned_msg:
                 # Remove from non-assistant messages (shouldn't have it, but clean it anyway)
                 del cleaned_msg["reasoning_content"]
