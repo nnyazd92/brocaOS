@@ -1741,6 +1741,9 @@ class ConversationSession:
         if not isinstance(max_context_tokens, int):
             max_context_tokens = 100000  # Default value
         
+        # Validate system message count before filtering to prevent accumulation issues
+        self._ensure_single_system_message()
+        
         # Get system message (if exists)
         system_message = None
         if self.messages and self.messages[0].get("role") == "system":
@@ -1835,6 +1838,30 @@ class ConversationSession:
             Filtered messages with tool results truncated and messages removed if needed to stay under limit
         """
         from ..config import config
+        
+        # Validate system message count in the messages list before filtering
+        # If messages is self.messages, validate directly; otherwise check the list
+        if messages is self.messages:
+            self._ensure_single_system_message()
+        else:
+            # Check for multiple system messages in the provided list
+            system_messages = [i for i, msg in enumerate(messages) if msg.get("role") == "system"]
+            if len(system_messages) > 1:
+                logger.warning(
+                    f"Found {len(system_messages)} system messages in filtering list. "
+                    "Keeping only the first.",
+                    extra={
+                        "event": "multiple_system_messages_in_filtering",
+                        "count": len(system_messages),
+                    }
+                )
+                # Keep only the first system message
+                first_system_msg = messages[system_messages[0]]
+                # Remove all system messages
+                for idx in reversed(system_messages):
+                    messages.pop(idx)
+                # Insert at index 0
+                messages.insert(0, first_system_msg)
         
         # Check if we're using Gemini client (for Gemini-specific ordering fixes)
         is_gemini = self._is_gemini_client()
@@ -3830,6 +3857,9 @@ class ConversationSession:
             return
 
         try:
+            # Validate system message count before saving to prevent saving contaminated state
+            # This is critical - we don't want to persist multiple system messages
+            self._ensure_single_system_message()
             # Use base_system_prompt if it was explicitly set, otherwise use system_prompt
             # If base_system_prompt came from config and system_prompt is None, save empty string
             # to indicate no explicit system prompt was set
