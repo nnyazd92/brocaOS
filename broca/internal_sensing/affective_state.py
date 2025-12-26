@@ -35,16 +35,31 @@ class ComputationalAffectMonitor:
     - Coherence pleasure: Satisfaction from understanding
     """
     
-    def __init__(self) -> None:
-        """Initialize computational affect monitor."""
-        self.affective_states: Dict[str, Optional[float]] = {
-            "valence": None,  # Unknown until computed
-            "arousal": None,  # Unknown until computed
-            "certainty_affect": None,  # Unknown until computed
-            "curiosity_drive": None,  # Unknown until computed
-            "coherence_pleasure": None,
-            "surprise": 0.0,  # Prediction error / novelty  # Unknown until computed
+    def __init__(self, moving_avg_window: int = 20) -> None:
+        """
+        Initialize computational affect monitor.
+        
+        Args:
+            moving_avg_window: Number of samples to include in moving average
+        """
+        # Initialize with default neutral values (never None)
+        self.affective_states: Dict[str, float] = {
+            "valence": 0.0,  # Neutral (range: -1 to 1)
+            "arousal": 0.5,  # Moderate (range: 0 to 1)
+            "certainty_affect": 0.5,  # Moderate (range: 0 to 1)
+            "curiosity_drive": 0.5,  # Moderate (range: 0 to 1)
+            "coherence_pleasure": 0.5,  # Moderate (range: 0 to 1)
+            "surprise": 0.0,  # No surprise initially (range: 0 to 1)
         }
+        
+        # Moving average tracking for each metric
+        self._moving_avg_window = moving_avg_window
+        self._valence_history: deque = deque(maxlen=moving_avg_window)
+        self._arousal_history: deque = deque(maxlen=moving_avg_window)
+        self._certainty_affect_history: deque = deque(maxlen=moving_avg_window)
+        self._curiosity_drive_history: deque = deque(maxlen=moving_avg_window)
+        self._coherence_pleasure_history: deque = deque(maxlen=moving_avg_window)
+        self._surprise_history: deque = deque(maxlen=moving_avg_window)
         
         self._motivational_drives: Dict[str, float] = {}
         # Use bounded deque to prevent unbounded memory growth
@@ -55,7 +70,7 @@ class ComputationalAffectMonitor:
     
     def compute_valence(self, positive_score: float, negative_score: float) -> None:
         """
-        Compute valence from positive and negative scores.
+        Compute valence from positive and negative scores using moving average.
         
         Args:
             positive_score: Positive evaluation score (0.0-1.0)
@@ -70,33 +85,44 @@ class ComputationalAffectMonitor:
         else:
             valence = (positive_score - negative_score) / (positive_score + negative_score)
         
-        self.affective_states["valence"] = max(-1.0, min(1.0, valence))
+        valence = max(-1.0, min(1.0, valence))
+        
+        # Update moving average
+        self._valence_history.append(valence)
+        if len(self._valence_history) > 0:
+            self.affective_states["valence"] = sum(self._valence_history) / len(self._valence_history)
     
     
     def compute_valence_from_text(self, text: str) -> None:
         """
-        Compute valence directly from text using VADER (fallback to TextBlob).
+        Compute valence directly from text using VADER (fallback to TextBlob) with moving average.
         
         Args:
             text: Text to analyze
         """
         if not text:
             return
+        
+        valence = None
             
         # Try VADER first
         vader_scores = ResponseAnalyzer.analyze_sentiment_vader(text)
         if vader_scores:
             # VADER compound score is -1.0 to 1.0
-            self.affective_states["valence"] = max(-1.0, min(1.0, vader_scores['compound']))
-            return
-
+            valence = max(-1.0, min(1.0, vader_scores['compound']))
         # Fallback to TextBlob
-        if TextBlob is not None:
+        elif TextBlob is not None:
             try:
                 blob = TextBlob(text)
-                self.affective_states["valence"] = max(-1.0, min(1.0, blob.sentiment.polarity))
+                valence = max(-1.0, min(1.0, blob.sentiment.polarity))
             except Exception:
                 pass
+        
+        # Update moving average if we got a value
+        if valence is not None:
+            self._valence_history.append(valence)
+            if len(self._valence_history) > 0:
+                self.affective_states["valence"] = sum(self._valence_history) / len(self._valence_history)
 
     
     def compute_valence_from_conversation_history(self, messages: List[Dict[str, Any]]) -> None:
@@ -127,41 +153,41 @@ class ComputationalAffectMonitor:
         # Combine all conversation text
         combined_text = " ".join(conversation_texts)
         
-        # Track state transition
-        was_none = self.affective_states.get("valence") is None
-        
-        # Compute valence from combined text
+        # Compute valence from combined text (will update moving average)
         self.compute_valence_from_text(combined_text)
-        
-        if was_none and self.affective_states.get("valence") is not None:
-            logger.debug(f"State transition: valence None -> {self.affective_states['valence']:.3f}")
     
     def compute_arousal(self, activation_level: float) -> None:
         """
-        Compute arousal from activation level.
+        Compute arousal from activation level using moving average.
         
         Args:
             activation_level: Activation level (0.0-1.0)
         """
-        was_none = self.affective_states.get("arousal") is None
-        self.affective_states["arousal"] = max(0.0, min(1.0, activation_level))
-        if was_none:
-            logger.debug(f"State transition: arousal None -> {self.affective_states['arousal']:.3f}")
+        arousal = max(0.0, min(1.0, activation_level))
+        
+        # Update moving average
+        self._arousal_history.append(arousal)
+        if len(self._arousal_history) > 0:
+            self.affective_states["arousal"] = sum(self._arousal_history) / len(self._arousal_history)
     
     def update_certainty_affect(self, confidence: float) -> None:
         """
-        Update certainty affect from confidence level.
+        Update certainty affect from confidence level using moving average.
         
         Args:
             confidence: Confidence level (0.0-1.0)
         """
-        # Certainty affect is directly related to confidence
-        self.affective_states["certainty_affect"] = max(0.0, min(1.0, confidence))
+        certainty = max(0.0, min(1.0, confidence))
+        
+        # Update moving average
+        self._certainty_affect_history.append(certainty)
+        if len(self._certainty_affect_history) > 0:
+            self.affective_states["certainty_affect"] = sum(self._certainty_affect_history) / len(self._certainty_affect_history)
     
     
     def compute_curiosity_drive(self, uncertainty: float, interest: float) -> None:
         """
-        Compute curiosity drive from uncertainty, interest, and surprise.
+        Compute curiosity drive from uncertainty, interest, and surprise using moving average.
         
         Args:
             uncertainty: Uncertainty level (0.0-1.0)
@@ -169,37 +195,52 @@ class ComputationalAffectMonitor:
         """
         uncertainty = max(0.0, min(1.0, uncertainty))
         interest = max(0.0, min(1.0, interest))
-        surprise = self.affective_states.get("surprise", 0.0) or 0.0
+        surprise = self.affective_states.get("surprise", 0.0)
         
         # Curiosity is driven by uncertainty, interest, and surprise (novelty)
         # Weighted: 40% uncertainty, 30% interest, 30% surprise
         curiosity = (uncertainty * 0.4 + interest * 0.3 + surprise * 0.3)
-        self.affective_states["curiosity_drive"] = max(0.0, min(1.0, curiosity))
+        curiosity = max(0.0, min(1.0, curiosity))
+        
+        # Update moving average
+        self._curiosity_drive_history.append(curiosity)
+        if len(self._curiosity_drive_history) > 0:
+            self.affective_states["curiosity_drive"] = sum(self._curiosity_drive_history) / len(self._curiosity_drive_history)
 
     
     
     def update_coherence_pleasure(self, coherence: float) -> None:
         """
-        Update coherence pleasure from coherence level and certainty.
+        Update coherence pleasure from coherence level and certainty using moving average.
         
         Args:
             coherence: Coherence level (0.0-1.0)
         """
-        certainty = self.affective_states.get("certainty_affect", 0.5) or 0.5
+        certainty = self.affective_states.get("certainty_affect", 0.5)
         # Pleasure increases with coherence and certainty
         pleasure = (coherence * 0.7) + (certainty * 0.3)
-        self.affective_states["coherence_pleasure"] = max(0.0, min(1.0, pleasure))
+        pleasure = max(0.0, min(1.0, pleasure))
+        
+        # Update moving average
+        self._coherence_pleasure_history.append(pleasure)
+        if len(self._coherence_pleasure_history) > 0:
+            self.affective_states["coherence_pleasure"] = sum(self._coherence_pleasure_history) / len(self._coherence_pleasure_history)
 
     
     
     def update_surprise(self, prediction_error: float) -> None:
         """
-        Update surprise state based on prediction error (novelty/unexpectedness).
+        Update surprise state based on prediction error (novelty/unexpectedness) using moving average.
         
         Args:
             prediction_error: Magnitude of difference between predicted and actual (0.0-1.0)
         """
-        self.affective_states["surprise"] = max(0.0, min(1.0, prediction_error))
+        surprise = max(0.0, min(1.0, prediction_error))
+        
+        # Update moving average
+        self._surprise_history.append(surprise)
+        if len(self._surprise_history) > 0:
+            self.affective_states["surprise"] = sum(self._surprise_history) / len(self._surprise_history)
 
     def update_from_cognitive(self, cognitive_monitor: "CognitiveStateMonitor") -> None:
         """
@@ -208,38 +249,24 @@ class ComputationalAffectMonitor:
         Args:
             cognitive_monitor: CognitiveStateMonitor instance
         """
-        # Update certainty affect from confidence
+        # Update certainty affect from confidence (always update, using defaults if None)
         confidence = cognitive_monitor.states.get("confidence_level")
         if confidence is not None:
-            was_none = self.affective_states.get("certainty_affect") is None
             self.update_certainty_affect(confidence)
-            if was_none:
-                logger.debug(f"State transition: certainty_affect None -> {self.affective_states['certainty_affect']:.3f}")
         
-        # Update coherence pleasure from coherence
+        # Update coherence pleasure from coherence (always update, using defaults if None)
         coherence = cognitive_monitor.states.get("conceptual_coherence")
         if coherence is not None:
-            was_none = self.affective_states.get("coherence_pleasure") is None
             self.update_coherence_pleasure(coherence)
-            if was_none:
-                logger.debug(f"State transition: coherence_pleasure None -> {self.affective_states['coherence_pleasure']:.3f}")
         
-        # Update curiosity from uncertainty
-        uncertainty = cognitive_monitor.states.get("uncertainty_tracking")
+        # Update curiosity from uncertainty (always update, using defaults if None)
+        uncertainty = cognitive_monitor.states.get("uncertainty_tracking", 0.0)
         # Use attention as proxy for interest
         attention_allocation = cognitive_monitor.states.get("attention_allocation", {})
         attention_total = sum(attention_allocation.values())
         interest = min(attention_total, 1.0) if attention_total > 0 else 0.0
         
-        if uncertainty is not None:
-            was_none = self.affective_states.get("curiosity_drive") is None
-            self.compute_curiosity_drive(uncertainty, interest)
-            if was_none:
-                logger.debug(
-                    f"State transition: curiosity_drive None -> {self.affective_states['curiosity_drive']:.3f} "
-                    f"(uncertainty={uncertainty:.3f}, interest={interest:.3f})"
-                )
-                logger.debug(f"State transition: curiosity_drive None -> {self.affective_states['curiosity_drive']:.3f}")
+        self.compute_curiosity_drive(uncertainty, interest)
     
     def record_motivational_drive(self, drive_type: str, level: float) -> None:
         """

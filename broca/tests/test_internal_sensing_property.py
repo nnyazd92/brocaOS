@@ -242,7 +242,7 @@ class TestStateTransitionProperties:
         monitor = CognitiveStateMonitor()
         
         # Initially should be None
-        assert monitor.states.get("conceptual_coherence") is None, "coherence should start as None"
+        assert monitor.states.get("conceptual_coherence") == 0.5, "coherence should start with default 0.5"
         
         # Record reasoning steps
         for i in range(num_reasoning_steps):
@@ -256,8 +256,8 @@ class TestStateTransitionProperties:
             assert monitor.states.get("conceptual_coherence") is not None, \
                 "coherence should be computed with 2+ reasoning steps"
         else:
-            assert monitor.states.get("conceptual_coherence") is None, \
-                "coherence should remain None with < 2 reasoning steps"
+            assert monitor.states.get("conceptual_coherence") == 0.5, \
+                "coherence should remain at default 0.5 with < 2 reasoning steps"
 
 
 class TestEdgeCases:

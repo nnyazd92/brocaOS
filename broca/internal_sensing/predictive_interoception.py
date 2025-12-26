@@ -49,7 +49,7 @@ class PredictiveInteroception:
         self,
         physiology: "ComputationalPhysiologyMonitor",
         horizon: int = 5
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Predict future resource needs.
         
@@ -58,43 +58,42 @@ class PredictiveInteroception:
             horizon: Prediction horizon (number of steps ahead)
             
         Returns:
-            Dictionary with predicted resource metrics, or None if insufficient history
+            Dictionary with predicted resource metrics (always returns dict with defaults if needed)
         """
         history = physiology.get_history()
+        current_load = physiology.metrics.get("computational_load", 0.5)
+        current_memory = physiology.metrics.get("memory_pressure", 0.5)
         
-        if len(history) < 2:
-            # Not enough history for prediction
-            return None
-        
-        # Simple linear trend prediction
-        recent = history[-min(5, len(history)):]
-        
-        # Calculate trend for computational_load (skip None values)
-        loads = [s.get("computational_load") for s in recent if s.get("computational_load") is not None]
-        if len(loads) >= 2:
-            trend = (loads[-1] - loads[0]) / len(loads)
-            predicted_load = min(1.0, max(0.0, loads[-1] + trend * horizon))
-        elif len(loads) == 1:
-            predicted_load = loads[0]
+        # Simple linear trend prediction if we have history
+        if len(history) >= 2:
+            recent = history[-min(5, len(history)):]
+            
+            # Calculate trend for computational_load
+            loads = [s.get("computational_load", 0.5) for s in recent]
+            if len(loads) >= 2:
+                trend = (loads[-1] - loads[0]) / len(loads)
+                predicted_load = min(1.0, max(0.0, loads[-1] + trend * horizon))
+            else:
+                predicted_load = current_load
+            
+            # Calculate trend for memory_pressure
+            memories = [s.get("memory_pressure", 0.5) for s in recent]
+            if len(memories) >= 2:
+                trend = (memories[-1] - memories[0]) / len(memories)
+                predicted_memory = min(1.0, max(0.0, memories[-1] + trend * horizon))
+            else:
+                predicted_memory = current_memory
         else:
-            predicted_load = None
-        
-        # Calculate trend for memory_pressure (skip None values)
-        memories = [s.get("memory_pressure") for s in recent if s.get("memory_pressure") is not None]
-        if len(memories) >= 2:
-            trend = (memories[-1] - memories[0]) / len(memories)
-            predicted_memory = min(1.0, max(0.0, memories[-1] + trend * horizon))
-        elif len(memories) == 1:
-            predicted_memory = memories[0]
-        else:
-            predicted_memory = None
+            # Use current values if no history
+            predicted_load = current_load
+            predicted_memory = current_memory
         
         prediction = {
             "computational_load": predicted_load,
             "memory_pressure": predicted_memory,
-            "processing_latency": physiology.metrics.get("processing_latency"),  # Preserve None
-            "attention_fluctuation": physiology.metrics.get("attention_fluctuation"),  # Preserve None
-            "energy_efficiency": physiology.metrics.get("energy_efficiency"),  # Preserve None
+            "processing_latency": physiology.metrics.get("processing_latency", 0.0),
+            "attention_fluctuation": physiology.metrics.get("attention_fluctuation", 0.0),
+            "energy_efficiency": physiology.metrics.get("energy_efficiency", 0.5),
             "timestamp": time.time() + horizon,
         }
         
@@ -104,7 +103,7 @@ class PredictiveInteroception:
         self,
         cognitive: "CognitiveStateMonitor",
         horizon: int = 3
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Predict future cognitive load.
         
@@ -113,32 +112,30 @@ class PredictiveInteroception:
             horizon: Prediction horizon
             
         Returns:
-            Dictionary with predicted cognitive states, or None if insufficient history
+            Dictionary with predicted cognitive states (always returns dict with defaults if needed)
         """
         history = cognitive.get_history()
+        current_confidence = cognitive.states.get("confidence_level", 0.5)
         
-        if len(history) < 2:
-            # Not enough history for prediction
-            return None
-        
-        # Simple trend prediction
-        recent = history[-min(5, len(history)):]
-        
-        # Predict confidence (skip None values)
-        confidences = [s.get("confidence_level") for s in recent if s.get("confidence_level") is not None]
-        if len(confidences) >= 2:
-            trend = (confidences[-1] - confidences[0]) / len(confidences)
-            predicted_confidence = min(1.0, max(0.0, confidences[-1] + trend * horizon))
-        elif len(confidences) == 1:
-            predicted_confidence = confidences[0]
+        # Simple trend prediction if we have history
+        if len(history) >= 2:
+            recent = history[-min(5, len(history)):]
+            
+            # Predict confidence
+            confidences = [s.get("confidence_level", 0.5) for s in recent]
+            if len(confidences) >= 2:
+                trend = (confidences[-1] - confidences[0]) / len(confidences)
+                predicted_confidence = min(1.0, max(0.0, confidences[-1] + trend * horizon))
+            else:
+                predicted_confidence = current_confidence
         else:
-            predicted_confidence = None
+            predicted_confidence = current_confidence
         
         prediction = {
             "confidence_level": predicted_confidence,
-            "conceptual_coherence": cognitive.states.get("conceptual_coherence"),  # Preserve None
-            "processing_depth": cognitive.states.get("processing_depth"),  # Preserve None
-            "uncertainty_tracking": cognitive.states.get("uncertainty_tracking"),  # Preserve None
+            "conceptual_coherence": cognitive.states.get("conceptual_coherence", 0.5),
+            "processing_depth": cognitive.states.get("processing_depth", 1.0),
+            "uncertainty_tracking": cognitive.states.get("uncertainty_tracking", 0.0),
             "attention_allocation": cognitive.states.get("attention_allocation", {}).copy(),
             "timestamp": time.time() + horizon,
         }
@@ -170,7 +167,15 @@ class PredictiveInteroception:
                 decay_factor = 0.1 * horizon
                 predicted[key] = val + (target - val) * decay_factor
             else:
-                predicted[key] = val
+                # Use defaults for non-numeric values (shouldn't happen but ensure defaults)
+                if key == 'valence':
+                    predicted[key] = 0.0
+                elif key in ('arousal', 'certainty_affect', 'curiosity_drive', 'coherence_pleasure'):
+                    predicted[key] = 0.5
+                elif key == 'surprise':
+                    predicted[key] = 0.0
+                else:
+                    predicted[key] = val
                 
         predicted["timestamp"] = time.time() + horizon
         return predicted
@@ -180,7 +185,7 @@ class PredictiveInteroception:
         cognitive: "CognitiveStateMonitor",
         physiology: "ComputationalPhysiologyMonitor",
         affective: Optional["ComputationalAffectMonitor"] = None
-    ) -> Optional[float]:
+    ) -> float:
         """
         Predict probability of errors based on cognitive, physiological, and affective load.
         
@@ -190,20 +195,12 @@ class PredictiveInteroception:
             affective: Optional ComputationalAffectMonitor instance
             
         Returns:
-            Error probability (0.0-1.0), or None if required metrics unavailable
+            Error probability (0.0-1.0), always returns a value using defaults if needed
         """
-        confidence = cognitive.states.get("confidence_level")
-        load = physiology.metrics.get("computational_load")
-        coherence = cognitive.states.get("conceptual_coherence")
-        surprise = affective.affective_states.get("surprise") if affective else None
-        
-        if confidence is None and load is None and coherence is None:
-            return None
-        
-        conf_value = confidence if confidence is not None else 0.5
-        load_value = load if load is not None else 0.5
-        coherence_value = coherence if coherence is not None else 0.5
-        surprise_value = surprise if surprise is not None else 0.0
+        confidence = cognitive.states.get("confidence_level", 0.5)
+        load = physiology.metrics.get("computational_load", 0.5)
+        coherence = cognitive.states.get("conceptual_coherence", 0.5)
+        surprise = affective.affective_states.get("surprise", 0.0) if affective else 0.0
         
         # Error risk formula:
         # - Low confidence (30%)
@@ -211,10 +208,10 @@ class PredictiveInteroception:
         # - Low coherence (30%)
         # - High surprise/distraction (20%)
         risk = (
-            (1.0 - conf_value) * 0.3 + 
-            load_value * 0.2 + 
-            (1.0 - coherence_value) * 0.3 + 
-            surprise_value * 0.2
+            (1.0 - confidence) * 0.3 + 
+            load * 0.2 + 
+            (1.0 - coherence) * 0.3 + 
+            surprise * 0.2
         )
         
         return min(1.0, max(0.0, risk))

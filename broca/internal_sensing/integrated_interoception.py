@@ -288,10 +288,12 @@ class IntegratedInteroception:
         Track interoceptive accuracy.
         
         Returns:
-            Dictionary with accuracy metrics (may contain None values)
+            Dictionary with accuracy metrics (always returns defaults instead of None)
         """
-        # Get prediction accuracy (may be None)
+        # Get prediction accuracy (defaults to 0.5 if None)
         pred_accuracy = self.prediction.get_prediction_accuracy()
+        if pred_accuracy is None:
+            pred_accuracy = 0.5
         
         return {
             "prediction_accuracy": pred_accuracy,

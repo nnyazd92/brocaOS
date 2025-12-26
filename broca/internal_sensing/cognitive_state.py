@@ -36,11 +36,11 @@ class CognitiveStateMonitor:
             history_window: Number of samples to keep in history
         """
         self.states: Dict[str, Any] = {
-            "confidence_level": None,  # Unknown until first measurement
-            "conceptual_coherence": None,  # Unknown until reasoning steps recorded
+            "confidence_level": 0.5,  # Default moderate confidence
+            "conceptual_coherence": 0.5,  # Default moderate coherence
             "attention_allocation": {},
-            "processing_depth": None,  # Unknown until operations recorded
-            "uncertainty_tracking": None,  # Unknown until uncertainties recorded
+            "processing_depth": 1.0,  # Default minimal processing depth
+            "uncertainty_tracking": 0.0,  # Default no uncertainty
         }
         
         self.history_window = history_window
@@ -82,15 +82,13 @@ class CognitiveStateMonitor:
         self._confidence_outcomes[response_id] = correct
     
     def _update_confidence_level(self) -> None:
-        """Update average confidence level from history."""
-        was_none = self.states.get("confidence_level") is None
+        """Update average confidence level from history using moving average."""
         if len(self._confidence_history) > 0:
             avg = sum(entry["confidence"] for entry in self._confidence_history) / len(self._confidence_history)
             self.states["confidence_level"] = avg
-            if was_none:
-                logger.debug(f"State transition: confidence_level None -> {avg:.3f}")
         else:
-            self.states["confidence_level"] = None
+            # Use default when no history (shouldn't happen after initialization, but ensure default)
+            self.states["confidence_level"] = 0.5
     
     def _calculate_average_confidence(self) -> Optional[float]:
         """
@@ -155,18 +153,15 @@ class CognitiveStateMonitor:
         if len(self._reasoning_steps) > 50:
             self._reasoning_steps = self._reasoning_steps[-50:]
         
-        # Only update coherence if we have at least 2 steps
-        if len(self._reasoning_steps) >= 2:
-            self._update_coherence()
-        else:
-            self.states["conceptual_coherence"] = None
+        # Update coherence (will use default if insufficient steps)
+        self._update_coherence()
     
     
     def _update_coherence(self) -> None:
         """Update conceptual coherence from reasoning steps and logical reversals."""
-        was_none = self.states.get("conceptual_coherence") is None
-        if not self._reasoning_steps:
-            self.states["conceptual_coherence"] = None
+        if len(self._reasoning_steps) < 2:
+            # Use default when insufficient reasoning steps
+            self.states["conceptual_coherence"] = 0.5
             return
         
         # 1. Check for explicit contradictions in steps
@@ -190,8 +185,6 @@ class CognitiveStateMonitor:
         final_coherence = step_coherence * (1.0 - (reversal_score * 0.5))
         
         self.states["conceptual_coherence"] = max(0.0, min(1.0, final_coherence))
-        if was_none:
-            logger.debug(f"State transition: conceptual_coherence None -> {final_coherence:.3f}")
 
     
     def _calculate_coherence(self) -> Optional[float]:
@@ -239,12 +232,13 @@ class CognitiveStateMonitor:
         self._update_processing_depth()
     
     def _update_processing_depth(self) -> None:
-        """Update average processing depth."""
+        """Update average processing depth using moving average."""
         if len(self._processing_depths) > 0:
             avg = sum(entry["depth"] for entry in self._processing_depths) / len(self._processing_depths)
             self.states["processing_depth"] = avg
         else:
-            self.states["processing_depth"] = None
+            # Use default when no processing depths recorded
+            self.states["processing_depth"] = 1.0
     
     def _calculate_average_depth(self) -> Optional[float]:
         """
@@ -288,15 +282,13 @@ class CognitiveStateMonitor:
         self._update_uncertainty()
     
     def _update_uncertainty(self) -> None:
-        """Update average uncertainty from history."""
-        was_none = self.states.get("uncertainty_tracking") is None
+        """Update average uncertainty from history using moving average."""
         if len(self._uncertainty_history) > 0:
             avg = sum(entry["uncertainty"] for entry in self._uncertainty_history) / len(self._uncertainty_history)
             self.states["uncertainty_tracking"] = avg
-            if was_none:
-                logger.debug(f"State transition: uncertainty_tracking None -> {avg:.3f}")
         else:
-            self.states["uncertainty_tracking"] = None
+            # Use default when no uncertainties recorded
+            self.states["uncertainty_tracking"] = 0.0
     
     def _calculate_average_uncertainty(self) -> Optional[float]:
         """

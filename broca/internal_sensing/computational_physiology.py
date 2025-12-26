@@ -40,12 +40,12 @@ class ComputationalPhysiologyMonitor:
             history_window: Number of samples to keep in history
         """
         self.metrics: Dict[str, Any] = {
-            # Existing metrics
-            "computational_load": None,  # Unknown until measured
-            "memory_pressure": None,  # Unknown until measured
-            "processing_latency": None,  # Unknown until operations tracked
-            "attention_fluctuation": None,  # Unknown until attention levels recorded
-            "energy_efficiency": None,  # Unknown until resources measured
+            # Existing metrics (initialized with defaults, never None)
+            "computational_load": 0.5,  # Default moderate load
+            "memory_pressure": 0.5,  # Default moderate pressure
+            "processing_latency": 0.0,  # Default no latency
+            "attention_fluctuation": 0.0,  # Default no fluctuation
+            "energy_efficiency": 0.5,  # Default moderate efficiency
             # Expanded CPU metrics
             "cpu_per_core": None,  # List of per-CPU percentages
             "cpu_times": None,  # Dict of CPU time breakdown
@@ -73,6 +73,13 @@ class ComputationalPhysiologyMonitor:
         self._attention_levels: deque = deque(maxlen=10)
         self._baseline_latency: float = 1.0
         
+        # Moving average tracking for main metrics
+        self._computational_load_history: deque = deque(maxlen=20)
+        self._memory_pressure_history: deque = deque(maxlen=20)
+        self._processing_latency_history: deque = deque(maxlen=20)
+        self._attention_fluctuation_history: deque = deque(maxlen=20)
+        self._energy_efficiency_history: deque = deque(maxlen=20)
+        
         # Track I/O baselines for rate calculations
         self._last_disk_io: Optional[Any] = None
         self._last_disk_io_time: Optional[float] = None
@@ -81,43 +88,55 @@ class ComputationalPhysiologyMonitor:
         
         logger.info("Initialized ComputationalPhysiologyMonitor")
     
-    def _measure_cpu_load(self) -> Optional[float]:
+    def _measure_cpu_load(self) -> float:
         """
-        Measure CPU load and normalize to 0-1 range.
+        Measure CPU load and normalize to 0-1 range, using moving average.
         
         Returns:
-            Normalized CPU load (0.0-1.0), or None if unavailable
+            Normalized CPU load (0.0-1.0), defaults to 0.5 if unavailable
         """
         if psutil is None:
-            logger.warning("psutil not available, cannot measure CPU load")
-            return None
+            logger.warning("psutil not available, using default CPU load")
+            load = 0.5
+        else:
+            try:
+                cpu_percent = psutil.cpu_percent(interval=0.1)
+                # Normalize to 0-1 range (clamp to 1.0 if > 100%)
+                load = min(cpu_percent / 100.0, 1.0)
+            except Exception as e:
+                logger.warning(f"Error measuring CPU load: {e}, using default")
+                load = 0.5
         
-        try:
-            cpu_percent = psutil.cpu_percent(interval=0.1)
-            # Normalize to 0-1 range (clamp to 1.0 if > 100%)
-            return min(cpu_percent / 100.0, 1.0)
-        except Exception as e:
-            logger.warning(f"Error measuring CPU load: {e}")
-            return None
+        # Update moving average
+        self._computational_load_history.append(load)
+        if len(self._computational_load_history) > 0:
+            return sum(self._computational_load_history) / len(self._computational_load_history)
+        return 0.5
     
-    def _measure_memory_pressure(self) -> Optional[float]:
+    def _measure_memory_pressure(self) -> float:
         """
-        Measure memory pressure and normalize to 0-1 range.
+        Measure memory pressure and normalize to 0-1 range, using moving average.
         
         Returns:
-            Normalized memory pressure (0.0-1.0), or None if unavailable
+            Normalized memory pressure (0.0-1.0), defaults to 0.5 if unavailable
         """
         if psutil is None:
-            logger.warning("psutil not available, cannot measure memory pressure")
-            return None
+            logger.warning("psutil not available, using default memory pressure")
+            pressure = 0.5
+        else:
+            try:
+                memory = psutil.virtual_memory()
+                # Normalize to 0-1 range
+                pressure = min(memory.percent / 100.0, 1.0)
+            except Exception as e:
+                logger.warning(f"Error measuring memory pressure: {e}, using default")
+                pressure = 0.5
         
-        try:
-            memory = psutil.virtual_memory()
-            # Normalize to 0-1 range
-            return min(memory.percent / 100.0, 1.0)
-        except Exception as e:
-            logger.warning(f"Error measuring memory pressure: {e}")
-            return None
+        # Update moving average
+        self._memory_pressure_history.append(pressure)
+        if len(self._memory_pressure_history) > 0:
+            return sum(self._memory_pressure_history) / len(self._memory_pressure_history)
+        return 0.5
     
     def _record_operation_start(self, operation_id: str) -> None:
         """
@@ -181,62 +200,79 @@ class ComputationalPhysiologyMonitor:
         """
         self._attention_levels.append(max(0.0, min(1.0, level)))
     
-    def _calculate_attention_fluctuation(self) -> Optional[float]:
+    def _calculate_attention_fluctuation(self) -> float:
         """
-        Calculate attention fluctuation based on recorded levels.
+        Calculate attention fluctuation based on recorded levels using moving average.
         
         Returns:
-            Fluctuation score (0.0-1.0), higher = more fluctuation, or None if insufficient data
+            Fluctuation score (0.0-1.0), higher = more fluctuation, defaults to 0.0 if insufficient data
         """
         if len(self._attention_levels) < 2:
-            return None
+            fluctuation = 0.0
+        else:
+            levels = list(self._attention_levels)
+            
+            # Calculate standard deviation as a measure of fluctuation
+            mean = sum(levels) / len(levels)
+            variance = sum((x - mean) ** 2 for x in levels) / len(levels)
+            std_dev = variance ** 0.5
+            
+            # Normalize to 0-1 range (assuming max std_dev is 0.5 for 0-1 range)
+            fluctuation = min(std_dev * 2, 1.0)
         
-        levels = list(self._attention_levels)
-        
-        # Calculate standard deviation as a measure of fluctuation
-        mean = sum(levels) / len(levels)
-        variance = sum((x - mean) ** 2 for x in levels) / len(levels)
-        std_dev = variance ** 0.5
-        
-        # Normalize to 0-1 range (assuming max std_dev is 0.5 for 0-1 range)
-        return min(std_dev * 2, 1.0)
+        # Update moving average
+        self._attention_fluctuation_history.append(fluctuation)
+        if len(self._attention_fluctuation_history) > 0:
+            return sum(self._attention_fluctuation_history) / len(self._attention_fluctuation_history)
+        return 0.0
     
-    def _calculate_energy_efficiency(self) -> Optional[float]:
+    def _calculate_energy_efficiency(self) -> float:
         """
-        Calculate energy efficiency based on resource usage.
+        Calculate energy efficiency based on resource usage using moving average.
         
         Returns:
-            Efficiency score (0.0-1.0), higher = more efficient, or None if resources unavailable
+            Efficiency score (0.0-1.0), higher = more efficient, defaults to 0.5 if resources unavailable
         """
         # Efficiency is inverse of resource usage
         # Lower load and memory pressure = higher efficiency
-        load = self.metrics.get("computational_load")
-        memory = self.metrics.get("memory_pressure")
-        
-        # Need both metrics to calculate efficiency
-        if load is None or memory is None:
-            return None
+        load = self.metrics.get("computational_load", 0.5)
+        memory = self.metrics.get("memory_pressure", 0.5)
         
         # Average resource usage
         avg_usage = (load + memory) / 2.0
         
         # Efficiency is inverse (1 - usage)
         efficiency = 1.0 - avg_usage
+        efficiency = max(0.0, min(1.0, efficiency))
         
-        return max(0.0, min(1.0, efficiency))
+        # Update moving average
+        self._energy_efficiency_history.append(efficiency)
+        if len(self._energy_efficiency_history) > 0:
+            return sum(self._energy_efficiency_history) / len(self._energy_efficiency_history)
+        return 0.5
     
-    def _calculate_processing_latency(self) -> Optional[float]:
+    def _calculate_processing_latency(self) -> float:
         """
-        Calculate average processing latency from completed operations.
+        Calculate average processing latency from completed operations using moving average.
         
         Returns:
-            Average latency in seconds, or None if no operations tracked yet
+            Average latency (normalized 0.0-1.0), defaults to 0.0 if no operations tracked
         """
         if len(self._operation_latencies) == 0:
-            return None
+            latency = 0.0
+        else:
+            # Normalize latency to 0-1 range based on baseline
+            raw_latency = sum(self._operation_latencies) / len(self._operation_latencies)
+            if self._baseline_latency > 0:
+                latency = min(raw_latency / self._baseline_latency, 1.0)
+            else:
+                latency = 0.0
         
-        # Return average of recent operation latencies
-        return sum(self._operation_latencies) / len(self._operation_latencies)
+        # Update moving average
+        self._processing_latency_history.append(latency)
+        if len(self._processing_latency_history) > 0:
+            return sum(self._processing_latency_history) / len(self._processing_latency_history)
+        return 0.0
     
     # ========== Expanded CPU Metrics ==========
     

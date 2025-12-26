@@ -31,12 +31,13 @@ class TestAffectiveStateInitialization:
         assert "curiosity_drive" in monitor.affective_states
         assert "coherence_pleasure" in monitor.affective_states
         
-        # Check default values are None (unknown until computed)
-        assert monitor.affective_states["valence"] is None
-        assert monitor.affective_states["arousal"] is None
-        assert monitor.affective_states["certainty_affect"] is None
-        assert monitor.affective_states["curiosity_drive"] is None
-        assert monitor.affective_states["coherence_pleasure"] is None
+        # Check default values (should never be None)
+        assert monitor.affective_states["valence"] == 0.0  # Neutral default
+        assert monitor.affective_states["arousal"] == 0.5  # Moderate default
+        assert monitor.affective_states["certainty_affect"] == 0.5  # Moderate default
+        assert monitor.affective_states["curiosity_drive"] == 0.5  # Moderate default
+        assert monitor.affective_states["coherence_pleasure"] == 0.5  # Moderate default
+        assert monitor.affective_states["surprise"] == 0.0  # No surprise default
 
 
 class TestValenceComputation:
@@ -297,9 +298,9 @@ class TestValenceFromText:
         
         # Should not raise an exception
         monitor.compute_valence_from_text("")
-        # Valence should remain None or be set to 0.0
+        # Valence should use default (0.0) since empty text doesn't update
         valence = monitor.affective_states["valence"]
-        assert valence is None or valence == 0.0
+        assert valence == 0.0  # Default value
     
     def test_valence_from_text_fallback(self):
         """
