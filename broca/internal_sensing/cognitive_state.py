@@ -85,10 +85,13 @@ class CognitiveStateMonitor:
         """Update average confidence level from history using moving average."""
         if len(self._confidence_history) > 0:
             avg = sum(entry["confidence"] for entry in self._confidence_history) / len(self._confidence_history)
+            old_value = self.states["confidence_level"]
             self.states["confidence_level"] = avg
+            logger.debug(f"Updated confidence_level: {old_value:.3f} -> {avg:.3f} (from {len(self._confidence_history)} samples)")
         else:
             # Use default when no history (shouldn't happen after initialization, but ensure default)
             self.states["confidence_level"] = 0.5
+            logger.debug("Confidence level using default (no history)")
     
     def _calculate_average_confidence(self) -> Optional[float]:
         """
@@ -285,10 +288,13 @@ class CognitiveStateMonitor:
         """Update average uncertainty from history using moving average."""
         if len(self._uncertainty_history) > 0:
             avg = sum(entry["uncertainty"] for entry in self._uncertainty_history) / len(self._uncertainty_history)
+            old_value = self.states["uncertainty_tracking"]
             self.states["uncertainty_tracking"] = avg
+            logger.debug(f"Updated uncertainty_tracking: {old_value:.3f} -> {avg:.3f} (from {len(self._uncertainty_history)} samples)")
         else:
             # Use default when no uncertainties recorded
             self.states["uncertainty_tracking"] = 0.0
+            logger.debug("Uncertainty tracking using default (no history)")
     
     def _calculate_average_uncertainty(self) -> Optional[float]:
         """

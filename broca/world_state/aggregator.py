@@ -126,8 +126,8 @@ class WorldStateAggregator:
             if current_state:
                 if "computational" in current_state:
                     world_state["internal_state"]["physiology"] = self._aggregate_physiology_health(current_state["computational"])
-                if "cognition" in current_state:
-                    world_state["internal_state"]["cognition"] = current_state["cognition"]
+                if "cognitive" in current_state:
+                    world_state["internal_state"]["cognition"] = current_state["cognitive"]
                 if "affective" in current_state:
                     world_state["internal_state"]["affect"] = current_state["affective"]
             
@@ -211,15 +211,14 @@ class WorldStateAggregator:
             # Detect anomalies
             anomalies = self.internal_sensing.interoception.detect_anomalies()
             
-            # Get quality metrics
+            # Get quality metrics (always include since measure_self_awareness_quality() always returns a value)
             self_awareness_quality = self.internal_sensing.interoception.measure_self_awareness_quality()
             interoceptive_accuracy = self.internal_sensing.interoception.track_interoceptive_accuracy()
             
-            quality_metrics = {}
-            if self_awareness_quality is not None:
-                quality_metrics["self_awareness_quality"] = self_awareness_quality
-            if interoceptive_accuracy:
-                quality_metrics["interoceptive_accuracy"] = interoceptive_accuracy
+            quality_metrics = {
+                "self_awareness_quality": self_awareness_quality,
+                "interoceptive_accuracy": interoceptive_accuracy,
+            }
             
             # Extract motivational state
             motivational_drives = self.internal_sensing.interoception.affect.get_motivational_drives()

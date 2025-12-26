@@ -84,6 +84,13 @@ class IntegratedInteroception:
         if hasattr(self, '_last_prediction') and self._last_prediction:
             error = self.prediction.compute_prediction_error(self._last_prediction, computational)
             self.affect.update_surprise(error)
+            # Record prediction for accuracy tracking
+            self.prediction.record_prediction(
+                f"pred_{int(time.time())}",
+                self._last_prediction,
+                computational
+            )
+            logger.debug(f"Recorded prediction for accuracy tracking (error: {error:.3f})")
 
         affective = self.affect.sample_affective_state()
         
@@ -300,12 +307,12 @@ class IntegratedInteroception:
             "overall_accuracy": pred_accuracy,  # Simplified for now
         }
     
-    def measure_self_awareness_quality(self) -> Optional[float]:
+    def measure_self_awareness_quality(self) -> float:
         """
         Measure self-awareness quality.
         
         Returns:
-            Quality score (0.0-1.0), or None if required metrics unavailable
+            Quality score (0.0-1.0), always returns a value (defaults to 0.5 if insufficient data)
         """
         # Quality based on:
         # - Prediction accuracy
@@ -313,11 +320,7 @@ class IntegratedInteroception:
         # - Historical consistency
         
         accuracy = self.prediction.get_prediction_accuracy()
-        coherence = self.cognition.states.get("conceptual_coherence")
-        
-        # Need at least one metric to calculate quality
-        if accuracy is None and coherence is None:
-            return None
+        coherence = self.cognition.states.get("conceptual_coherence", 0.5)
         
         # Use available metrics, default missing ones to neutral (0.5)
         acc_value = accuracy if accuracy is not None else 0.5
@@ -325,6 +328,8 @@ class IntegratedInteroception:
         
         # Combine factors
         quality = (acc_value * 0.5 + coh_value * 0.5)
+        
+        logger.debug(f"Computed self_awareness_quality: {quality:.3f} (accuracy: {acc_value:.3f}, coherence: {coh_value:.3f})")
         
         return quality
 

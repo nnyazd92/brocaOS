@@ -255,13 +255,25 @@ class TerminalTool:
                 timeout=timeout
             )
             
-            return {
+            # Build result dictionary
+            result_dict = {
                 "success": result.returncode == 0,
                 "returncode": result.returncode,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
                 "command": command
             }
+            
+            # If command failed, populate error field with meaningful message
+            if result.returncode != 0:
+                # Use stderr as primary error message if available and non-empty
+                if result.stderr and result.stderr.strip():
+                    result_dict["error"] = result.stderr.strip()
+                else:
+                    # Fallback to returncode-based message if no stderr
+                    result_dict["error"] = f"Command failed with return code {result.returncode}"
+            
+            return result_dict
             
         except subprocess.TimeoutExpired:
             logger.warning(f"Command timed out: {command}")
@@ -464,21 +476,36 @@ class TerminalTool:
             Formatted string representation
         """
         if not result.get("success"):
-            error = result.get("error", "Unknown error")
             command = result.get("command", result.get("path", "unknown"))
+            
+            # Construct error message - prefer explicit error field, then stderr, then returncode-based
+            error = result.get("error")
+            if not error:
+                # If no explicit error field, construct from stderr or returncode
+                if "stderr" in result and result["stderr"] and result["stderr"].strip():
+                    error = result["stderr"].strip()
+                elif "returncode" in result:
+                    error = f"Command failed with return code {result['returncode']}"
+                else:
+                    error = "Unknown error"
+            
             error_msg = f"Error executing '{command}': {error}"
             
-            # Always include stderr if available, even in error cases
+            # Always include return code if available (as additional context)
+            if "returncode" in result:
+                error_msg += f"\n\nReturn code: {result['returncode']}"
+            
+            # Include stderr if it exists and is different from the error message
+            # (to avoid duplication if error was constructed from stderr)
             if "stderr" in result and result["stderr"]:
-                error_msg += f"\n\nStderr output:\n{result['stderr']}"
+                stderr_content = result["stderr"].strip()
+                # Only include stderr separately if it's different from the error message
+                if stderr_content and stderr_content != error:
+                    error_msg += f"\n\nStderr output:\n{result['stderr']}"
             
             # Also include stdout if available (might contain useful context)
             if "stdout" in result and result["stdout"]:
                 error_msg += f"\n\nStdout output:\n{result['stdout']}"
-            
-            # Include return code if available
-            if "returncode" in result:
-                error_msg += f"\n\nReturn code: {result['returncode']}"
             
             return error_msg
         
@@ -487,8 +514,13 @@ class TerminalTool:
             lines = [f"Command: {result.get('command', 'unknown')}"]
             lines.append(f"Return code: {result.get('returncode', 0)}")
             
-            if result.get("stdout"):
-                lines.append(f"\nOutput:\n{result['stdout']}")
+            # Always show stdout, even if empty (helps with commands like find that may have no output)
+            stdout_content = result.get("stdout", "")
+            if stdout_content:
+                lines.append(f"\nOutput:\n{stdout_content}")
+            else:
+                # Explicitly note when stdout is empty so LLM knows command ran but produced no output
+                lines.append(f"\nOutput: (empty)")
             
             if result.get("stderr"):
                 stderr_label = self._get_stderr_label(result)

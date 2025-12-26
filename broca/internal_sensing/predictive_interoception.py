@@ -319,4 +319,6 @@ class PredictiveInteroception:
         avg_error = sum(self._prediction_errors) / len(self._prediction_errors)
         accuracy = 1.0 - min(avg_error, 1.0)
         
+        logger.debug(f"Computed prediction_accuracy: {accuracy:.3f} (from {len(self._prediction_errors)} predictions, avg_error: {avg_error:.3f})")
+        
         return accuracy
