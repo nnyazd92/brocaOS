@@ -27,24 +27,45 @@ class IntegratedInteroception:
     Combines all internal sensing components into unified awareness.
     """
     
-    def __init__(self, history_window: int = 60, embedding_service: Optional[Any] = None) -> None:
+    def __init__(self, history_window: int = 60, embedding_service: Optional[Any] = None, epistemic_engine: Optional[Any] = None) -> None:
         """
         Initialize integrated interoception.
         
         Args:
             history_window: Number of samples to keep in history
+            embedding_service: Optional embedding service for semantic analysis
+            epistemic_engine: Optional MetacognitiveEngine for second-order metacognition
         """
         self.physiology = ComputationalPhysiologyMonitor()
         self.cognition = CognitiveStateMonitor()
         self.affect = ComputationalAffectMonitor()
         self.prediction = PredictiveInteroception()
         self.embedding_service = embedding_service
+        self.epistemic_engine = epistemic_engine
+        
+        # Create epistemic bridge if epistemic engine is available
+        self.epistemic_bridge = None
+        if epistemic_engine:
+            from .epistemic_bridge import EpistemicBridge
+            self.epistemic_bridge = EpistemicBridge(epistemic_engine)
+            logger.info("Created epistemic bridge for IntegratedInteroception")
+        
+        # Pass embedding service to monitors that need it
+        if embedding_service:
+            self.affect.set_embedding_service(embedding_service)
+            self.cognition.set_embedding_service(embedding_service)
+        
+        # Pass epistemic bridge to monitors
+        if self.epistemic_bridge:
+            self.affect.set_epistemic_bridge(self.epistemic_bridge)
+            self.cognition.set_epistemic_bridge(self.epistemic_bridge)
+            logger.info("Set epistemic bridge for cognitive and affective monitors")
         
         self.interoceptive_map: Dict[str, Any] = {}
         self.history_window = history_window
         self._history: deque = deque(maxlen=history_window)
         
-        logger.info("Initialized IntegratedInteroception")
+        logger.info("Initialized IntegratedInteroception" + (" with epistemic engine" if epistemic_engine else ""))
     
     def generate_interoceptive_awareness(self) -> Dict[str, Any]:
         """
@@ -65,6 +86,11 @@ class IntegratedInteroception:
         # Sample all components
         computational = self.physiology.sample_resources()
         cognitive = self.cognition.sample_cognitive_state()
+        
+        # Update from epistemic engine if available
+        if self.epistemic_bridge:
+            self.cognition.update_from_epistemic()
+            self.affect.update_from_epistemic()
         
         # Update affective states from cognitive states automatically
         # This ensures certainty_affect, coherence_pleasure, and curiosity_drive are computed

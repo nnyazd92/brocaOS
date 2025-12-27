@@ -220,6 +220,13 @@ async def load_conversation(conversation_id: str) -> LoadConversationResponse:
     raw_msgs = data.get("messages", [])
     msgs = []
     for m in raw_msgs:
+        # Filter out SYSTEM DIRECTIVE messages - these are internal system warnings
+        # and should not be exposed via the API
+        if m.get("role") == "user":
+            content = m.get("content", "")
+            if content and "[SYSTEM DIRECTIVE" in content:
+                continue  # Skip this message
+        
         if "content" not in m:
             m["content"] = ""
         msgs.append(Message(**m))
@@ -286,13 +293,97 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
             logger.info("Web search tool disabled for this request")
         
         iterations = 0
-        while iterations < 10:
+        last_warning_iteration = 0
+        max_iterations = 100  # Match session.send() max iterations
+        assistant_text = None
+        last_response = None
+        
+        while iterations < max_iterations:
             iterations += 1
             session._update_system_prompt()
             messages_for_llm = session._get_messages_for_llm()
             
+            # Check for loop conditions and inject warnings if needed (same as session.send())
+            warning_thresholds = [10, 20, 30, 50, 75, 90]
+            should_warn = False
+            warning_message = None
+            
+            for threshold in warning_thresholds:
+                if iterations >= threshold and last_warning_iteration < threshold:
+                    should_warn = True
+                    last_warning_iteration = threshold
+                    
+                    # Detect loops using session's method
+                    loop_info = session._detect_tool_call_loop(iterations) if hasattr(session, '_detect_tool_call_loop') else None
+                    
+                    # Generate warning message based on severity
+                    if iterations >= 75:
+                        severity = "CRITICAL"
+                        urgency = "MUST"
+                    elif iterations >= 50:
+                        severity = "CRITICAL"
+                        urgency = "MUST"
+                    elif iterations >= 30:
+                        severity = "HIGH"
+                        urgency = "should"
+                    else:
+                        severity = "MEDIUM"
+                        urgency = "should"
+                    
+                    if loop_info:
+                        tool_name = loop_info["tool_name"]
+                        repeat_count = loop_info["repeat_count"]
+                        pattern = loop_info["pattern_description"]
+                        warning_message = (
+                            f"[SYSTEM DIRECTIVE - {severity} WARNING] You are on iteration {iterations}. "
+                            f"A loop has been detected: {pattern}. You {urgency} break out of this loop. "
+                            "Review the tool results you've received and either:\n"
+                            "- Make different tool calls if you need different information\n"
+                            "- Provide your final comprehensive response to the user if you have enough information\n"
+                            "Do not continue making the same tool calls repeatedly. The system automatically continues "
+                            "after tool results - you should review results and respond accordingly."
+                        )
+                    else:
+                        if iterations >= 50:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] Very high iteration count ({iterations}). "
+                                f"You {urgency} provide a final response to the user. Review all tool results you've received "
+                                "and provide a comprehensive answer. The system automatically continues after tool results - "
+                                "you should respond with your final answer, not wait for user input."
+                            )
+                        elif iterations >= 30:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] High iteration count ({iterations}). "
+                                "You may be stuck in a loop. Review tool results and either make different tool calls "
+                                "if needed, or provide your final response. The system automatically continues - "
+                                "you should respond based on tool results, not wait for user prompts."
+                            )
+                        else:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] You're on iteration {iterations}. "
+                                "Consider if your current approach is working. If you're making progress with tool calls, continue. "
+                                "If you have enough information from tool results, provide your final response. "
+                                "Remember: the system automatically continues after tool results - review them and respond accordingly."
+                            )
+                    break
+            
+            if should_warn and warning_message:
+                session.messages.append({"role": "user", "content": warning_message})
+                logger.warning(
+                    f"Injected loop warning at iteration {iterations}",
+                    extra={
+                        "event": "loop_warning_injected",
+                        "iteration": iterations,
+                        "warning_threshold": last_warning_iteration,
+                    }
+                )
+            
             response = session.llm.chat(messages_for_llm, tools=tools)
+            last_response = response  # Store for max_iterations handling
             tool_calls = session.llm.extract_tool_calls(response)
+            
+            # Extract assistant content (intermediary commentary) before processing tool calls
+            assistant_content = session.llm.extract_assistant_content(response) or None
             
             if session.internal_sensing_framework and tool_calls:
                 try:
@@ -304,14 +395,29 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     logger.debug(f"Error tracking processing depth: {e}", exc_info=True)
             
             if tool_calls:
+                # Log tool calls detected for automatic continuation
+                tool_names = [tc.get("function", {}).get("name", "unknown") for tc in tool_calls]
+                logger.info(
+                    f"Tool calls detected in stream_response (iteration {iterations})",
+                    extra={
+                        "event": "tool_calls_detected",
+                        "tool_calls_count": len(tool_calls),
+                        "tool_names": tool_names,
+                        "iteration": iterations,
+                    },
+                )
+                
+                # Create single assistant message with all tool calls and content (preserves intermediary commentary)
+                # This matches session.send() behavior
+                assistant_message = {
+                    "role": "assistant",
+                    "content": assistant_content,  # Preserve intermediary commentary
+                    "tool_calls": tool_calls,
+                }
+                session.messages.append(assistant_message)
+                
+                # Process each tool call and yield streaming events
                 for tc in tool_calls:
-                    interleaved_assistant_msg = {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [tc]
-                    }
-                    session.messages.append(interleaved_assistant_msg)
-                    
                     yield json.dumps({
                         "type": "tool_call",
                         "tool_call": tc,
@@ -319,6 +425,17 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     }) + "\n"
                     
                     result_dict = rt.tool_registry.execute_tool_call(tc)
+                    
+                    # Verify tool result was properly added (logging for debugging)
+                    logger.debug(
+                        f"Tool result added in stream_response: {tc.get('function', {}).get('name', 'unknown')} (call_id: {tc.get('id', '')})",
+                        extra={
+                            "event": "tool_result_added",
+                            "tool_name": tc.get("function", {}).get("name", "unknown"),
+                            "tool_call_id": tc.get("id", ""),
+                            "messages_count": len(session.messages),
+                        }
+                    )
                     
                     yield json.dumps({
                         "type": "tool_result",
@@ -329,9 +446,28 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     }) + "\n"
                     
                     session.messages.append(result_dict)
+                
+                # Verify automatic continuation - log that we're continuing after tool calls
+                tool_results_count = sum(1 for msg in session.messages if msg.get("role") == "tool")
+                logger.debug(
+                    f"Continuing after tool calls in stream_response: {len(tool_calls)} tool calls made, {tool_results_count} total tool results in messages",
+                    extra={
+                        "event": "auto_continuation_after_tools",
+                        "iteration": iterations,
+                        "tool_calls_count": len(tool_calls),
+                        "tool_results_count": tool_results_count,
+                        "messages_count": len(session.messages),
+                    }
+                )
+                
+                # Continue loop automatically after tool results (matches session.send() behavior)
                 continue
             else:
+                # No tool calls - final response
                 content = session.llm.extract_assistant_content(response)
+                if not content:
+                    content = "I apologize, but I encountered an issue processing your request."
+                
                 chunk_size = 32
                 for i in range(0, len(content), chunk_size):
                     yield json.dumps({
@@ -343,6 +479,33 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                 session.messages.append({"role": "assistant", "content": content})
                 assistant_text = content
                 break
+        
+        # Handle max iterations reached (same as session.send())
+        if iterations >= max_iterations and not assistant_text:
+            logger.warning(
+                f"Reached max tool iterations ({max_iterations}) in stream_response",
+                extra={
+                    "event": "max_tool_iterations_reached",
+                    "max_iterations": max_iterations,
+                    "iteration": iterations,
+                },
+            )
+            # Try to extract any response content from last iteration
+            if last_response:
+                assistant_text = session.llm.extract_assistant_content(last_response) or "I apologize, but I encountered an issue processing your request."
+            else:
+                assistant_text = "I apologize, but I encountered an issue processing your request."
+            
+            # Stream the error message
+            chunk_size = 32
+            for i in range(0, len(assistant_text), chunk_size):
+                yield json.dumps({
+                    "type": "text",
+                    "content": assistant_text[i:i+chunk_size],
+                    "conversation_id": conversation_id
+                }) + "\n"
+            
+            session.messages.append({"role": "assistant", "content": assistant_text})
         
         if session.internal_sensing_framework and ResponseAnalyzer and 'assistant_text' in locals():
             try:

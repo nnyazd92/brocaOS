@@ -31,6 +31,7 @@ class InternalSensingFramework:
         sampling_rate: Optional[float] = None,
         history_window: Optional[int] = None,
         embedding_service: Optional[Any] = None,
+        epistemic_engine: Optional[Any] = None,
     ) -> None:
         """
         Initialize internal sensing framework.
@@ -38,6 +39,8 @@ class InternalSensingFramework:
         Args:
             sampling_rate: Sampling rate in Hz (defaults to config)
             history_window: History window in seconds (defaults to config)
+            embedding_service: Optional embedding service for semantic analysis
+            epistemic_engine: Optional MetacognitiveEngine for second-order metacognition
         """
         self.sampling_rate = sampling_rate or config.internal_sensing.sampling_rate
         self.history_window = history_window or config.internal_sensing.history_window
@@ -45,8 +48,12 @@ class InternalSensingFramework:
         # Initialize storage for persistence
         self.storage = InternalSensingStorage(config.internal_sensing.state_path)
         
-        # Initialize integrated interoception
-        self.interoception = IntegratedInteroception(history_window=self.history_window, embedding_service=embedding_service)
+        # Initialize integrated interoception with epistemic engine
+        self.interoception = IntegratedInteroception(
+            history_window=self.history_window,
+            embedding_service=embedding_service,
+            epistemic_engine=epistemic_engine,
+        )
         
         # Internal state log
         self.internal_state_log: deque = deque(maxlen=int(self.history_window * self.sampling_rate))

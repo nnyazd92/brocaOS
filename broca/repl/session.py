@@ -172,13 +172,34 @@ class ConversationSession:
         elif system_prompt and not self.world_state_aggregator:
             # Only add system_prompt directly if world_state_aggregator is not available
             # (in which case _update_system_prompt() won't run)
-            self.messages.append({"role": "system", "content": system_prompt})
+            # Add tool calling instructions to ensure automatic continuation behavior
+            tool_calling_instructions = """## TOOL CALLING BEHAVIOR
+
+When you need to use tools to complete a task:
+- You can provide brief commentary alongside tool calls (e.g., "Let me check that file..." or "I'll examine the code...")
+- After tool calls complete and results are returned, AUTOMATICALLY continue - do not wait for user input
+- Review tool results and either:
+  * Make additional tool calls if more information is needed
+  * Provide your final comprehensive response to the user
+- Continue this loop automatically until you have a complete answer to provide
+- Only provide a final text response (with no tool calls) when you're ready to answer the user's question
+- The system will automatically continue after tool results are returned - you don't need to wait for explicit "proceed" or "continue" prompts"""
+            
+            combined_prompt = system_prompt
+            if tool_calling_instructions not in system_prompt:
+                combined_prompt = f"{system_prompt}\n\n{tool_calling_instructions}"
+            self.messages.append({"role": "system", "content": combined_prompt})
+
+        # Check if a system message actually exists in messages after initialization
+        # This correctly reflects whether a system prompt is present regardless of
+        # how it was created (via parameter or via _update_system_prompt)
+        system_prompt_present = any(msg.get("role") == "system" for msg in self.messages)
 
         logger.info(
             "Conversation session started",
             extra={
                 "event": "session_start",
-                "system_prompt_present": bool(system_prompt),
+                "system_prompt_present": system_prompt_present,
                 "session_id": self.session_id,
                 "storage_enabled": storage is not None,
                 "tools_enabled": tool_registry is not None,
@@ -568,28 +589,34 @@ class ConversationSession:
                         warning_message = (
                             f"[SYSTEM DIRECTIVE - {severity} WARNING] You are on iteration {iterations}. "
                             f"A loop has been detected: {pattern}. You {urgency} break out of this loop. "
-                            "If you're stuck, summarize what you've learned so far and provide your best answer "
-                            "based on available information. Do not continue making the same tool calls repeatedly."
+                            "Review the tool results you've received and either:\n"
+                            "- Make different tool calls if you need different information\n"
+                            "- Provide your final comprehensive response to the user if you have enough information\n"
+                            "Do not continue making the same tool calls repeatedly. The system automatically continues "
+                            "after tool results - you should review results and respond accordingly."
                         )
                     else:
                         # High iteration count but no clear loop pattern detected
                         if iterations >= 50:
                             warning_message = (
                                 f"[SYSTEM DIRECTIVE - {severity} WARNING] Very high iteration count ({iterations}). "
-                                f"You {urgency} provide a final response to the user. If you're stuck, "
-                                "summarize what you've learned and provide your best answer based on available information."
+                                f"You {urgency} provide a final response to the user. Review all tool results you've received "
+                                "and provide a comprehensive answer. The system automatically continues after tool results - "
+                                "you should respond with your final answer, not wait for user input."
                             )
                         elif iterations >= 30:
                             warning_message = (
                                 f"[SYSTEM DIRECTIVE - {severity} WARNING] High iteration count ({iterations}). "
-                                "You may be stuck in a loop. Consider if your current approach is working. "
-                                "If needed, summarize what you've learned and provide a response."
+                                "You may be stuck in a loop. Review tool results and either make different tool calls "
+                                "if needed, or provide your final response. The system automatically continues - "
+                                "you should respond based on tool results, not wait for user prompts."
                             )
                         else:
                             warning_message = (
                                 f"[SYSTEM DIRECTIVE - {severity} WARNING] You're on iteration {iterations}. "
-                                "Consider if your current approach is working. If you're making progress, continue. "
-                                "If you're stuck, consider a different approach or summarize what you've learned."
+                                "Consider if your current approach is working. If you're making progress with tool calls, continue. "
+                                "If you have enough information from tool results, provide your final response. "
+                                "Remember: the system automatically continues after tool results - review them and respond accordingly."
                             )
                     
                     break  # Only warn at one threshold per iteration
@@ -1153,8 +1180,24 @@ class ConversationSession:
                         }
                     )
 
+                # Verify tool results were added to messages before continuing
+                # This ensures the next LLM call receives complete context
+                # Count tool results that were just added (should match number of tool calls)
+                tool_results_count = sum(1 for msg in self.messages if msg.get("role") == "tool")
+                logger.debug(
+                    f"Continuing after tool calls: {len(tool_calls)} tool calls made, {tool_results_count} total tool results in messages",
+                    extra={
+                        "event": "auto_continuation_after_tools",
+                        "iteration": iterations,
+                        "tool_calls_count": len(tool_calls),
+                        "tool_results_count": tool_results_count,
+                        "messages_count": len(self.messages),
+                    }
+                )
+                
                 # Continue loop to get LLM response with tool results
                 # The reasoning_content extracted above will be passed in the next iteration
+                # The LLM will automatically receive tool results and should continue without waiting for user input
                 continue
             else:
                 # No tool calls - check if we have a pending critic rejection
@@ -2515,9 +2558,10 @@ class ConversationSession:
         """
         Detect if the model is stuck in a loop making repeated tool calls.
         
-        Analyzes recent tool calls in the current turn to detect patterns like:
-        - Same tool called multiple times with identical or similar arguments
-        - Same tool called 3+ times in the last 5 tool calls
+        Analyzes recent tool calls in the current turn to detect patterns where
+        the same tool is called with identical or similar arguments repeatedly.
+        Only triggers when actual repetition occurs (same tool + same/similar arguments),
+        not just when the same tool is used with different arguments.
         
         Args:
             iterations: Current iteration count
@@ -2563,31 +2607,17 @@ class ConversationSession:
                                 "arguments_str": arguments_str,
                             })
         
-        if len(recent_tool_calls) < 3:
-            # Need at least 3 tool calls to detect a loop
+        if len(recent_tool_calls) < 2:
+            # Need at least 2 tool calls to detect a loop
             return None
         
         # Check for patterns: look at last 5 tool calls
         last_n = min(5, len(recent_tool_calls))
         last_tool_calls = recent_tool_calls[-last_n:]
         
-        # Pattern 1: Same tool called 3+ times in last 5 calls
-        tool_counts = {}
-        for tc in last_tool_calls:
-            tool_name = tc["tool_name"]
-            tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
-        
-        for tool_name, count in tool_counts.items():
-            if count >= 3:
-                return {
-                    "tool_name": tool_name,
-                    "repeat_count": count,
-                    "pattern_description": f"Same tool '{tool_name}' called {count} times in last {last_n} tool calls",
-                    "pattern_type": "repeated_tool",
-                }
-        
-        # Pattern 2: Same tool + same/similar arguments repeated 2+ times
-        # For terminal tool, normalize command strings (remove paths, focus on command structure)
+        # Pattern: Same tool + same/similar arguments repeated 2+ times
+        # Only trigger loop detection when the same tool is called with identical or similar arguments
+        # This prevents false positives when different commands are executed with the same tool
         for i in range(len(last_tool_calls) - 1):
             tc1 = last_tool_calls[i]
             for j in range(i + 1, len(last_tool_calls)):
@@ -3497,6 +3527,22 @@ class ConversationSession:
                         )
                     
                     parts.append(base_prompt)
+            
+            # 1.5. Add tool calling behavior instructions
+            # This ensures the LLM understands it should automatically continue after tool results
+            tool_calling_instructions = """## TOOL CALLING BEHAVIOR
+
+When you need to use tools to complete a task:
+- You can provide brief commentary alongside tool calls (e.g., "Let me check that file..." or "I'll examine the code...")
+- After tool calls complete and results are returned, AUTOMATICALLY continue - do not wait for user input
+- Review tool results and either:
+  * Make additional tool calls if more information is needed
+  * Provide your final comprehensive response to the user
+- Continue this loop automatically until you have a complete answer to provide
+- Only provide a final text response (with no tool calls) when you're ready to answer the user's question
+- The system will automatically continue after tool results are returned - you don't need to wait for explicit "proceed" or "continue" prompts"""
+            
+            parts.append(tool_calling_instructions)
             
             # 2. Add summary context if summarization is enabled
             if self._summarization_manager:
@@ -4448,6 +4494,19 @@ class ConversationSession:
                     tool_result["event_ids"].append(tool_result_event_id)
                 
                 self.messages.append(tool_result)
+                
+                # Verify tool result was properly added to messages
+                # This ensures the next LLM iteration will receive the tool result
+                logger.debug(
+                    f"Tool result added to messages: {tool_name} (call_id: {tool_call_id})",
+                    extra={
+                        "event": "tool_result_added",
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "messages_count": len(self.messages),
+                        "last_message_role": self.messages[-1].get("role") if self.messages else None,
+                    }
+                )
 
                 # Instrumentation: Record tool usage and reasoning
                 if self.internal_sensing_framework:

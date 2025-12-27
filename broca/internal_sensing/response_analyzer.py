@@ -137,6 +137,39 @@ class ResponseAnalyzer:
         r'\b(tired|exhausted|drained|low energy)\b',
     ]
     
+    # Emotion category patterns
+    JOY_PATTERNS = [
+        r'\b(happy|joy|delighted|pleased|excited|thrilled|ecstatic)\b',
+        r'\b(celebration|success|achievement|accomplishment)\b',
+    ]
+    
+    FRUSTRATION_PATTERNS = [
+        r'\b(frustrated|annoyed|irritated|aggravated|exasperated)\b',
+        r'\b(difficult|challenging|problematic|troublesome)\b',
+    ]
+    
+    CURIOSITY_PATTERNS = [
+        r'\b(curious|wonder|interested|intrigued|fascinated)\b',
+        r'\b(explore|investigate|discover|learn|understand)\b',
+    ]
+    
+    # Task urgency patterns
+    URGENT_PATTERNS = [
+        r'\b(urgent|critical|immediate|asap|right away|now)\b',
+        r'\b(deadline|time sensitive|important|priority)\b',
+    ]
+    
+    # Engagement patterns
+    HIGH_ENGAGEMENT_PATTERNS = [
+        r'\b(detailed|thorough|comprehensive|extensive|in-depth)\b',
+        r'\b(question|clarify|explain|elaborate|discuss)\b',
+    ]
+    
+    LOW_ENGAGEMENT_PATTERNS = [
+        r'\b(brief|short|quick|simple|basic)\b',
+        r'\b(ok|sure|fine|whatever|don\'t care)\b',
+    ]
+    
     @classmethod
     def estimate_confidence(cls, response: str) -> Optional[float]:
         """
@@ -217,12 +250,13 @@ class ResponseAnalyzer:
         return uncertainty
     
     @classmethod
-    def compute_valence(cls, response: str) -> Optional[Tuple[float, float]]:
+    def compute_valence(cls, response: str, context: Optional[List[Dict[str, str]]] = None) -> Optional[Tuple[float, float]]:
         """
-        Compute valence (positive/negative) from response text.
+        Compute valence (positive/negative) from response text with optional context awareness.
         
         Args:
             response: LLM response text
+            context: Optional conversation context (recent messages)
             
         Returns:
             Tuple of (positive_score, negative_score) both 0.0-1.0, or None if response is empty
@@ -244,11 +278,173 @@ class ResponseAnalyzer:
             for pattern in cls.NEGATIVE_PATTERNS
         )
         
+        # Context-aware adjustment: consider user's previous sentiment
+        if context:
+            user_messages = [msg.get("content", "").lower() for msg in context[-3:] 
+                           if msg.get("role") == "user"]
+            if user_messages:
+                user_text = " ".join(user_messages)
+                user_positive = sum(len(re.findall(p, user_text, re.IGNORECASE)) 
+                                  for p in cls.POSITIVE_PATTERNS)
+                user_negative = sum(len(re.findall(p, user_text, re.IGNORECASE)) 
+                                  for p in cls.NEGATIVE_PATTERNS)
+                # If user was negative, assistant's positive response is more valuable
+                if user_negative > user_positive:
+                    positive_count += 1  # Boost positive score
+                # If user was positive, maintain or slightly boost positive
+                elif user_positive > user_negative:
+                    positive_count += 0.5
+        
         # Normalize to 0-1 range
         positive_score = min(1.0, positive_count / 5.0)
         negative_score = min(1.0, negative_count / 5.0)
         
         return (positive_score, negative_score)
+    
+    @classmethod
+    def detect_emotion_categories(cls, response: str) -> Dict[str, float]:
+        """
+        Detect specific emotion categories from response text.
+        
+        Args:
+            response: LLM response text
+            
+        Returns:
+            Dictionary mapping emotion categories to intensity scores (0.0-1.0)
+        """
+        if not response:
+            return {}
+        
+        response_lower = response.lower()
+        
+        emotions = {}
+        
+        # Joy
+        joy_count = sum(len(re.findall(p, response_lower, re.IGNORECASE)) 
+                       for p in cls.JOY_PATTERNS)
+        emotions["joy"] = min(1.0, joy_count / 3.0)
+        
+        # Frustration
+        frustration_count = sum(len(re.findall(p, response_lower, re.IGNORECASE)) 
+                              for p in cls.FRUSTRATION_PATTERNS)
+        emotions["frustration"] = min(1.0, frustration_count / 3.0)
+        
+        # Curiosity
+        curiosity_count = sum(len(re.findall(p, response_lower, re.IGNORECASE)) 
+                            for p in cls.CURIOSITY_PATTERNS)
+        emotions["curiosity"] = min(1.0, curiosity_count / 3.0)
+        
+        return emotions
+    
+    @classmethod
+    def compute_emotion_intensity(cls, response: str, emotion_scores: Dict[str, float]) -> Dict[str, float]:
+        """
+        Compute intensity scaling for detected emotions.
+        
+        Args:
+            response: LLM response text
+            emotion_scores: Dictionary of emotion category scores
+            
+        Returns:
+            Dictionary with intensity-scaled emotion scores
+        """
+        if not response:
+            return emotion_scores
+        
+        # Intensity indicators
+        intensity_boosters = [
+            response.count('!'),  # Exclamation marks
+            response.count('very'),  # Intensifiers
+            response.count('extremely'),
+            response.count('incredibly'),
+        ]
+        
+        intensity_factor = 1.0 + (sum(intensity_boosters) * 0.1)  # Up to 40% boost
+        intensity_factor = min(1.4, intensity_factor)
+        
+        # Apply intensity scaling
+        scaled_emotions = {emotion: min(1.0, score * intensity_factor) 
+                          for emotion, score in emotion_scores.items()}
+        
+        return scaled_emotions
+    
+    @classmethod
+    def detect_task_urgency(cls, response: str, context: Optional[List[Dict[str, str]]] = None) -> float:
+        """
+        Detect task urgency from response and context.
+        
+        Args:
+            response: LLM response text
+            context: Optional conversation context
+            
+        Returns:
+            Urgency score (0.0-1.0), higher = more urgent
+        """
+        if not response:
+            return 0.0
+        
+        response_lower = response.lower()
+        
+        # Count urgency indicators in response
+        urgency_count = sum(len(re.findall(p, response_lower, re.IGNORECASE)) 
+                          for p in cls.URGENT_PATTERNS)
+        
+        # Check context for urgency
+        if context:
+            context_text = " ".join(msg.get("content", "").lower() for msg in context[-3:])
+            context_urgency = sum(len(re.findall(p, context_text, re.IGNORECASE)) 
+                               for p in cls.URGENT_PATTERNS)
+            urgency_count += context_urgency * 0.5  # Context urgency weighted less
+        
+        # Normalize to 0-1 range
+        urgency = min(1.0, urgency_count / 5.0)
+        return urgency
+    
+    @classmethod
+    def measure_engagement_level(cls, response: str, context: Optional[List[Dict[str, str]]] = None) -> float:
+        """
+        Measure user engagement level from conversation patterns.
+        
+        Args:
+            response: LLM response text
+            context: Optional conversation context
+            
+        Returns:
+            Engagement score (0.0-1.0), higher = more engaged
+        """
+        if not response:
+            return 0.0
+        
+        response_lower = response.lower()
+        
+        # Count engagement indicators
+        high_engagement = sum(len(re.findall(p, response_lower, re.IGNORECASE)) 
+                            for p in cls.HIGH_ENGAGEMENT_PATTERNS)
+        low_engagement = sum(len(re.findall(p, response_lower, re.IGNORECASE)) 
+                           for p in cls.LOW_ENGAGEMENT_PATTERNS)
+        
+        # Factor in response length (longer responses often indicate engagement)
+        length_factor = min(1.0, len(response) / 1000.0)
+        
+        # Factor in question count (questions indicate engagement)
+        question_count = response.count('?')
+        question_factor = min(1.0, question_count / 3.0)
+        
+        # Check context for engagement
+        if context:
+            user_messages = [msg.get("content", "") for msg in context[-3:] 
+                           if msg.get("role") == "user"]
+            if user_messages:
+                user_text = " ".join(user_messages).lower()
+                user_high_engagement = sum(len(re.findall(p, user_text, re.IGNORECASE)) 
+                                         for p in cls.HIGH_ENGAGEMENT_PATTERNS)
+                high_engagement += user_high_engagement * 0.5
+        
+        # Combine factors
+        engagement = (high_engagement * 0.4) - (low_engagement * 0.2) + (length_factor * 0.3) + (question_factor * 0.1)
+        engagement = max(0.0, min(1.0, engagement))
+        
+        return engagement
     
     @classmethod
     def compute_arousal(cls, response: str) -> Optional[float]:

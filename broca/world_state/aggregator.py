@@ -127,9 +127,25 @@ class WorldStateAggregator:
                 if "computational" in current_state:
                     world_state["internal_state"]["physiology"] = self._aggregate_physiology_health(current_state["computational"])
                 if "cognitive" in current_state:
-                    world_state["internal_state"]["cognition"] = current_state["cognitive"]
+                    # Preserve cognitive state including data_quality indicators
+                    cognitive_state = current_state["cognitive"]
+                    world_state["internal_state"]["cognition"] = cognitive_state
+                    # Ensure data_quality is preserved if present
+                    if "data_quality" not in cognitive_state and hasattr(self.internal_sensing.interoception.cognition, 'states'):
+                        # Try to extract data_quality from cognitive monitor if not in state
+                        cog_states = self.internal_sensing.interoception.cognition.states
+                        if "data_quality" in cog_states:
+                            cognitive_state["data_quality"] = cog_states["data_quality"]
                 if "affective" in current_state:
-                    world_state["internal_state"]["affect"] = current_state["affective"]
+                    # Preserve affective state including data_quality indicators
+                    affective_state = current_state["affective"]
+                    world_state["internal_state"]["affect"] = affective_state
+                    # Ensure data_quality is preserved if present
+                    if "data_quality" not in affective_state and hasattr(self.internal_sensing.interoception.affect, 'affective_states'):
+                        # Try to extract data_quality from affective monitor if not in state
+                        aff_states = self.internal_sensing.interoception.affect.affective_states
+                        if "data_quality" in aff_states:
+                            affective_state["data_quality"] = aff_states["data_quality"]
             
             # Add predictive data if available
             if "predictive" in internal_sensing_state:
@@ -156,6 +172,13 @@ class WorldStateAggregator:
                 motivational_state = internal_sensing_state["motivational_state"]
                 if motivational_state:
                     world_state["internal_state"]["motivational_state"] = motivational_state
+            
+            # Add epistemic metrics if available
+            if "epistemic" in internal_sensing_state:
+                epistemic_data = internal_sensing_state["epistemic"]
+                if epistemic_data:
+                    # Create compact epistemic summary
+                    world_state["internal_state"]["epistemic"] = self._aggregate_epistemic_summary(epistemic_data)
         
         # Tools - only include if available
         tools_info = self.get_tools_info()
@@ -236,6 +259,31 @@ class WorldStateAggregator:
             # Extract reasoning patterns from cognitive state
             reasoning_patterns = self.internal_sensing.interoception.cognition._get_reasoning_patterns()
             
+            # Extract epistemic metrics from epistemic bridge if available
+            epistemic_data = None
+            if hasattr(self.internal_sensing.interoception, 'epistemic_bridge') and self.internal_sensing.interoception.epistemic_bridge:
+                try:
+                    epistemic_bridge = self.internal_sensing.interoception.epistemic_bridge
+                    
+                    # Get aggregated uncertainty
+                    epistemic_uncertainty = epistemic_bridge.get_aggregated_uncertainty()
+                    
+                    # Get aggregated confidence
+                    epistemic_confidence = epistemic_bridge.get_aggregated_confidence()
+                    
+                    # Get source reliability summary
+                    source_reliability = epistemic_bridge.get_source_reliability()
+                    
+                    # Create compact epistemic summary
+                    epistemic_data = {
+                        "uncertainty": epistemic_uncertainty,
+                        "confidence": epistemic_confidence,
+                        "source_reliability": self._aggregate_source_reliability(source_reliability),
+                    }
+                except Exception as e:
+                    logger.warning(f"Error extracting epistemic metrics: {e}", exc_info=True)
+                    epistemic_data = None
+            
             result = {
                 "available": True,
                 "current_state": current_state,
@@ -256,6 +304,8 @@ class WorldStateAggregator:
                 result["motivational_state"] = motivational_state
             if reasoning_patterns:
                 result["reasoning_patterns"] = reasoning_patterns
+            if epistemic_data:
+                result["epistemic"] = epistemic_data
             
             return result
         except Exception as e:
@@ -858,4 +908,106 @@ class WorldStateAggregator:
             aggregated["recent"] = recent_patterns
         
         return aggregated
+    
+    def _aggregate_source_reliability(self, source_reliability: Dict[str, float]) -> Dict[str, Any]:
+        """
+        Aggregate source reliability scores into compact summary.
+        
+        Args:
+            source_reliability: Dictionary mapping source identifiers to reliability scores
+            
+        Returns:
+            Compact summary with tool and memory reliability averages
+        """
+        if not source_reliability:
+            return {}
+        
+        tool_reliabilities = []
+        memory_reliabilities = []
+        
+        for source_key, reliability in source_reliability.items():
+            if source_key.startswith("tool:"):
+                tool_reliabilities.append(reliability)
+            elif source_key.startswith("memory:"):
+                memory_reliabilities.append(reliability)
+        
+        summary = {}
+        
+        if tool_reliabilities:
+            avg_tool_reliability = sum(tool_reliabilities) / len(tool_reliabilities)
+            summary["tool_reliability_avg"] = avg_tool_reliability
+            summary["tool_count"] = len(tool_reliabilities)
+        
+        if memory_reliabilities:
+            avg_memory_reliability = sum(memory_reliabilities) / len(memory_reliabilities)
+            summary["memory_consistency_avg"] = avg_memory_reliability
+            summary["memory_count"] = len(memory_reliabilities)
+        
+        return summary
+    
+    def _aggregate_epistemic_summary(self, epistemic_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Aggregate epistemic data into compact summary for world state.
+        
+        Similar to _aggregate_physiology_health(), extracts only essential metrics
+        to prevent size bloat while preserving key epistemic signals.
+        
+        Args:
+            epistemic_data: Full epistemic data dictionary with uncertainty, confidence, source_reliability
+            
+        Returns:
+            Compact epistemic summary with essential metrics only
+        """
+        summary = {}
+        
+        # Extract uncertainty summary
+        uncertainty = epistemic_data.get("uncertainty", {})
+        if uncertainty:
+            # Include only essential uncertainty metrics
+            uncertainty_summary = {
+                "epistemic": uncertainty.get("epistemic"),
+                "aleatoric": uncertainty.get("aleatoric"),
+                "total": uncertainty.get("total"),
+            }
+            # Include data quality if available
+            if "data_quality" in uncertainty:
+                uncertainty_summary["data_quality"] = uncertainty.get("data_quality")
+            if "sample_size" in uncertainty:
+                uncertainty_summary["sample_size"] = uncertainty.get("sample_size")
+            if "has_data" in uncertainty:
+                uncertainty_summary["has_data"] = uncertainty.get("has_data")
+            
+            summary["uncertainty"] = uncertainty_summary
+        
+        # Extract confidence summary
+        confidence = epistemic_data.get("confidence", {})
+        if confidence:
+            # Include only essential confidence metrics
+            confidence_summary = {
+                "overall_confidence": confidence.get("overall_confidence"),
+            }
+            # Include confidence interval if available
+            if "confidence_interval" in confidence:
+                confidence_summary["confidence_interval"] = confidence.get("confidence_interval")
+            # Include calibration error if available
+            if "calibration_error" in confidence and confidence.get("calibration_error") is not None:
+                confidence_summary["calibration_error"] = confidence.get("calibration_error")
+            # Include data quality if available
+            if "data_quality" in confidence:
+                confidence_summary["data_quality"] = confidence.get("data_quality")
+            if "sample_size" in confidence:
+                confidence_summary["sample_size"] = confidence.get("sample_size")
+            if "has_data" in confidence:
+                confidence_summary["has_data"] = confidence.get("has_data")
+            if "uncertainty" in confidence:
+                confidence_summary["uncertainty"] = confidence.get("uncertainty")
+            
+            summary["confidence"] = confidence_summary
+        
+        # Include source reliability summary (already aggregated)
+        source_reliability = epistemic_data.get("source_reliability", {})
+        if source_reliability:
+            summary["source_reliability"] = source_reliability
+        
+        return summary
 

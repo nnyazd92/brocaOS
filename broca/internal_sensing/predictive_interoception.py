@@ -48,17 +48,19 @@ class PredictiveInteroception:
     def predict_resources(
         self,
         physiology: "ComputationalPhysiologyMonitor",
-        horizon: int = 5
+        horizon: int = 5,
+        multi_horizon: bool = False
     ) -> Dict[str, Any]:
         """
-        Predict future resource needs.
+        Predict future resource needs with optional multi-horizon and uncertainty quantification.
         
         Args:
             physiology: ComputationalPhysiologyMonitor instance
             horizon: Prediction horizon (number of steps ahead)
+            multi_horizon: If True, return predictions for multiple horizons
             
         Returns:
-            Dictionary with predicted resource metrics (always returns dict with defaults if needed)
+            Dictionary with predicted resource metrics and uncertainty intervals
         """
         history = physiology.get_history()
         current_load = physiology.metrics.get("computational_load", 0.5)
@@ -69,33 +71,59 @@ class PredictiveInteroception:
             recent = history[-min(5, len(history)):]
             
             # Calculate trend for computational_load
-            loads = [s.get("computational_load", 0.5) for s in recent]
+            loads = [s.get("computational_load", 0.5) for s in recent if s.get("computational_load") is not None]
             if len(loads) >= 2:
                 trend = (loads[-1] - loads[0]) / len(loads)
                 predicted_load = min(1.0, max(0.0, loads[-1] + trend * horizon))
+                # Calculate uncertainty (variance in recent values)
+                variance = sum((l - sum(loads)/len(loads))**2 for l in loads) / len(loads)
+                load_uncertainty = min(1.0, variance ** 0.5)
             else:
                 predicted_load = current_load
+                load_uncertainty = 0.5
             
             # Calculate trend for memory_pressure
-            memories = [s.get("memory_pressure", 0.5) for s in recent]
+            memories = [s.get("memory_pressure", 0.5) for s in recent if s.get("memory_pressure") is not None]
             if len(memories) >= 2:
                 trend = (memories[-1] - memories[0]) / len(memories)
                 predicted_memory = min(1.0, max(0.0, memories[-1] + trend * horizon))
+                variance = sum((m - sum(memories)/len(memories))**2 for m in memories) / len(memories)
+                memory_uncertainty = min(1.0, variance ** 0.5)
             else:
                 predicted_memory = current_memory
+                memory_uncertainty = 0.5
         else:
             # Use current values if no history
             predicted_load = current_load
             predicted_memory = current_memory
+            load_uncertainty = 0.5
+            memory_uncertainty = 0.5
         
         prediction = {
             "computational_load": predicted_load,
+            "computational_load_uncertainty": load_uncertainty,
+            "computational_load_interval": (max(0.0, predicted_load - load_uncertainty), 
+                                          min(1.0, predicted_load + load_uncertainty)),
             "memory_pressure": predicted_memory,
+            "memory_pressure_uncertainty": memory_uncertainty,
+            "memory_pressure_interval": (max(0.0, predicted_memory - memory_uncertainty),
+                                        min(1.0, predicted_memory + memory_uncertainty)),
             "processing_latency": physiology.metrics.get("processing_latency", 0.0),
             "attention_fluctuation": physiology.metrics.get("attention_fluctuation", 0.0),
             "energy_efficiency": physiology.metrics.get("energy_efficiency", 0.5),
             "timestamp": time.time() + horizon,
+            "horizon": horizon,
         }
+        
+        # Multi-horizon predictions if requested
+        if multi_horizon:
+            horizons = [1, 3, 5, 10]
+            multi_predictions = {}
+            for h in horizons:
+                if h != horizon:
+                    h_pred = self.predict_resources(physiology, horizon=h, multi_horizon=False)
+                    multi_predictions[f"horizon_{h}"] = h_pred
+            prediction["multi_horizon"] = multi_predictions
         
         return prediction
     
@@ -276,7 +304,11 @@ class PredictiveInteroception:
         
         # Update model (simple: store recent patterns)
         if model_type not in self.internal_models:
-            self.internal_models[model_type] = {}
+            self.internal_models[model_type] = {
+                "recent_patterns": deque(maxlen=20),
+                "error_history": deque(maxlen=50),
+                "adaptation_factor": 0.1,  # Learning rate for model adaptation
+            }
         
         # Store recent prediction pattern
         if "recent_patterns" not in self.internal_models[model_type]:
@@ -287,6 +319,25 @@ class PredictiveInteroception:
             "actual": actual,
             "error": error,
         })
+        
+        # Track error history for adaptation
+        if "error_history" not in self.internal_models[model_type]:
+            self.internal_models[model_type]["error_history"] = deque(maxlen=50)
+        self.internal_models[model_type]["error_history"].append(error)
+        
+        # Model adaptation: adjust prediction strategy based on recent errors
+        # If errors are consistently high, increase uncertainty in future predictions
+        error_history = list(self.internal_models[model_type]["error_history"])
+        if len(error_history) >= 5:
+            recent_avg_error = sum(error_history[-5:]) / 5
+            # If recent errors are high, increase adaptation (be more conservative)
+            if recent_avg_error > 0.3:
+                self.internal_models[model_type]["adaptation_factor"] = min(0.3, 
+                    self.internal_models[model_type].get("adaptation_factor", 0.1) * 1.1)
+            elif recent_avg_error < 0.1:
+                # If errors are low, decrease adaptation (be more confident)
+                self.internal_models[model_type]["adaptation_factor"] = max(0.05,
+                    self.internal_models[model_type].get("adaptation_factor", 0.1) * 0.95)
     
     def record_prediction(
         self,

@@ -17,6 +17,17 @@ try:
 except ImportError:
     psutil = None  # type: ignore
 
+# Import data quality utilities
+try:
+    from .data_quality import (
+        DataQuality,
+        uncertainty_for_missing_data,
+        assess_data_quality,
+    )
+    HAS_DATA_QUALITY = True
+except ImportError:
+    HAS_DATA_QUALITY = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,8 +55,23 @@ class ComputationalPhysiologyMonitor:
             "computational_load": None,  # Will be computed from moving average
             "memory_pressure": None,  # Will be computed from moving average
             "processing_latency": None,  # Will be computed from moving average
+            "latency_percentiles": {  # Latency percentiles
+                "p50": None,
+                "p95": None,
+                "p99": None,
+            },
             "attention_fluctuation": None,  # Will be computed from moving average
             "energy_efficiency": None,  # Will be computed from moving average
+            "efficiency_metrics": {  # Work-normalized efficiency
+                "tokens_per_cpu_second": None,
+                "operations_per_memory_unit": None,
+                "work_per_resource": None,
+            },
+            "resource_pressure_gradients": {  # Rate of change
+                "cpu_gradient": None,
+                "memory_gradient": None,
+            },
+            "quality_adjusted_efficiency": None,  # Efficiency adjusted for output quality
             # Expanded CPU metrics
             "cpu_per_core": None,  # List of per-CPU percentages
             "cpu_times": None,  # Dict of CPU time breakdown
@@ -73,6 +99,12 @@ class ComputationalPhysiologyMonitor:
         self._attention_levels: deque = deque(maxlen=10)
         self._baseline_latency: float = 1.0
         
+        # Track work metrics for efficiency calculation
+        self._tokens_processed: deque = deque(maxlen=50)  # Track tokens processed
+        self._operations_completed: deque = deque(maxlen=50)  # Track operations completed
+        self._resource_usage_history: deque = deque(maxlen=20)  # Track resource usage over time
+        self._quality_scores: deque = deque(maxlen=20)  # Track output quality scores
+        
         # Moving average tracking for main metrics
         self._computational_load_history: deque = deque(maxlen=20)
         self._memory_pressure_history: deque = deque(maxlen=20)
@@ -93,24 +125,46 @@ class ComputationalPhysiologyMonitor:
         Measure CPU load and normalize to 0-1 range, using moving average.
         
         Returns:
-            Normalized CPU load (0.0-1.0), defaults to 0.5 if unavailable
+            Normalized CPU load (0.0-1.0), returns high uncertainty value if unavailable
         """
         if psutil is None:
-            logger.warning("psutil not available, using default CPU load")
-            load = 0.5
+            logger.warning("psutil not available, using high uncertainty for CPU load")
+            # Use high uncertainty instead of default 0.5
+            if HAS_DATA_QUALITY:
+                load = 0.5  # Neutral estimate
+                # Mark as missing data in metrics
+                if "data_quality" not in self.metrics:
+                    self.metrics["data_quality"] = {}
+                self.metrics["data_quality"]["computational_load"] = DataQuality.MISSING.value
+            else:
+                load = 0.5
         else:
             try:
                 cpu_percent = psutil.cpu_percent(interval=0.1)
                 # Normalize to 0-1 range (clamp to 1.0 if > 100%)
                 load = min(cpu_percent / 100.0, 1.0)
+                # Mark as having data
+                if HAS_DATA_QUALITY:
+                    if "data_quality" not in self.metrics:
+                        self.metrics["data_quality"] = {}
+                    self.metrics["data_quality"]["computational_load"] = DataQuality.HIGH.value
             except Exception as e:
-                logger.warning(f"Error measuring CPU load: {e}, using default")
-                load = 0.5
+                logger.warning(f"Error measuring CPU load: {e}, using high uncertainty")
+                if HAS_DATA_QUALITY:
+                    load = 0.5
+                    if "data_quality" not in self.metrics:
+                        self.metrics["data_quality"] = {}
+                    self.metrics["data_quality"]["computational_load"] = DataQuality.MISSING.value
+                else:
+                    load = 0.5
         
         # Update moving average
         self._computational_load_history.append(load)
         if len(self._computational_load_history) > 0:
             return sum(self._computational_load_history) / len(self._computational_load_history)
+        # No history: return with high uncertainty
+        if HAS_DATA_QUALITY:
+            return 0.5  # Prior estimate
         return 0.5
     
     def _measure_memory_pressure(self) -> float:
@@ -118,24 +172,44 @@ class ComputationalPhysiologyMonitor:
         Measure memory pressure and normalize to 0-1 range, using moving average.
         
         Returns:
-            Normalized memory pressure (0.0-1.0), defaults to 0.5 if unavailable
+            Normalized memory pressure (0.0-1.0), returns high uncertainty value if unavailable
         """
         if psutil is None:
-            logger.warning("psutil not available, using default memory pressure")
-            pressure = 0.5
+            logger.warning("psutil not available, using high uncertainty for memory pressure")
+            # Use high uncertainty instead of default 0.5
+            if HAS_DATA_QUALITY:
+                pressure = 0.5  # Neutral estimate
+                if "data_quality" not in self.metrics:
+                    self.metrics["data_quality"] = {}
+                self.metrics["data_quality"]["memory_pressure"] = DataQuality.MISSING.value
+            else:
+                pressure = 0.5
         else:
             try:
                 memory = psutil.virtual_memory()
                 # Normalize to 0-1 range
                 pressure = min(memory.percent / 100.0, 1.0)
+                if HAS_DATA_QUALITY:
+                    if "data_quality" not in self.metrics:
+                        self.metrics["data_quality"] = {}
+                    self.metrics["data_quality"]["memory_pressure"] = DataQuality.HIGH.value
             except Exception as e:
-                logger.warning(f"Error measuring memory pressure: {e}, using default")
-                pressure = 0.5
+                logger.warning(f"Error measuring memory pressure: {e}, using high uncertainty")
+                if HAS_DATA_QUALITY:
+                    pressure = 0.5
+                    if "data_quality" not in self.metrics:
+                        self.metrics["data_quality"] = {}
+                    self.metrics["data_quality"]["memory_pressure"] = DataQuality.MISSING.value
+                else:
+                    pressure = 0.5
         
         # Update moving average
         self._memory_pressure_history.append(pressure)
         if len(self._memory_pressure_history) > 0:
             return sum(self._memory_pressure_history) / len(self._memory_pressure_history)
+        # No history: return with high uncertainty
+        if HAS_DATA_QUALITY:
+            return 0.5  # Prior estimate
         return 0.5
     
     def _record_operation_start(self, operation_id: str) -> None:
@@ -279,6 +353,132 @@ class ComputationalPhysiologyMonitor:
         if len(self._processing_latency_history) > 0:
             return sum(self._processing_latency_history) / len(self._processing_latency_history)
         return 0.0
+    
+    def _calculate_latency_percentiles(self) -> Dict[str, Optional[float]]:
+        """
+        Calculate latency percentiles (P50, P95, P99).
+        
+        Returns:
+            Dictionary with percentile values (normalized 0.0-1.0)
+        """
+        if len(self._operation_latencies) == 0:
+            return {"p50": None, "p95": None, "p99": None}
+        
+        sorted_latencies = sorted(self._operation_latencies)
+        n = len(sorted_latencies)
+        
+        def percentile(p: float) -> float:
+            idx = int(p * (n - 1))
+            raw_value = sorted_latencies[idx]
+            # Normalize based on baseline
+            if self._baseline_latency > 0:
+                return min(raw_value / self._baseline_latency, 1.0)
+            return 0.0
+        
+        return {
+            "p50": percentile(0.50),
+            "p95": percentile(0.95),
+            "p99": percentile(0.99),
+        }
+    
+    def _calculate_efficiency_metrics(self) -> Dict[str, Optional[float]]:
+        """
+        Calculate work-normalized efficiency metrics.
+        
+        Returns:
+            Dictionary with efficiency metrics
+        """
+        metrics = {
+            "tokens_per_cpu_second": None,
+            "operations_per_memory_unit": None,
+            "work_per_resource": None,
+        }
+        
+        # Calculate tokens per CPU-second
+        if len(self._tokens_processed) > 0 and len(self._computational_load_history) > 0:
+            total_tokens = sum(self._tokens_processed)
+            avg_cpu_load = sum(self._computational_load_history) / len(self._computational_load_history)
+            if avg_cpu_load > 0:
+                # Normalize: assume max 1000 tokens per CPU-second = 1.0
+                tokens_per_cpu = total_tokens / (len(self._tokens_processed) * avg_cpu_load)
+                metrics["tokens_per_cpu_second"] = min(1.0, tokens_per_cpu / 1000.0)
+        
+        # Calculate operations per memory unit
+        if len(self._operations_completed) > 0 and len(self._memory_pressure_history) > 0:
+            total_ops = len(self._operations_completed)
+            avg_memory = sum(self._memory_pressure_history) / len(self._memory_pressure_history)
+            if avg_memory > 0:
+                # Normalize: assume max 100 operations per memory unit = 1.0
+                ops_per_memory = total_ops / (len(self._operations_completed) * avg_memory)
+                metrics["operations_per_memory_unit"] = min(1.0, ops_per_memory / 100.0)
+        
+        # Overall work per resource
+        if metrics["tokens_per_cpu_second"] is not None and metrics["operations_per_memory_unit"] is not None:
+            metrics["work_per_resource"] = (metrics["tokens_per_cpu_second"] + metrics["operations_per_memory_unit"]) / 2.0
+        
+        return metrics
+    
+    def _calculate_resource_pressure_gradients(self) -> Dict[str, Optional[float]]:
+        """
+        Calculate rate of change in resource usage (gradients).
+        
+        Returns:
+            Dictionary with gradient values (-1.0 to 1.0)
+        """
+        gradients = {"cpu_gradient": None, "memory_gradient": None}
+        
+        if len(self._computational_load_history) >= 2:
+            recent_loads = list(self._computational_load_history)[-5:]
+            if len(recent_loads) >= 2:
+                # Calculate gradient (rate of change)
+                gradient = (recent_loads[-1] - recent_loads[0]) / len(recent_loads)
+                gradients["cpu_gradient"] = max(-1.0, min(1.0, gradient))
+        
+        if len(self._memory_pressure_history) >= 2:
+            recent_memory = list(self._memory_pressure_history)[-5:]
+            if len(recent_memory) >= 2:
+                gradient = (recent_memory[-1] - recent_memory[0]) / len(recent_memory)
+                gradients["memory_gradient"] = max(-1.0, min(1.0, gradient))
+        
+        return gradients
+    
+    def _calculate_quality_adjusted_efficiency(self) -> Optional[float]:
+        """
+        Calculate efficiency adjusted for output quality.
+        
+        Returns:
+            Quality-adjusted efficiency (0.0-1.0) or None if insufficient data
+        """
+        base_efficiency = self.metrics.get("energy_efficiency")
+        if base_efficiency is None:
+            return None
+        
+        if len(self._quality_scores) == 0:
+            return base_efficiency  # No quality data, return base efficiency
+        
+        avg_quality = sum(self._quality_scores) / len(self._quality_scores)
+        
+        # Adjust efficiency by quality: high quality work is more valuable
+        # Efficiency = base_efficiency * (0.5 + 0.5 * quality)
+        adjusted = base_efficiency * (0.5 + 0.5 * avg_quality)
+        return max(0.0, min(1.0, adjusted))
+    
+    def record_work_metrics(self, tokens: Optional[int] = None, operations: Optional[int] = None, 
+                           quality_score: Optional[float] = None) -> None:
+        """
+        Record work metrics for efficiency calculation.
+        
+        Args:
+            tokens: Number of tokens processed
+            operations: Number of operations completed
+            quality_score: Output quality score (0.0-1.0)
+        """
+        if tokens is not None:
+            self._tokens_processed.append(tokens)
+        if operations is not None:
+            self._operations_completed.append(operations)
+        if quality_score is not None:
+            self._quality_scores.append(max(0.0, min(1.0, quality_score)))
     
     # ========== Expanded CPU Metrics ==========
     
@@ -708,6 +908,10 @@ class ComputationalPhysiologyMonitor:
         processing_latency_avg = self._calculate_processing_latency()
         self.metrics["processing_latency"] = processing_latency_avg if processing_latency_avg is not None else 0.0
         
+        # Calculate latency percentiles
+        latency_percentiles = self._calculate_latency_percentiles()
+        self.metrics["latency_percentiles"] = latency_percentiles
+        
         # Calculate attention fluctuation (uses moving average)
         attention_fluctuation_avg = self._calculate_attention_fluctuation()
         self.metrics["attention_fluctuation"] = attention_fluctuation_avg
@@ -716,6 +920,25 @@ class ComputationalPhysiologyMonitor:
         # Note: This uses computational_load and memory_pressure which were just set above
         energy_efficiency_avg = self._calculate_energy_efficiency()
         self.metrics["energy_efficiency"] = energy_efficiency_avg
+        
+        # Calculate efficiency metrics
+        efficiency_metrics = self._calculate_efficiency_metrics()
+        self.metrics["efficiency_metrics"] = efficiency_metrics
+        
+        # Calculate resource pressure gradients
+        resource_gradients = self._calculate_resource_pressure_gradients()
+        self.metrics["resource_pressure_gradients"] = resource_gradients
+        
+        # Calculate quality-adjusted efficiency
+        quality_adjusted = self._calculate_quality_adjusted_efficiency()
+        self.metrics["quality_adjusted_efficiency"] = quality_adjusted
+        
+        # Store current resource usage for gradient calculation
+        self._resource_usage_history.append({
+            "cpu": computational_load_avg,
+            "memory": memory_pressure_avg,
+            "timestamp": time.time(),
+        })
         
         # Create sample with timestamp
         sample = {

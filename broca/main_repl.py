@@ -435,9 +435,13 @@ def _initialize_environment_system():
         return None
 
 
-def _initialize_internal_sensing(embedding_service: Optional[EmbeddingService] = None) -> InternalSensingFramework | None:
+def _initialize_internal_sensing(embedding_service: Optional[EmbeddingService] = None, epistemic_engine: Optional[Any] = None) -> InternalSensingFramework | None:
     """
     Initialize internal sensing system if enabled.
+    
+    Args:
+        embedding_service: Optional embedding service for semantic analysis
+        epistemic_engine: Optional MetacognitiveEngine for second-order metacognition
     
     Returns:
         InternalSensingFramework instance or None
@@ -451,6 +455,7 @@ def _initialize_internal_sensing(embedding_service: Optional[EmbeddingService] =
             sampling_rate=config.internal_sensing.sampling_rate,
             history_window=config.internal_sensing.history_window,
             embedding_service=embedding_service,
+            epistemic_engine=epistemic_engine,
         )
         
         # Enable/disable specific components based on config
@@ -500,7 +505,10 @@ def main() -> None:
         logger.warning("✗ Self-model initialization failed or disabled - will not be included in world state")
     
     # Initialize internal sensing system
-    internal_sensing = _initialize_internal_sensing(embedding_service=memory_manager.embedding_service if memory_manager else None)
+    internal_sensing = _initialize_internal_sensing(
+        embedding_service=memory_manager.embedding_service if memory_manager else None,
+        epistemic_engine=epistemic_engine,
+    )
     if internal_sensing:
         logger.info("✓ Internal sensing framework initialized successfully")
     else:
