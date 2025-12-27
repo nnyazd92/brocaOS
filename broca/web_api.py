@@ -3,7 +3,9 @@ from uuid import uuid4
 from datetime import datetime, timezone
 import json
 import logging
+import os
 import time
+from pathlib import Path
 
 import psutil
 from fastapi import FastAPI, HTTPException, Body
@@ -25,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Global runtime components (shared)
 _runtime: Optional[BrocaRuntime] = None
+PROJECT_ROOT: Path = Path(__file__).parent.parent.resolve()
 
 app = FastAPI(title="BrocaOS Web API")
 
@@ -34,31 +37,20 @@ ACTIVE_REQUESTS: int = 0
 
 
 def mark_work() -> None:
-    """Mark that the system is actively processing work.
-
-    Updates the last-activity timestamp used by /api/metrics to decide
-    whether the system is in a WORKING vs IDLE state for the NeuralCore.
-    """
+    """Mark that the system is actively processing work."""
     global LAST_WORK_TS
     LAST_WORK_TS = time.time()
 
 
 def begin_request() -> None:
-    """Mark the start of a request that may involve tools / cognition.
-
-    Increments ACTIVE_REQUESTS and updates the last-work timestamp.
-    """
+    """Mark the start of a request that may involve tools / cognition."""
     global ACTIVE_REQUESTS
     ACTIVE_REQUESTS += 1
     mark_work()
 
 
 def end_request() -> None:
-    """Mark the end of an active request.
-
-    Decrements ACTIVE_REQUESTS (safely) and bumps last-work timestamp so
-    the system remains in WORKING state briefly after completion.
-    """
+    """Mark the end of an active request."""
     global ACTIVE_REQUESTS
     if ACTIVE_REQUESTS > 0:
         ACTIVE_REQUESTS -= 1
@@ -105,6 +97,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     messages: List[Message]
     stream: bool = False
+    web_search: bool = True
 
 class ChatResponse(BaseModel):
     conversation_id: str
@@ -114,13 +107,6 @@ class TitleUpdate(BaseModel):
     title: str
 
 def get_runtime() -> BrocaRuntime:
-    """
-    Get or initialize the BrocaRuntime.
-    
-    The runtime is cached globally. When uvicorn reloads due to file changes,
-    the module is reimported, clearing this global variable, which causes
-    the runtime to be reinitialized with any updated config/code.
-    """
     global _runtime
     if _runtime is None:
         _runtime = initialize_runtime()
@@ -148,7 +134,6 @@ def generate_title(user_message: str) -> str:
     rt = get_runtime()
     prompt = f"Generate a very short (max 5 words), punchy title for a conversation that starts with: '{user_message}'. Return ONLY the title text, no quotes or punctuation."
     try:
-        # Use a clean session for title generation
         temp_session = ConversationSession(llm=rt.session.llm)
         title = temp_session.send(prompt, stream=False)
         return title.strip().strip('"').strip("'")
@@ -159,26 +144,13 @@ def generate_title(user_message: str) -> str:
 
 @app.get("/api/metrics")
 async def metrics():
-    """System + activity metrics for NeuralCore.
-
-    Returns CPU, memory pressure, uptime, and a boolean isWorking flag
-    based on recent chat activity, matching the shape expected by the
-    NeuralCore visualization in broca-www.
-    """
-    # Live CPU usage as fraction [0,1]
     cpu_percent = psutil.cpu_percent(interval=0.1) / 100.0
-
-    # Memory pressure: used / total
     vm = psutil.virtual_memory()
     mem_pressure = vm.used / vm.total if vm.total else 0.0
-
-    # Uptime: seconds since boot
     boot_time = psutil.boot_time()
     now_sec = time.time()
     uptime = int(now_sec - boot_time)
-
-    # "Working" if there is an active request OR recent activity
-    RECENT_WINDOW = 5.0  # seconds
+    RECENT_WINDOW = 5.0
     is_working = ACTIVE_REQUESTS > 0 or (now_sec - LAST_WORK_TS) < RECENT_WINDOW
 
     return {
@@ -274,37 +246,31 @@ async def delete_conversation(conversation_id: str):
     storage.delete_conversation(conversation_id)
     return {"success": True}
 
-def stream_response(conversation_id: str, user_message: str) -> Generator[str, None, None]:
+def stream_response(conversation_id: str, user_message: str, web_search_enabled: bool = True) -> Generator[str, None, None]:
     rt = get_runtime()
     storage = get_storage()
     session = create_session(conversation_id)
 
-    # Mark that we're actively processing a streaming user chat request
     mark_work()
     
-    # Pre-LLM instrumentation: Record attention, start latency timer, compute valence
     user_text = user_message
     if session.internal_sensing_framework and ResponseAnalyzer:
         try:
-            # Extract topics from user input and context
             topics = ResponseAnalyzer.extract_topics(user_text, session.messages[-5:])
             for topic, level in topics.items():
                 session.internal_sensing_framework.interoception.cognition.record_attention(
                     topic, level
                 )
             
-            # Start latency timer - store response_id for later use
             response_id = f"response_{len(session.messages) + 1}"
             session._current_response_id = response_id
             session.internal_sensing_framework.interoception.physiology._record_operation_start(
                 response_id
             )
             
-            # Compute valence from conversation history BEFORE updating system prompt
             session.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
                 session.messages
             )
-            # Force a fresh sample to ensure updated valence is included
             session.internal_sensing_framework._last_sample_time = 0.0
             session.internal_sensing_framework.sample_internal_state()
         except Exception as e:
@@ -315,19 +281,19 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
     try:
         tools = rt.tool_registry.to_openai_format() if rt.tool_registry else None
         
+        if tools and not web_search_enabled:
+            tools = [t for t in tools if t["function"]["name"] != "web_search"]
+            logger.info("Web search tool disabled for this request")
+        
         iterations = 0
         while iterations < 10:
             iterations += 1
-            # Update system prompt before each LLM call (includes world state)
             session._update_system_prompt()
             messages_for_llm = session._get_messages_for_llm()
             
-            # Use chat() to detect tool calls
             response = session.llm.chat(messages_for_llm, tools=tools)
-            
             tool_calls = session.llm.extract_tool_calls(response)
             
-            # Instrumentation: Track processing depth from tool calls
             if session.internal_sensing_framework and tool_calls:
                 try:
                     processing_depth = len(tool_calls) + iterations - 1
@@ -338,9 +304,7 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                     logger.debug(f"Error tracking processing depth: {e}", exc_info=True)
             
             if tool_calls:
-                # Execute tools one by one and yield call/result pairs for visual auditing
                 for tc in tool_calls:
-                    # Create a specific assistant message for this tool call to ensure interleaved storage
                     interleaved_assistant_msg = {
                         "role": "assistant",
                         "content": None,
@@ -348,17 +312,14 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                     }
                     session.messages.append(interleaved_assistant_msg)
                     
-                    # Yield tool call
                     yield json.dumps({
                         "type": "tool_call",
                         "tool_call": tc,
                         "conversation_id": conversation_id
                     }) + "\n"
                     
-                    # Execute tool (this should trigger internal sensing updates via tool registry)
                     result_dict = rt.tool_registry.execute_tool_call(tc)
                     
-                    # Yield result
                     yield json.dumps({
                         "type": "tool_result",
                         "tool_call_id": tc["id"],
@@ -367,16 +328,10 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                         "conversation_id": conversation_id
                     }) + "\n"
                     
-                    # Add tool result to history
                     session.messages.append(result_dict)
-                
-                # Continue loop to see if LLM wants to do more
                 continue
             else:
-                # Final response
                 content = session.llm.extract_assistant_content(response)
-                
-                # Yield in chunks to simulate streaming
                 chunk_size = 32
                 for i in range(0, len(content), chunk_size):
                     yield json.dumps({
@@ -389,13 +344,9 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                 assistant_text = content
                 break
         
-        # Post-processing: Record internal sensing metrics (same as session.send())
-        # Note: assistant_text should be defined above, but check to be safe
         if session.internal_sensing_framework and ResponseAnalyzer and 'assistant_text' in locals():
             try:
                 response_id = getattr(session, "_current_response_id", f"response_{len(session.messages)}")
-                
-                # Record latency
                 latency = session.internal_sensing_framework.interoception.physiology._record_operation_end(
                     response_id
                 )
@@ -408,11 +359,9 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                             "processing_latency"
                         ] = normalized_latency
                 
-                # Record confidence and uncertainty
                 confidence = None
                 uncertainty = None
                 if assistant_text:
-                    # Estimate confidence from response
                     confidence = ResponseAnalyzer.estimate_confidence(assistant_text)
                     if confidence is not None:
                         session.internal_sensing_framework.interoception.cognition.record_confidence(
@@ -424,14 +373,12 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                         )
                         confidence = 0.5
                     
-                    # Detect uncertainty
                     uncertainty = ResponseAnalyzer.detect_uncertainty(assistant_text)
                     if uncertainty is not None:
                         session.internal_sensing_framework.interoception.cognition.record_uncertainty(
                             response_id, uncertainty
                         )
                 else:
-                    # Tool-only response: use neutral values
                     session.internal_sensing_framework.interoception.cognition.record_confidence(
                         response_id, 0.5
                     )
@@ -441,9 +388,7 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                     )
                     uncertainty = 0.0
                 
-                # Compute valence and arousal
                 if assistant_text:
-                    # Include current assistant response in history for valence computation
                     conversation_messages = session.messages + [
                         {"role": "assistant", "content": assistant_text}
                     ]
@@ -455,7 +400,6 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                     if arousal is not None:
                         session.internal_sensing_framework.interoception.affect.compute_arousal(arousal)
                 else:
-                    # Tool-only response: compute valence from existing history
                     conversation_messages = [m for m in session.messages if m.get("role") in ("user", "assistant")]
                     if conversation_messages:
                         session.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
@@ -463,12 +407,10 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                         )
                     session.internal_sensing_framework.interoception.affect.compute_arousal(0.5)
                 
-                # Update affective states from cognitive
                 session.internal_sensing_framework.interoception.affect.update_from_cognitive(
                     session.internal_sensing_framework.interoception.cognition
                 )
                 
-                # Record reasoning step
                 session.internal_sensing_framework.interoception.cognition.record_reasoning_step(
                     f"step_{response_id}",
                     {
@@ -478,22 +420,18 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                     },
                 )
                 
-                # Sample internal state after ALL recording is complete (force fresh sample)
                 fresh_state = session.internal_sensing_framework.sample_internal_state(force=True)
-                # Save state after sampling
                 try:
                     session.internal_sensing_framework.save_state()
                 except Exception as e:
                     logger.warning(f"Failed to save state after sampling: {e}", exc_info=True)
                 
-                # Update system prompt AFTER recording to ensure world state reflects new values
                 if session.world_state_aggregator and session._world_state_formatter:
-                    session._last_world_state_hash = None  # Force update
+                    session._last_world_state_hash = None
                     session._update_system_prompt()
             except Exception as e:
                 logger.error(f"Error in post-processing instrumentation: {e}", exc_info=True)
         
-        # Persist
         data = storage.load_conversation(conversation_id)
         metadata = data.get("metadata", {}) if data else {}
         if metadata.get("title") == "New conversation":
@@ -509,18 +447,14 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
             "content": error_content,
             "conversation_id": conversation_id
         }) + "\n"
-        # Still try to do post-processing even on error
         assistant_text = error_content
     
-    # Ensure assistant_text is defined even if exception occurred early
     if 'assistant_text' not in locals():
         assistant_text = None
     
-    # Post-processing: Record internal sensing metrics even if exception occurred
     if 'session' in locals() and session.internal_sensing_framework and ResponseAnalyzer:
         try:
             response_id = getattr(session, "_current_response_id", f"response_{len(session.messages)}")
-            # Try to record at least neutral values
             if assistant_text:
                 session.internal_sensing_framework.interoception.cognition.record_confidence(response_id, 0.5)
                 session.internal_sensing_framework.interoception.affect.compute_arousal(0.5)
@@ -533,7 +467,7 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                 session._last_world_state_hash = None
                 session._update_system_prompt()
         except Exception:
-            pass  # Don't fail on post-processing errors
+            pass
     
     yield json.dumps({
         "type": "done",
@@ -557,11 +491,10 @@ async def chat(req: ChatRequest):
 
         if req.stream:
             return StreamingResponse(
-                stream_response(req.conversation_id, last.content),
+                stream_response(req.conversation_id, last.content, web_search_enabled=req.web_search),
                 media_type="application/x-ndjson"
             )
 
-        # Non-streaming
         session = create_session(req.conversation_id)
         reply_text = session.send(last.content, stream=False)
         
@@ -580,98 +513,120 @@ async def chat(req: ChatRequest):
     finally:
         end_request()
 
+
+@app.get("/api/memories")
+async def get_memories(query: Optional[str] = None):
+    rt = get_runtime()
+    if not rt.memory_manager:
+        raise HTTPException(status_code=500, detail="Memory manager not initialized")
+    
+    if query:
+        results = rt.memory_manager.retrieve_memories(query, limit=50)
+    else:
+        results = rt.memory_manager.storage.get_recent_memories(limit=50)
+    
+    return {
+        "memories": [
+            {
+                "id": m.id,
+                "text": m.text,
+                "namespace": m.namespace,
+                "importance": m.importance,
+                "tags": m.tags,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "source": m.source.model_dump() if m.source else None
+            } for m in results
+        ]
+    }
+
+@app.get("/api/memories/graph")
+async def get_memory_graph(memory_ids: str, depth: int = 2):
+    """Get a subgraph of memory relationships."""
+    rt = get_runtime()
+    if not rt.memory_manager:
+        raise HTTPException(status_code=500, detail="Memory manager not initialized")
+    
+    try:
+        ids = [int(id_str) for id_str in memory_ids.split(",")]
+        graph = rt.memory_manager.relationships.get_relationship_graph(ids, depth=depth)
+        return graph
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/memories/{memory_id}/related")
+async def get_related_memories(memory_id: int, limit: int = 10):
+    rt = get_runtime()
+    if not rt.memory_manager:
+        raise HTTPException(status_code=500, detail="Memory manager not initialized")
+    
+    related = rt.memory_manager.relationships.get_related(memory_id, limit=limit)
+    return {
+        "related": [
+            {
+                "memory": {
+                    "id": m.id,
+                    "text": m.text,
+                    "namespace": m.namespace,
+                    "importance": m.importance,
+                    "tags": m.tags,
+                    "source": m.source.model_dump() if m.source else None
+                },
+                "relationship": {
+                    "type": rel.relation_type.value,
+                    "strength": rel.strength,
+                    "bidirectional": rel.bidirectional
+                }
+            } for m, rel in related
+        ]
+    }
+
+@app.get("/api/artifacts")
+async def get_artifacts():
+    workspace_root = PROJECT_ROOT
+    artifacts_dir = workspace_root / "artifacts"
+    
+    if not artifacts_dir.exists():
+        return {"artifacts": []}
+    
+    artifacts = []
+    for item in artifacts_dir.rglob("*"):
+        if item.name == ".gitkeep": continue
+        
+        rel_path = item.relative_to(workspace_root)
+        artifacts.append({
+            "name": item.name,
+            "path": str(rel_path),
+            "type": "directory" if item.is_dir() else "file",
+            "size": item.stat().st_size if item.is_file() else None,
+            "last_modified": datetime.fromtimestamp(item.stat().st_mtime, timezone.utc).isoformat()
+        })
+    
+    return {"artifacts": artifacts}
+
 if __name__ == "__main__":
     import argparse
-    from pathlib import Path
     
     parser = argparse.ArgumentParser(description="BrocaOS Web API Server")
-    parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Host to bind to (default: 127.0.0.1)"
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Port to bind to (default: 8000)"
-    )
-    parser.add_argument(
-        "--reload",
-        action="store_true",
-        default=True,
-        help="Enable auto-reload on file changes (default: enabled)"
-    )
-    parser.add_argument(
-        "--no-reload",
-        action="store_false",
-        dest="reload",
-        help="Disable auto-reload"
-    )
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--reload", action="store_true", default=True)
     
     args = parser.parse_args()
-    
-    # Determine workspace root (parent of broca package directory)
-    workspace_root = Path(__file__).parent.parent.resolve()
-    
-    # Configure reload settings if enabled
-    reload_dirs = None
-    reload_includes = None
-    reload_excludes = None
-    
-    if args.reload:
-        # Watch workspace root (which includes broca directory and .env files)
-        # This will watch all Python files in broca/ and .env files in workspace root
-        reload_dirs = [
-            str(workspace_root),  # Watch workspace root (includes broca/ and .env files)
-        ]
-        
-        # Include .env files and Python files
-        reload_includes = [
-            "*.py",
-            "*.env",
-            "*.env.*",
-        ]
-        
-        # Exclude unnecessary files and directories
-        reload_excludes = [
-            "*/__pycache__/*",
-            "*.pyc",
-            "*.pyo",
-            "*/.git/*",
-            "*/logs/*",
-            "*/log/*",
-            "*/BOOT_LOGS/*",
-            "*/tests/*",
-            "*/htmlcov/*",
-            "*/mutants/*",
-            "*/backup/*",
-            "*/conversations/*",
-            "*/docs/*",
-            "*.db",
-            "*.sqlite",
-            "*.faiss",
-            "*.jsonl",
-        ]
-    
-    # When reload is enabled, uvicorn needs the app as an import string
-    # When reload is disabled, we can pass the app object directly
-    if args.reload:
-        # Use import string for reload to work properly
-        uvicorn.run(
-            "broca.web_api:app",  # Import string format
-            host=args.host,
-            port=args.port,
-            reload=True,
-            reload_dirs=reload_dirs,
-            reload_includes=reload_includes,
-            reload_excludes=reload_excludes,
-        )
-    else:
-        # Pass app object directly when reload is disabled
-        uvicorn.run(
-            app,
-            host=args.host,
-            port=args.port,
-            reload=False,
-        )
+    uvicorn.run("broca.web_api:app", host=args.host, port=args.port, reload=args.reload)
+
+class ProjectConfig(BaseModel):
+    root_path: str
+
+@app.get("/api/project/config")
+async def get_project_config():
+    global PROJECT_ROOT
+    return {"root_path": str(PROJECT_ROOT)}
+
+@app.post("/api/project/config")
+async def update_project_config(config: ProjectConfig):
+    global PROJECT_ROOT
+    new_path = Path(config.root_path).resolve()
+    if not new_path.exists():
+        raise HTTPException(status_code=400, detail="Path does not exist")
+    PROJECT_ROOT = new_path
+    return {"success": True, "root_path": str(PROJECT_ROOT)}

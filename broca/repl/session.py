@@ -522,11 +522,95 @@ class ConversationSession:
         # Handle tool calls iteratively (may require multiple LLM calls)
         iterations = 0
         response = None
+        # Track last warning iteration to prevent duplicate warnings at the same threshold
+        last_warning_iteration = 0
         while iterations < self._max_tool_iterations:
             iterations += 1
 
             # Update system prompt with current world state before each LLM call
             self._update_system_prompt()
+            
+            # Check for loop conditions and inject warnings if needed
+            # Do this before getting messages for LLM so warnings are included
+            warning_thresholds = [10, 20, 30, 50, 75, 90]
+            should_warn = False
+            warning_message = None
+            loop_info = None
+            
+            # Check if we've reached a warning threshold (and haven't warned at this threshold yet)
+            for threshold in warning_thresholds:
+                if iterations >= threshold and last_warning_iteration < threshold:
+                    should_warn = True
+                    last_warning_iteration = threshold
+                    
+                    # Detect loops
+                    loop_info = self._detect_tool_call_loop(iterations)
+                    
+                    # Generate warning message based on severity
+                    if iterations >= 75:
+                        severity = "CRITICAL"
+                        urgency = "MUST"
+                    elif iterations >= 50:
+                        severity = "CRITICAL"
+                        urgency = "MUST"
+                    elif iterations >= 30:
+                        severity = "HIGH"
+                        urgency = "should"
+                    else:
+                        severity = "MEDIUM"
+                        urgency = "should"
+                    
+                    if loop_info:
+                        # Loop detected - include loop information in warning
+                        tool_name = loop_info["tool_name"]
+                        repeat_count = loop_info["repeat_count"]
+                        pattern = loop_info["pattern_description"]
+                        warning_message = (
+                            f"[SYSTEM DIRECTIVE - {severity} WARNING] You are on iteration {iterations}. "
+                            f"A loop has been detected: {pattern}. You {urgency} break out of this loop. "
+                            "If you're stuck, summarize what you've learned so far and provide your best answer "
+                            "based on available information. Do not continue making the same tool calls repeatedly."
+                        )
+                    else:
+                        # High iteration count but no clear loop pattern detected
+                        if iterations >= 50:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] Very high iteration count ({iterations}). "
+                                f"You {urgency} provide a final response to the user. If you're stuck, "
+                                "summarize what you've learned and provide your best answer based on available information."
+                            )
+                        elif iterations >= 30:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] High iteration count ({iterations}). "
+                                "You may be stuck in a loop. Consider if your current approach is working. "
+                                "If needed, summarize what you've learned and provide a response."
+                            )
+                        else:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] You're on iteration {iterations}. "
+                                "Consider if your current approach is working. If you're making progress, continue. "
+                                "If you're stuck, consider a different approach or summarize what you've learned."
+                            )
+                    
+                    break  # Only warn at one threshold per iteration
+            
+            # Inject warning if needed
+            if should_warn and warning_message:
+                logger.warning(
+                    f"Injecting iteration warning at iteration {iterations}",
+                    extra={
+                        "event": "iteration_warning_injected",
+                        "iteration": iterations,
+                        "threshold": last_warning_iteration,
+                        "loop_detected": loop_info is not None,
+                    }
+                )
+                # Inject as user message (same pattern as critic rejection handling)
+                # This prevents system message accumulation issues
+                self.messages.append({
+                    "role": "user",
+                    "content": warning_message,
+                })
 
             # Track if we used streaming (for later use)
             used_streaming = False
@@ -2356,6 +2440,229 @@ class ConversationSession:
         
         return None
     
+    def _find_minimal_preserved_context(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Find minimal context to preserve when Gemini fix removes everything.
+        
+        Preserves:
+        1. The most recent user message (the original query)
+        2. The last complete tool call sequence (assistant with tool_calls + its tool results)
+        
+        This ensures the model has context about what it was trying to do, even if
+        message ordering is invalid.
+        
+        Args:
+            messages: List of message dictionaries to search
+            
+        Returns:
+            List of messages to preserve (most recent user + last tool call sequence)
+        """
+        preserved = []
+        
+        # Find the most recent user message
+        most_recent_user = None
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content")
+                if content is not None and content != "":
+                    most_recent_user = msg
+                    break
+        
+        if most_recent_user:
+            preserved.append(most_recent_user)
+        
+        # Find the last complete tool call sequence
+        # Look for: assistant message with tool_calls, followed by its tool results
+        last_assistant_with_tool_calls = None
+        last_tool_call_ids = set()
+        
+        # Search backwards for the last assistant message with tool_calls
+        for i in range(len(messages) - 1, -1, -1):
+            msg = messages[i]
+            if msg.get("role") == "assistant":
+                tool_calls = msg.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list):
+                    # Extract tool_call_ids
+                    for tool_call in tool_calls:
+                        if isinstance(tool_call, dict):
+                            tool_call_id = tool_call.get("id")
+                            if isinstance(tool_call_id, str):
+                                last_tool_call_ids.add(tool_call_id)
+                    last_assistant_with_tool_calls = (i, msg)
+                    break
+        
+        if last_assistant_with_tool_calls:
+            assistant_idx, assistant_msg = last_assistant_with_tool_calls
+            preserved.append(assistant_msg)
+            
+            # Find tool messages that correspond to this assistant's tool_calls
+            # Look forward from the assistant message
+            for i in range(assistant_idx + 1, len(messages)):
+                msg = messages[i]
+                if msg.get("role") == "tool":
+                    tool_call_id = msg.get("tool_call_id")
+                    if isinstance(tool_call_id, str) and tool_call_id in last_tool_call_ids:
+                        preserved.append(msg)
+                elif msg.get("role") == "user":
+                    # User message breaks the sequence
+                    break
+        
+        return preserved
+    
+    def _detect_tool_call_loop(self, iterations: int) -> Optional[Dict[str, Any]]:
+        """
+        Detect if the model is stuck in a loop making repeated tool calls.
+        
+        Analyzes recent tool calls in the current turn to detect patterns like:
+        - Same tool called multiple times with identical or similar arguments
+        - Same tool called 3+ times in the last 5 tool calls
+        
+        Args:
+            iterations: Current iteration count
+            
+        Returns:
+            Dictionary with loop detection info if loop detected, None otherwise.
+            Contains: tool_name, repeat_count, pattern_description
+        """
+        if not self.messages:
+            return None
+        
+        # Find the start of the current turn (last user message)
+        last_user_idx = -1
+        for i in range(len(self.messages) - 1, -1, -1):
+            if self.messages[i].get("role") == "user":
+                last_user_idx = i
+                break
+        
+        if last_user_idx == -1:
+            return None
+        
+        # Collect tool calls from current turn
+        recent_tool_calls = []
+        for i in range(last_user_idx + 1, len(self.messages)):
+            msg = self.messages[i]
+            if msg.get("role") == "assistant":
+                tool_calls = msg.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list):
+                    for tool_call in tool_calls:
+                        if isinstance(tool_call, dict):
+                            func = tool_call.get("function", {})
+                            tool_name = func.get("name", "unknown")
+                            arguments_str = func.get("arguments", "{}")
+                            # Try to parse arguments for comparison
+                            try:
+                                import json
+                                arguments = json.loads(arguments_str) if arguments_str else {}
+                            except (json.JSONDecodeError, TypeError):
+                                arguments = {}
+                            recent_tool_calls.append({
+                                "tool_name": tool_name,
+                                "arguments": arguments,
+                                "arguments_str": arguments_str,
+                            })
+        
+        if len(recent_tool_calls) < 3:
+            # Need at least 3 tool calls to detect a loop
+            return None
+        
+        # Check for patterns: look at last 5 tool calls
+        last_n = min(5, len(recent_tool_calls))
+        last_tool_calls = recent_tool_calls[-last_n:]
+        
+        # Pattern 1: Same tool called 3+ times in last 5 calls
+        tool_counts = {}
+        for tc in last_tool_calls:
+            tool_name = tc["tool_name"]
+            tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
+        
+        for tool_name, count in tool_counts.items():
+            if count >= 3:
+                return {
+                    "tool_name": tool_name,
+                    "repeat_count": count,
+                    "pattern_description": f"Same tool '{tool_name}' called {count} times in last {last_n} tool calls",
+                    "pattern_type": "repeated_tool",
+                }
+        
+        # Pattern 2: Same tool + same/similar arguments repeated 2+ times
+        # For terminal tool, normalize command strings (remove paths, focus on command structure)
+        for i in range(len(last_tool_calls) - 1):
+            tc1 = last_tool_calls[i]
+            for j in range(i + 1, len(last_tool_calls)):
+                tc2 = last_tool_calls[j]
+                if tc1["tool_name"] == tc2["tool_name"]:
+                    # Check if arguments are similar
+                    if self._tool_arguments_similar(tc1["arguments"], tc2["arguments"], tc1["tool_name"]):
+                        # Found duplicate - check if there are more
+                        duplicate_count = 2
+                        for k in range(j + 1, len(last_tool_calls)):
+                            tc3 = last_tool_calls[k]
+                            if tc3["tool_name"] == tc1["tool_name"]:
+                                if self._tool_arguments_similar(tc1["arguments"], tc3["arguments"], tc1["tool_name"]):
+                                    duplicate_count += 1
+                        
+                        if duplicate_count >= 2:
+                            return {
+                                "tool_name": tc1["tool_name"],
+                                "repeat_count": duplicate_count,
+                                "pattern_description": f"Tool '{tc1['tool_name']}' with similar arguments called {duplicate_count} times",
+                                "pattern_type": "repeated_tool_args",
+                            }
+        
+        return None
+    
+    def _tool_arguments_similar(
+        self, args1: Dict[str, Any], args2: Dict[str, Any], tool_name: str
+    ) -> bool:
+        """
+        Check if two tool argument dictionaries are similar.
+        
+        For terminal tool, normalizes commands to detect similar patterns.
+        For other tools, does exact comparison.
+        
+        Args:
+            args1: First arguments dict
+            args2: Second arguments dict
+            tool_name: Name of the tool
+            
+        Returns:
+            True if arguments are similar, False otherwise
+        """
+        if tool_name == "terminal":
+            # For terminal, compare command strings (normalize whitespace and paths)
+            cmd1 = args1.get("command", "")
+            cmd2 = args2.get("command", "")
+            if not cmd1 or not cmd2:
+                return cmd1 == cmd2
+            
+            # Normalize: strip whitespace, convert to lowercase for comparison
+            cmd1_normalized = " ".join(cmd1.strip().lower().split())
+            cmd2_normalized = " ".join(cmd2.strip().lower().split())
+            
+            # For exact matches (like "ls -R" repeated)
+            if cmd1_normalized == cmd2_normalized:
+                return True
+            
+            # For similar patterns (like commands with same structure but different paths)
+            # Extract base command (first word)
+            cmd1_base = cmd1_normalized.split()[0] if cmd1_normalized else ""
+            cmd2_base = cmd2_normalized.split()[0] if cmd2_normalized else ""
+            if cmd1_base == cmd2_base and cmd1_base:
+                # Same base command - check if they're very similar (same flags, etc.)
+                # Simple heuristic: if the normalized commands share significant similarity
+                if len(cmd1_normalized) > 10 and len(cmd2_normalized) > 10:
+                    # For longer commands, check if they share the same structure
+                    # (same first few words, same flags)
+                    words1 = cmd1_normalized.split()[:3]  # First 3 words
+                    words2 = cmd2_normalized.split()[:3]
+                    if words1 == words2:
+                        return True
+        
+        # For other tools, do exact comparison
+        return args1 == args2
+    
     def _fix_gemini_tool_call_ordering_single_pass(
         self, messages: List[Dict[str, Any]]
     ) -> tuple[List[Dict[str, Any]], int]:
@@ -2574,22 +2881,23 @@ class ConversationSession:
         # The Gemini API requires at least one content message (user or assistant with content)
         non_system_messages = [msg for msg in current_messages if msg.get("role") != "system"]
         if not non_system_messages:
-            # All non-system messages were removed - find the most recent valid content message
-            # from the original messages to preserve
-            fallback_message = self._find_most_recent_content_message(messages)
-            if fallback_message:
+            # All non-system messages were removed - try to preserve meaningful context
+            # by keeping the most recent user message and last tool call sequence
+            preserved_context = self._find_minimal_preserved_context(messages)
+            if preserved_context:
                 logger.warning(
-                    "Gemini fix removed all non-system messages. Preserving most recent content message "
-                    f"({fallback_message.get('role')}) to ensure API call can succeed.",
+                    f"Gemini fix removed all non-system messages. Preserving minimal context "
+                    f"({len(preserved_context)} message(s): most recent user + last tool call sequence) "
+                    "to ensure API call has meaningful context.",
                     extra={
                         "event": "gemini_fix_guard_triggered",
-                        "fallback_role": fallback_message.get("role"),
-                        "fallback_has_content": bool(fallback_message.get("content")),
+                        "preserved_message_count": len(preserved_context),
+                        "preserved_roles": [msg.get("role") for msg in preserved_context],
                         "messages_before_fix": len(messages),
                         "messages_after_fix_before_guard": len(current_messages),
                     }
                 )
-                # Add the fallback message after system messages
+                # Add the preserved context after system messages
                 system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
                 # Ensure only one system message before concatenation
                 if len(system_messages) > 1:
@@ -2602,36 +2910,55 @@ class ConversationSession:
                         }
                     )
                     system_messages = [system_messages[0]]
-                current_messages = system_messages + [fallback_message]
+                current_messages = system_messages + preserved_context
                 # Validate concatenated result
                 self._validate_message_list_for_system_messages(current_messages)
             else:
-                # No fallback found - inject a default user message to prevent API error
-                logger.warning(
-                    "Gemini fix removed all non-system messages and no valid content message found. "
-                    "Injecting default user message to prevent API error.",
-                    extra={
-                        "event": "gemini_fix_injecting_default_message",
-                        "messages_before_fix": len(messages),
-                        "messages_after_fix": len(current_messages),
-                    }
-                )
-                system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
-                # Ensure only one system message before concatenation
-                if len(system_messages) > 1:
+                # Fallback to finding just the most recent content message
+                fallback_message = self._find_most_recent_content_message(messages)
+                if fallback_message:
                     logger.warning(
-                        f"Found {len(system_messages)} system messages in Gemini fix fallback. "
-                        "Keeping only the first.",
+                        "Gemini fix removed all non-system messages. Preserving most recent content message "
+                        f"({fallback_message.get('role')}) to ensure API call can succeed.",
                         extra={
-                            "event": "multiple_system_messages_in_gemini_fix_fallback",
-                            "count": len(system_messages),
+                            "event": "gemini_fix_guard_triggered_fallback",
+                            "fallback_role": fallback_message.get("role"),
+                            "fallback_has_content": bool(fallback_message.get("content")),
+                            "messages_before_fix": len(messages),
+                            "messages_after_fix_before_guard": len(current_messages),
                         }
                     )
-                    system_messages = [system_messages[0]]
-                default_message = {"role": "user", "content": "Please continue the conversation."}
-                current_messages = system_messages + [default_message]
-                # Validate concatenated result
-                self._validate_message_list_for_system_messages(current_messages)
+                    system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
+                    if len(system_messages) > 1:
+                        system_messages = [system_messages[0]]
+                    current_messages = system_messages + [fallback_message]
+                    self._validate_message_list_for_system_messages(current_messages)
+                else:
+                    # Last resort - inject a default user message to prevent API error
+                    logger.warning(
+                        "Gemini fix removed all non-system messages and no valid content message found. "
+                        "Injecting default user message to prevent API error.",
+                        extra={
+                            "event": "gemini_fix_injecting_default_message",
+                            "messages_before_fix": len(messages),
+                            "messages_after_fix": len(current_messages),
+                        }
+                    )
+                    system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
+                    if len(system_messages) > 1:
+                        logger.warning(
+                            f"Found {len(system_messages)} system messages in Gemini fix fallback. "
+                            "Keeping only the first.",
+                            extra={
+                                "event": "multiple_system_messages_in_gemini_fix_fallback",
+                                "count": len(system_messages),
+                            }
+                        )
+                        system_messages = [system_messages[0]]
+                    default_message = {"role": "user", "content": "Please continue the conversation."}
+                    current_messages = system_messages + [default_message]
+                    # Validate concatenated result
+                    self._validate_message_list_for_system_messages(current_messages)
         
         return current_messages
     
