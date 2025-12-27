@@ -181,6 +181,7 @@ class InternalSensingConfig(BaseModel):
     enable_affective: bool = os.getenv("BROCA_INTERNAL_SENSING_ENABLE_AFFECTIVE", "true").lower() == "true"
     enable_predictive: bool = os.getenv("BROCA_INTERNAL_SENSING_ENABLE_PREDICTIVE", "true").lower() == "true"
     storage_path: str = os.getenv("BROCA_INTERNAL_SENSING_STORAGE_PATH", "internal_sensing_history.json")
+    state_path: str = os.getenv("BROCA_INTERNAL_SENSING_STATE_PATH", "runtime/internal_sensing_state.json")
 
 
 class EnvironmentConfig(BaseModel):

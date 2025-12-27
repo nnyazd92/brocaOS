@@ -438,4 +438,75 @@ class TestConversationSessionStorageIntegration:
             assert len(session2.messages) == 4  # 2 turns (2 user + 2 assistant, no system)
             assert session2.messages[0]["content"] == "First"
             assert session2.messages[2]["content"] == "Second"
+    
+    def test_saved_conversation_includes_non_default_metrics(self, mock_llm_client: Mock):
+        """
+        Test that saved conversations include non-default metrics after recording.
+        
+        Rationale: Ensures saved conversations show actual moving averages, not default values.
+        """
+        import tempfile
+        from broca.internal_sensing.framework import InternalSensingFramework
+        from broca.world_state.aggregator import WorldStateAggregator
+        from broca.tests.utils import build_llm_response
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage = JSONFileStorage(storage_path=tmpdir)
+            mock_llm_client.chat.return_value = build_llm_response(content="Test response")
+            mock_llm_client.extract_assistant_content.return_value = "Test response"
+            mock_llm_client.extract_tool_calls.return_value = []
+            
+            # Create internal sensing framework and world state aggregator
+            framework = InternalSensingFramework()
+            aggregator = WorldStateAggregator(internal_sensing=framework)
+            
+            # Create session with sensing
+            session = ConversationSession(
+                llm=mock_llm_client,
+                storage=storage,
+                session_id="metrics-test",
+                internal_sensing_framework=framework,
+                world_state_aggregator=aggregator
+            )
+            
+            # Record some metrics to build moving averages
+            framework.interoception.cognition.record_confidence("resp1", 0.8)
+            framework.interoception.cognition.record_uncertainty("q1", 0.3)
+            framework.interoception.affect.compute_arousal(0.7)
+            
+            # Save state to ensure histories are persisted
+            framework.save_state()
+            
+            # Send a message (this will trigger instrumentation and save conversation)
+            response = session.send("Test message")
+            
+            # Give time for save to complete
+            import time
+            time.sleep(0.1)
+            
+            # Load the saved conversation
+            result = storage.load_conversation("metrics-test")
+            assert result is not None
+            
+            messages = result.get("messages", [])
+            assert len(messages) > 0
+            
+            # Find system message (should contain world state)
+            system_message = next((m for m in messages if m.get("role") == "system"), None)
+            assert system_message is not None
+            
+            # Parse world state from system message content
+            system_content = system_message.get("content", "")
+            assert "internal_state" in system_content or '"internal_state"' in system_content
+            
+            # Get current state to compare
+            current_state = framework.sample_internal_state()
+            current_confidence = current_state["cognitive"]["confidence_level"]
+            current_uncertainty = current_state["cognitive"]["uncertainty_tracking"]
+            current_arousal = current_state["affective"]["arousal"]
+            
+            # Verify metrics are not defaults (they should reflect recorded data)
+            assert current_confidence != 0.5, "Confidence should not be default after recording"
+            assert current_uncertainty != 0.0, "Uncertainty should not be default after recording"
+            assert current_arousal != 0.5, "Arousal should not be default after recording"
 

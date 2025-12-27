@@ -15,6 +15,12 @@ import uvicorn
 from .main_repl_runtime import initialize_runtime, BrocaRuntime
 from .repl.session import ConversationSession
 
+# Import ResponseAnalyzer for internal sensing integration
+try:
+    from .internal_sensing.response_analyzer import ResponseAnalyzer
+except ImportError:
+    ResponseAnalyzer = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 # Global runtime components (shared)
@@ -108,6 +114,13 @@ class TitleUpdate(BaseModel):
     title: str
 
 def get_runtime() -> BrocaRuntime:
+    """
+    Get or initialize the BrocaRuntime.
+    
+    The runtime is cached globally. When uvicorn reloads due to file changes,
+    the module is reimported, clearing this global variable, which causes
+    the runtime to be reinitialized with any updated config/code.
+    """
     global _runtime
     if _runtime is None:
         _runtime = initialize_runtime()
@@ -269,6 +282,34 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
     # Mark that we're actively processing a streaming user chat request
     mark_work()
     
+    # Pre-LLM instrumentation: Record attention, start latency timer, compute valence
+    user_text = user_message
+    if session.internal_sensing_framework and ResponseAnalyzer:
+        try:
+            # Extract topics from user input and context
+            topics = ResponseAnalyzer.extract_topics(user_text, session.messages[-5:])
+            for topic, level in topics.items():
+                session.internal_sensing_framework.interoception.cognition.record_attention(
+                    topic, level
+                )
+            
+            # Start latency timer - store response_id for later use
+            response_id = f"response_{len(session.messages) + 1}"
+            session._current_response_id = response_id
+            session.internal_sensing_framework.interoception.physiology._record_operation_start(
+                response_id
+            )
+            
+            # Compute valence from conversation history BEFORE updating system prompt
+            session.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
+                session.messages
+            )
+            # Force a fresh sample to ensure updated valence is included
+            session.internal_sensing_framework._last_sample_time = 0.0
+            session.internal_sensing_framework.sample_internal_state()
+        except Exception as e:
+            logger.debug(f"Error in pre-LLM instrumentation: {e}", exc_info=True)
+    
     session.messages.append({"role": "user", "content": user_message})
     
     try:
@@ -277,6 +318,7 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
         iterations = 0
         while iterations < 10:
             iterations += 1
+            # Update system prompt before each LLM call (includes world state)
             session._update_system_prompt()
             messages_for_llm = session._get_messages_for_llm()
             
@@ -284,6 +326,17 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
             response = session.llm.chat(messages_for_llm, tools=tools)
             
             tool_calls = session.llm.extract_tool_calls(response)
+            
+            # Instrumentation: Track processing depth from tool calls
+            if session.internal_sensing_framework and tool_calls:
+                try:
+                    processing_depth = len(tool_calls) + iterations - 1
+                    session.internal_sensing_framework.interoception.cognition.record_processing_depth(
+                        f"turn_{iterations}", processing_depth
+                    )
+                except Exception as e:
+                    logger.debug(f"Error tracking processing depth: {e}", exc_info=True)
+            
             if tool_calls:
                 # Execute tools one by one and yield call/result pairs for visual auditing
                 for tc in tool_calls:
@@ -302,7 +355,7 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                         "conversation_id": conversation_id
                     }) + "\n"
                     
-                    # Execute tool
+                    # Execute tool (this should trigger internal sensing updates via tool registry)
                     result_dict = rt.tool_registry.execute_tool_call(tc)
                     
                     # Yield result
@@ -333,7 +386,112 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                     }) + "\n"
                 
                 session.messages.append({"role": "assistant", "content": content})
+                assistant_text = content
                 break
+        
+        # Post-processing: Record internal sensing metrics (same as session.send())
+        # Note: assistant_text should be defined above, but check to be safe
+        if session.internal_sensing_framework and ResponseAnalyzer and 'assistant_text' in locals():
+            try:
+                response_id = getattr(session, "_current_response_id", f"response_{len(session.messages)}")
+                
+                # Record latency
+                latency = session.internal_sensing_framework.interoception.physiology._record_operation_end(
+                    response_id
+                )
+                if latency is not None and latency > 0:
+                    normalized_latency = session.internal_sensing_framework.interoception.physiology._normalize_latency(
+                        latency
+                    )
+                    if normalized_latency is not None:
+                        session.internal_sensing_framework.interoception.physiology.metrics[
+                            "processing_latency"
+                        ] = normalized_latency
+                
+                # Record confidence and uncertainty
+                confidence = None
+                uncertainty = None
+                if assistant_text:
+                    # Estimate confidence from response
+                    confidence = ResponseAnalyzer.estimate_confidence(assistant_text)
+                    if confidence is not None:
+                        session.internal_sensing_framework.interoception.cognition.record_confidence(
+                            response_id, confidence
+                        )
+                    else:
+                        session.internal_sensing_framework.interoception.cognition.record_confidence(
+                            response_id, 0.5
+                        )
+                        confidence = 0.5
+                    
+                    # Detect uncertainty
+                    uncertainty = ResponseAnalyzer.detect_uncertainty(assistant_text)
+                    if uncertainty is not None:
+                        session.internal_sensing_framework.interoception.cognition.record_uncertainty(
+                            response_id, uncertainty
+                        )
+                else:
+                    # Tool-only response: use neutral values
+                    session.internal_sensing_framework.interoception.cognition.record_confidence(
+                        response_id, 0.5
+                    )
+                    confidence = 0.5
+                    session.internal_sensing_framework.interoception.cognition.record_uncertainty(
+                        response_id, 0.0
+                    )
+                    uncertainty = 0.0
+                
+                # Compute valence and arousal
+                if assistant_text:
+                    # Include current assistant response in history for valence computation
+                    conversation_messages = session.messages + [
+                        {"role": "assistant", "content": assistant_text}
+                    ]
+                    session.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
+                        conversation_messages
+                    )
+                    
+                    arousal = ResponseAnalyzer.compute_arousal(assistant_text)
+                    if arousal is not None:
+                        session.internal_sensing_framework.interoception.affect.compute_arousal(arousal)
+                else:
+                    # Tool-only response: compute valence from existing history
+                    conversation_messages = [m for m in session.messages if m.get("role") in ("user", "assistant")]
+                    if conversation_messages:
+                        session.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
+                            conversation_messages
+                        )
+                    session.internal_sensing_framework.interoception.affect.compute_arousal(0.5)
+                
+                # Update affective states from cognitive
+                session.internal_sensing_framework.interoception.affect.update_from_cognitive(
+                    session.internal_sensing_framework.interoception.cognition
+                )
+                
+                # Record reasoning step
+                session.internal_sensing_framework.interoception.cognition.record_reasoning_step(
+                    f"step_{response_id}",
+                    {
+                        "premise": user_text[:100] if session.messages else "",
+                        "conclusion": assistant_text[:100] if assistant_text else "[tool-only response]",
+                        "confidence": confidence,
+                    },
+                )
+                
+                # Sample internal state after ALL recording is complete (force fresh sample)
+                fresh_state = session.internal_sensing_framework.sample_internal_state(force=True)
+                # Save state after sampling
+                try:
+                    session.internal_sensing_framework.save_state()
+                except Exception as e:
+                    logger.warning(f"Failed to save state after sampling: {e}", exc_info=True)
+                
+                # Update system prompt AFTER recording to ensure world state reflects new values
+                if session.world_state_aggregator and session._world_state_formatter:
+                    session._last_world_state_hash = None  # Force update
+                    session._update_system_prompt()
+            except Exception as e:
+                logger.error(f"Error in post-processing instrumentation: {e}", exc_info=True)
         
         # Persist
         data = storage.load_conversation(conversation_id)
@@ -345,11 +503,37 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
         
     except Exception as e:
         logger.error(f"Streaming error: {e}", exc_info=True)
+        error_content = f"\n[Error: {str(e)}]"
         yield json.dumps({
             "type": "text",
-            "content": f"\n[Error: {str(e)}]",
+            "content": error_content,
             "conversation_id": conversation_id
         }) + "\n"
+        # Still try to do post-processing even on error
+        assistant_text = error_content
+    
+    # Ensure assistant_text is defined even if exception occurred early
+    if 'assistant_text' not in locals():
+        assistant_text = None
+    
+    # Post-processing: Record internal sensing metrics even if exception occurred
+    if 'session' in locals() and session.internal_sensing_framework and ResponseAnalyzer:
+        try:
+            response_id = getattr(session, "_current_response_id", f"response_{len(session.messages)}")
+            # Try to record at least neutral values
+            if assistant_text:
+                session.internal_sensing_framework.interoception.cognition.record_confidence(response_id, 0.5)
+                session.internal_sensing_framework.interoception.affect.compute_arousal(0.5)
+            session.internal_sensing_framework.sample_internal_state(force=True)
+            try:
+                session.internal_sensing_framework.save_state()
+            except Exception:
+                pass
+            if session.world_state_aggregator and session._world_state_formatter:
+                session._last_world_state_hash = None
+                session._update_system_prompt()
+        except Exception:
+            pass  # Don't fail on post-processing errors
     
     yield json.dumps({
         "type": "done",
@@ -397,4 +581,97 @@ async def chat(req: ChatRequest):
         end_request()
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    import argparse
+    from pathlib import Path
+    
+    parser = argparse.ArgumentParser(description="BrocaOS Web API Server")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind to (default: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to bind to (default: 8000)"
+    )
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        default=True,
+        help="Enable auto-reload on file changes (default: enabled)"
+    )
+    parser.add_argument(
+        "--no-reload",
+        action="store_false",
+        dest="reload",
+        help="Disable auto-reload"
+    )
+    
+    args = parser.parse_args()
+    
+    # Determine workspace root (parent of broca package directory)
+    workspace_root = Path(__file__).parent.parent.resolve()
+    
+    # Configure reload settings if enabled
+    reload_dirs = None
+    reload_includes = None
+    reload_excludes = None
+    
+    if args.reload:
+        # Watch workspace root (which includes broca directory and .env files)
+        # This will watch all Python files in broca/ and .env files in workspace root
+        reload_dirs = [
+            str(workspace_root),  # Watch workspace root (includes broca/ and .env files)
+        ]
+        
+        # Include .env files and Python files
+        reload_includes = [
+            "*.py",
+            "*.env",
+            "*.env.*",
+        ]
+        
+        # Exclude unnecessary files and directories
+        reload_excludes = [
+            "*/__pycache__/*",
+            "*.pyc",
+            "*.pyo",
+            "*/.git/*",
+            "*/logs/*",
+            "*/log/*",
+            "*/BOOT_LOGS/*",
+            "*/tests/*",
+            "*/htmlcov/*",
+            "*/mutants/*",
+            "*/backup/*",
+            "*/conversations/*",
+            "*/docs/*",
+            "*.db",
+            "*.sqlite",
+            "*.faiss",
+            "*.jsonl",
+        ]
+    
+    # When reload is enabled, uvicorn needs the app as an import string
+    # When reload is disabled, we can pass the app object directly
+    if args.reload:
+        # Use import string for reload to work properly
+        uvicorn.run(
+            "broca.web_api:app",  # Import string format
+            host=args.host,
+            port=args.port,
+            reload=True,
+            reload_dirs=reload_dirs,
+            reload_includes=reload_includes,
+            reload_excludes=reload_excludes,
+        )
+    else:
+        # Pass app object directly when reload is disabled
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            reload=False,
+        )

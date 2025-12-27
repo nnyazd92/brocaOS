@@ -61,6 +61,11 @@ class ComputationalAffectMonitor:
         self._coherence_pleasure_history: deque = deque(maxlen=moving_avg_window)
         self._surprise_history: deque = deque(maxlen=moving_avg_window)
         
+        # DO NOT initialize moving averages with baseline values
+        # This was causing values to get "stuck" at baseline when real values matched baseline
+        # Instead, let moving averages build naturally from actual recorded data
+        # The affective_states dictionary still has defaults which will be used until data is recorded
+        
         self._motivational_drives: Dict[str, float] = {}
         # Use bounded deque to prevent unbounded memory growth
         # Limit to last 1000 satisfaction/frustration patterns
@@ -120,9 +125,12 @@ class ComputationalAffectMonitor:
         
         # Update moving average if we got a value
         if valence is not None:
+            old_valence = self.affective_states.get("valence", 0.0)
             self._valence_history.append(valence)
             if len(self._valence_history) > 0:
-                self.affective_states["valence"] = sum(self._valence_history) / len(self._valence_history)
+                new_valence = sum(self._valence_history) / len(self._valence_history)
+                self.affective_states["valence"] = new_valence
+                logger.debug(f"Updated valence: {old_valence:.3f} -> {new_valence:.3f} (computed={valence:.3f}, history_len={len(self._valence_history)})")
 
     
     def compute_valence_from_conversation_history(self, messages: List[Dict[str, Any]]) -> None:
@@ -133,7 +141,8 @@ class ComputationalAffectMonitor:
             messages: List of message dictionaries with "role" and "content" keys
         """
         if not messages:
-            # Empty conversation - leave valence as None
+            # Empty conversation - don't update (keep existing moving average)
+            logger.debug("compute_valence_from_conversation_history: empty messages, keeping existing moving average")
             return
         
         # Filter out system and tool messages, keep only user and assistant
@@ -147,11 +156,13 @@ class ComputationalAffectMonitor:
                 conversation_texts.append(str(content))
         
         if not conversation_texts:
-            # No user/assistant messages - leave valence as None
+            # No user/assistant messages - don't update (keep existing moving average)
+            logger.debug("compute_valence_from_conversation_history: no user/assistant messages, keeping existing moving average")
             return
         
         # Combine all conversation text
         combined_text = " ".join(conversation_texts)
+        logger.debug(f"compute_valence_from_conversation_history: processing {len(conversation_texts)} messages, total_length={len(combined_text)}")
         
         # Compute valence from combined text (will update moving average)
         self.compute_valence_from_text(combined_text)
@@ -164,11 +175,15 @@ class ComputationalAffectMonitor:
             activation_level: Activation level (0.0-1.0)
         """
         arousal = max(0.0, min(1.0, activation_level))
+        logger.debug(f"compute_arousal called: activation_level={activation_level:.3f}, computed_arousal={arousal:.3f}")
         
         # Update moving average
+        old_arousal = self.affective_states.get("arousal", 0.5)
         self._arousal_history.append(arousal)
         if len(self._arousal_history) > 0:
-            self.affective_states["arousal"] = sum(self._arousal_history) / len(self._arousal_history)
+            new_arousal = sum(self._arousal_history) / len(self._arousal_history)
+            self.affective_states["arousal"] = new_arousal
+            logger.debug(f"Updated arousal: {old_arousal:.3f} -> {new_arousal:.3f} (computed={arousal:.3f}, history_len={len(self._arousal_history)})")
     
     def update_certainty_affect(self, confidence: float) -> None:
         """
@@ -252,11 +267,13 @@ class ComputationalAffectMonitor:
         # Update certainty affect from confidence (always update, using defaults if None)
         confidence = cognitive_monitor.states.get("confidence_level")
         if confidence is not None:
+            logger.debug(f"update_from_cognitive: updating certainty_affect from confidence={confidence:.3f}")
             self.update_certainty_affect(confidence)
         
         # Update coherence pleasure from coherence (always update, using defaults if None)
         coherence = cognitive_monitor.states.get("conceptual_coherence")
         if coherence is not None:
+            logger.debug(f"update_from_cognitive: updating coherence_pleasure from coherence={coherence:.3f}")
             self.update_coherence_pleasure(coherence)
         
         # Update curiosity from uncertainty (always update, using defaults if None)
@@ -266,6 +283,7 @@ class ComputationalAffectMonitor:
         attention_total = sum(attention_allocation.values())
         interest = min(attention_total, 1.0) if attention_total > 0 else 0.0
         
+        logger.debug(f"update_from_cognitive: updating curiosity_drive from uncertainty={uncertainty:.3f}, interest={interest:.3f}")
         self.compute_curiosity_drive(uncertainty, interest)
     
     def record_motivational_drive(self, drive_type: str, level: float) -> None:
@@ -332,11 +350,105 @@ class ComputationalAffectMonitor:
         Sample complete affective state.
         
         Returns:
-            Dictionary containing all affective states with timestamp
+            Dictionary containing all affective states with timestamp.
+            All values are computed from moving averages when available,
+            otherwise uses defaults until data is recorded.
         """
+        # Update states from moving averages when history exists
+        # This ensures we return moving average values when available, defaults otherwise
+        if len(self._valence_history) > 0:
+            self.affective_states["valence"] = sum(self._valence_history) / len(self._valence_history)
+        if len(self._arousal_history) > 0:
+            self.affective_states["arousal"] = sum(self._arousal_history) / len(self._arousal_history)
+        if len(self._certainty_affect_history) > 0:
+            self.affective_states["certainty_affect"] = sum(self._certainty_affect_history) / len(self._certainty_affect_history)
+        if len(self._curiosity_drive_history) > 0:
+            self.affective_states["curiosity_drive"] = sum(self._curiosity_drive_history) / len(self._curiosity_drive_history)
+        if len(self._coherence_pleasure_history) > 0:
+            self.affective_states["coherence_pleasure"] = sum(self._coherence_pleasure_history) / len(self._coherence_pleasure_history)
+        if len(self._surprise_history) > 0:
+            self.affective_states["surprise"] = sum(self._surprise_history) / len(self._surprise_history)
+        
         return {
             **self.affective_states,
             "motivational_drives": self._motivational_drives.copy(),
             "timestamp": time.time(),
         }
+    
+    def serialize_histories(self) -> Dict[str, List[float]]:
+        """
+        Serialize moving average histories for persistence.
+        
+        Returns:
+            Dictionary mapping history names to lists of float values
+        """
+        return {
+            "valence_history": list(self._valence_history),
+            "arousal_history": list(self._arousal_history),
+            "certainty_affect_history": list(self._certainty_affect_history),
+            "curiosity_drive_history": list(self._curiosity_drive_history),
+            "coherence_pleasure_history": list(self._coherence_pleasure_history),
+            "surprise_history": list(self._surprise_history),
+        }
+    
+    def deserialize_histories(self, histories: Dict[str, List[float]]) -> None:
+        """
+        Deserialize moving average histories from persistence.
+        
+        Args:
+            histories: Dictionary mapping history names to lists of float values
+        """
+        # Restore valence history
+        if "valence_history" in histories:
+            self._valence_history.clear()
+            for value in histories["valence_history"]:
+                self._valence_history.append(value)
+            if len(self._valence_history) > 0:
+                self.affective_states["valence"] = sum(self._valence_history) / len(self._valence_history)
+            logger.debug(f"Restored {len(self._valence_history)} valence history entries")
+        
+        # Restore arousal history
+        if "arousal_history" in histories:
+            self._arousal_history.clear()
+            for value in histories["arousal_history"]:
+                self._arousal_history.append(value)
+            if len(self._arousal_history) > 0:
+                self.affective_states["arousal"] = sum(self._arousal_history) / len(self._arousal_history)
+            logger.debug(f"Restored {len(self._arousal_history)} arousal history entries")
+        
+        # Restore certainty_affect history
+        if "certainty_affect_history" in histories:
+            self._certainty_affect_history.clear()
+            for value in histories["certainty_affect_history"]:
+                self._certainty_affect_history.append(value)
+            if len(self._certainty_affect_history) > 0:
+                self.affective_states["certainty_affect"] = sum(self._certainty_affect_history) / len(self._certainty_affect_history)
+            logger.debug(f"Restored {len(self._certainty_affect_history)} certainty_affect history entries")
+        
+        # Restore curiosity_drive history
+        if "curiosity_drive_history" in histories:
+            self._curiosity_drive_history.clear()
+            for value in histories["curiosity_drive_history"]:
+                self._curiosity_drive_history.append(value)
+            if len(self._curiosity_drive_history) > 0:
+                self.affective_states["curiosity_drive"] = sum(self._curiosity_drive_history) / len(self._curiosity_drive_history)
+            logger.debug(f"Restored {len(self._curiosity_drive_history)} curiosity_drive history entries")
+        
+        # Restore coherence_pleasure history
+        if "coherence_pleasure_history" in histories:
+            self._coherence_pleasure_history.clear()
+            for value in histories["coherence_pleasure_history"]:
+                self._coherence_pleasure_history.append(value)
+            if len(self._coherence_pleasure_history) > 0:
+                self.affective_states["coherence_pleasure"] = sum(self._coherence_pleasure_history) / len(self._coherence_pleasure_history)
+            logger.debug(f"Restored {len(self._coherence_pleasure_history)} coherence_pleasure history entries")
+        
+        # Restore surprise history
+        if "surprise_history" in histories:
+            self._surprise_history.clear()
+            for value in histories["surprise_history"]:
+                self._surprise_history.append(value)
+            if len(self._surprise_history) > 0:
+                self.affective_states["surprise"] = sum(self._surprise_history) / len(self._surprise_history)
+            logger.debug(f"Restored {len(self._surprise_history)} surprise history entries")
 

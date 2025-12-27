@@ -193,8 +193,8 @@ class WorldStateAggregator:
             return {"available": False}
         
         try:
-            # Sample current internal state
-            current_state = self.internal_sensing.sample_internal_state()
+            # Sample current internal state (force fresh sample to get latest moving averages)
+            current_state = self.internal_sensing.sample_internal_state(force=True)
             
             # Get interoceptive report
             interoceptive_report = self.internal_sensing.generate_interoceptive_report()

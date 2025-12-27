@@ -40,12 +40,12 @@ class ComputationalPhysiologyMonitor:
             history_window: Number of samples to keep in history
         """
         self.metrics: Dict[str, Any] = {
-            # Existing metrics (initialized with defaults, never None)
-            "computational_load": 0.5,  # Default moderate load
-            "memory_pressure": 0.5,  # Default moderate pressure
-            "processing_latency": 0.0,  # Default no latency
-            "attention_fluctuation": 0.0,  # Default no fluctuation
-            "energy_efficiency": 0.5,  # Default moderate efficiency
+            # Existing metrics (initialized as None, will be computed on first sample)
+            "computational_load": None,  # Will be computed from moving average
+            "memory_pressure": None,  # Will be computed from moving average
+            "processing_latency": None,  # Will be computed from moving average
+            "attention_fluctuation": None,  # Will be computed from moving average
+            "energy_efficiency": None,  # Will be computed from moving average
             # Expanded CPU metrics
             "cpu_per_core": None,  # List of per-CPU percentages
             "cpu_times": None,  # Dict of CPU time breakdown
@@ -235,8 +235,14 @@ class ComputationalPhysiologyMonitor:
         """
         # Efficiency is inverse of resource usage
         # Lower load and memory pressure = higher efficiency
-        load = self.metrics.get("computational_load", 0.5)
-        memory = self.metrics.get("memory_pressure", 0.5)
+        # Use current values from metrics (should be set by sample_resources before this is called)
+        load = self.metrics.get("computational_load")
+        memory = self.metrics.get("memory_pressure")
+        # If not set yet (shouldn't happen in normal flow), use defaults
+        if load is None:
+            load = 0.5
+        if memory is None:
+            memory = 0.5
         
         # Average resource usage
         avg_usage = (load + memory) / 2.0
@@ -668,9 +674,12 @@ class ComputationalPhysiologyMonitor:
         Returns:
             Dictionary containing all metrics with timestamp
         """
-        # Measure existing metrics
-        self.metrics["computational_load"] = self._measure_cpu_load()
-        self.metrics["memory_pressure"] = self._measure_memory_pressure()
+        # Measure existing metrics and update with moving averages
+        # These methods compute moving averages and update self.metrics directly
+        computational_load_avg = self._measure_cpu_load()
+        memory_pressure_avg = self._measure_memory_pressure()
+        self.metrics["computational_load"] = computational_load_avg
+        self.metrics["memory_pressure"] = memory_pressure_avg
         
         # Measure expanded CPU metrics
         self.metrics["cpu_per_core"] = self._measure_per_cpu_usage()
@@ -695,14 +704,18 @@ class ComputationalPhysiologyMonitor:
         self.metrics["process_count"] = self._measure_process_count()
         self.metrics["user_count"] = self._measure_user_count()
         
-        # Calculate processing latency from completed operations
-        self.metrics["processing_latency"] = self._calculate_processing_latency()
+        # Calculate processing latency from completed operations (uses moving average)
+        processing_latency_avg = self._calculate_processing_latency()
+        self.metrics["processing_latency"] = processing_latency_avg if processing_latency_avg is not None else 0.0
         
-        # Calculate attention fluctuation
-        self.metrics["attention_fluctuation"] = self._calculate_attention_fluctuation()
+        # Calculate attention fluctuation (uses moving average)
+        attention_fluctuation_avg = self._calculate_attention_fluctuation()
+        self.metrics["attention_fluctuation"] = attention_fluctuation_avg
         
-        # Calculate energy efficiency
-        self.metrics["energy_efficiency"] = self._calculate_energy_efficiency()
+        # Calculate energy efficiency (uses moving average)
+        # Note: This uses computational_load and memory_pressure which were just set above
+        energy_efficiency_avg = self._calculate_energy_efficiency()
+        self.metrics["energy_efficiency"] = energy_efficiency_avg
         
         # Create sample with timestamp
         sample = {
@@ -723,6 +736,73 @@ class ComputationalPhysiologyMonitor:
             List of sample dictionaries
         """
         return list(self._history)
+    
+    def serialize_histories(self) -> Dict[str, List[float]]:
+        """
+        Serialize moving average histories for persistence.
+        
+        Returns:
+            Dictionary mapping history names to lists of float values
+        """
+        return {
+            "computational_load_history": list(self._computational_load_history),
+            "memory_pressure_history": list(self._memory_pressure_history),
+            "processing_latency_history": list(self._processing_latency_history),
+            "attention_fluctuation_history": list(self._attention_fluctuation_history),
+            "energy_efficiency_history": list(self._energy_efficiency_history),
+        }
+    
+    def deserialize_histories(self, histories: Dict[str, List[float]]) -> None:
+        """
+        Deserialize moving average histories from persistence.
+        
+        Args:
+            histories: Dictionary mapping history names to lists of float values
+        """
+        # Restore computational_load history
+        if "computational_load_history" in histories:
+            self._computational_load_history.clear()
+            for value in histories["computational_load_history"]:
+                self._computational_load_history.append(value)
+            if len(self._computational_load_history) > 0:
+                self.metrics["computational_load"] = sum(self._computational_load_history) / len(self._computational_load_history)
+            logger.debug(f"Restored {len(self._computational_load_history)} computational_load history entries")
+        
+        # Restore memory_pressure history
+        if "memory_pressure_history" in histories:
+            self._memory_pressure_history.clear()
+            for value in histories["memory_pressure_history"]:
+                self._memory_pressure_history.append(value)
+            if len(self._memory_pressure_history) > 0:
+                self.metrics["memory_pressure"] = sum(self._memory_pressure_history) / len(self._memory_pressure_history)
+            logger.debug(f"Restored {len(self._memory_pressure_history)} memory_pressure history entries")
+        
+        # Restore processing_latency history
+        if "processing_latency_history" in histories:
+            self._processing_latency_history.clear()
+            for value in histories["processing_latency_history"]:
+                self._processing_latency_history.append(value)
+            if len(self._processing_latency_history) > 0:
+                self.metrics["processing_latency"] = sum(self._processing_latency_history) / len(self._processing_latency_history)
+            logger.debug(f"Restored {len(self._processing_latency_history)} processing_latency history entries")
+        
+        # Restore attention_fluctuation history
+        if "attention_fluctuation_history" in histories:
+            self._attention_fluctuation_history.clear()
+            for value in histories["attention_fluctuation_history"]:
+                self._attention_fluctuation_history.append(value)
+            if len(self._attention_fluctuation_history) > 0:
+                self.metrics["attention_fluctuation"] = sum(self._attention_fluctuation_history) / len(self._attention_fluctuation_history)
+            logger.debug(f"Restored {len(self._attention_fluctuation_history)} attention_fluctuation history entries")
+        
+        # Restore energy_efficiency history
+        if "energy_efficiency_history" in histories:
+            self._energy_efficiency_history.clear()
+            for value in histories["energy_efficiency_history"]:
+                self._energy_efficiency_history.append(value)
+            if len(self._energy_efficiency_history) > 0:
+                self.metrics["energy_efficiency"] = sum(self._energy_efficiency_history) / len(self._energy_efficiency_history)
+            logger.debug(f"Restored {len(self._energy_efficiency_history)} energy_efficiency history entries")
     
     def detect_anomalies(self, threshold: float = 0.8) -> List[Dict[str, Any]]:
         """

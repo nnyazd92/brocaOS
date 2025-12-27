@@ -53,6 +53,11 @@ class CognitiveStateMonitor:
         self._uncertainty_history: deque = deque(maxlen=20)
         self._reasoning_patterns: List[Dict[str, str]] = []
         
+        # DO NOT initialize moving averages with baseline values
+        # This was causing values to get "stuck" at baseline when real values matched baseline
+        # Instead, let moving averages build naturally from actual recorded data
+        # The state dictionaries still have defaults (0.5, 0.0) which will be used until data is recorded
+        
         logger.info("Initialized CognitiveStateMonitor")
     
     def record_confidence(self, response_id: str, confidence: float) -> None:
@@ -64,6 +69,7 @@ class CognitiveStateMonitor:
             confidence: Confidence level (0.0-1.0)
         """
         confidence = max(0.0, min(1.0, confidence))
+        logger.debug(f"record_confidence called: response_id={response_id}, confidence={confidence:.3f}")
         self._confidence_history.append({
             "response_id": response_id,
             "confidence": confidence,
@@ -83,15 +89,16 @@ class CognitiveStateMonitor:
     
     def _update_confidence_level(self) -> None:
         """Update average confidence level from history using moving average."""
+        # Compute from moving average history (builds naturally from recorded data)
         if len(self._confidence_history) > 0:
             avg = sum(entry["confidence"] for entry in self._confidence_history) / len(self._confidence_history)
             old_value = self.states["confidence_level"]
             self.states["confidence_level"] = avg
-            logger.debug(f"Updated confidence_level: {old_value:.3f} -> {avg:.3f} (from {len(self._confidence_history)} samples)")
+            logger.debug(f"Updated confidence_level: {old_value:.3f} -> {avg:.3f} (from {len(self._confidence_history)} samples, moving_avg)")
         else:
-            # Use default when no history (shouldn't happen after initialization, but ensure default)
+            # Use default when no data recorded yet (will be replaced once data is recorded)
             self.states["confidence_level"] = 0.5
-            logger.debug("Confidence level using default (no history)")
+            logger.debug("Confidence level using default (no history yet)")
     
     def _calculate_average_confidence(self) -> Optional[float]:
         """
@@ -236,12 +243,15 @@ class CognitiveStateMonitor:
     
     def _update_processing_depth(self) -> None:
         """Update average processing depth using moving average."""
+        # Compute from moving average history (builds naturally from recorded data)
         if len(self._processing_depths) > 0:
             avg = sum(entry["depth"] for entry in self._processing_depths) / len(self._processing_depths)
             self.states["processing_depth"] = avg
+            logger.debug(f"Updated processing_depth: {avg:.3f} (from {len(self._processing_depths)} samples, moving_avg)")
         else:
-            # Use default when no processing depths recorded
+            # Use default when no data recorded yet (will be replaced once data is recorded)
             self.states["processing_depth"] = 1.0
+            logger.debug("Processing depth using default (no history yet)")
     
     def _calculate_average_depth(self) -> Optional[float]:
         """
@@ -277,6 +287,7 @@ class CognitiveStateMonitor:
             uncertainty: Uncertainty level (0.0-1.0)
         """
         uncertainty = max(0.0, min(1.0, uncertainty))
+        logger.debug(f"record_uncertainty called: question_id={question_id}, uncertainty={uncertainty:.3f}")
         self._uncertainty_history.append({
             "question_id": question_id,
             "uncertainty": uncertainty,
@@ -286,15 +297,16 @@ class CognitiveStateMonitor:
     
     def _update_uncertainty(self) -> None:
         """Update average uncertainty from history using moving average."""
+        # Compute from moving average history (builds naturally from recorded data)
         if len(self._uncertainty_history) > 0:
             avg = sum(entry["uncertainty"] for entry in self._uncertainty_history) / len(self._uncertainty_history)
             old_value = self.states["uncertainty_tracking"]
             self.states["uncertainty_tracking"] = avg
-            logger.debug(f"Updated uncertainty_tracking: {old_value:.3f} -> {avg:.3f} (from {len(self._uncertainty_history)} samples)")
+            logger.debug(f"Updated uncertainty_tracking: {old_value:.3f} -> {avg:.3f} (from {len(self._uncertainty_history)} samples, moving_avg)")
         else:
-            # Use default when no uncertainties recorded
+            # Use default when no data recorded yet (will be replaced once data is recorded)
             self.states["uncertainty_tracking"] = 0.0
-            logger.debug("Uncertainty tracking using default (no history)")
+            logger.debug("Uncertainty tracking using default (no history yet)")
     
     def _calculate_average_uncertainty(self) -> Optional[float]:
         """
@@ -339,15 +351,19 @@ class CognitiveStateMonitor:
         Sample complete cognitive state.
         
         Returns:
-            Dictionary containing all cognitive states with timestamp
+            Dictionary containing all cognitive states with timestamp.
+            All values are computed from moving averages, ensuring they reflect
+            smoothed historical data rather than raw defaults.
         """
-        # Update all states
+        # Update all states from moving averages before sampling
+        # This guarantees we return moving average values, not stale defaults
         self._update_confidence_level()
         self._update_coherence()
         self._update_processing_depth()
         self._update_uncertainty()
         
         # Create sample with timestamp
+        # self.states now contains moving average values from the update methods above
         sample = {
             **self.states,
             "timestamp": time.time(),
@@ -366,4 +382,51 @@ class CognitiveStateMonitor:
             List of sample dictionaries
         """
         return list(self._history)
+    
+    def serialize_histories(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Serialize moving average histories for persistence.
+        
+        Returns:
+            Dictionary mapping history names to lists of entries
+        """
+        return {
+            "confidence_history": list(self._confidence_history),
+            "uncertainty_history": list(self._uncertainty_history),
+            "processing_depths": list(self._processing_depths),
+        }
+    
+    def deserialize_histories(self, histories: Dict[str, List[Dict[str, Any]]]) -> None:
+        """
+        Deserialize moving average histories from persistence.
+        
+        Args:
+            histories: Dictionary mapping history names to lists of entries
+        """
+        # Restore confidence history
+        if "confidence_history" in histories:
+            self._confidence_history.clear()
+            for entry in histories["confidence_history"]:
+                self._confidence_history.append(entry)
+            # Update state from restored history
+            self._update_confidence_level()
+            logger.debug(f"Restored {len(self._confidence_history)} confidence history entries")
+        
+        # Restore uncertainty history
+        if "uncertainty_history" in histories:
+            self._uncertainty_history.clear()
+            for entry in histories["uncertainty_history"]:
+                self._uncertainty_history.append(entry)
+            # Update state from restored history
+            self._update_uncertainty()
+            logger.debug(f"Restored {len(self._uncertainty_history)} uncertainty history entries")
+        
+        # Restore processing depths
+        if "processing_depths" in histories:
+            self._processing_depths.clear()
+            for entry in histories["processing_depths"]:
+                self._processing_depths.append(entry)
+            # Update state from restored history
+            self._update_processing_depth()
+            logger.debug(f"Restored {len(self._processing_depths)} processing depth entries")
 
