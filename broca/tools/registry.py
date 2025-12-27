@@ -45,27 +45,16 @@ class ToolRegistry:
         self._tools: Dict[str, Tool] = {}
         self.epistemic_engine = epistemic_engine
         self.internal_sensing_framework = internal_sensing_framework
-                # Policy / rate-limits (read-only + web search)
+        # Policy mode (read-only)
         # Read from env first (to support tests patching os.environ), fallback to config
         self._policy_mode = os.getenv("BROCA_TOOLS_MODE", getattr(config.tools, "tools_mode", "normal"))
-        try:
-            self._max_search_queries = int(os.getenv("BROCA_WEB_SEARCH_MAX_QUERIES", str(getattr(config.tools, "web_search_max_queries", 3))))
-        except Exception:
-            self._max_search_queries = 3
-        try:
-            self._search_cooldown_turns = int(os.getenv("BROCA_WEB_SEARCH_COOLDOWN_TURNS", str(getattr(config.tools, "web_search_cooldown_turns", 3))))
-        except Exception:
-            self._search_cooldown_turns = 3
-        self._turn_index: int = 0
-        self._search_burst_count: int = 0
-        self._burst_exhausted_turn: Optional[int] = None
 
         logger.debug("Initialized ToolRegistry")
 
     def start_turn(self, turn_no: int) -> None:
         """Reset per-turn counters at start of a new user turn."""
-        self._turn_index = turn_no
-        self._search_burst_count = 0
+        # No-op: kept for API compatibility, but no counters to reset
+        pass
     
     def _validate_tool_arguments(self, tool: Tool, arguments: Dict[str, Any]) -> Optional[str]:
         """
@@ -366,31 +355,6 @@ class ToolRegistry:
                         "name": tool_name,
                         "content": "Blocked by read-only policy: terminal is disabled."
                     }
-                if tool_name == "web_search":
-                    if (self._burst_exhausted_turn is not None) and ((self._turn_index - self._burst_exhausted_turn) < self._search_cooldown_turns):
-                        remaining = self._search_cooldown_turns - (self._turn_index - self._burst_exhausted_turn)
-                        return {
-                            "tool_call_id": tool_call_id,
-                            "role": "tool",
-                            "name": tool_name,
-                            "content": f"Web search cooldown active. Try again in {remaining} turn(s)."
-                        }
-                    if self._search_burst_count >= max(1, int(self._max_search_queries)):
-                        self._burst_exhausted_turn = self._turn_index
-                        return {
-                            "tool_call_id": tool_call_id,
-                            "role": "tool",
-                            "name": tool_name,
-                            "content": f"Web search limit reached ({self._max_search_queries}/turn)."
-                        }
-                    if isinstance(arguments, dict):
-                        req_max = arguments.get("max_results")
-                        try:
-                            if req_max is None or int(req_max) > int(self._max_search_queries):
-                                arguments["max_results"] = int(self._max_search_queries)
-                        except Exception:
-                            arguments["max_results"] = int(self._max_search_queries)
-                    self._search_burst_count += 1
             
             # Validate required parameters
             validation_error = self._validate_tool_arguments(tool, arguments)

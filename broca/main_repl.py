@@ -145,16 +145,21 @@ def _initialize_tool_registry(
         registry = ToolRegistry(epistemic_engine=epistemic_engine, internal_sensing_framework=internal_sensing)
         
         # Register web search tool if enabled
+        # Browser-based search is now primary (no Tavily API key required)
         if config.tools.enable_web_search:
-            if config.tools.tavily_api_key:
-                try:
-                    web_search_tool = WebSearchTool(api_key=config.tools.tavily_api_key)
-                    registry.register_tool(web_search_tool)
-                    logger.info("Registered web search tool")
-                except Exception as e:
-                    logger.warning(f"Failed to register web search tool: {e}", exc_info=True)
-            else:
-                logger.warning("Web search enabled but TAVILY_API_KEY not set, skipping web search tool")
+            try:
+                # WebSearchTool uses browser-based search by default
+                # Tavily is only used as emergency fallback if explicitly enabled
+                web_search_tool = WebSearchTool(api_key=config.tools.tavily_api_key or None)
+                registry.register_tool(web_search_tool)
+                logger.info("Registered web search tool (browser-based search)")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register web search tool: {e}. "
+                    "Ensure browser navigation is enabled and Playwright is installed: "
+                    "pip install playwright && playwright install chromium",
+                    exc_info=True
+                )
         
         # Register memory tools if memory manager is available
         if memory_manager:
@@ -200,6 +205,23 @@ def _initialize_tool_registry(
                 logger.info("Registered critic tool")
             except Exception as e:
                 logger.warning(f"Failed to register critic tool: {e}", exc_info=True)
+        
+        # Register browser navigation tool if enabled
+        if config.tools.enable_browser_navigation:
+            try:
+                from .tools.browser_navigation import BrowserNavigationTool
+                browser_tool = BrowserNavigationTool(
+                    headless=config.tools.browser_headless,
+                    timeout=config.tools.browser_timeout,
+                    stealth_mode=config.tools.browser_stealth_mode,
+                    viewport_width=config.tools.browser_viewport_width,
+                    viewport_height=config.tools.browser_viewport_height,
+                    user_agents=config.tools.browser_user_agents
+                )
+                registry.register_tool(browser_tool)
+                logger.info("Registered browser navigation tool")
+            except Exception as e:
+                logger.warning(f"Failed to register browser navigation tool: {e}", exc_info=True)
         
         if len(registry.list_tools()) == 0:
             logger.debug("No tools registered")

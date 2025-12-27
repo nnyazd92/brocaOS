@@ -135,10 +135,26 @@ class ToolsConfig(BaseModel):
     terminal_working_directory: str | None = os.getenv("BROCA_TERMINAL_WORKING_DIR", None)
     enable_critic: bool = os.getenv("BROCA_ENABLE_CRITIC", "false").lower() == "true"
     critic_system_prompt_template: str | None = os.getenv("BROCA_CRITIC_SYSTEM_PROMPT", None)
-    # Policy: read-only mode and web search limits
+    # Policy: read-only mode
     tools_mode: str = os.getenv("BROCA_TOOLS_MODE", "normal")  # "normal" or "read_only"
-    web_search_max_queries: int = int(os.getenv("BROCA_WEB_SEARCH_MAX_QUERIES", "3"))
-    web_search_cooldown_turns: int = int(os.getenv("BROCA_WEB_SEARCH_COOLDOWN_TURNS", "3"))
+    # Browser navigation tool configuration
+    enable_browser_navigation: bool = os.getenv("BROCA_ENABLE_BROWSER_NAVIGATION", "false").lower() == "true"
+    browser_headless: bool = os.getenv("BROCA_BROWSER_HEADLESS", "true").lower() == "true"
+    browser_timeout: int = int(os.getenv("BROCA_BROWSER_TIMEOUT", "30"))
+    browser_stealth_mode: bool = os.getenv("BROCA_BROWSER_STEALTH_MODE", "true").lower() == "true"
+    browser_viewport_width: int = int(os.getenv("BROCA_BROWSER_VIEWPORT_WIDTH", "1920"))
+    browser_viewport_height: int = int(os.getenv("BROCA_BROWSER_VIEWPORT_HEIGHT", "1080"))
+    browser_user_agents: list[str] = (
+        os.getenv("BROCA_BROWSER_USER_AGENTS", "").split(",")
+        if os.getenv("BROCA_BROWSER_USER_AGENTS")
+        else [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15"
+        ]
+    )
 
 
 class EmbeddingConfig(BaseModel):
@@ -247,6 +263,58 @@ class ReplColorConfig(BaseModel):
     custom_input_text: str = os.getenv("BROCA_REPL_CUSTOM_INPUT_TEXT", "")
 
 
+class BrowseSafetyConfig(BaseModel):
+    """Configuration for browse tool safety and governance."""
+    require_approval_for_purchases: bool = os.getenv("BROCA_BROWSE_REQUIRE_APPROVAL_PURCHASES", "true").lower() == "true"
+    require_approval_for_account_changes: bool = os.getenv("BROCA_BROWSE_REQUIRE_APPROVAL_ACCOUNT", "true").lower() == "true"
+    allow_credential_entry: bool = os.getenv("BROCA_BROWSE_ALLOW_CREDENTIALS", "false").lower() == "true"
+    allowed_login_domains: list[str] = (
+        os.getenv("BROCA_BROWSE_ALLOWED_LOGIN_DOMAINS", "").split(",")
+        if os.getenv("BROCA_BROWSE_ALLOWED_LOGIN_DOMAINS")
+        else []
+    )
+    max_session_duration_minutes: int = int(os.getenv("BROCA_BROWSE_MAX_SESSION_MINUTES", "60"))
+    enable_screenshot_logging: bool = os.getenv("BROCA_BROWSE_ENABLE_SCREENSHOT_LOGGING", "false").lower() == "true"
+    redact_sensitive_data: bool = os.getenv("BROCA_BROWSE_REDACT_SENSITIVE", "true").lower() == "true"
+
+
+class BrowseConfig(BaseModel):
+    """Configuration for browse tool (browser-based search and navigation)."""
+    # Search
+    default_search_engine: str = os.getenv("BROCA_BROWSE_DEFAULT_ENGINE", "ddg")  # "ddg" | "bing" | "google" | "auto"
+    enable_tavily_fallback: bool = os.getenv("BROCA_BROWSE_ENABLE_TAVILY_FALLBACK", "false").lower() == "true"  # Emergency only, default: false
+    tavily_fallback_only: bool = os.getenv("BROCA_BROWSE_TAVILY_FALLBACK_ONLY", "false").lower() == "true"  # Emergency only mode
+    
+    # Sessions
+    session_persistence: bool = os.getenv("BROCA_BROWSE_SESSION_PERSISTENCE", "true").lower() == "true"
+    session_storage_path: str = os.getenv("BROCA_BROWSE_SESSION_STORAGE_PATH", "runtime/browser_sessions")
+    session_ttl_hours: int = int(os.getenv("BROCA_BROWSE_SESSION_TTL_HOURS", "24"))
+    
+    # Budgets
+    default_max_actions: int = int(os.getenv("BROCA_BROWSE_MAX_ACTIONS", "20"))
+    default_max_wallclock_ms: int = int(os.getenv("BROCA_BROWSE_MAX_WALLCLOCK_MS", "60000"))
+    default_max_domains: int = int(os.getenv("BROCA_BROWSE_MAX_DOMAINS", "5"))
+    default_max_total_bytes: int = int(os.getenv("BROCA_BROWSE_MAX_TOTAL_BYTES", "10000000"))
+    
+    # Extraction
+    extraction_mode_preference: list[str] = (
+        os.getenv("BROCA_BROWSE_EXTRACTION_MODES", "readability,trafilatura,dom").split(",")
+        if os.getenv("BROCA_BROWSE_EXTRACTION_MODES")
+        else ["readability", "trafilatura", "dom"]
+    )
+    max_extracted_chars: int = int(os.getenv("BROCA_BROWSE_MAX_EXTRACTED_CHARS", "50000"))
+    
+    # Source Quality
+    domain_reputation_file: str = os.getenv("BROCA_BROWSE_DOMAIN_REPUTATION_FILE", "data/browse_domain_reputation.json")
+    
+    # Traces
+    trace_storage_path: str = os.getenv("BROCA_BROWSE_TRACE_STORAGE_PATH", "docs/browse_traces")
+    enable_trace_replay: bool = os.getenv("BROCA_BROWSE_ENABLE_TRACE_REPLAY", "true").lower() == "true"
+    
+    # Safety
+    safety: BrowseSafetyConfig = BrowseSafetyConfig()
+
+
 class BrocaConfig(BaseModel):
     cache: CacheConfig = CacheConfig()
     llm: LLMConfig = LLMConfig()
@@ -260,6 +328,7 @@ class BrocaConfig(BaseModel):
     optimization: OptimizationConfig = OptimizationConfig()
     summarization: SummarizationConfig = SummarizationConfig()
     repl_color: ReplColorConfig = ReplColorConfig()
+    browse: BrowseConfig = BrowseConfig()
 
 
 config = BrocaConfig()
