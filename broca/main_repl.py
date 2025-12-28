@@ -670,6 +670,41 @@ def _initialize_reasoning_system(
             except Exception as e:
                 logger.warning(f"Failed to initialize learning tool: {e}", exc_info=True)
         
+        # Create RL signal aggregator if RL signals are enabled
+        rl_signal_aggregator = None
+        if reasoning_config.feedback_loops_enabled and reasoning_config.rl_signals_enabled:
+            try:
+                from .reasoning.rl_signals import RLSignalAggregator
+                
+                # Get components for RL signal aggregator
+                affective_monitor = None
+                predictive_interoception = None
+                epistemic_bridge = None
+                
+                if internal_sensing:
+                    if hasattr(internal_sensing, 'interoception') and internal_sensing.interoception:
+                        if hasattr(internal_sensing.interoception, 'affect'):
+                            affective_monitor = internal_sensing.interoception.affect
+                        if hasattr(internal_sensing.interoception, 'predictive'):
+                            predictive_interoception = internal_sensing.interoception.predictive
+                        if hasattr(internal_sensing.interoception, 'epistemic_bridge'):
+                            epistemic_bridge = internal_sensing.interoception.epistemic_bridge
+                
+                rl_signal_aggregator = RLSignalAggregator(
+                    weight_dissonance=reasoning_config.rl_weight_dissonance,
+                    weight_surprise=reasoning_config.rl_weight_surprise,
+                    weight_curiosity=reasoning_config.rl_weight_curiosity,
+                    weight_info_gain=reasoning_config.rl_weight_info_gain,
+                    weight_coherence=reasoning_config.rl_weight_coherence,
+                    cognitive_dissonance_monitor=cognitive_dissonance_monitor,
+                    affective_monitor=affective_monitor,
+                    predictive_interoception=predictive_interoception,
+                    epistemic_bridge=epistemic_bridge,
+                )
+                logger.info("✓ RL signal aggregator initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize RL signal aggregator: {e}, continuing with dissonance-only feedback", exc_info=True)
+        
         # Create feedback loop manager
         feedback_loop_manager = None
         if reasoning_config.feedback_loops_enabled:
@@ -681,7 +716,12 @@ def _initialize_reasoning_system(
                 error_rate_threshold=reasoning_config.error_rate_threshold,
                 cognitive_dissonance_monitor=cognitive_dissonance_monitor,
                 dissonance_threshold=reasoning_config.dissonance_threshold,
-                learning_system=learning_tool
+                learning_system=learning_tool,
+                rl_signal_aggregator=rl_signal_aggregator,
+                rl_signals_enabled=reasoning_config.rl_signals_enabled,
+                surprise_threshold=reasoning_config.rl_surprise_threshold,
+                curiosity_threshold=reasoning_config.rl_curiosity_threshold,
+                exploration_ratio=reasoning_config.rl_exploration_ratio,
             )
             logger.info("✓ Feedback loop manager initialized")
         

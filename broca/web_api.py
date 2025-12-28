@@ -98,10 +98,12 @@ class ChatRequest(BaseModel):
     messages: List[Message]
     stream: bool = False
     web_search: bool = True
+    include_rl_signals: bool = False  # Include RL signal metrics in response
 
 class ChatResponse(BaseModel):
     conversation_id: str
     reply: Message
+    rl_signals: Optional[Dict[str, Any]] = None  # RL signal metrics if requested
 
 class TitleUpdate(BaseModel):
     title: str
@@ -277,6 +279,153 @@ async def get_cognitive_architecture_stats():
     }
 
 
+
+class CognitiveQueryRequest(BaseModel):
+    query: str
+    include_z3_validation: bool = True
+    include_affective_state: bool = True
+    include_thought_process: bool = True
+    include_memory_traversal: bool = False
+    include_rl_signals: bool = False  # Include RL signal metrics in response
+
+class CognitiveQueryResponse(BaseModel):
+    response: str
+    thought_process: List[Dict[str, Any]] = []
+    z3_validation: Optional[Dict[str, Any]] = None
+    affective_state: Optional[Dict[str, Any]] = None
+    memory_traversal: Optional[Dict[str, Any]] = None
+    rl_signals: Optional[Dict[str, Any]] = None  # RL signal metrics if requested
+    processing_time_ms: int
+
+@app.post("/api/cognitive/query", response_model=CognitiveQueryResponse)
+async def cognitive_query(req: CognitiveQueryRequest):
+    """Process a cognitive query with full introspection."""
+    begin_request()
+    start_time = time.time()
+    try:
+        rt = get_runtime()
+        
+        # Create a temporary session for this query
+        temp_session = ConversationSession(
+            llm=rt.session.llm,
+            tool_registry=rt.tool_registry,
+            internal_sensing_framework=rt.internal_sensing,
+            world_state_aggregator=rt.world_state_aggregator
+        )
+        
+        # Get the response
+        response_text = temp_session.send(req.query, stream=False)
+        
+        # Build response with introspection data
+        result = {
+            "response": response_text,
+            "thought_process": [],
+            "processing_time_ms": int((time.time() - start_time) * 1000)
+        }
+        
+        # Add Z3 validation if requested and available
+        if req.include_z3_validation and hasattr(rt, 'z3_validator') and rt.z3_validator:
+            try:
+                # This would be implemented in the Z3 validator
+                pass
+            except Exception as e:
+                logger.warning(f"Z3 validation failed: {e}")
+        
+        # Add affective state if requested
+        if req.include_affective_state and rt.internal_sensing:
+            try:
+                affective_state = rt.internal_sensing.get_current_affective_state()
+                if affective_state:
+                    result["affective_state"] = affective_state
+            except Exception as e:
+                logger.warning(f"Affective state retrieval failed: {e}")
+        
+        # Add RL signals if requested
+        if req.include_rl_signals and rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
+            reasoning_tool = rt.world_state_aggregator.reasoning_tool
+            if reasoning_tool and hasattr(reasoning_tool, 'feedback_loop_manager'):
+                feedback_loop_manager = reasoning_tool.feedback_loop_manager
+                if feedback_loop_manager and feedback_loop_manager.rl_signals_enabled and feedback_loop_manager.rl_signal_aggregator:
+                    try:
+                        # Get affective state for RL signals
+                        affective_state = None
+                        if rt.internal_sensing:
+                            try:
+                                affective_state = rt.internal_sensing.get_current_affective_state()
+                            except Exception:
+                                pass
+                        
+                        # Get prediction error if available
+                        prediction_error = None
+                        if rt.internal_sensing and hasattr(rt.internal_sensing.interoception, 'predictive'):
+                            try:
+                                prediction_error = rt.internal_sensing.interoception.predictive.get_rl_prediction_error_signal()
+                            except Exception:
+                                pass
+                        
+                        # Compute RL signals
+                        rl_metrics = feedback_loop_manager.rl_signal_aggregator.compute_signals(
+                            affective_state=affective_state,
+                            prediction_error=prediction_error,
+                        )
+                        
+                        # Prepare RL signals data for response
+                        result["rl_signals"] = {
+                            "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                            "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                            "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                            "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                            "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                            "composite_reward": round(rl_metrics.composite_reward, 3),
+                            "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
+                            "weights": {
+                                "dissonance": rl_metrics.weight_dissonance,
+                                "surprise": rl_metrics.weight_surprise,
+                                "curiosity": rl_metrics.weight_curiosity,
+                                "info_gain": rl_metrics.weight_info_gain,
+                                "coherence": rl_metrics.weight_coherence,
+                            }
+                        }
+                        
+                        # Apply RL feedback
+                        try:
+                            from .reasoning.feedback_loop import FeedbackMetrics
+                            feedback_metrics = FeedbackMetrics(window_size=1)
+                            feedback_loop_manager._apply_rl_feedback(
+                                feedback_metrics,
+                                emotional_state=affective_state
+                            )
+                        except Exception as e:
+                            logger.debug(f"Error applying RL feedback in cognitive query: {e}", exc_info=True)
+                            
+                    except Exception as e:
+                        logger.warning(f"Error computing RL signals in cognitive query: {e}", exc_info=True)
+        
+        # Add memory traversal if requested
+        if req.include_memory_traversal and rt.memory_manager:
+            try:
+                # Get memories related to the query
+                memories = rt.memory_manager.retrieve_memories(req.query, limit=10)
+                if memories:
+                    result["memory_traversal"] = {
+                        "retrieved_memories": [
+                            {
+                                "id": m.id,
+                                "text": m.text[:200] + "..." if len(m.text) > 200 else m.text,
+                                "relevance": m.relevance_score if hasattr(m, 'relevance_score') else 0.5,
+                                "namespace": m.namespace
+                            }
+                            for m in memories
+                        ],
+                        "relationships_found": len(memories)
+                    }
+            except Exception as e:
+                logger.warning(f"Memory traversal failed: {e}")
+        
+        return CognitiveQueryResponse(**result)
+        
+    finally:
+        end_request()
 @app.post("/api/cognitive-architecture/reconfigure")
 async def trigger_reconfiguration():
     """Trigger system reconfiguration (if authorized)."""
@@ -388,7 +537,7 @@ async def delete_conversation(conversation_id: str):
     storage.delete_conversation(conversation_id)
     return {"success": True}
 
-def stream_response(conversation_id: str, user_message: str, web_search_enabled: bool = True) -> Generator[str, None, None]:
+def stream_response(conversation_id: str, user_message: str, web_search_enabled: bool = True, include_rl_signals: bool = False) -> Generator[str, None, None]:
     rt = get_runtime()
     storage = get_storage()
     session = create_session(conversation_id)
@@ -614,32 +763,98 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                 session.messages.append({"role": "assistant", "content": content})
                 assistant_text = content
                 
-                # Measure cognitive dissonance if available
+                # Measure cognitive dissonance and compute RL signals if available
+                rl_signals_data = None
                 if rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
                     reasoning_tool = rt.world_state_aggregator.reasoning_tool
-                    if reasoning_tool and hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
-                        cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
-                        if cognitive_dissonance_monitor:
-                            try:
-                                # Extract tool usage from messages
-                                tool_usage = []
-                                for msg in session.messages[-20:]:  # Check last 20 messages
-                                    if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                                        tool_usage.extend(msg.get("tool_calls", []))
-                                
-                                # Measure dissonance
-                                conversation_context = [
-                                    {"role": m.get("role"), "content": m.get("content", "")[:200]}
-                                    for m in session.messages[-5:]
-                                ]
-                                
-                                cognitive_dissonance_monitor.measure_dissonance(
-                                    response=content,
-                                    conversation_context=conversation_context,
-                                    tool_usage=tool_usage if tool_usage else None
-                                )
-                            except Exception as e:
-                                logger.warning(f"Error measuring cognitive dissonance in web_api: {e}", exc_info=True)
+                    if reasoning_tool:
+                        # Measure cognitive dissonance
+                        if hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
+                            cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
+                            if cognitive_dissonance_monitor:
+                                try:
+                                    # Extract tool usage from messages
+                                    tool_usage = []
+                                    for msg in session.messages[-20:]:  # Check last 20 messages
+                                        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                                            tool_usage.extend(msg.get("tool_calls", []))
+                                    
+                                    # Measure dissonance
+                                    conversation_context = [
+                                        {"role": m.get("role"), "content": m.get("content", "")[:200]}
+                                        for m in session.messages[-5:]
+                                    ]
+                                    
+                                    cognitive_dissonance_monitor.measure_dissonance(
+                                        response=content,
+                                        conversation_context=conversation_context,
+                                        tool_usage=tool_usage if tool_usage else None
+                                    )
+                                except Exception as e:
+                                    logger.warning(f"Error measuring cognitive dissonance in web_api: {e}", exc_info=True)
+                        
+                        # Compute RL signals if feedback loop manager is available
+                        if hasattr(reasoning_tool, 'feedback_loop_manager') and reasoning_tool.feedback_loop_manager:
+                            feedback_loop_manager = reasoning_tool.feedback_loop_manager
+                            if feedback_loop_manager.rl_signals_enabled and feedback_loop_manager.rl_signal_aggregator:
+                                try:
+                                    from .reasoning.rl_signals import RLSignalAggregator
+                                    
+                                    # Get affective state for RL signals
+                                    affective_state = None
+                                    if session.internal_sensing_framework:
+                                        try:
+                                            affective_state = session.internal_sensing_framework.get_current_affective_state()
+                                        except Exception:
+                                            pass
+                                    
+                                    # Get prediction error if available
+                                    prediction_error = None
+                                    if session.internal_sensing_framework and hasattr(session.internal_sensing_framework.interoception, 'predictive'):
+                                        try:
+                                            prediction_error = session.internal_sensing_framework.interoception.predictive.get_rl_prediction_error_signal()
+                                        except Exception:
+                                            pass
+                                    
+                                    # Compute RL signals
+                                    rl_metrics = feedback_loop_manager.rl_signal_aggregator.compute_signals(
+                                        affective_state=affective_state,
+                                        prediction_error=prediction_error,
+                                    )
+                                    
+                                    # Prepare RL signals data for response
+                                    rl_signals_data = {
+                                        "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                                        "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                                        "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                                        "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                                        "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                                        "composite_reward": round(rl_metrics.composite_reward, 3),
+                                        "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
+                                        "weights": {
+                                            "dissonance": rl_metrics.weight_dissonance,
+                                            "surprise": rl_metrics.weight_surprise,
+                                            "curiosity": rl_metrics.weight_curiosity,
+                                            "info_gain": rl_metrics.weight_info_gain,
+                                            "coherence": rl_metrics.weight_coherence,
+                                        }
+                                    }
+                                    
+                                    # Apply RL feedback if feedback loop manager is available
+                                    if hasattr(feedback_loop_manager, '_apply_rl_feedback'):
+                                        try:
+                                            from .reasoning.feedback_loop import FeedbackMetrics
+                                            # Create minimal feedback metrics for RL feedback
+                                            feedback_metrics = FeedbackMetrics(window_size=1)
+                                            feedback_loop_manager._apply_rl_feedback(
+                                                feedback_metrics,
+                                                emotional_state=affective_state
+                                            )
+                                        except Exception as e:
+                                            logger.debug(f"Error applying RL feedback in web_api: {e}", exc_info=True)
+                                    
+                                except Exception as e:
+                                    logger.warning(f"Error computing RL signals in web_api: {e}", exc_info=True)
                 
                 break
         
@@ -795,10 +1010,75 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
         except Exception:
             pass
     
-    yield json.dumps({
+    # Include RL signals in done message if requested
+    done_data = {
         "type": "done",
         "conversation_id": conversation_id
-    }) + "\n"
+    }
+    
+    # Add RL signals if requested and available
+    if include_rl_signals and 'session' in locals() and 'rt' in locals():
+        if rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
+            reasoning_tool = rt.world_state_aggregator.reasoning_tool
+            if reasoning_tool and hasattr(reasoning_tool, 'feedback_loop_manager'):
+                feedback_loop_manager = reasoning_tool.feedback_loop_manager
+                if feedback_loop_manager and feedback_loop_manager.rl_signals_enabled and feedback_loop_manager.rl_signal_aggregator:
+                    try:
+                        # Get affective state for RL signals
+                        affective_state = None
+                        if session.internal_sensing_framework:
+                            try:
+                                affective_state = session.internal_sensing_framework.get_current_affective_state()
+                            except Exception:
+                                pass
+                        
+                        # Get prediction error if available
+                        prediction_error = None
+                        if session.internal_sensing_framework and hasattr(session.internal_sensing_framework.interoception, 'predictive'):
+                            try:
+                                prediction_error = session.internal_sensing_framework.interoception.predictive.get_rl_prediction_error_signal()
+                            except Exception:
+                                pass
+                        
+                        # Compute RL signals
+                        rl_metrics = feedback_loop_manager.rl_signal_aggregator.compute_signals(
+                            affective_state=affective_state,
+                            prediction_error=prediction_error,
+                        )
+                        
+                        # Add RL signals to done message
+                        done_data["rl_signals"] = {
+                            "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                            "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                            "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                            "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                            "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                            "composite_reward": round(rl_metrics.composite_reward, 3),
+                            "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
+                            "weights": {
+                                "dissonance": rl_metrics.weight_dissonance,
+                                "surprise": rl_metrics.weight_surprise,
+                                "curiosity": rl_metrics.weight_curiosity,
+                                "info_gain": rl_metrics.weight_info_gain,
+                                "coherence": rl_metrics.weight_coherence,
+                            }
+                        }
+                        
+                        # Apply RL feedback
+                        try:
+                            from .reasoning.feedback_loop import FeedbackMetrics
+                            feedback_metrics = FeedbackMetrics(window_size=1)
+                            feedback_loop_manager._apply_rl_feedback(
+                                feedback_metrics,
+                                emotional_state=affective_state
+                            )
+                        except Exception as e:
+                            logger.debug(f"Error applying RL feedback in stream_response: {e}", exc_info=True)
+                            
+                    except Exception as e:
+                        logger.warning(f"Error computing RL signals in stream_response: {e}", exc_info=True)
+    
+    yield json.dumps(done_data) + "\n"
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
@@ -817,12 +1097,76 @@ async def chat(req: ChatRequest):
 
         if req.stream:
             return StreamingResponse(
-                stream_response(req.conversation_id, last.content, web_search_enabled=req.web_search),
+                stream_response(req.conversation_id, last.content, web_search_enabled=req.web_search, include_rl_signals=req.include_rl_signals),
                 media_type="application/x-ndjson"
             )
 
         session = create_session(req.conversation_id)
         reply_text = session.send(last.content, stream=False)
+        
+        # Compute RL signals if requested and available
+        rl_signals_data = None
+        if req.include_rl_signals:
+            rt = get_runtime()
+            if rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
+                reasoning_tool = rt.world_state_aggregator.reasoning_tool
+                if reasoning_tool and hasattr(reasoning_tool, 'feedback_loop_manager'):
+                    feedback_loop_manager = reasoning_tool.feedback_loop_manager
+                    if feedback_loop_manager and feedback_loop_manager.rl_signals_enabled and feedback_loop_manager.rl_signal_aggregator:
+                        try:
+                            # Get affective state for RL signals
+                            affective_state = None
+                            if session.internal_sensing_framework:
+                                try:
+                                    affective_state = session.internal_sensing_framework.get_current_affective_state()
+                                except Exception:
+                                    pass
+                            
+                            # Get prediction error if available
+                            prediction_error = None
+                            if session.internal_sensing_framework and hasattr(session.internal_sensing_framework.interoception, 'predictive'):
+                                try:
+                                    prediction_error = session.internal_sensing_framework.interoception.predictive.get_rl_prediction_error_signal()
+                                except Exception:
+                                    pass
+                            
+                            # Compute RL signals
+                            rl_metrics = feedback_loop_manager.rl_signal_aggregator.compute_signals(
+                                affective_state=affective_state,
+                                prediction_error=prediction_error,
+                            )
+                            
+                            # Prepare RL signals data for response
+                            rl_signals_data = {
+                                "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                                "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                                "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                                "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                                "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                                "composite_reward": round(rl_metrics.composite_reward, 3),
+                                "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
+                                "weights": {
+                                    "dissonance": rl_metrics.weight_dissonance,
+                                    "surprise": rl_metrics.weight_surprise,
+                                    "curiosity": rl_metrics.weight_curiosity,
+                                    "info_gain": rl_metrics.weight_info_gain,
+                                    "coherence": rl_metrics.weight_coherence,
+                                }
+                            }
+                            
+                            # Apply RL feedback
+                            try:
+                                from .reasoning.feedback_loop import FeedbackMetrics
+                                feedback_metrics = FeedbackMetrics(window_size=1)
+                                feedback_loop_manager._apply_rl_feedback(
+                                    feedback_metrics,
+                                    emotional_state=affective_state
+                                )
+                            except Exception as e:
+                                logger.debug(f"Error applying RL feedback in chat endpoint: {e}", exc_info=True)
+                                
+                        except Exception as e:
+                            logger.warning(f"Error computing RL signals in chat endpoint: {e}", exc_info=True)
         
         storage = get_storage()
         data = storage.load_conversation(req.conversation_id)
@@ -834,7 +1178,8 @@ async def chat(req: ChatRequest):
         
         return ChatResponse(
             conversation_id=req.conversation_id,
-            reply=Message(role="assistant", content=reply_text)
+            reply=Message(role="assistant", content=reply_text),
+            rl_signals=rl_signals_data
         )
     finally:
         end_request()

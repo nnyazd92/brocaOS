@@ -15,7 +15,10 @@ from dataclasses import dataclass, field
 
 if TYPE_CHECKING:
     from .cognitive_dissonance import CognitiveDissonanceMonitor, DissonanceMetrics
+    from .rl_signals import RLSignalAggregator, RLSignalMetrics
     from ..learning.integration_tool import LearningTool
+    from ..internal_sensing.affective_state import ComputationalAffectMonitor
+    from ..internal_sensing.predictive_interoception import PredictiveInteroception
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +91,12 @@ class FeedbackLoopManager:
         error_rate_threshold: float = 0.3,
         cognitive_dissonance_monitor: Optional["CognitiveDissonanceMonitor"] = None,
         dissonance_threshold: float = 0.3,
-        learning_system: Optional["LearningTool"] = None
+        learning_system: Optional["LearningTool"] = None,
+        rl_signal_aggregator: Optional["RLSignalAggregator"] = None,
+        rl_signals_enabled: bool = True,
+        surprise_threshold: float = 0.3,
+        curiosity_threshold: float = 0.5,
+        exploration_ratio: float = 0.6
     ):
         """
         Initialize feedback loop manager.
@@ -102,6 +110,11 @@ class FeedbackLoopManager:
             cognitive_dissonance_monitor: Optional CognitiveDissonanceMonitor for tracking dissonance
             dissonance_threshold: Threshold for triggering dissonance-based corrections
             learning_system: Optional LearningTool for learning-reasoning integration
+            rl_signal_aggregator: Optional RLSignalAggregator for multi-signal RL feedback
+            rl_signals_enabled: Enable multi-signal RL feedback (default: True)
+            surprise_threshold: Threshold for surprise-based feedback
+            curiosity_threshold: Threshold for curiosity-based feedback
+            exploration_ratio: Balance between exploration and exploitation
         """
         self.reinforcing_enabled = reinforcing_enabled
         self.balancing_enabled = balancing_enabled
@@ -111,6 +124,11 @@ class FeedbackLoopManager:
         self.cognitive_dissonance_monitor = cognitive_dissonance_monitor
         self.dissonance_threshold = dissonance_threshold
         self.learning_system = learning_system
+        self.rl_signal_aggregator = rl_signal_aggregator
+        self.rl_signals_enabled = rl_signals_enabled
+        self.surprise_threshold = surprise_threshold
+        self.curiosity_threshold = curiosity_threshold
+        self.exploration_ratio = exploration_ratio
         
         # Metrics tracking
         self.metrics_history: deque = deque(maxlen=metrics_window_size)
@@ -122,7 +140,7 @@ class FeedbackLoopManager:
         # Goal progress tracking
         self.goal_progress_history: Dict[str, List[float]] = {}  # goal_name -> [progress values]
         
-        logger.info("Initialized FeedbackLoopManager")
+        logger.info(f"Initialized FeedbackLoopManager (RL signals: {'enabled' if rl_signals_enabled else 'disabled'})")
     
     def evaluate_cycle_outcomes(self, cycle_outcome: Dict[str, Any]) -> FeedbackMetrics:
         """
@@ -194,8 +212,12 @@ class FeedbackLoopManager:
         if self.balancing_enabled:
             self._apply_balancing_feedback(metrics, emotional_state)
         
-        # Apply dissonance-based feedback
-        self._apply_dissonance_feedback(metrics)
+        # Apply RL-based feedback (multi-signal or dissonance-only)
+        if self.rl_signals_enabled and self.rl_signal_aggregator:
+            self._apply_rl_feedback(metrics, emotional_state)
+        else:
+            # Fallback to dissonance-only feedback for backward compatibility
+            self._apply_dissonance_feedback(metrics)
     
     def _compute_aggregated_metrics(self) -> FeedbackMetrics:
         """Compute aggregated metrics from history."""
@@ -412,8 +434,160 @@ class FeedbackLoopManager:
         logger.info(f"Suggesting revision for goal '{goal_name}' due to stagnation")
         # This could trigger goal decomposition or revision
     
+    def _apply_rl_feedback(
+        self,
+        metrics: FeedbackMetrics,
+        emotional_state: Optional[Dict[str, float]] = None
+    ):
+        """
+        Apply multi-signal RL feedback based on all available signals.
+        
+        Uses composite reward from dissonance, surprise, curiosity, info gain, and coherence.
+        """
+        if not self.rl_signal_aggregator:
+            # Fallback to dissonance-only
+            self._apply_dissonance_feedback(metrics)
+            return
+        
+        try:
+            # Compute all RL signals
+            rl_metrics = self.rl_signal_aggregator.compute_signals(
+                affective_state=emotional_state
+            )
+            
+            # Apply signal-specific feedback
+            self._apply_surprise_feedback(rl_metrics, metrics)
+            self._apply_curiosity_feedback(rl_metrics, metrics)
+            self._apply_info_gain_feedback(rl_metrics, metrics)
+            self._apply_coherence_feedback(rl_metrics, metrics)
+            self._apply_dissonance_feedback_from_rl(rl_metrics, metrics)
+            
+            # Use composite reward for overall strategy
+            if rl_metrics.composite_reward > 0.7:
+                logger.debug(f"High composite reward ({rl_metrics.composite_reward:.3f}), reinforcing strategies")
+            elif rl_metrics.composite_reward < 0.3:
+                logger.warning(f"Low composite reward ({rl_metrics.composite_reward:.3f}), triggering corrections")
+                self._trigger_rl_corrections(rl_metrics, metrics)
+            
+            # Check exploration-exploitation balance
+            balance = rl_metrics.get_exploration_exploitation_balance()
+            if balance >= self.exploration_ratio:
+                logger.debug(f"High exploration balance ({balance:.3f}), encouraging exploration")
+            else:
+                logger.debug(f"High exploitation balance ({balance:.3f}), focusing on known strategies")
+                
+        except Exception as e:
+            logger.warning(f"Error applying RL feedback, falling back to dissonance-only: {e}", exc_info=True)
+            self._apply_dissonance_feedback(metrics)
+    
+    def _apply_surprise_feedback(
+        self,
+        rl_metrics: "RLSignalMetrics",
+        metrics: FeedbackMetrics
+    ):
+        """Apply feedback based on surprise signal (minimize surprise)."""
+        surprise = 1.0 - rl_metrics.surprise_reward  # Convert reward back to surprise
+        
+        if surprise > self.surprise_threshold:
+            logger.warning(f"High surprise detected ({surprise:.3f}), improving prediction models")
+            # Trigger prediction model improvements
+            # This could trigger:
+            # - Update predictive interoception models
+            # - Adjust prediction strategies
+            # - Increase attention to prediction errors
+    
+    def _apply_curiosity_feedback(
+        self,
+        rl_metrics: "RLSignalMetrics",
+        metrics: FeedbackMetrics
+    ):
+        """Apply feedback based on curiosity signal (maximize curiosity for exploration)."""
+        curiosity = rl_metrics.curiosity_reward
+        
+        if curiosity > self.curiosity_threshold:
+            logger.debug(f"High curiosity ({curiosity:.3f}), encouraging exploration")
+            # Encourage exploration behaviors:
+            # - Explore novel states/actions
+            # - Try new strategies
+            # - Seek information-rich experiences
+        elif curiosity < 0.2:
+            logger.debug(f"Low curiosity ({curiosity:.3f}), focusing on exploitation")
+            # Focus on known successful strategies
+    
+    def _apply_info_gain_feedback(
+        self,
+        rl_metrics: "RLSignalMetrics",
+        metrics: FeedbackMetrics
+    ):
+        """Apply feedback based on information gain signal."""
+        info_gain = rl_metrics.information_gain_reward
+        
+        if info_gain > 0.5:
+            logger.debug(f"High information gain ({info_gain:.3f}), reinforcing learning behaviors")
+            # Reinforce information-acquiring behaviors:
+            # - Boost strategies that lead to new knowledge
+            # - Encourage verification of uncertain knowledge
+        elif info_gain < 0.1:
+            logger.debug(f"Low information gain ({info_gain:.3f}), knowledge is stable")
+    
+    def _apply_coherence_feedback(
+        self,
+        rl_metrics: "RLSignalMetrics",
+        metrics: FeedbackMetrics
+    ):
+        """Apply feedback based on coherence signal."""
+        coherence = rl_metrics.coherence_reward
+        
+        if coherence < 0.3:
+            logger.warning(f"Low coherence ({coherence:.3f}), triggering contradiction resolution")
+            # Trigger coherence improvements:
+            # - Resolve contradictions
+            # - Update self-model for consistency
+            # - Improve logical consistency
+        elif coherence > 0.7:
+            logger.debug(f"High coherence ({coherence:.3f}), maintaining consistency")
+    
+    def _apply_dissonance_feedback_from_rl(
+        self,
+        rl_metrics: "RLSignalMetrics",
+        metrics: FeedbackMetrics
+    ):
+        """Apply dissonance feedback using RL signal (for consistency with multi-signal approach)."""
+        dissonance_reward = rl_metrics.dissonance_reward
+        dissonance = 1.0 - dissonance_reward  # Convert reward back to dissonance
+        
+        if dissonance < self.dissonance_threshold:
+            logger.debug(f"Low dissonance ({dissonance:.3f}), maintaining strategies")
+        elif dissonance > self.dissonance_threshold:
+            logger.warning(
+                f"High cognitive dissonance detected ({dissonance:.3f}), "
+                f"trend: {metrics.dissonance_trend}"
+            )
+            self._trigger_dissonance_corrections(metrics)
+    
+    def _trigger_rl_corrections(
+        self,
+        rl_metrics: "RLSignalMetrics",
+        metrics: FeedbackMetrics
+    ):
+        """Trigger corrections based on low composite reward."""
+        logger.info(
+            f"Triggering RL corrections: composite_reward={rl_metrics.composite_reward:.3f}, "
+            f"dissonance={1.0 - rl_metrics.dissonance_reward:.3f}, "
+            f"surprise={1.0 - rl_metrics.surprise_reward:.3f}, "
+            f"curiosity={rl_metrics.curiosity_reward:.3f}, "
+            f"info_gain={rl_metrics.information_gain_reward:.3f}, "
+            f"coherence={rl_metrics.coherence_reward:.3f}"
+        )
+        
+        # Could trigger:
+        # - Self-model updates (if dissonance/coherence low)
+        # - Prediction model improvements (if surprise high)
+        # - Strategy reassessment (if composite reward low)
+        # - Goal revision (if multiple signals indicate problems)
+    
     def _apply_dissonance_feedback(self, metrics: FeedbackMetrics):
-        """Apply feedback based on cognitive dissonance metrics."""
+        """Apply feedback based on cognitive dissonance metrics (backward compatibility)."""
         if not self.cognitive_dissonance_monitor:
             return
         

@@ -109,6 +109,17 @@ class ReasoningConfig(BaseModel):
     max_recursion_depth: int = int(os.getenv("BROCA_REASONING_MAX_RECURSION_DEPTH", "3"))
     recursion_timeout_seconds: float = float(os.getenv("BROCA_REASONING_RECURSION_TIMEOUT_SECONDS", "30.0"))
     
+    # RL Signal Configuration
+    rl_signals_enabled: bool = os.getenv("BROCA_REASONING_RL_SIGNALS_ENABLED", "true").lower() == "true"
+    rl_weight_dissonance: float = float(os.getenv("BROCA_REASONING_RL_WEIGHT_DISSONANCE", "0.3"))
+    rl_weight_surprise: float = float(os.getenv("BROCA_REASONING_RL_WEIGHT_SURPRISE", "0.2"))
+    rl_weight_curiosity: float = float(os.getenv("BROCA_REASONING_RL_WEIGHT_CURIOSITY", "0.2"))
+    rl_weight_info_gain: float = float(os.getenv("BROCA_REASONING_RL_WEIGHT_INFO_GAIN", "0.15"))
+    rl_weight_coherence: float = float(os.getenv("BROCA_REASONING_RL_WEIGHT_COHERENCE", "0.15"))
+    rl_surprise_threshold: float = float(os.getenv("BROCA_REASONING_RL_SURPRISE_THRESHOLD", "0.3"))
+    rl_curiosity_threshold: float = float(os.getenv("BROCA_REASONING_RL_CURIOSITY_THRESHOLD", "0.5"))
+    rl_exploration_ratio: float = float(os.getenv("BROCA_REASONING_RL_EXPLORATION_RATIO", "0.6"))
+    
     # Debugging
     debug_mode: bool = os.getenv("BROCA_REASONING_DEBUG_MODE", "false").lower() == "true"
     log_rule_firings: bool = os.getenv("BROCA_REASONING_LOG_RULE_FIRINGS", "true").lower() == "true"

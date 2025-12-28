@@ -1355,6 +1355,42 @@ class ComputationalAffectMonitor:
             "surprise": self.affective_states["surprise"],
         }
     
+    def get_rl_surprise_signal(self) -> float:
+        """
+        Get surprise signal for reinforcement learning.
+        
+        Returns:
+            Surprise value (0.0-1.0) for RL signal computation
+        """
+        # Sample current state to ensure we have latest values
+        state = self.sample_affective_state()
+        surprise = state.get("surprise", 0.0)
+        return max(0.0, min(1.0, surprise))
+    
+    def get_rl_curiosity_signal(self) -> float:
+        """
+        Get curiosity signal for reinforcement learning.
+        
+        Returns:
+            Curiosity drive value (0.0-1.0) for RL signal computation
+        """
+        # Sample current state to ensure we have latest values
+        state = self.sample_affective_state()
+        curiosity = state.get("curiosity_drive", 0.0)
+        return max(0.0, min(1.0, curiosity))
+    
+    def get_rl_coherence_signal(self) -> float:
+        """
+        Get coherence pleasure signal for reinforcement learning.
+        
+        Returns:
+            Coherence pleasure value (0.0-1.0) for RL signal computation
+        """
+        # Sample current state to ensure we have latest values
+        state = self.sample_affective_state()
+        coherence = state.get("coherence_pleasure", 0.0)
+        return max(0.0, min(1.0, coherence))
+    
     def update_from_dissonance(
         self,
         dissonance_metrics: Dict[str, Any],

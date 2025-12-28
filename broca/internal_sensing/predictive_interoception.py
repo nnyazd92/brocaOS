@@ -373,3 +373,26 @@ class PredictiveInteroception:
         logger.debug(f"Computed prediction_accuracy: {accuracy:.3f} (from {len(self._prediction_errors)} predictions, avg_error: {avg_error:.3f})")
         
         return accuracy
+    
+    def get_rl_prediction_error_signal(self) -> float:
+        """
+        Get prediction error signal for reinforcement learning.
+        
+        Returns:
+            Recent prediction error (0.0-1.0) for RL signal computation.
+            Returns 0.0 if no predictions recorded yet.
+        """
+        if len(self._prediction_errors) == 0:
+            return 0.0  # No predictions recorded yet
+        
+        # Use most recent prediction error, or average of last few if available
+        if len(self._prediction_errors) >= 3:
+            # Average of last 3 predictions for stability
+            recent_errors = list(self._prediction_errors)[-3:]
+            avg_error = sum(recent_errors) / len(recent_errors)
+        else:
+            # Use most recent
+            avg_error = self._prediction_errors[-1]
+        
+        # Ensure bounded [0, 1]
+        return max(0.0, min(1.0, avg_error))

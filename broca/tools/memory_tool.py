@@ -12,7 +12,7 @@ from datetime import datetime
 
 from . import Tool
 from ..memory.manager import MemoryManager
-from ..memory import RelationType, SourceType, SourceMetadata
+from ..memory import RelationType, SourceType, SourceMetadata, MemoryRecord
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -335,15 +335,18 @@ class RetrieveMemoriesTool:
     def description(self) -> str:
         """Tool description for the LLM."""
         return (
-            "Retrieve memories (facts, insights, or information) that match a query. "
+            "Retrieve memories (facts, insights, or information) by query or by ID. "
             "Searches using semantic similarity, namespace filtering (single or multiple namespaces), "
             "and tag filtering. Supports boolean operators (AND, OR, NOT) in queries, exact phrase "
             "matching, exact namespace matching, and tag combination modes (any/all). "
             "Advanced search features: cross-namespace search (search across multiple namespaces), "
             "date range filtering (created_after/before, last_used_after/before), and importance "
             "filtering (min_importance, max_importance). Results are ranked by relevance with temporal "
-            "weighting (newer memories rank higher). Use this tool when you need to recall previously "
-            "stored information. Results are ranked by relevance and importance."
+            "weighting (newer memories rank higher). Each retrieved memory includes a 'Linked to' "
+            "section showing related memories with relationship types, enabling graph traversal. "
+            "For graph traversal: use memory_ids parameter to retrieve specific memories by ID (e.g., "
+            "when following links from the 'Linked to' section). Use this tool when you need to recall "
+            "previously stored information. Results are ranked by relevance and importance."
         )
     
     @property
@@ -354,7 +357,12 @@ class RetrieveMemoriesTool:
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Text query for semantic search - what information are you looking for?"
+                    "description": "Text query for semantic search - what information are you looking for? Required if memory_ids is not provided."
+                },
+                "memory_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Optional list of memory IDs to retrieve directly (for graph traversal). If provided, query is ignored and these specific memories are retrieved by ID. Use this when you see memory IDs in the 'Linked to' section and want to retrieve those specific memories."
                 },
                 "namespace": {
                     "type": "string",
@@ -451,14 +459,27 @@ class RetrieveMemoriesTool:
                         "enum": ["web_search", "user", "system_file", "terminal_output", "memory_retrieval", "unknown"]
                     },
                     "description": "Optional list of source types to filter by (e.g., ['web_search', 'user'])"
+                },
+                "include_linked": {
+                    "type": "boolean",
+                    "description": "If true, include linked memories (related memories) for each retrieved memory (default: true). Enables graph traversal.",
+                    "default": True
+                },
+                "linked_limit": {
+                    "type": "integer",
+                    "description": "Maximum number of linked memories to include per memory (default: 5, max: 10)",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 5
                 }
             },
-            "required": ["query"]
+            "required": []
         }
     
     def execute(
         self,
-        query: str,
+        query: Optional[str] = None,
+        memory_ids: Optional[List[int]] = None,
         namespace: Optional[str] = None,
         namespaces: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
@@ -476,13 +497,16 @@ class RetrieveMemoriesTool:
         min_confidence: Optional[float] = None,
         rank_by_confidence: bool = True,
         warn_low_confidence: bool = True,
-        source_types: Optional[List[str]] = None
+        source_types: Optional[List[str]] = None,
+        include_linked: bool = True,
+        linked_limit: int = 5
     ) -> Dict[str, Any]:
         """
         Execute memory retrieval with temporal weighting and enhanced search features.
         
         Args:
-            query: Text query for semantic search (supports boolean operators: AND, OR, NOT)
+            query: Text query for semantic search (supports boolean operators: AND, OR, NOT). Required if memory_ids is not provided.
+            memory_ids: Optional list of memory IDs to retrieve directly (for graph traversal). If provided, query is ignored.
             namespace: Optional single namespace filter (deprecated - use namespaces for multiple)
             namespaces: Optional list of namespaces to search across (OR logic)
             tags: Optional tag filters
@@ -500,14 +524,26 @@ class RetrieveMemoriesTool:
             min_confidence: Optional minimum epistemic confidence threshold (0.0-1.0)
             rank_by_confidence: If true, rank by epistemic confidence (default: True)
             warn_low_confidence: If true, include low-confidence warnings (default: True)
+            source_types: Optional list of source types to filter by
+            include_linked: If true, include linked memories for graph traversal (default: True)
+            linked_limit: Maximum number of linked memories per memory (default: 5, max: 10)
             
         Returns:
-            Dictionary with retrieved memories including temporal information and epistemic context
+            Dictionary with retrieved memories including temporal information, epistemic context, and linked memories
         """
         try:
-            # Validate inputs
-            if not query or not query.strip():
-                raise ValueError("Query cannot be empty")
+            # Validate inputs - either query or memory_ids must be provided
+            if memory_ids:
+                # ID-based retrieval mode
+                if not isinstance(memory_ids, list) or not all(isinstance(id, int) and id > 0 for id in memory_ids):
+                    return {
+                        "success": False,
+                        "error": "memory_ids must be a list of positive integers"
+                    }
+                if len(memory_ids) > limit:
+                    memory_ids = memory_ids[:limit]  # Limit to requested limit
+            elif not query or not query.strip():
+                raise ValueError("Either 'query' or 'memory_ids' must be provided")
             
             limit = max(1, min(20, limit))  # Clamp to valid range
             recency_weight = max(0.0, min(1.0, recency_weight))  # Clamp to 0.0-1.0
@@ -584,6 +620,9 @@ class RetrieveMemoriesTool:
                     "error": f"min_confidence must be between 0.0 and 1.0, got {min_confidence}"
                 }
             
+            # Validate linked_limit
+            linked_limit = max(1, min(10, linked_limit))  # Clamp to valid range
+            
             # Convert source_types strings to SourceType enums if provided
             source_type_enums = None
             if source_types:
@@ -595,36 +634,67 @@ class RetrieveMemoriesTool:
                         "error": f"Invalid source_type in list: {e}. Must be one of: {[st.value for st in SourceType]}"
                     }
             
-            # Retrieve memories with enhanced search features
-            # Use epistemic-aware retrieval if engine available
+            # Handle ID-based retrieval (for graph traversal)
+            memories: List[MemoryRecord] = []
             epistemic_result_dict = None
-            if self.epistemic_engine:
-                try:
-                    epistemic_result_dict = self.memory_manager.retrieve_memories_with_epistemic(
-                        query=query.strip(),
-                        limit=limit,
-                        namespace=namespace.strip() if namespace else None,
-                        namespaces=namespaces,
-                        tags=tags,
-                        epistemic_engine=self.epistemic_engine,
-                        min_confidence=min_confidence,
-                        rank_by_confidence=rank_by_confidence,
-                        warn_low_confidence=warn_low_confidence,
-                        recency_weight=recency_weight,
-                        namespace_exact=namespace_exact,
-                        tag_mode=tag_mode,
-                        query_phrases=query_phrases,
-                        created_after=parsed_created_after,
-                        created_before=parsed_created_before,
-                        last_used_after=parsed_last_used_after,
-                        last_used_before=parsed_last_used_before,
-                        min_importance=min_importance,
-                        max_importance=max_importance,
-                        source_types=source_type_enums
-                    )
-                    memories = epistemic_result_dict.get("memories", [])
-                except Exception as e:
-                    logger.warning(f"Error using epistemic-aware memory retrieval: {e}, falling back to regular retrieval", exc_info=True)
+            
+            if memory_ids:
+                # Direct ID-based retrieval - fetch memories by ID
+                for memory_id in memory_ids:
+                    memory = self.memory_manager.get_memory(memory_id)
+                    if memory:
+                        memories.append(memory)
+                    else:
+                        logger.warning(f"Memory {memory_id} not found during ID-based retrieval")
+            else:
+                # Query-based retrieval with enhanced search features
+                # Use epistemic-aware retrieval if engine available
+                if self.epistemic_engine:
+                    try:
+                        epistemic_result_dict = self.memory_manager.retrieve_memories_with_epistemic(
+                            query=query.strip(),
+                            limit=limit,
+                            namespace=namespace.strip() if namespace else None,
+                            namespaces=namespaces,
+                            tags=tags,
+                            epistemic_engine=self.epistemic_engine,
+                            min_confidence=min_confidence,
+                            rank_by_confidence=rank_by_confidence,
+                            warn_low_confidence=warn_low_confidence,
+                            recency_weight=recency_weight,
+                            namespace_exact=namespace_exact,
+                            tag_mode=tag_mode,
+                            query_phrases=query_phrases,
+                            created_after=parsed_created_after,
+                            created_before=parsed_created_before,
+                            last_used_after=parsed_last_used_after,
+                            last_used_before=parsed_last_used_before,
+                            min_importance=min_importance,
+                            max_importance=max_importance,
+                            source_types=source_type_enums
+                        )
+                        memories = epistemic_result_dict.get("memories", [])
+                    except Exception as e:
+                        logger.warning(f"Error using epistemic-aware memory retrieval: {e}, falling back to regular retrieval", exc_info=True)
+                        memories = self.memory_manager.retrieve_memories(
+                            query=query.strip(),
+                            namespace=namespace.strip() if namespace else None,
+                            namespaces=namespaces,
+                            tags=tags,
+                            limit=limit,
+                            recency_weight=recency_weight,
+                            namespace_exact=namespace_exact,
+                            tag_mode=tag_mode,
+                            query_phrases=query_phrases,
+                            created_after=parsed_created_after,
+                            created_before=parsed_created_before,
+                            last_used_after=parsed_last_used_after,
+                            last_used_before=parsed_last_used_before,
+                            min_importance=min_importance,
+                            max_importance=max_importance,
+                            source_types=source_type_enums
+                        )
+                else:
                     memories = self.memory_manager.retrieve_memories(
                         query=query.strip(),
                         namespace=namespace.strip() if namespace else None,
@@ -643,25 +713,6 @@ class RetrieveMemoriesTool:
                         max_importance=max_importance,
                         source_types=source_type_enums
                     )
-            else:
-                memories = self.memory_manager.retrieve_memories(
-                    query=query.strip(),
-                    namespace=namespace.strip() if namespace else None,
-                    namespaces=namespaces,
-                    tags=tags,
-                    limit=limit,
-                    recency_weight=recency_weight,
-                    namespace_exact=namespace_exact,
-                    tag_mode=tag_mode,
-                    query_phrases=query_phrases,
-                    created_after=parsed_created_after,
-                    created_before=parsed_created_before,
-                    last_used_after=parsed_last_used_after,
-                    last_used_before=parsed_last_used_before,
-                    min_importance=min_importance,
-                    max_importance=max_importance,
-                    source_types=source_type_enums
-                )
             
             # Format results with temporal information
             results = []
@@ -684,6 +735,42 @@ class RetrieveMemoriesTool:
                     "is_recent": is_recent
                 }
                 
+                # Fetch linked memories if requested
+                if include_linked and memory.id:
+                    try:
+                        related_memories = self.memory_manager.get_related_memories(
+                            memory_id=memory.id,
+                            relation_types=None,  # Get all relationship types
+                            direction="both",  # Get both outgoing and incoming
+                            min_strength=0.0,
+                            limit=linked_limit
+                        )
+                        
+                        linked_memories_list = []
+                        for related_memory, relationship in related_memories:
+                            # Determine direction
+                            if relationship.source_id == memory.id:
+                                direction = "outgoing"
+                            elif relationship.target_id == memory.id:
+                                direction = "incoming"
+                            else:
+                                direction = "unknown"
+                            
+                            linked_memories_list.append({
+                                "memory_id": related_memory.id,
+                                "relationship_type": relationship.relation_type.value,
+                                "relationship_strength": relationship.strength,
+                                "direction": direction,
+                                "text_preview": related_memory.text[:50] + "..." if len(related_memory.text) > 50 else related_memory.text
+                            })
+                        
+                        result_item["linked_memories"] = linked_memories_list
+                    except Exception as e:
+                        logger.warning(f"Error fetching linked memories for memory {memory.id}: {e}", exc_info=True)
+                        result_item["linked_memories"] = []
+                else:
+                    result_item["linked_memories"] = []
+                
                 # Add epistemic confidence if available
                 if epistemic_result_dict and memory.id:
                     # Try to get confidence from epistemic context
@@ -697,9 +784,16 @@ class RetrieveMemoriesTool:
                 "success": True,
                 "count": len(results),
                 "memories": results,
-                "query": query,
                 "recency_weight_used": recency_weight
             }
+            
+            # Include query or memory_ids in return dict for context
+            if memory_ids:
+                return_dict["memory_ids"] = memory_ids
+                return_dict["retrieval_mode"] = "id_based"
+            else:
+                return_dict["query"] = query
+                return_dict["retrieval_mode"] = "query_based"
             
             # Add epistemic context and warnings if available
             if epistemic_result_dict:
@@ -732,7 +826,7 @@ class RetrieveMemoriesTool:
             return f"Error retrieving memories: {result.get('error', 'Unknown error')}"
         
         memories = result.get("memories", [])
-        query = result.get("query", "unknown")
+        retrieval_mode = result.get("retrieval_mode", "query_based")
         recency_weight = result.get("recency_weight_used", 0.3)
         
         # Include epistemic warnings if available
@@ -740,9 +834,20 @@ class RetrieveMemoriesTool:
         confidence_stats = result.get("confidence_stats", {})
         
         if not memories:
-            return f"No memories found for query: '{query}'"
+            if retrieval_mode == "id_based":
+                memory_ids = result.get("memory_ids", [])
+                return f"No memories found for IDs: {memory_ids}"
+            else:
+                query = result.get("query", "unknown")
+                return f"No memories found for query: '{query}'"
         
-        lines = [f"Found {len(memories)} memory(ies) for query '{query}' (recency weight: {recency_weight}):\n"]
+        # Build header based on retrieval mode
+        if retrieval_mode == "id_based":
+            memory_ids = result.get("memory_ids", [])
+            lines = [f"Found {len(memories)} memory(ies) by ID {memory_ids}:\n"]
+        else:
+            query = result.get("query", "unknown")
+            lines = [f"Found {len(memories)} memory(ies) for query '{query}' (recency weight: {recency_weight}):\n"]
         
         # Add confidence stats if available
         if confidence_stats:
@@ -760,6 +865,22 @@ class RetrieveMemoriesTool:
             lines.append(f"   Age: {memory.get('age_human', 'unknown')} (created: {memory['created_at'][:10]})")
             if memory.get('is_recent'):
                 lines.append(f"   ✓ Recent (within 24 hours)")
+            
+            # Display linked memories if available
+            linked_memories = memory.get('linked_memories', [])
+            if linked_memories:
+                lines.append(f"   Linked to:")
+                # Limit display to top 5 linked memories
+                for linked in linked_memories[:5]:
+                    rel_type = linked.get('relationship_type', 'unknown')
+                    strength = linked.get('relationship_strength', 1.0)
+                    direction = linked.get('direction', 'unknown')
+                    linked_id = linked.get('memory_id', 'unknown')
+                    text_preview = linked.get('text_preview', '')
+                    lines.append(f"     - Memory {linked_id} ({rel_type}, strength={strength:.2f}, {direction}): \"{text_preview}\"")
+                if len(linked_memories) > 5:
+                    lines.append(f"     ... and {len(linked_memories) - 5} more linked memories")
+            
             lines.append("")  # Empty line between memories
         
         # Add warnings if available
