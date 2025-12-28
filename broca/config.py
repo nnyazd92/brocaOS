@@ -157,6 +157,20 @@ class ToolsConfig(BaseModel):
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15"
         ]
     )
+    # Tool selection guidance configuration
+    selection_guidance_enabled: bool = os.getenv("BROCA_TOOLS_SELECTION_GUIDANCE_ENABLED", "true").lower() == "true"
+    pre_filtering_enabled: bool = os.getenv("BROCA_TOOLS_PRE_FILTERING_ENABLED", "true").lower() == "true"
+    post_validation_enabled: bool = os.getenv("BROCA_TOOLS_POST_VALIDATION_ENABLED", "true").lower() == "true"
+    guidance_weight: float = float(os.getenv("BROCA_TOOLS_GUIDANCE_WEIGHT", "0.3"))  # 0.0-1.0
+    max_guidance_length: int = int(os.getenv("BROCA_TOOLS_MAX_GUIDANCE_LENGTH", "2000"))
+    guidance_text_style: str = os.getenv("BROCA_TOOLS_GUIDANCE_TEXT_STYLE", "prioritized")  # "concise" | "detailed" | "prioritized"
+    ranking_algorithm: str = os.getenv("BROCA_TOOLS_RANKING_ALGORITHM", "simple")  # "simple" | "multi_armed_bandit" | "learned"
+    validation_strictness: str = os.getenv("BROCA_TOOLS_VALIDATION_STRICTNESS", "advisory")  # "advisory" | "soft_block" | "hard_block"
+    validation_confidence_threshold: float = float(os.getenv("BROCA_TOOLS_VALIDATION_CONFIDENCE_THRESHOLD", "0.7"))  # 0.0-1.0
+    context_cache_ttl_seconds: int = int(os.getenv("BROCA_TOOLS_CONTEXT_CACHE_TTL_SECONDS", "5"))
+    metrics_enabled: bool = os.getenv("BROCA_TOOLS_METRICS_ENABLED", "true").lower() == "true"
+    metrics_window_size: int = int(os.getenv("BROCA_TOOLS_METRICS_WINDOW_SIZE", "1000"))
+    exploration_factor: float = float(os.getenv("BROCA_TOOLS_EXPLORATION_FACTOR", "0.1"))  # For multi-armed bandit
 
 
 class EmbeddingConfig(BaseModel):

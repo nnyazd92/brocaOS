@@ -1,6 +1,39 @@
 """
 Reinforcement Learning signal aggregator for multi-dimensional reward signals.
 
+IMPORTANT ARCHITECTURE NOTE:
+============================
+This module does NOT implement Q-learning or maintain Q-tables. RL signals are
+computed metrics that aggregate information from various cognitive monitors to
+provide reward signals for tool selection and behavior guidance.
+
+- RL signals are computed ON-THE-FLY from current system state
+- No learned state-action values (Q-values) are stored
+- No Q-tables or value function approximations
+- Signals are ephemeral - computed fresh each time compute_signals() is called
+- Historical signal data is NOT persisted by default (see RLSignalStorage for optional persistence)
+
+The "RL" in the name refers to the use of reward signals for guidance, not to
+a full reinforcement learning algorithm. This is a signal aggregation system
+that provides multi-dimensional feedback for cognitive decision-making.
+
+COMPUTATION FLOW:
+================
+1. RLSignalAggregator.compute_signals() is called
+2. Signals are gathered from various sources:
+   - Cognitive dissonance monitor → dissonance_reward
+   - Affective state monitor → surprise_reward, curiosity_reward, coherence_reward
+   - Predictive interoception → prediction error (incorporated into surprise)
+   - Epistemic engine → information_gain_reward
+3. Signals are weighted and combined into composite_reward
+4. Exploration-exploitation balance is computed
+5. Metrics are returned (not stored)
+
+PERSISTENCE:
+============
+By default, RL signals are NOT persisted. They are computed fresh each time.
+If persistence is needed for trend analysis, use RLSignalStorage (optional).
+
 Based on cognitive psychology and RL theory:
 - Cognitive Dissonance Minimization (Festinger, 1957)
 - Surprise Minimization (Error-Driven Learning, Active Inference)
@@ -126,11 +159,17 @@ class RLSignalAggregator:
     """
     Aggregates multiple RL signals from various sources.
     
+    IMPORTANT: This is NOT a Q-learning system. Signals are computed on-the-fly
+    from current system state. No Q-tables or learned values are maintained.
+    
     Collects signals from:
     - Cognitive dissonance monitor (dissonance)
     - Affective state monitor (surprise, curiosity, coherence)
     - Predictive interoception (prediction error)
     - Epistemic engine (information gain)
+    
+    Signals are computed fresh each time compute_signals() is called. They are
+    not persisted by default. For persistence, use RLSignalStorage.
     """
     
     def __init__(
@@ -337,4 +376,210 @@ class RLSignalAggregator:
         """
         balance = self.get_exploration_exploitation_balance()
         return balance >= threshold
+
+
+class RLSignalStorage:
+    """
+    Optional persistence layer for RL signal history.
+    
+    Stores computed RL signals with timestamps for trend analysis and learning.
+    This is an optional enhancement - by default, RL signals are not persisted.
+    
+    Usage:
+        storage = RLSignalStorage(storage_path="rl_signals.json")
+        storage.save_signal(metrics)
+        history = storage.load_history(days=7)
+    """
+    
+    def __init__(self, storage_path: str = "rl_signals_history.json", max_history_size: int = 10000):
+        """
+        Initialize RL signal storage.
+        
+        Args:
+            storage_path: Path to JSON file for storing signal history
+            max_history_size: Maximum number of signal records to keep
+        """
+        import json
+        import os
+        from pathlib import Path
+        
+        self.storage_path = Path(storage_path)
+        self.max_history_size = max_history_size
+        self._signals_history: List[Dict[str, Any]] = []
+        
+        # Create parent directory if needed
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Load existing history if file exists
+        if self.storage_path.exists():
+            self._load()
+        else:
+            logger.info(f"Initialized RLSignalStorage at {self.storage_path.absolute()}")
+    
+    def _load(self) -> None:
+        """Load signal history from storage file."""
+        import json
+        
+        try:
+            with open(self.storage_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            self._signals_history = data.get("signals", [])
+            
+            # Trim to max size if needed
+            if len(self._signals_history) > self.max_history_size:
+                self._signals_history = self._signals_history[-self.max_history_size:]
+                logger.info(f"Trimmed signal history to {self.max_history_size} records")
+            
+            logger.debug(f"Loaded {len(self._signals_history)} signal records from {self.storage_path}")
+            
+        except (OSError, IOError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to load RL signal history: {e}", exc_info=True)
+            self._signals_history = []
+    
+    def save_signal(self, metrics: RLSignalMetrics) -> None:
+        """
+        Save a signal metrics record to history.
+        
+        Args:
+            metrics: RLSignalMetrics instance to save
+        """
+        import json
+        import tempfile
+        import os
+        
+        # Convert metrics to dict
+        signal_record = {
+            "timestamp": metrics.timestamp.isoformat(),
+            "dissonance_reward": metrics.dissonance_reward,
+            "surprise_reward": metrics.surprise_reward,
+            "curiosity_reward": metrics.curiosity_reward,
+            "information_gain_reward": metrics.information_gain_reward,
+            "coherence_reward": metrics.coherence_reward,
+            "composite_reward": metrics.composite_reward,
+            "exploration_balance": metrics.get_exploration_exploitation_balance(),
+        }
+        
+        # Add to history
+        self._signals_history.append(signal_record)
+        
+        # Trim to max size
+        if len(self._signals_history) > self.max_history_size:
+            self._signals_history = self._signals_history[-self.max_history_size:]
+        
+        # Save to file (atomic write)
+        try:
+            data = {
+                "signals": self._signals_history,
+                "last_saved": datetime.now(timezone.utc).isoformat(),
+                "total_records": len(self._signals_history),
+            }
+            
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                dir=self.storage_path.parent,
+                delete=False,
+                suffix='.tmp'
+            ) as tmp_file:
+                json.dump(data, tmp_file, indent=2, ensure_ascii=False, default=str)
+                tmp_path = tmp_file.name
+            
+            # Atomic rename
+            os.replace(tmp_path, self.storage_path)
+            
+            logger.debug(f"Saved RL signal to {self.storage_path}")
+            
+        except (OSError, IOError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to save RL signal: {e}", exc_info=True)
+            # Remove from history if save failed
+            if signal_record in self._signals_history:
+                self._signals_history.remove(signal_record)
+    
+    def load_history(self, days: Optional[int] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Load signal history.
+        
+        Args:
+            days: Optional number of days to look back (None = all history)
+            limit: Optional maximum number of records to return
+            
+        Returns:
+            List of signal records (most recent first)
+        """
+        from datetime import timedelta
+        
+        history = list(self._signals_history)  # Copy
+        
+        # Filter by days if specified
+        if days is not None:
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=days)
+            history = [
+                record for record in history
+                if datetime.fromisoformat(record["timestamp"]) >= cutoff_time
+            ]
+        
+        # Reverse to get most recent first
+        history.reverse()
+        
+        # Apply limit
+        if limit is not None:
+            history = history[:limit]
+        
+        return history
+    
+    def get_statistics(self, days: Optional[int] = 7) -> Dict[str, Any]:
+        """
+        Get statistics about signal history.
+        
+        Args:
+            days: Number of days to analyze (default 7)
+            
+        Returns:
+            Dictionary with statistics
+        """
+        history = self.load_history(days=days)
+        
+        if not history:
+            return {
+                "total_records": 0,
+                "days": days,
+                "message": "No signal history available"
+            }
+        
+        # Extract values
+        composite_rewards = [r["composite_reward"] for r in history]
+        dissonance_rewards = [r["dissonance_reward"] for r in history]
+        curiosity_rewards = [r["curiosity_reward"] for r in history]
+        exploration_balances = [r["exploration_balance"] for r in history]
+        
+        def stats(values: List[float]) -> Dict[str, float]:
+            if not values:
+                return {"mean": 0.0, "min": 0.0, "max": 0.0, "std": 0.0}
+            mean_val = sum(values) / len(values)
+            min_val = min(values)
+            max_val = max(values)
+            variance = sum((x - mean_val) ** 2 for x in values) / len(values)
+            std_val = variance ** 0.5
+            return {
+                "mean": round(mean_val, 3),
+                "min": round(min_val, 3),
+                "max": round(max_val, 3),
+                "std": round(std_val, 3),
+            }
+        
+        return {
+            "total_records": len(history),
+            "days": days,
+            "composite_reward": stats(composite_rewards),
+            "dissonance_reward": stats(dissonance_rewards),
+            "curiosity_reward": stats(curiosity_rewards),
+            "exploration_balance": stats(exploration_balances),
+        }
+    
+    def clear_history(self) -> None:
+        """Clear all signal history."""
+        self._signals_history = []
+        if self.storage_path.exists():
+            self.storage_path.unlink()
+        logger.info("Cleared RL signal history")
 

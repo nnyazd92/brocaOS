@@ -189,6 +189,71 @@ def initialize_runtime() -> BrocaRuntime:
                     except Exception as e:
                         logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
                 
+                # Wire tool selection guidance if enabled and not already initialized
+                if (tool_registry and 
+                    config.tools.selection_guidance_enabled):
+                    try:
+                        # Extract components for tool selection guidance
+                        rl_signal_aggregator = None
+                        skill_manager = None
+                        goal_manager = None
+                        
+                        if hasattr(reasoning_tool, 'feedback_loop_manager') and reasoning_tool.feedback_loop_manager:
+                            rl_signal_aggregator = getattr(reasoning_tool.feedback_loop_manager, 'rl_signal_aggregator', None)
+                        if hasattr(reasoning_tool, 'goal_manager'):
+                            goal_manager = reasoning_tool.goal_manager
+                        if hasattr(reasoning_tool, 'learning_tool') and reasoning_tool.learning_tool:
+                            if hasattr(reasoning_tool.learning_tool, 'skill_manager'):
+                                skill_manager = reasoning_tool.learning_tool.skill_manager
+                        
+                        from .tools.selection_guidance import ToolSelectionGuidance, ValidationStrictness
+                        
+                        # Map config string to enum
+                        strictness_map = {
+                            "advisory": ValidationStrictness.ADVISORY,
+                            "soft_block": ValidationStrictness.SOFT_BLOCK,
+                            "hard_block": ValidationStrictness.HARD_BLOCK,
+                        }
+                        validation_strictness = strictness_map.get(
+                            config.tools.validation_strictness,
+                            ValidationStrictness.ADVISORY
+                        )
+                        
+                        # Update or create guidance with reasoning components
+                        if tool_registry.tool_selection_guidance is None:
+                            tool_registry.tool_selection_guidance = ToolSelectionGuidance(
+                                reasoning_tool=reasoning_tool,
+                                rl_signal_aggregator=rl_signal_aggregator,
+                                skill_manager=skill_manager,
+                                goal_manager=goal_manager,
+                                max_guidance_length=config.tools.max_guidance_length,
+                                guidance_text_style=config.tools.guidance_text_style,
+                                ranking_algorithm=config.tools.ranking_algorithm,
+                                validation_strictness=validation_strictness,
+                                validation_confidence_threshold=config.tools.validation_confidence_threshold,
+                                context_cache_ttl_seconds=config.tools.context_cache_ttl_seconds,
+                                exploration_factor=config.tools.exploration_factor,
+                            )
+                            
+                            # Initialize metrics if enabled
+                            if config.tools.metrics_enabled:
+                                try:
+                                    from .tools.selection_metrics import ToolSelectionMetrics
+                                    metrics = ToolSelectionMetrics(window_size=config.tools.metrics_window_size)
+                                    tool_registry.tool_selection_guidance.set_metrics(metrics)
+                                except Exception as e:
+                                    logger.warning(f"Failed to initialize tool selection metrics: {e}", exc_info=True)
+                            logger.info("✓ Tool selection guidance initialized with reasoning components (runtime)")
+                        else:
+                            # Update existing guidance with reasoning components
+                            tool_registry.tool_selection_guidance.guidance_aggregator.reasoning_tool = reasoning_tool
+                            tool_registry.tool_selection_guidance.guidance_aggregator.rl_signal_aggregator = rl_signal_aggregator
+                            tool_registry.tool_selection_guidance.guidance_aggregator.skill_manager = skill_manager
+                            tool_registry.tool_selection_guidance.guidance_aggregator.goal_manager = goal_manager
+                            logger.info("✓ Tool selection guidance updated with reasoning components (runtime)")
+                    except Exception as e:
+                        logger.warning(f"Failed to wire tool selection guidance in runtime: {e}", exc_info=True)
+                
                 # Ensure daemon is started if it exists (backup check in case it wasn't started in _initialize_reasoning_system)
                 if hasattr(reasoning_tool, 'daemon') and reasoning_tool.daemon:
                     try:

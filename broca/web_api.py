@@ -570,7 +570,19 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
     session.messages.append({"role": "user", "content": user_message})
     
     try:
-        tools = rt.tool_registry.to_openai_format() if rt.tool_registry else None
+        # Gather context for tool filtering/ranking if guidance is enabled
+        context = None
+        if (rt.tool_registry and 
+            hasattr(rt.tool_registry, 'tool_selection_guidance') and
+            rt.tool_registry.tool_selection_guidance is not None):
+            try:
+                from ..config import config
+                if config.tools.pre_filtering_enabled:
+                    context = rt.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+            except Exception as e:
+                logger.debug(f"Error gathering context for tool filtering in web_api: {e}", exc_info=True)
+        
+        tools = rt.tool_registry.to_openai_format(context=context) if rt.tool_registry else None
         
         if tools and not web_search_enabled:
             tools = [t for t in tools if t["function"]["name"] != "web_search"]

@@ -1090,17 +1090,23 @@ class WorldStateAggregator:
             reasoning_state = {}
             
             # Active goals (limited count and description length)
+            # Only include progress if it's been computed (not None/0.0 default)
             goals = goal_manager_dict.get("goals", {})
-            active_goals = [
-                {
-                    "name": goal.get("name", ""),
-                    "description": goal.get("description", "")[:100],  # Limit description
-                    "priority": goal.get("priority", 0.0),
-                    "progress": goal.get("progress", 0.0)
-                }
-                for goal in goals.values()
-                if goal.get("status") == "active"
-            ][:5]  # Limit to top 5 active goals
+            active_goals = []
+            for goal in goals.values():
+                if goal.get("status") == "active":
+                    goal_dict = {
+                        "name": goal.get("name", ""),
+                        "description": goal.get("description", "")[:100],  # Limit description
+                        "priority": goal.get("priority", 0.0),
+                    }
+                    # Only include progress if it's been computed (not None or default 0.0)
+                    progress = goal.get("progress")
+                    if progress is not None:
+                        goal_dict["progress"] = progress
+                    active_goals.append(goal_dict)
+                    if len(active_goals) >= 5:  # Limit to top 5 active goals
+                        break
             
             if active_goals:
                 reasoning_state["active_goals"] = active_goals

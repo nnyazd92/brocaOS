@@ -309,6 +309,13 @@ class ReasoningStateManager:
         if "next_goal_id" in state:
             goal_manager.next_goal_id = state["next_goal_id"]
         
+        # Trigger progress computation for goals that don't have computed progress
+        # This ensures progress reflects actual state, not default 0.0 values
+        try:
+            goal_manager.refresh_goal_progress()
+        except Exception as e:
+            logger.debug(f"Could not refresh goal progress after restore: {e}")
+        
         logger.debug(f"Restored {len(goal_manager.goals)} goals to goal manager")
     
     def _restore_working_memory(self, working_memory: "WorkingMemory", state: Dict[str, Any]):

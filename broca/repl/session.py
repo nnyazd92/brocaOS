@@ -88,6 +88,10 @@ class ConversationSession:
         # World-state hash tracking for system prompt / caching
         self._last_world_state_hash: Optional[str] = None
         self._last_world_state_raw: Optional[dict] = None
+        
+        # System prompt growth monitoring
+        self._system_prompt_size_history: List[tuple[float, int]] = []  # (timestamp, size)
+        self._max_history_size = 100  # Keep last 100 size measurements
 
         # Get base system prompt from parameter, system_prompt, or config
         # Track whether base_system_prompt was explicitly provided
@@ -563,7 +567,17 @@ When you need to use tools to complete a task:
         # Prepare tools for LLM if registry is available
         tools = None
         if self.tool_registry:
-            tools = self.tool_registry.to_openai_format()
+            # Gather context for tool filtering/ranking if guidance is enabled
+            context = None
+            if (config.tools.pre_filtering_enabled and 
+                hasattr(self.tool_registry, 'tool_selection_guidance') and
+                self.tool_registry.tool_selection_guidance is not None):
+                try:
+                    context = self.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+                except Exception as e:
+                    logger.debug(f"Error gathering context for tool filtering: {e}", exc_info=True)
+            
+            tools = self.tool_registry.to_openai_format(context=context)
             tool_names = [tool["function"]["name"] for tool in tools]
             logger.info(
                 f"Prepared {len(tools)} tools for LLM",
@@ -748,7 +762,7 @@ When you need to use tools to complete a task:
                         if not is_valid:
                             logger.warning(
                                 f"Invalid message ordering detected before streaming LLM call: {error}. "
-                                "Attempting to fix by removing orphaned tool messages."
+                                "Attempting to fix by removing orphaned tool messages and incomplete tool call sequences."
                             )
                             messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
                             # Apply Gemini-specific fix if needed
@@ -881,7 +895,7 @@ When you need to use tools to complete a task:
                             if not is_valid:
                                 logger.warning(
                                     f"Invalid message ordering detected before tool_calls check: {error}. "
-                                    "Attempting to fix by removing orphaned tool messages."
+                                    "Attempting to fix by removing orphaned tool messages and incomplete tool call sequences."
                                 )
                                 messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
                                 # Apply Gemini-specific fix if needed
@@ -948,7 +962,7 @@ When you need to use tools to complete a task:
                         if not is_valid:
                             logger.warning(
                                 f"Invalid message ordering detected before LLM call: {error}. "
-                                "Attempting to fix by removing orphaned tool messages."
+                                "Attempting to fix by removing orphaned tool messages and incomplete tool call sequences."
                             )
                             messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
                             # Apply Gemini-specific fix if needed
@@ -2326,16 +2340,20 @@ When you need to use tools to complete a task:
     
     def _fix_tool_message_ordering(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Fix tool message ordering by removing orphaned tool messages.
+        Fix tool message ordering by removing orphaned tool messages and incomplete tool call sequences.
         
-        Removes tool messages that don't have a preceding assistant message
-        with matching tool_calls. This ensures messages are valid for OpenAI API.
+        Removes:
+        1. Tool messages that don't have a preceding assistant message with matching tool_calls
+        2. Incomplete tool call sequences (assistant with tool_calls + partial tool responses
+           when followed by user/new assistant before all tool_call_ids are responded to)
+        
+        This ensures messages are valid for OpenAI API.
         
         Args:
-            messages: List of messages (may contain orphaned tool messages)
+            messages: List of messages (may contain orphaned tool messages or incomplete sequences)
             
         Returns:
-            List of messages with orphaned tool messages removed
+            List of messages with orphaned tool messages and incomplete sequences removed
         """
         if not messages:
             return messages
@@ -2343,8 +2361,10 @@ When you need to use tools to complete a task:
         fixed_messages = []
         # Track tool_call_ids from assistant messages with tool_calls
         valid_tool_call_ids = set()
-        # Track the last assistant message index with tool_calls
+        pending_tool_call_ids = set()  # Track which tool_call_ids are still pending responses
+        # Track the last assistant message index with tool_calls and its tool_call_ids
         last_assistant_with_tool_calls_idx = -1
+        last_assistant_tool_call_ids = set()
         
         for i, msg in enumerate(messages):
             role = msg.get("role")
@@ -2358,7 +2378,28 @@ When you need to use tools to complete a task:
             if role == "assistant":
                 tool_calls = msg.get("tool_calls")
                 if tool_calls and isinstance(tool_calls, list):
-                    # Extract tool_call_ids
+                    # Check if we have a pending incomplete sequence
+                    if pending_tool_call_ids and last_assistant_with_tool_calls_idx >= 0:
+                        # We have an incomplete sequence - remove it
+                        removed_count = len(fixed_messages) - last_assistant_with_tool_calls_idx
+                        logger.warning(
+                            f"Removing incomplete tool call sequence: assistant at index {last_assistant_with_tool_calls_idx} "
+                            f"with {len(last_assistant_tool_call_ids)} tool_call_ids, but only "
+                            f"{len(last_assistant_tool_call_ids) - len(pending_tool_call_ids)} responded to. "
+                            f"Removing {removed_count} messages (assistant + partial tool responses).",
+                            extra={
+                                "event": "incomplete_sequence_removed",
+                                "assistant_index": last_assistant_with_tool_calls_idx,
+                                "total_tool_call_ids": len(last_assistant_tool_call_ids),
+                                "responded_tool_call_ids": len(last_assistant_tool_call_ids) - len(pending_tool_call_ids),
+                                "pending_tool_call_ids": list(pending_tool_call_ids),
+                                "removed_message_count": removed_count,
+                            }
+                        )
+                        # Remove the incomplete sequence from fixed_messages
+                        fixed_messages = fixed_messages[:last_assistant_with_tool_calls_idx]
+                    
+                    # Extract tool_call_ids for the new assistant message
                     current_tool_call_ids = set()
                     for tool_call in tool_calls:
                         if isinstance(tool_call, dict):
@@ -2366,13 +2407,38 @@ When you need to use tools to complete a task:
                             if isinstance(tool_call_id, str):
                                 current_tool_call_ids.add(tool_call_id)
                     
-                    # Update tracking
+                    # Update tracking for the new assistant message
                     valid_tool_call_ids = current_tool_call_ids
+                    pending_tool_call_ids = current_tool_call_ids.copy()
+                    last_assistant_tool_call_ids = current_tool_call_ids.copy()
                     last_assistant_with_tool_calls_idx = len(fixed_messages)
                     fixed_messages.append(msg)
                 else:
-                    # Assistant without tool_calls - reset tracking
+                    # Assistant without tool_calls - check for incomplete sequence
+                    if pending_tool_call_ids and last_assistant_with_tool_calls_idx >= 0:
+                        # We have an incomplete sequence - remove it
+                        removed_count = len(fixed_messages) - last_assistant_with_tool_calls_idx
+                        logger.warning(
+                            f"Removing incomplete tool call sequence: assistant at index {last_assistant_with_tool_calls_idx} "
+                            f"with {len(last_assistant_tool_call_ids)} tool_call_ids, but only "
+                            f"{len(last_assistant_tool_call_ids) - len(pending_tool_call_ids)} responded to. "
+                            f"Removing {removed_count} messages (assistant + partial tool responses).",
+                            extra={
+                                "event": "incomplete_sequence_removed",
+                                "assistant_index": last_assistant_with_tool_calls_idx,
+                                "total_tool_call_ids": len(last_assistant_tool_call_ids),
+                                "responded_tool_call_ids": len(last_assistant_tool_call_ids) - len(pending_tool_call_ids),
+                                "pending_tool_call_ids": list(pending_tool_call_ids),
+                                "removed_message_count": removed_count,
+                            }
+                        )
+                        # Remove the incomplete sequence from fixed_messages
+                        fixed_messages = fixed_messages[:last_assistant_with_tool_calls_idx]
+                    
+                    # Reset tracking
                     valid_tool_call_ids.clear()
+                    pending_tool_call_ids.clear()
+                    last_assistant_tool_call_ids.clear()
                     last_assistant_with_tool_calls_idx = -1
                     fixed_messages.append(msg)
             
@@ -2408,6 +2474,13 @@ When you need to use tools to complete a task:
                 if has_valid_predecessor:
                     # Valid tool message - has matching tool_call_id
                     fixed_messages.append(msg)
+                    # Remove from pending set if it's there
+                    if isinstance(tool_call_id, str) and tool_call_id in pending_tool_call_ids:
+                        pending_tool_call_ids.remove(tool_call_id)
+                        # If all tool_call_ids are now responded to, clear the tracking
+                        if not pending_tool_call_ids:
+                            last_assistant_with_tool_calls_idx = -1
+                            last_assistant_tool_call_ids.clear()
                 else:
                     # Orphaned tool message - remove it
                     logger.warning(
@@ -2415,15 +2488,57 @@ When you need to use tools to complete a task:
                         f"(no preceding assistant message with matching tool_calls)"
                     )
             
-            # User messages are always included
+            # User messages
             elif role == "user":
+                # Check for incomplete sequence before adding user message
+                if pending_tool_call_ids and last_assistant_with_tool_calls_idx >= 0:
+                    # We have an incomplete sequence - remove it
+                    removed_count = len(fixed_messages) - last_assistant_with_tool_calls_idx
+                    logger.warning(
+                        f"Removing incomplete tool call sequence: assistant at index {last_assistant_with_tool_calls_idx} "
+                        f"with {len(last_assistant_tool_call_ids)} tool_call_ids, but only "
+                        f"{len(last_assistant_tool_call_ids) - len(pending_tool_call_ids)} responded to. "
+                        f"Removing {removed_count} messages (assistant + partial tool responses).",
+                        extra={
+                            "event": "incomplete_sequence_removed",
+                            "assistant_index": last_assistant_with_tool_calls_idx,
+                            "total_tool_call_ids": len(last_assistant_tool_call_ids),
+                            "responded_tool_call_ids": len(last_assistant_tool_call_ids) - len(pending_tool_call_ids),
+                            "pending_tool_call_ids": list(pending_tool_call_ids),
+                            "removed_message_count": removed_count,
+                        }
+                    )
+                    # Remove the incomplete sequence from fixed_messages
+                    fixed_messages = fixed_messages[:last_assistant_with_tool_calls_idx]
+                
                 # User messages reset the tool call context
                 valid_tool_call_ids.clear()
+                pending_tool_call_ids.clear()
+                last_assistant_tool_call_ids.clear()
                 last_assistant_with_tool_calls_idx = -1
                 fixed_messages.append(msg)
             else:
                 # Unknown role - include it (might be custom roles)
                 fixed_messages.append(msg)
+        
+        # Final check: if we end with pending tool_call_ids, remove the incomplete sequence
+        if pending_tool_call_ids and last_assistant_with_tool_calls_idx >= 0:
+            removed_count = len(fixed_messages) - last_assistant_with_tool_calls_idx
+            logger.warning(
+                f"Removing incomplete tool call sequence at end: assistant at index {last_assistant_with_tool_calls_idx} "
+                f"with {len(last_assistant_tool_call_ids)} tool_call_ids, but only "
+                f"{len(last_assistant_tool_call_ids) - len(pending_tool_call_ids)} responded to. "
+                f"Removing {removed_count} messages (assistant + partial tool responses).",
+                extra={
+                    "event": "incomplete_sequence_removed_at_end",
+                    "assistant_index": last_assistant_with_tool_calls_idx,
+                    "total_tool_call_ids": len(last_assistant_tool_call_ids),
+                    "responded_tool_call_ids": len(last_assistant_tool_call_ids) - len(pending_tool_call_ids),
+                    "pending_tool_call_ids": list(pending_tool_call_ids),
+                    "removed_message_count": removed_count,
+                }
+            )
+            fixed_messages = fixed_messages[:last_assistant_with_tool_calls_idx]
         
         return fixed_messages
     
@@ -3087,8 +3202,9 @@ When you need to use tools to complete a task:
         # Track which tool_call_ids we've seen in assistant messages
         seen_tool_call_ids = set()
         
-        # Track the last assistant message with tool_calls
+        # Track the last assistant message with tool_calls and its pending tool_call_ids
         last_assistant_with_tool_calls = None
+        pending_tool_call_ids = set()  # Track tool_call_ids that haven't been responded to yet
         
         for i, msg in enumerate(messages):
             role = msg.get("role")
@@ -3101,6 +3217,32 @@ When you need to use tools to complete a task:
             if role == "assistant":
                 tool_calls = msg.get("tool_calls")
                 if tool_calls:
+                    # CRITICAL: Check for incomplete tool call sequences
+                    # If we encounter a new assistant message with tool_calls while we have
+                    # pending tool_call_ids, the previous sequence is incomplete
+                    if pending_tool_call_ids:
+                        tool_names = [
+                            tc.get("function", {}).get("name", "unknown")
+                            for tc in tool_calls if isinstance(tc, dict)
+                        ] if isinstance(tool_calls, list) else []
+                        error_msg = (
+                            f"Message {i}: Incomplete tool call sequence detected. "
+                            f"Assistant message at index {last_assistant_with_tool_calls} has tool_calls with "
+                            f"{len(pending_tool_call_ids)} unresponded tool_call_ids: {pending_tool_call_ids}. "
+                            "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'."
+                        )
+                        logger.warning(
+                            error_msg,
+                            extra={
+                                "event": "incomplete_tool_call_sequence_detected",
+                                "message_index": i,
+                                "previous_assistant_index": last_assistant_with_tool_calls,
+                                "pending_tool_call_ids": list(pending_tool_call_ids),
+                                "new_tool_names": tool_names,
+                            }
+                        )
+                        return False, error_msg
+                    
                     # Validate tool_calls structure
                     if not isinstance(tool_calls, list):
                         return False, f"Message {i}: tool_calls must be a list, got {type(tool_calls)}"
@@ -3178,13 +3320,35 @@ When you need to use tools to complete a task:
                         
                         current_tool_call_ids.add(tool_call_id)
                     
-                    # Update tracking
+                    # Update tracking - start tracking pending tool_call_ids for this assistant
                     seen_tool_call_ids.update(current_tool_call_ids)
+                    pending_tool_call_ids = current_tool_call_ids.copy()
                     last_assistant_with_tool_calls = i
                 else:
-                    # Assistant without tool_calls - reset tracking
+                    # Assistant without tool_calls - check if we have pending tool_call_ids
+                    # If so, the previous sequence is incomplete
+                    if pending_tool_call_ids:
+                        error_msg = (
+                            f"Message {i}: Incomplete tool call sequence detected. "
+                            f"Assistant message at index {last_assistant_with_tool_calls} has tool_calls with "
+                            f"{len(pending_tool_call_ids)} unresponded tool_call_ids: {pending_tool_call_ids}. "
+                            "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'."
+                        )
+                        logger.warning(
+                            error_msg,
+                            extra={
+                                "event": "incomplete_tool_call_sequence_detected",
+                                "message_index": i,
+                                "previous_assistant_index": last_assistant_with_tool_calls,
+                                "pending_tool_call_ids": list(pending_tool_call_ids),
+                            }
+                        )
+                        return False, error_msg
+                    
+                    # Reset tracking
                     last_assistant_with_tool_calls = None
                     seen_tool_call_ids.clear()
+                    pending_tool_call_ids.clear()
             
             # Handle tool messages
             elif role == "tool":
@@ -3227,6 +3391,10 @@ When you need to use tools to complete a task:
                 if not isinstance(tool_call_id, str):
                     return False, f"Message {i}: tool message 'tool_call_id' must be a string, got {type(tool_call_id)}"
                 
+                # Remove this tool_call_id from pending set if it's in there
+                if tool_call_id in pending_tool_call_ids:
+                    pending_tool_call_ids.remove(tool_call_id)
+                
                 # Check if this tool_call_id was seen in a preceding assistant message with tool_calls
                 if tool_call_id not in seen_tool_call_ids:
                     # Check if there's an assistant message with tool_calls before this tool message
@@ -3259,9 +3427,47 @@ When you need to use tools to complete a task:
             
             # User messages don't need special validation for tool ordering
             elif role == "user":
+                # CRITICAL: Check for incomplete tool call sequences before user messages
+                if pending_tool_call_ids:
+                    error_msg = (
+                        f"Message {i}: Incomplete tool call sequence detected. "
+                        f"Assistant message at index {last_assistant_with_tool_calls} has tool_calls with "
+                        f"{len(pending_tool_call_ids)} unresponded tool_call_ids: {pending_tool_call_ids}. "
+                        "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'."
+                    )
+                    logger.warning(
+                        error_msg,
+                        extra={
+                            "event": "incomplete_tool_call_sequence_detected",
+                            "message_index": i,
+                            "previous_assistant_index": last_assistant_with_tool_calls,
+                            "pending_tool_call_ids": list(pending_tool_call_ids),
+                        }
+                    )
+                    return False, error_msg
+                
                 # User messages reset the tool call context
                 last_assistant_with_tool_calls = None
                 seen_tool_call_ids.clear()
+                pending_tool_call_ids.clear()
+        
+        # Final check: if we end with pending tool_call_ids, that's also incomplete
+        if pending_tool_call_ids:
+            error_msg = (
+                f"Incomplete tool call sequence at end of messages. "
+                f"Assistant message at index {last_assistant_with_tool_calls} has tool_calls with "
+                f"{len(pending_tool_call_ids)} unresponded tool_call_ids: {pending_tool_call_ids}. "
+                "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'."
+            )
+            logger.warning(
+                error_msg,
+                extra={
+                    "event": "incomplete_tool_call_sequence_detected",
+                    "previous_assistant_index": last_assistant_with_tool_calls,
+                    "pending_tool_call_ids": list(pending_tool_call_ids),
+                }
+            )
+            return False, error_msg
         
         return True, None
     
@@ -3536,6 +3742,42 @@ When you need to use tools to complete a task:
             
             parts.append(tool_calling_instructions)
             
+            # 1.6. Add tool selection guidance (if enabled and available)
+            if (config.tools.selection_guidance_enabled and 
+                self.tool_registry and 
+                hasattr(self.tool_registry, 'tool_selection_guidance') and
+                self.tool_registry.tool_selection_guidance is not None):
+                try:
+                    # Gather context for guidance generation
+                    context = self.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+                    available_tools = self.tool_registry.list_tools()
+                    
+                    guidance_text = self.tool_registry.tool_selection_guidance.generate_guidance_text(
+                        context=context,
+                        available_tools=available_tools
+                    )
+                    
+                    if guidance_text and guidance_text.strip():
+                        # Apply guidance weight to control how prominent it is
+                        if config.tools.guidance_weight > 0:
+                            guidance_section = f"## TOOL SELECTION GUIDANCE\n\n{guidance_text}"
+                            parts.append(guidance_section)
+                            logger.debug(
+                                f"Added tool selection guidance ({len(guidance_text)} chars)",
+                                extra={
+                                    "event": "tool_guidance_added",
+                                    "guidance_length": len(guidance_text),
+                                    "guidance_weight": config.tools.guidance_weight,
+                                }
+                            )
+                except Exception as e:
+                    logger.debug(
+                        f"Error generating tool selection guidance: {e}",
+                        exc_info=True,
+                        extra={"event": "tool_guidance_error"}
+                    )
+                    # Continue without guidance on error
+            
             # 2. Add summary context if summarization is enabled
             if self._summarization_manager:
                 try:
@@ -3791,6 +4033,16 @@ When you need to use tools to complete a task:
                 size_kb = prompt_size / 1024
                 max_size_kb = config.storage.max_system_prompt_size / 1024
                 
+                # Track size history for growth monitoring
+                import time
+                current_time = time.time()
+                self._system_prompt_size_history.append((current_time, prompt_size))
+                if len(self._system_prompt_size_history) > self._max_history_size:
+                    self._system_prompt_size_history.pop(0)  # Remove oldest
+                
+                # Check for growth trends
+                growth_warning = self._check_prompt_growth(prompt_size)
+                
                 # Calculate final component sizes for logging
                 final_parts = complete_prompt.split("\n\n")
                 final_component_sizes = [len(part) for part in final_parts]
@@ -3804,6 +4056,7 @@ When you need to use tools to complete a task:
                     "max_size_kb": round(max_size_kb, 2),
                     "size_percentage": round(prompt_size / config.storage.max_system_prompt_size * 100, 1),
                     "component_count": len(final_parts),
+                    "history_size": len(self._system_prompt_size_history),
                 }
                 
                 # Add component sizes if we have them
@@ -3814,21 +4067,28 @@ When you need to use tools to complete a task:
                 if len(final_parts) >= 3:
                     log_extra["world_state_size"] = final_component_sizes[2]
                 
+                # Add growth warning if detected
+                if growth_warning:
+                    log_extra["growth_warning"] = growth_warning
+                
                 if prompt_size > config.storage.max_system_prompt_size * 0.9:
                     logger.warning(
                         f"System prompt size is {size_kb:.1f}KB (90% of {max_size_kb:.1f}KB limit) - "
-                        f"consider reducing content",
+                        f"consider reducing content" + (f". {growth_warning}" if growth_warning else ""),
                         extra=log_extra
                     )
                 elif prompt_size > config.storage.max_system_prompt_size * 0.7:
                     logger.info(
-                        f"System prompt size is {size_kb:.1f}KB ({prompt_size / config.storage.max_system_prompt_size * 100:.0f}% of limit)",
+                        f"System prompt size is {size_kb:.1f}KB ({prompt_size / config.storage.max_system_prompt_size * 100:.0f}% of limit)" +
+                        (f". {growth_warning}" if growth_warning else ""),
                         extra=log_extra
                     )
                 else:
-                    logger.debug(
+                    log_level = logger.warning if growth_warning else logger.debug
+                    log_level(
                         f"Updated system prompt with current world state and summary context "
-                        f"(size: {prompt_size} chars, {size_kb:.1f}KB)",
+                        f"(size: {prompt_size} chars, {size_kb:.1f}KB)" +
+                        (f". {growth_warning}" if growth_warning else ""),
                         extra=log_extra
                     )
             else:
@@ -3882,9 +4142,68 @@ When you need to use tools to complete a task:
         
         return False
     
+    def _check_prompt_growth(self, current_size: int) -> Optional[str]:
+        """
+        Check for unbounded growth in system prompt size.
+        
+        Args:
+            current_size: Current system prompt size in characters
+            
+        Returns:
+            Warning message if growth detected, None otherwise
+        """
+        if len(self._system_prompt_size_history) < 5:
+            return None  # Need at least 5 measurements
+        
+        # Get recent measurements (last 10)
+        recent_history = self._system_prompt_size_history[-10:]
+        if len(recent_history) < 5:
+            return None
+        
+        sizes = [size for _, size in recent_history]
+        
+        # Check for consistent growth trend
+        if len(sizes) >= 5:
+            # Calculate average growth rate
+            growth_rates = []
+            for i in range(1, len(sizes)):
+                if sizes[i-1] > 0:
+                    growth_rate = (sizes[i] - sizes[i-1]) / sizes[i-1]
+                    growth_rates.append(growth_rate)
+            
+            if growth_rates:
+                avg_growth_rate = sum(growth_rates) / len(growth_rates)
+                
+                # Alert if average growth rate exceeds 5% per update
+                if avg_growth_rate > 0.05:
+                    return (
+                        f"System prompt showing consistent growth: "
+                        f"average {avg_growth_rate*100:.1f}% per update. "
+                        f"Size increased from {sizes[0]} to {sizes[-1]} chars "
+                        f"({((sizes[-1] - sizes[0]) / sizes[0] * 100) if sizes[0] > 0 else 0:.1f}% total). "
+                        f"This may indicate unbounded accumulation."
+                    )
+        
+        # Check for sudden large increase
+        if len(sizes) >= 2:
+            last_increase = sizes[-1] - sizes[-2]
+            if sizes[-2] > 0 and last_increase > sizes[-2] * 0.2:  # More than 20% increase
+                return (
+                    f"System prompt increased by {last_increase} chars ({last_increase/sizes[-2]*100:.1f}%) "
+                    f"in single update. This may indicate content duplication."
+                )
+        
+        return None
+    
     def _validate_system_prompt_for_duplicates(self, prompt_content: str) -> None:
         """
         Validate system prompt for duplicate sections and log warnings.
+        
+        Checks for:
+        - Duplicate sections (general)
+        - Duplicate JSON sections in world state
+        - Duplicate summary sections
+        - Duplicate base prompt content
         
         Args:
             prompt_content: The system prompt content to validate
@@ -3898,13 +4217,28 @@ When you need to use tools to complete a task:
         if len(sections) < 2:
             return
         
-        # Check for duplicate sections
+        # Check for duplicate sections (general)
         seen_sections = []
         duplicates_found = []
+        json_sections = []
+        summary_sections = []
         
         for i, section in enumerate(sections):
             # Normalize section for comparison (remove leading markers like "##")
             normalized = " ".join(section.split())
+            
+            # Detect JSON sections (world state)
+            if section.strip().startswith("{") and section.strip().endswith("}"):
+                try:
+                    import json
+                    json.loads(section)
+                    json_sections.append((i, section))
+                except (json.JSONDecodeError, ValueError):
+                    pass  # Not valid JSON
+            
+            # Detect summary sections
+            if "## Session Summary" in section or "Historical Context" in section:
+                summary_sections.append((i, section))
             
             # Check against previously seen sections
             for j, seen in enumerate(seen_sections):
@@ -3914,10 +4248,70 @@ When you need to use tools to complete a task:
             
             seen_sections.append(normalized)
         
+        # Check for duplicate JSON sections
+        if len(json_sections) > 1:
+            json_duplicates = []
+            for i, (idx1, json1) in enumerate(json_sections):
+                for j, (idx2, json2) in enumerate(json_sections[i+1:], start=i+1):
+                    if self._is_duplicate_content(json1, json2, threshold=0.8):
+                        json_duplicates.append((idx1, idx2))
+            
+            if json_duplicates:
+                logger.warning(
+                    f"Detected {len(json_duplicates)} duplicate JSON section(s) in system prompt (world state). "
+                    f"This indicates world state is being duplicated. Duplicate pairs: {json_duplicates}",
+                    extra={
+                        "event": "duplicate_json_sections_detected",
+                        "count": len(json_duplicates),
+                        "pairs": json_duplicates,
+                    }
+                )
+        
+        # Check for duplicate summary sections
+        if len(summary_sections) > 1:
+            summary_duplicates = []
+            for i, (idx1, summary1) in enumerate(summary_sections):
+                for j, (idx2, summary2) in enumerate(summary_sections[i+1:], start=i+1):
+                    if self._is_duplicate_content(summary1, summary2, threshold=0.7):
+                        summary_duplicates.append((idx1, idx2))
+            
+            if summary_duplicates:
+                logger.warning(
+                    f"Detected {len(summary_duplicates)} duplicate summary section(s) in system prompt. "
+                    f"This indicates summary context is being duplicated. Duplicate pairs: {summary_duplicates}",
+                    extra={
+                        "event": "duplicate_summary_sections_detected",
+                        "count": len(summary_duplicates),
+                        "pairs": summary_duplicates,
+                    }
+                )
+        
+        # Check if base prompt is duplicated in other sections
+        if self.base_system_prompt:
+            base_normalized = " ".join(self.base_system_prompt.split())
+            for i, section in enumerate(sections):
+                section_normalized = " ".join(section.split())
+                if i > 0 and self._is_duplicate_content(base_normalized, section_normalized, threshold=0.8):
+                    logger.warning(
+                        f"Base system prompt appears to be duplicated in section {i}. "
+                        "This indicates base prompt content is being repeated.",
+                        extra={
+                            "event": "base_prompt_duplicated_in_section",
+                            "section_index": i,
+                            "section_preview": section[:200],
+                        }
+                    )
+        
+        # Log general duplicate sections
         if duplicates_found:
             logger.warning(
                 f"Detected {len(duplicates_found)} potential duplicate section(s) in system prompt. "
-                f"This may indicate content accumulation. Sections: {duplicates_found[:3]}"
+                f"This may indicate content accumulation. Sections: {duplicates_found[:3]}",
+                extra={
+                    "event": "duplicate_sections_detected",
+                    "count": len(duplicates_found),
+                    "sections": duplicates_found[:5],  # Limit to 5 for logging
+                }
             )
     
     def _validate_before_update(self) -> None:

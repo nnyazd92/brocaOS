@@ -66,7 +66,7 @@ class Goal:
     failure_conditions: List[Dict[str, Any]] = field(default_factory=list)
     
     # Progress tracking
-    progress: float = 0.0  # 0.0 to 1.0
+    progress: Optional[float] = None  # 0.0 to 1.0, None means not computed yet
     last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     attempts: int = 0
     max_attempts: int = 3
@@ -93,7 +93,7 @@ class Goal:
             "dependencies": self.dependencies,
             "success_conditions": self.success_conditions,
             "failure_conditions": self.failure_conditions,
-            "progress": self.progress,
+            "progress": self.progress,  # Store None if not computed, actual value if computed
             "last_updated": self.last_updated.isoformat(),
             "attempts": self.attempts,
             "max_attempts": self.max_attempts,
@@ -118,7 +118,19 @@ class Goal:
             dependencies=data.get("dependencies", []),
             success_conditions=data.get("success_conditions", []),
             failure_conditions=data.get("failure_conditions", []),
-            progress=data.get("progress", 0.0),
+            # Don't default to 0.0 - None means not computed yet
+            # If progress is 0.0, it might be a default value from old code
+            # We'll set it to None and let refresh_goal_progress recompute it
+            # If progress > 0.0, we know it was computed, so keep it
+            progress = data.get("progress")
+            if progress is None:
+                progress = None  # Not computed
+            elif isinstance(progress, (int, float)) and progress == 0.0:
+                # Could be default 0.0 from old code - set to None to trigger recomputation
+                progress = None
+            else:
+                # progress > 0.0, so it was computed - keep it
+                progress = float(progress)
             last_updated=datetime.fromisoformat(data["last_updated"]) if "last_updated" in data else datetime.now(timezone.utc),
             attempts=data.get("attempts", 0),
             max_attempts=data.get("max_attempts", 3),
@@ -134,7 +146,8 @@ class Goal:
         self.progress = max(0.0, min(1.0, progress))
         self.last_updated = datetime.now(timezone.utc)
         
-        logger.debug(f"Goal '{self.name}' progress: {old_progress:.2f} -> {self.progress:.2f}" + 
+        old_str = f"{old_progress:.2f}" if old_progress is not None else "None"
+        logger.debug(f"Goal '{self.name}' progress: {old_str} -> {self.progress:.2f}" + 
                     (f" ({reason})" if reason else ""))
         
         # Check if goal is completed
@@ -182,12 +195,21 @@ class GoalManager:
     resolution, and progress tracking.
     """
     
-    def __init__(self, declarative_memory: Optional["DeclarativeMemoryInterface"] = None):
+    def __init__(
+        self, 
+        declarative_memory: Optional["DeclarativeMemoryInterface"] = None,
+        cognitive_dissonance_monitor: Optional[Any] = None,
+        rule_system: Optional[Any] = None,
+        working_memory: Optional[Any] = None
+    ):
         """
         Initialize goal manager.
         
         Args:
             declarative_memory: Optional DeclarativeMemoryInterface for memory integration
+            cognitive_dissonance_monitor: Optional cognitive dissonance monitor for progress computation
+            rule_system: Optional rule system for progress computation
+            working_memory: Optional working memory for progress computation
         """
         self.goals: Dict[str, Goal] = {}  # name -> Goal
         self.goal_history: List[Dict[str, Any]] = []
@@ -210,6 +232,11 @@ class GoalManager:
         except Exception as e:
             logger.warning(f"Failed to initialize Z3 validator for goal manager: {e}")
             self.z3_validator = None
+        
+        # Optional references for progress computation
+        self._cognitive_dissonance_monitor = cognitive_dissonance_monitor
+        self._rule_system = rule_system
+        self._working_memory = working_memory
         
         # Default goals
         self._add_default_goals()
@@ -255,7 +282,7 @@ class GoalManager:
                 {"type": "overall_dissonance", "operator": "<", "value": 0.2},
                 {"type": "no_critical_dissonance", "operator": "==", "value": True}
             ],
-            progress=0.0  # Will be updated based on actual dissonance measurements
+            progress=None  # Will be computed from actual dissonance measurements
         )
         self.add_goal(dissonance_goal)
         root_goal.add_child("minimize_cognitive_dissonance")
@@ -269,7 +296,7 @@ class GoalManager:
             status=GoalStatus.ACTIVE,
             parent="be_helpful_cognitive_assistant",
             dependencies=[],
-            progress=0.1  # We just started
+            progress=None  # Will be computed from actual rule system state
         )
         self.add_goal(reasoning_goal)
         
@@ -495,6 +522,135 @@ class GoalManager:
             if goal.status != GoalStatus.FAILED:
                 goal.status = GoalStatus.FAILED
                 logger.warning(f"Goal '{goal_name}' marked as failed due to critical dissonance ({overall_dissonance:.3f})")
+    
+    def _compute_goal_progress(
+        self, 
+        goal: Goal,
+        overall_dissonance: Optional[float] = None,
+        rule_system_state: Optional[Dict[str, Any]] = None,
+        working_memory_size: Optional[int] = None
+    ) -> Optional[float]:
+        """
+        Compute goal progress from actual system state.
+        
+        Args:
+            goal: Goal to compute progress for
+            overall_dissonance: Optional overall cognitive dissonance (0.0-1.0)
+            rule_system_state: Optional rule system state dict
+            working_memory_size: Optional working memory size
+            
+        Returns:
+            Computed progress (0.0-1.0) or None if cannot be computed
+        """
+        # For minimize_cognitive_dissonance: compute from dissonance
+        if goal.name == "minimize_cognitive_dissonance":
+            if overall_dissonance is not None:
+                # Progress is inverse of dissonance (low dissonance = high progress)
+                return max(0.0, min(1.0, 1.0 - overall_dissonance))
+            elif self._cognitive_dissonance_monitor:
+                try:
+                    dissonance_data = self._cognitive_dissonance_monitor.get_aggregated_dissonance()
+                    overall_dissonance = dissonance_data.get("overall_dissonance", 0.0)
+                    return max(0.0, min(1.0, 1.0 - overall_dissonance))
+                except Exception as e:
+                    logger.debug(f"Error computing dissonance progress: {e}")
+                    return None
+            else:
+                return None
+        
+        # For implement_cognitive_reasoning: compute from rule system and working memory
+        elif goal.name == "implement_cognitive_reasoning":
+            progress_components = []
+            
+            # Component 1: Rule system (30% weight)
+            if rule_system_state is not None:
+                rules = rule_system_state.get("rules", [])
+                total_rules = len(rules)
+                # Consider reasoning implemented if we have at least 5 rules
+                rule_progress = min(1.0, total_rules / 5.0) if total_rules > 0 else 0.0
+                progress_components.append(("rules", rule_progress, 0.3))
+            elif self._rule_system:
+                try:
+                    rules = getattr(self._rule_system, 'rules', [])
+                    total_rules = len(rules)
+                    rule_progress = min(1.0, total_rules / 5.0) if total_rules > 0 else 0.0
+                    progress_components.append(("rules", rule_progress, 0.3))
+                except Exception as e:
+                    logger.debug(f"Error getting rule system state: {e}")
+            
+            # Component 2: Working memory (20% weight)
+            if working_memory_size is not None:
+                # Consider working memory active if size > 0
+                wm_progress = 1.0 if working_memory_size > 0 else 0.0
+                progress_components.append(("working_memory", wm_progress, 0.2))
+            elif self._working_memory:
+                try:
+                    wm_size = len(getattr(self._working_memory, 'items', []))
+                    wm_progress = 1.0 if wm_size > 0 else 0.0
+                    progress_components.append(("working_memory", wm_progress, 0.2))
+                except Exception as e:
+                    logger.debug(f"Error getting working memory state: {e}")
+            
+            # Component 3: Goal manager itself (50% weight) - base progress
+            # If we have goals and they're being managed, that's progress
+            base_progress = 0.5 if len(self.goals) > 0 else 0.0
+            progress_components.append(("base", base_progress, 0.5))
+            
+            # Compute weighted average
+            if progress_components:
+                total_weight = sum(w for _, _, w in progress_components)
+                if total_weight > 0:
+                    weighted_sum = sum(p * w for _, p, w in progress_components)
+                    return max(0.0, min(1.0, weighted_sum / total_weight))
+            
+            return None
+        
+        # For be_helpful_cognitive_assistant: compute from child goals
+        elif goal.name == "be_helpful_cognitive_assistant":
+            if goal.children:
+                # Average progress of child goals
+                child_progresses = []
+                for child_name in goal.children:
+                    if child_name in self.goals:
+                        child_goal = self.goals[child_name]
+                        if child_goal.progress is not None:
+                            child_progresses.append(child_goal.progress)
+                
+                if child_progresses:
+                    return sum(child_progresses) / len(child_progresses)
+            
+            return None
+        
+        # For other goals: cannot compute automatically
+        return None
+    
+    def refresh_goal_progress(
+        self,
+        overall_dissonance: Optional[float] = None,
+        rule_system_state: Optional[Dict[str, Any]] = None,
+        working_memory_size: Optional[int] = None
+    ) -> None:
+        """
+        Refresh progress for all goals that can be computed from current state.
+        
+        Args:
+            overall_dissonance: Optional overall cognitive dissonance
+            rule_system_state: Optional rule system state dict
+            working_memory_size: Optional working memory size
+        """
+        with self._state_lock:
+            for goal in self.goals.values():
+                if goal.status == GoalStatus.ACTIVE:
+                    computed_progress = self._compute_goal_progress(
+                        goal,
+                        overall_dissonance=overall_dissonance,
+                        rule_system_state=rule_system_state,
+                        working_memory_size=working_memory_size
+                    )
+                    if computed_progress is not None:
+                        # Only update if progress was actually computed
+                        if goal.progress != computed_progress:
+                            goal.update_progress(computed_progress, "Computed from system state")
     
     def complete_goal(self, goal_name: str):
         """

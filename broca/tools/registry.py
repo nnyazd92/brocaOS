@@ -24,6 +24,9 @@ from .json_repair import attempt_json_repair
 
 logger = logging.getLogger(__name__)
 
+# Lazy import to avoid circular dependency
+ToolSelectionGuidance = None
+
 
 class ToolRegistry:
     """
@@ -35,16 +38,24 @@ class ToolRegistry:
     - Execute tool calls from the LLM
     """
     
-    def __init__(self, epistemic_engine: Optional[Any] = None, internal_sensing_framework: Optional["InternalSensingFramework"] = None) -> None:
+    def __init__(
+        self,
+        epistemic_engine: Optional[Any] = None,
+        internal_sensing_framework: Optional["InternalSensingFramework"] = None,
+        tool_selection_guidance: Optional[Any] = None
+    ) -> None:
         """
         Initialize an empty tool registry.
         
         Args:
             epistemic_engine: Optional MetacognitiveEngine for epistemic tracking
+            internal_sensing_framework: Optional InternalSensingFramework for tool usage tracking
+            tool_selection_guidance: Optional ToolSelectionGuidance for intelligent tool selection
         """
         self._tools: Dict[str, Tool] = {}
         self.epistemic_engine = epistemic_engine
         self.internal_sensing_framework = internal_sensing_framework
+        self.tool_selection_guidance = tool_selection_guidance
         # Policy mode (read-only)
         # Read from env first (to support tests patching os.environ), fallback to config
         self._policy_mode = os.getenv("BROCA_TOOLS_MODE", getattr(config.tools, "tools_mode", "normal"))
@@ -230,19 +241,47 @@ class ToolRegistry:
         hash_str = self.get_registry_hash()
         return f"v{hash_str[:8]}"
     
-    def to_openai_format(self) -> List[Dict[str, Any]]:
+    def to_openai_format(self, context: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Convert registered tools to OpenAI function calling format.
         
-        Returns a list of tool definitions in the format expected by
-        OpenAI-compatible APIs (DeepSeek, etc.).
+        Optionally filters and ranks tools based on context if tool selection
+        guidance is enabled and available.
+        
+        Args:
+            context: Optional context dictionary for tool filtering/ranking
         
         Returns:
             List of tool definitions in OpenAI format
         """
+        # Get all tools
+        all_tools = list(self._tools.values())
+        
+        # Apply filtering/ranking if enabled and guidance is available
+        if (config.tools.pre_filtering_enabled and 
+            self.tool_selection_guidance is not None):
+            try:
+                all_tools = self.tool_selection_guidance.filter_and_rank_tools(
+                    all_tools, context=context
+                )
+                logger.debug(
+                    f"Applied tool filtering/ranking: {len(all_tools)} tools",
+                    extra={
+                        "event": "tool_filtering_applied",
+                        "tool_count": len(all_tools),
+                    }
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Error applying tool filtering/ranking: {e}",
+                    exc_info=True,
+                    extra={"event": "tool_filtering_error"}
+                )
+                # Continue with unfiltered tools on error
+        
         tools = []
         tool_names = []
-        for tool in self._tools.values():
+        for tool in all_tools:
             tools.append({
                 "type": "function",
                 "function": {
@@ -337,6 +376,78 @@ class ToolRegistry:
             
             if arguments is None:
                 arguments = {}
+
+            # Post-selection validation (if enabled)
+            if (config.tools.post_validation_enabled and 
+                self.tool_selection_guidance is not None):
+                try:
+                    # Gather context for validation
+                    context = self.tool_selection_guidance.guidance_aggregator.gather_context()
+                    
+                    validation_result = self.tool_selection_guidance.validate_tool_selection(
+                        tool_name, arguments, context=context
+                    )
+                    
+                    # Check if tool should be blocked
+                    if validation_result.blocked:
+                        logger.warning(
+                            f"Tool '{tool_name}' blocked by validation: {validation_result.severity}",
+                            extra={
+                                "event": "tool_validation_blocked",
+                                "tool_name": tool_name,
+                                "warnings": validation_result.warnings,
+                                "alternatives": validation_result.alternatives,
+                                "confidence": validation_result.confidence,
+                                "severity": validation_result.severity,
+                            }
+                        )
+                        
+                        # Return blocking message with alternatives
+                        alternatives_text = ""
+                        if validation_result.alternatives:
+                            alternatives_text = f"\n\nSuggested alternatives: {', '.join(validation_result.alternatives)}"
+                        
+                        warnings_text = "\n".join(f"- {w}" for w in validation_result.warnings)
+                        
+                        return {
+                            "tool_call_id": tool_call_id,
+                            "role": "tool",
+                            "name": tool_name,
+                            "content": (
+                                f"Tool execution blocked by validation ({validation_result.severity}):\n"
+                                f"{warnings_text}"
+                                f"{alternatives_text}"
+                            )
+                        }
+                    
+                    # Log warnings if validation found issues but didn't block
+                    if validation_result.warnings:
+                        logger.warning(
+                            f"Tool selection validation issues for '{tool_name}': "
+                            f"{', '.join(validation_result.warnings)}",
+                            extra={
+                                "event": "tool_validation_warning",
+                                "tool_name": tool_name,
+                                "warnings": validation_result.warnings,
+                                "suggestions": validation_result.suggestions,
+                                "confidence": validation_result.confidence,
+                                "severity": validation_result.severity,
+                            }
+                        )
+                        
+                        # Log suggestions if available
+                        if validation_result.suggestions:
+                            logger.info(
+                                f"Tool selection suggestions for '{tool_name}': "
+                                f"{', '.join(validation_result.suggestions)}"
+                            )
+                except Exception as e:
+                    logger.debug(
+                        f"Error in tool selection validation: {e}",
+                        exc_info=True,
+                        extra={"event": "tool_validation_error"}
+                    )
+                    # Continue with execution on validation error
 
             # Enforce read-only policy and web search limits
             if self._policy_mode == "read_only":
@@ -526,6 +637,15 @@ class ToolRegistry:
                     "confidence_metrics": epistemic_impact["confidence_metrics"],
                     "suggested_verification": epistemic_impact["suggested_verification"]
                 }
+            
+            # Record tool outcome for feedback loop
+            if self.tool_selection_guidance is not None:
+                try:
+                    # Determine success from result
+                    success = result.get("success", True) if isinstance(result, dict) else True
+                    self.tool_selection_guidance.record_tool_outcome(tool_name, success)
+                except Exception as e:
+                    logger.debug(f"Error recording tool outcome: {e}", exc_info=True)
             
             return result_dict
             

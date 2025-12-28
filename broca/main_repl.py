@@ -127,7 +127,11 @@ def _initialize_tool_registry(
     epistemic_engine: "MetacognitiveEngine | None" = None,
     self_model: SelfModel | None = None,
     internal_sensing: InternalSensingFramework | None = None,
-    storage: Any = None
+    storage: Any = None,
+    reasoning_tool: Any = None,
+    rl_signal_aggregator: Any = None,
+    skill_manager: Any = None,
+    goal_manager: Any = None,
 ) -> ToolRegistry | None:
     """
     Initialize tool registry and register available tools.
@@ -142,7 +146,56 @@ def _initialize_tool_registry(
         ToolRegistry instance if successfully initialized, None otherwise.
     """
     try:
-        registry = ToolRegistry(epistemic_engine=epistemic_engine, internal_sensing_framework=internal_sensing)
+        # Initialize tool selection guidance if enabled
+        tool_selection_guidance = None
+        if config.tools.selection_guidance_enabled:
+            try:
+                from .tools.selection_guidance import ToolSelectionGuidance, ValidationStrictness
+                
+                # Map config string to enum
+                strictness_map = {
+                    "advisory": ValidationStrictness.ADVISORY,
+                    "soft_block": ValidationStrictness.SOFT_BLOCK,
+                    "hard_block": ValidationStrictness.HARD_BLOCK,
+                }
+                validation_strictness = strictness_map.get(
+                    config.tools.validation_strictness,
+                    ValidationStrictness.ADVISORY
+                )
+                
+                tool_selection_guidance = ToolSelectionGuidance(
+                    reasoning_tool=reasoning_tool,
+                    rl_signal_aggregator=rl_signal_aggregator,
+                    skill_manager=skill_manager,
+                    goal_manager=goal_manager,
+                    max_guidance_length=config.tools.max_guidance_length,
+                    guidance_text_style=config.tools.guidance_text_style,
+                    ranking_algorithm=config.tools.ranking_algorithm,
+                    validation_strictness=validation_strictness,
+                    validation_confidence_threshold=config.tools.validation_confidence_threshold,
+                    context_cache_ttl_seconds=config.tools.context_cache_ttl_seconds,
+                    exploration_factor=config.tools.exploration_factor,
+                )
+                
+                # Initialize metrics if enabled
+                if config.tools.metrics_enabled:
+                    try:
+                        from .tools.selection_metrics import ToolSelectionMetrics
+                        metrics = ToolSelectionMetrics(window_size=config.tools.metrics_window_size)
+                        tool_selection_guidance.set_metrics(metrics)
+                        logger.info("✓ Tool selection metrics enabled")
+                    except Exception as e:
+                        logger.warning(f"Failed to initialize tool selection metrics: {e}", exc_info=True)
+                
+                logger.info("✓ Tool selection guidance initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize tool selection guidance: {e}", exc_info=True)
+        
+        registry = ToolRegistry(
+            epistemic_engine=epistemic_engine,
+            internal_sensing_framework=internal_sensing,
+            tool_selection_guidance=tool_selection_guidance
+        )
         
         # Register web search tool if enabled
         # Browser-based search is now primary (no Tavily API key required)
@@ -1059,6 +1112,9 @@ def main() -> None:
         
         # Initialize reasoning system with cognitive dissonance integration
         reasoning_tool = None
+        rl_signal_aggregator = None
+        skill_manager = None
+        goal_manager = None
         if config.reasoning.enabled:
             try:
                 reasoning_tool = _initialize_reasoning_system(
@@ -1069,6 +1125,17 @@ def main() -> None:
                 )
                 if reasoning_tool:
                     logger.info("✓ Reasoning system initialized successfully")
+                    
+                    # Extract components for tool selection guidance
+                    if hasattr(reasoning_tool, 'feedback_loop_manager') and reasoning_tool.feedback_loop_manager:
+                        rl_signal_aggregator = getattr(reasoning_tool.feedback_loop_manager, 'rl_signal_aggregator', None)
+                    if hasattr(reasoning_tool, 'goal_manager'):
+                        goal_manager = reasoning_tool.goal_manager
+                    
+                    # Get skill manager if available (from learning tool)
+                    if hasattr(reasoning_tool, 'learning_tool') and reasoning_tool.learning_tool:
+                        if hasattr(reasoning_tool.learning_tool, 'skill_manager'):
+                            skill_manager = reasoning_tool.learning_tool.skill_manager
                     
                     # Register reasoning tool in tool registry
                     if tool_registry:
@@ -1085,6 +1152,61 @@ def main() -> None:
                             logger.info("Registered learning tool")
                         except Exception as e:
                             logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
+                    
+                    # Wire tool selection guidance if enabled and not already initialized
+                    if (tool_registry and 
+                        config.tools.selection_guidance_enabled and
+                        (tool_registry.tool_selection_guidance is None or 
+                         tool_registry.tool_selection_guidance.guidance_aggregator.reasoning_tool is None)):
+                        try:
+                            from .tools.selection_guidance import ToolSelectionGuidance
+                            # Update or create guidance with reasoning components
+                            if tool_registry.tool_selection_guidance is None:
+                                from .tools.selection_guidance import ValidationStrictness
+                                
+                                # Map config string to enum
+                                strictness_map = {
+                                    "advisory": ValidationStrictness.ADVISORY,
+                                    "soft_block": ValidationStrictness.SOFT_BLOCK,
+                                    "hard_block": ValidationStrictness.HARD_BLOCK,
+                                }
+                                validation_strictness = strictness_map.get(
+                                    config.tools.validation_strictness,
+                                    ValidationStrictness.ADVISORY
+                                )
+                                
+                                tool_registry.tool_selection_guidance = ToolSelectionGuidance(
+                                    reasoning_tool=reasoning_tool,
+                                    rl_signal_aggregator=rl_signal_aggregator,
+                                    skill_manager=skill_manager,
+                                    goal_manager=goal_manager,
+                                    max_guidance_length=config.tools.max_guidance_length,
+                                    guidance_text_style=config.tools.guidance_text_style,
+                                    ranking_algorithm=config.tools.ranking_algorithm,
+                                    validation_strictness=validation_strictness,
+                                    validation_confidence_threshold=config.tools.validation_confidence_threshold,
+                                    context_cache_ttl_seconds=config.tools.context_cache_ttl_seconds,
+                                    exploration_factor=config.tools.exploration_factor,
+                                )
+                                
+                                # Initialize metrics if enabled
+                                if config.tools.metrics_enabled:
+                                    try:
+                                        from .tools.selection_metrics import ToolSelectionMetrics
+                                        metrics = ToolSelectionMetrics(window_size=config.tools.metrics_window_size)
+                                        tool_registry.tool_selection_guidance.set_metrics(metrics)
+                                    except Exception as e:
+                                        logger.warning(f"Failed to initialize tool selection metrics: {e}", exc_info=True)
+                                logger.info("✓ Tool selection guidance initialized with reasoning components")
+                            else:
+                                # Update existing guidance with reasoning components
+                                tool_registry.tool_selection_guidance.guidance_aggregator.reasoning_tool = reasoning_tool
+                                tool_registry.tool_selection_guidance.guidance_aggregator.rl_signal_aggregator = rl_signal_aggregator
+                                tool_registry.tool_selection_guidance.guidance_aggregator.skill_manager = skill_manager
+                                tool_registry.tool_selection_guidance.guidance_aggregator.goal_manager = goal_manager
+                                logger.info("✓ Tool selection guidance updated with reasoning components")
+                        except Exception as e:
+                            logger.warning(f"Failed to wire tool selection guidance: {e}", exc_info=True)
                 else:
                     logger.warning("✗ Reasoning system initialization failed or disabled")
             except Exception as e:
