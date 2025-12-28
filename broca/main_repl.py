@@ -1200,14 +1200,15 @@ def main() -> None:
                 logger.warning(f"Failed to initialize recursive self-improvement: {e}", exc_info=True)
         
         # Wire systems components to reasoning tool
-        if system_dynamics:
-            reasoning_tool.system_dynamics = system_dynamics
-        if system_health_monitor:
-            reasoning_tool.system_health_monitor = system_health_monitor
-        if reconfiguration_manager:
-            reasoning_tool.reconfiguration_manager = reconfiguration_manager
-        if recursive_improvement:
-            reasoning_tool.recursive_improvement = recursive_improvement
+        if reasoning_tool:
+            if system_dynamics:
+                reasoning_tool.system_dynamics = system_dynamics
+            if system_health_monitor:
+                reasoning_tool.system_health_monitor = system_health_monitor
+            if reconfiguration_manager:
+                reasoning_tool.reconfiguration_manager = reconfiguration_manager
+            if recursive_improvement:
+                reasoning_tool.recursive_improvement = recursive_improvement
         
         # Initialize learning tool independently if enabled (regardless of reasoning integration)
         learning_tool_standalone = None
@@ -1266,6 +1267,22 @@ def main() -> None:
             size_manager=size_manager,
             config=config,
         )
+        
+        # Extract cognitive architecture components from reasoning tool for world state aggregator
+        hierarchical_controller = None
+        recursive_reasoning_engine = None
+        metacognitive_loop = None
+        nested_feedback_system = None
+        mpc_controller = None
+        distributed_control = None
+        
+        if reasoning_tool:
+            hierarchical_controller = getattr(reasoning_tool, 'hierarchical_controller', None)
+            recursive_reasoning_engine = getattr(reasoning_tool, 'recursive_reasoning_engine', None)
+            metacognitive_loop = getattr(reasoning_tool, 'metacognitive_loop', None)
+            nested_feedback_system = getattr(reasoning_tool, 'nested_feedback_system', None)
+            mpc_controller = getattr(reasoning_tool, 'mpc_controller', None)
+            distributed_control = getattr(reasoning_tool, 'distributed_control', None)
         
         # Store new components in aggregator for world state inclusion
         if hasattr(world_state_aggregator, '__dict__'):

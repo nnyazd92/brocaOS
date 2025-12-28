@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
-from typing import Optional
+from typing import List, Optional
 
 load_dotenv()
 from .reasoning.config import ReasoningConfig
