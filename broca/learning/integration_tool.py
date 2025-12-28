@@ -163,7 +163,10 @@ class LearningTool:
         """
         try:
             if action == "observe_tool_call":
-                return self._observe_tool_call(**kwargs)
+                # Extract only expected parameters, ignore others like 'context'
+                tool_call = kwargs.get("tool_call")
+                result = kwargs.get("result")
+                return self._observe_tool_call(tool_call=tool_call, result=result)
             elif action == "extract_patterns":
                 return self._extract_patterns(**kwargs)
             elif action == "get_applicable_procedures":
