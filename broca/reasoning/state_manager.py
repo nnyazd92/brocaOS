@@ -259,7 +259,7 @@ class ReasoningStateManager:
         """Serialize goal manager state."""
         return {
             "goals": [goal.to_dict() for goal in goal_manager.goals.values()],
-            "history": goal_manager.history[-100:],  # Last 100 entries
+            "history": goal_manager.goal_history[-100:],  # Last 100 entries
             "next_goal_id": getattr(goal_manager, "next_goal_id", 0)
         }
     
@@ -304,7 +304,7 @@ class ReasoningStateManager:
                 logger.warning(f"Failed to restore goal {goal_data.get('name', 'unknown')}: {e}")
         
         # Restore history
-        goal_manager.history = state.get("history", [])
+        goal_manager.goal_history = state.get("history", [])
         
         if "next_goal_id" in state:
             goal_manager.next_goal_id = state["next_goal_id"]

@@ -100,6 +100,9 @@ class CognitiveStateMonitor:
         # Epistemic bridge for second-order metacognition (optional)
         self._epistemic_bridge: Optional[Any] = None
         
+        # Signal manager for damping (optional)
+        self._signal_manager: Optional[Any] = None
+        
         # DO NOT initialize moving averages with baseline values
         # This was causing values to get "stuck" at baseline when real values matched baseline
         # Instead, let moving averages build naturally from actual recorded data

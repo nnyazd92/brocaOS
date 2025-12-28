@@ -55,7 +55,8 @@ class ReasoningDaemon:
         affect_monitor: Optional[Any] = None,
         cycle_delay_seconds: float = 30.0,
         event_acceleration_enabled: bool = True,
-        max_cycles_per_minute: int = 10
+        max_cycles_per_minute: int = 10,
+        max_rules_per_cycle: int = 5
     ):
         """
         Initialize reasoning daemon.
@@ -70,6 +71,7 @@ class ReasoningDaemon:
             cycle_delay_seconds: Base delay between cycles
             event_acceleration_enabled: Enable event-based acceleration
             max_cycles_per_minute: Maximum cycles per minute (rate limiting)
+            max_rules_per_cycle: Maximum number of rules to fire per cycle
         """
         self.reasoning_tool = reasoning_tool
         self.state_manager = state_manager
@@ -83,6 +85,7 @@ class ReasoningDaemon:
         self.event_acceleration_enabled = event_acceleration_enabled
         self.max_cycles_per_minute = max_cycles_per_minute
         self.min_cycle_interval = 60.0 / max_cycles_per_minute  # Minimum seconds between cycles
+        self.max_rules_per_cycle = max_rules_per_cycle
         
         # State
         self.status = DaemonStatus.STOPPED
@@ -324,7 +327,7 @@ class ReasoningDaemon:
             # Execute reasoning cycle
             cycle_results = self.reasoning_tool.rule_engine.execute_cycle(
                 working_memory=self.reasoning_tool.rule_system.working_memory,
-                max_rules=self.reasoning_tool.rule_system.max_rules_per_cycle
+                max_rules=self.max_rules_per_cycle
             )
             
             cycle_duration = time.time() - cycle_start_time

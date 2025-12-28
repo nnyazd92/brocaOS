@@ -22,7 +22,6 @@ from .memory.vector_index import VectorIndex
 from .memory.embeddings import EmbeddingService
 from .memory.manager import MemoryManager
 from .self_model.model import SelfModel
-from .tools.self_model_tool import QuerySelfModelTool
 from .tools.self_model_crud_tool import SelfModelCRUDTool
 from .internal_sensing.framework import InternalSensingFramework
 from .world_state.aggregator import WorldStateAggregator
@@ -227,10 +226,6 @@ def _initialize_tool_registry(
         # Register self-model tools if self-model is available
         if self_model and storage:
             try:
-                query_tool = QuerySelfModelTool(self_model, storage)
-                registry.register_tool(query_tool)
-                logger.info("Registered self-model query tool")
-                
                 from .tools.self_model_tool import UpdateSelfModelTool
                 update_tool = UpdateSelfModelTool(self_model, storage)
                 registry.register_tool(update_tool)
@@ -560,7 +555,7 @@ def _initialize_reasoning_system(
         from .reasoning.state_manager import ReasoningStateManager
         from .self_model.consistency import ConsistencyChecker
         from .self_model.updater import SelfModelUpdater
-        from ..llm import create_llm_client
+        from .llm import create_llm_client
         
         reasoning_config = ReasoningConfig()
         
@@ -628,7 +623,7 @@ def _initialize_reasoning_system(
         learning_tool = None
         if config.learning.enabled and reasoning_config.learning_integration_enabled:
             try:
-                from ..learning.integration_tool import LearningTool
+                from .learning.integration_tool import LearningTool
                 learning_tool = LearningTool()
                 logger.info("✓ Learning tool initialized for reasoning integration")
             except Exception as e:
@@ -670,8 +665,8 @@ def _initialize_reasoning_system(
         affect_monitor = None
         if internal_sensing and config.internal_sensing.emotional_regulation_enabled:
             try:
-                from ..internal_sensing.emotional_appraisal import CognitiveAppraisalEngine
-                from ..internal_sensing.emotional_regulation import HomeostaticEmotionalRegulator
+                from .internal_sensing.emotional_appraisal import CognitiveAppraisalEngine
+                from .internal_sensing.emotional_regulation import HomeostaticEmotionalRegulator
                 
                 # Get affect monitor from internal sensing framework
                 affect_monitor = internal_sensing.interoception.affect
@@ -721,10 +716,20 @@ def _initialize_reasoning_system(
                     affect_monitor=affect_monitor,
                     cycle_delay_seconds=reasoning_config.cycle_delay_seconds,
                     event_acceleration_enabled=reasoning_config.event_acceleration_enabled,
-                    max_cycles_per_minute=reasoning_config.max_cycles_per_minute
+                    max_cycles_per_minute=reasoning_config.max_cycles_per_minute,
+                    max_rules_per_cycle=reasoning_config.max_rules_per_cycle
                 )
                 reasoning_tool.daemon = daemon  # Wire daemon back into reasoning tool
                 logger.info("✓ Reasoning daemon initialized")
+                
+                # Start the daemon
+                try:
+                    if daemon.start():
+                        logger.info("✓ Reasoning daemon started")
+                    else:
+                        logger.warning("✗ Failed to start reasoning daemon")
+                except Exception as e:
+                    logger.error(f"Error starting reasoning daemon: {e}", exc_info=True)
             except Exception as e:
                 logger.warning(f"Failed to initialize reasoning daemon: {e}", exc_info=True)
         
@@ -854,11 +859,51 @@ def main() -> None:
                 )
                 if reasoning_tool:
                     logger.info("✓ Reasoning system initialized successfully")
+                    
+                    # Register reasoning tool in tool registry
+                    if tool_registry:
+                        try:
+                            tool_registry.register_tool(reasoning_tool)
+                            logger.info("Registered reasoning tool")
+                        except Exception as e:
+                            logger.warning(f"Failed to register reasoning tool: {e}", exc_info=True)
+                    
+                    # Register learning tool if available
+                    if tool_registry and hasattr(reasoning_tool, 'learning_tool') and reasoning_tool.learning_tool:
+                        try:
+                            tool_registry.register_tool(reasoning_tool.learning_tool)
+                            logger.info("Registered learning tool")
+                        except Exception as e:
+                            logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
                 else:
                     logger.warning("✗ Reasoning system initialization failed or disabled")
             except Exception as e:
                 logger.warning(f"Failed to initialize reasoning system: {e}", exc_info=True)
                 reasoning_tool = None
+        
+        # Initialize learning tool independently if enabled (regardless of reasoning integration)
+        learning_tool_standalone = None
+        if config.learning.enabled:
+            try:
+                from .learning.integration_tool import LearningTool
+                learning_tool_standalone = LearningTool()
+                logger.info("✓ Learning tool initialized")
+                
+                # Register learning tool in tool registry if not already registered
+                if tool_registry:
+                    # Check if learning tool was already registered via reasoning system
+                    existing_learning_tool = tool_registry.get_tool("learning")
+                    if not existing_learning_tool:
+                        try:
+                            tool_registry.register_tool(learning_tool_standalone)
+                            logger.info("Registered learning tool")
+                        except ValueError as e:
+                            # Tool already registered (shouldn't happen but handle gracefully)
+                            logger.debug(f"Learning tool already registered: {e}")
+                        except Exception as e:
+                            logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
+            except Exception as e:
+                logger.warning(f"Failed to initialize learning tool: {e}", exc_info=True)
         
         # Initialize self-model size manager if enabled
         size_manager = None
@@ -873,7 +918,6 @@ def main() -> None:
                     soft_knowledge_boundaries=config.self_model.soft_knowledge_boundaries,
                     soft_constraints=config.self_model.soft_constraints
                 )
-                epistemic_engine_for_size = epistemic_engine if hasattr(self, 'epistemic_engine') else None
                 size_manager = SelfModelSizeManager(
                     limits=limits,
                     epistemic_engine=epistemic_engine

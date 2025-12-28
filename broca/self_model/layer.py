@@ -5,7 +5,7 @@ consistency checking and self-model updates.
 
 from __future__ import annotations
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
 import logging
 
 from .model import SelfModel
@@ -13,6 +13,10 @@ from .storage import SelfModelSQLiteStorage
 from .consistency import ConsistencyChecker, ConsistencyResult
 from .updater import SelfModelUpdater
 from ..llm.deepseek_client import DeepSeekClient
+
+if TYPE_CHECKING:
+    from ..damping.action_gate import ActionGate
+    from ..signals.manager import SignalManager
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,8 @@ class ConsistencyLayer:
         strict_mode: bool = False,
         auto_update: bool = True,
         max_iterations: int = 3,
+        action_gate: Optional["ActionGate"] = None,
+        signal_manager: Optional["SignalManager"] = None,
     ) -> None:
         """
         Initialize consistency layer.
@@ -49,6 +55,8 @@ class ConsistencyLayer:
             strict_mode: If True, block inconsistent responses; if False, warn only
             auto_update: If True, automatically update self-model on inconsistencies
             max_iterations: Maximum number of update/check iterations
+            action_gate: Optional ActionGate for gating self-model updates
+            signal_manager: Optional SignalManager for getting trigger signals (dissonance)
         """
         self.self_model = self_model
         self.storage = storage
@@ -57,11 +65,21 @@ class ConsistencyLayer:
         self.strict_mode = strict_mode
         self.auto_update = auto_update
         self.max_iterations = max_iterations
+        self._action_gate = action_gate
+        self._signal_manager = signal_manager
         
         logger.info(
             f"Initialized ConsistencyLayer (strict_mode={strict_mode}, "
             f"auto_update={auto_update}, max_iterations={max_iterations})"
         )
+    
+    def set_action_gate(self, action_gate: Optional["ActionGate"]) -> None:
+        """Set the action gate for self-model updates."""
+        self._action_gate = action_gate
+    
+    def set_signal_manager(self, signal_manager: Optional["SignalManager"]) -> None:
+        """Set the signal manager for getting trigger signals."""
+        self._signal_manager = signal_manager
     
     def check_response(
         self,
@@ -187,28 +205,53 @@ class ConsistencyLayer:
             
             # Update self-model if auto_update is enabled
             if self.auto_update:
-                logger.info("Updating self-model to resolve inconsistencies")
-                updated_model = self.updater.update_from_violations(
-                    consistency_result,
-                    self.self_model,
-                    current_response,
-                )
+                # Check action gate if available
+                should_update = True
+                if self._action_gate and self._signal_manager:
+                    from datetime import datetime, timezone
+                    # Get dissonance level as trigger signal (0.0-1.0)
+                    dissonance_level = self._signal_manager.get("dissonance.level", default=0.0)
+                    if not isinstance(dissonance_level, (int, float)):
+                        dissonance_level = float(dissonance_level) if dissonance_level is not None else 0.0
+                    
+                    should_update, reason = self._action_gate.should_allow_action(
+                        trigger_value=dissonance_level,
+                        timestamp=datetime.now(timezone.utc)
+                    )
+                    if not should_update:
+                        logger.debug(f"Self-model update gated: {reason}")
                 
-                # Check if model actually changed
-                if updated_model.metadata.get("version") != self.self_model.metadata.get("version"):
-                    self.self_model = updated_model
-                    was_updated = True
-                    logger.info(
-                        f"Self-model updated to version {updated_model.metadata.get('version')}"
+                if should_update:
+                    logger.info("Updating self-model to resolve inconsistencies")
+                    updated_model = self.updater.update_from_violations(
+                        consistency_result,
+                        self.self_model,
+                        current_response,
                     )
                     
-                    # Save updated model
-                    self.storage.save(self.self_model)
-                    
-                    # Continue loop to re-check with updated model
-                    continue
+                    # Check if model actually changed
+                    if updated_model.metadata.get("version") != self.self_model.metadata.get("version"):
+                        self.self_model = updated_model
+                        was_updated = True
+                        logger.info(
+                            f"Self-model updated to version {updated_model.metadata.get('version')}"
+                        )
+                        
+                        # Record action in gate
+                        if self._action_gate:
+                            from datetime import datetime, timezone
+                            self._action_gate.record_action(datetime.now(timezone.utc))
+                        
+                        # Save updated model
+                        self.storage.save(self.self_model)
+                        
+                        # Continue loop to re-check with updated model
+                        continue
+                    else:
+                        logger.debug("Self-model update did not change version, stopping iterations")
+                        break
                 else:
-                    logger.debug("Self-model update did not change version, stopping iterations")
+                    logger.debug("Self-model update blocked by action gate")
                     break
             else:
                 # Not auto-updating, break out of loop

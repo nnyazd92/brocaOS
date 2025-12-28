@@ -304,7 +304,36 @@ class BrowseSafetyConfig(BaseModel):
 
 
 class BrowseConfig(BaseModel):
-    pass
+    """Configuration for browse tool (browser-based search and navigation)."""
+    # Search
+    default_search_engine: str = os.getenv("BROCA_BROWSE_DEFAULT_ENGINE", "ddg")  # "ddg" | "bing" | "google" | "auto"
+    enable_tavily_fallback: bool = os.getenv("BROCA_BROWSE_ENABLE_TAVILY_FALLBACK", "false").lower() == "true"  # Emergency only, default: false
+    tavily_fallback_only: bool = os.getenv("BROCA_BROWSE_TAVILY_FALLBACK_ONLY", "false").lower() == "true"  # Emergency only mode
+    
+    # Sessions
+    session_persistence: bool = os.getenv("BROCA_BROWSE_SESSION_PERSISTENCE", "true").lower() == "true"
+    session_storage_path: str = os.getenv("BROCA_BROWSE_SESSION_STORAGE_PATH", "runtime/browser_sessions")
+    session_ttl_hours: int = int(os.getenv("BROCA_BROWSE_SESSION_TTL_HOURS", "24"))
+    
+    # Budgets
+    default_max_actions: int = int(os.getenv("BROCA_BROWSE_MAX_ACTIONS", "20"))
+    default_max_wallclock_ms: int = int(os.getenv("BROCA_BROWSE_MAX_WALLCLOCK_MS", "60000"))
+    default_max_domains: int = int(os.getenv("BROCA_BROWSE_MAX_DOMAINS", "5"))
+    default_max_total_bytes: int = int(os.getenv("BROCA_BROWSE_MAX_TOTAL_BYTES", "10000000"))
+    
+    # Extraction
+    extraction_mode_preference: list[str] = (
+        os.getenv("BROCA_BROWSE_EXTRACTION_MODE_PREFERENCE", "semantic,dom,markdown").split(",")
+        if os.getenv("BROCA_BROWSE_EXTRACTION_MODE_PREFERENCE")
+        else ["semantic", "dom", "markdown"]
+    )
+    
+    # Search engine settings
+    search_timeout_seconds: int = int(os.getenv("BROCA_BROWSE_SEARCH_TIMEOUT", "30"))
+    search_max_results: int = int(os.getenv("BROCA_BROWSE_SEARCH_MAX_RESULTS", "10"))
+    
+    # Domain reputation
+    domain_reputation_file: str = os.getenv("BROCA_BROWSE_DOMAIN_REPUTATION_FILE", "data/browse_domain_reputation.json")
 
 
 class DampingConfig(BaseModel):
@@ -315,6 +344,19 @@ class DampingConfig(BaseModel):
     enable_observability: bool = os.getenv("BROCA_DAMPING_OBSERVABILITY_ENABLED", "true").lower() == "true"
     enable_oscillation_detection: bool = os.getenv("BROCA_DAMPING_OSCILLATION_DETECTION_ENABLED", "true").lower() == "true"
     history_size: int = int(os.getenv("BROCA_DAMPING_HISTORY_SIZE", "1000"))
+    
+    # Action gate configurations (default safe settings from plan section 11)
+    self_model_update_cooldown: float = float(os.getenv("BROCA_SELF_MODEL_UPDATE_COOLDOWN", "300.0"))  # 5 minutes
+    self_model_update_min_evidence_window: float = float(os.getenv("BROCA_SELF_MODEL_UPDATE_MIN_EVIDENCE_WINDOW", "60.0"))  # 60 seconds
+    self_model_update_min_evidence_count: int = int(os.getenv("BROCA_SELF_MODEL_UPDATE_MIN_EVIDENCE_COUNT", "3"))
+    
+    rl_update_cooldown: float = float(os.getenv("BROCA_RL_UPDATE_COOLDOWN", "60.0"))  # 60 seconds
+    rl_update_min_evidence_window: float = float(os.getenv("BROCA_RL_UPDATE_MIN_EVIDENCE_WINDOW", "30.0"))  # 30 seconds
+    rl_update_min_evidence_count: int = int(os.getenv("BROCA_RL_UPDATE_MIN_EVIDENCE_COUNT", "5"))
+    
+    suggestion_injection_debounce: float = float(os.getenv("BROCA_SUGGESTION_INJECTION_DEBOUNCE", "1.0"))  # 1 second
+    suggestion_injection_cooldown: float = float(os.getenv("BROCA_SUGGESTION_INJECTION_COOLDOWN", "10.0"))  # 10 seconds
+    suggestion_injection_min_evidence_count: int = int(os.getenv("BROCA_SUGGESTION_INJECTION_MIN_EVIDENCE_COUNT", "5"))
 
 
 class LearningConfig(BaseModel):
@@ -363,40 +405,6 @@ class LearningConfig(BaseModel):
     debug_mode: bool = os.getenv("BROCA_LEARNING_DEBUG_MODE", "false").lower() == "true"
     log_observations: bool = os.getenv("BROCA_LEARNING_LOG_OBSERVATIONS", "true").lower() == "true"
     log_procedure_creation: bool = os.getenv("BROCA_LEARNING_LOG_PROCEDURE_CREATION", "true").lower() == "true"
-    """Configuration for browse tool (browser-based search and navigation)."""
-    # Search
-    default_search_engine: str = os.getenv("BROCA_BROWSE_DEFAULT_ENGINE", "ddg")  # "ddg" | "bing" | "google" | "auto"
-    enable_tavily_fallback: bool = os.getenv("BROCA_BROWSE_ENABLE_TAVILY_FALLBACK", "false").lower() == "true"  # Emergency only, default: false
-    tavily_fallback_only: bool = os.getenv("BROCA_BROWSE_TAVILY_FALLBACK_ONLY", "false").lower() == "true"  # Emergency only mode
-    
-    # Sessions
-    session_persistence: bool = os.getenv("BROCA_BROWSE_SESSION_PERSISTENCE", "true").lower() == "true"
-    session_storage_path: str = os.getenv("BROCA_BROWSE_SESSION_STORAGE_PATH", "runtime/browser_sessions")
-    session_ttl_hours: int = int(os.getenv("BROCA_BROWSE_SESSION_TTL_HOURS", "24"))
-    
-    # Budgets
-    default_max_actions: int = int(os.getenv("BROCA_BROWSE_MAX_ACTIONS", "20"))
-    default_max_wallclock_ms: int = int(os.getenv("BROCA_BROWSE_MAX_WALLCLOCK_MS", "60000"))
-    default_max_domains: int = int(os.getenv("BROCA_BROWSE_MAX_DOMAINS", "5"))
-    default_max_total_bytes: int = int(os.getenv("BROCA_BROWSE_MAX_TOTAL_BYTES", "10000000"))
-    
-    # Extraction
-    extraction_mode_preference: list[str] = (
-        os.getenv("BROCA_BROWSE_EXTRACTION_MODES", "readability,trafilatura,dom").split(",")
-        if os.getenv("BROCA_BROWSE_EXTRACTION_MODES")
-        else ["readability", "trafilatura", "dom"]
-    )
-    max_extracted_chars: int = int(os.getenv("BROCA_BROWSE_MAX_EXTRACTED_CHARS", "50000"))
-    
-    # Source Quality
-    domain_reputation_file: str = os.getenv("BROCA_BROWSE_DOMAIN_REPUTATION_FILE", "data/browse_domain_reputation.json")
-    
-    # Traces
-    trace_storage_path: str = os.getenv("BROCA_BROWSE_TRACE_STORAGE_PATH", "docs/browse_traces")
-    enable_trace_replay: bool = os.getenv("BROCA_BROWSE_ENABLE_TRACE_REPLAY", "true").lower() == "true"
-    
-    # Safety
-    safety: BrowseSafetyConfig = BrowseSafetyConfig()
 
 
 class BrocaConfig(BaseModel):

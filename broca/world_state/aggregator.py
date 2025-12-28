@@ -724,7 +724,7 @@ class WorldStateAggregator:
                 return result
             elif reduction_level == "moderate":
                 # Replace each category with a brief sentence
-                base_result.update({
+                result.update({
                     "capabilities": self._summarize_capabilities_moderate(self.self_model.capabilities),
                     "knowledge_boundaries": self._summarize_knowledge_boundaries_moderate(self.self_model.knowledge_boundaries),
                     "constraints": self._summarize_constraints_moderate(self.self_model.constraints),
@@ -733,15 +733,15 @@ class WorldStateAggregator:
                         "last_updated": self.self_model.metadata.get("last_updated"),
                     },
                 })
-                return base_result
+                return result
             elif reduction_level == "heavy":
                 # Single sentence summary per field
-                base_result.update({
+                result.update({
                     "capabilities": self._summarize_capabilities_heavy(self.self_model.capabilities),
                     "knowledge_boundaries": self._summarize_knowledge_boundaries_heavy(self.self_model.knowledge_boundaries),
                     "constraints": self._summarize_constraints_heavy(self.self_model.constraints),
                 })
-                return base_result
+                return result
             else:
                 # Invalid reduction level, default to mild
                 logger.warning(f"Invalid reduction level '{reduction_level}', defaulting to 'mild'")

@@ -158,11 +158,63 @@ def initialize_runtime() -> BrocaRuntime:
             )
             if reasoning_tool:
                 logger.info("✓ Reasoning system initialized successfully")
+                
+                # Register reasoning tool in tool registry
+                if tool_registry:
+                    try:
+                        tool_registry.register_tool(reasoning_tool)
+                        logger.info("Registered reasoning tool")
+                    except Exception as e:
+                        logger.warning(f"Failed to register reasoning tool: {e}", exc_info=True)
+                
+                # Register learning tool if available
+                if tool_registry and hasattr(reasoning_tool, 'learning_tool') and reasoning_tool.learning_tool:
+                    try:
+                        tool_registry.register_tool(reasoning_tool.learning_tool)
+                        logger.info("Registered learning tool")
+                    except Exception as e:
+                        logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
+                
+                # Ensure daemon is started if it exists (backup check in case it wasn't started in _initialize_reasoning_system)
+                if hasattr(reasoning_tool, 'daemon') and reasoning_tool.daemon:
+                    try:
+                        from .reasoning.daemon import DaemonStatus
+                        if reasoning_tool.daemon.status != DaemonStatus.RUNNING:
+                            if reasoning_tool.daemon.start():
+                                logger.info("✓ Reasoning daemon started (from runtime)")
+                            else:
+                                logger.warning("✗ Failed to start reasoning daemon (from runtime)")
+                    except Exception as e:
+                        logger.error(f"Error starting reasoning daemon from runtime: {e}", exc_info=True)
             else:
                 logger.warning("✗ Reasoning system initialization failed or disabled")
         except Exception as e:
             logger.warning(f"Failed to initialize reasoning system: {e}", exc_info=True)
             reasoning_tool = None
+    
+    # Initialize learning tool independently if enabled (regardless of reasoning integration)
+    learning_tool_standalone = None
+    if config.learning.enabled:
+        try:
+            from .learning.integration_tool import LearningTool
+            learning_tool_standalone = LearningTool()
+            logger.info("✓ Learning tool initialized")
+            
+            # Register learning tool in tool registry if not already registered
+            if tool_registry:
+                # Check if learning tool was already registered via reasoning system
+                existing_learning_tool = tool_registry.get_tool("learning")
+                if not existing_learning_tool:
+                    try:
+                        tool_registry.register_tool(learning_tool_standalone)
+                        logger.info("Registered learning tool")
+                    except ValueError as e:
+                        # Tool already registered (shouldn't happen but handle gracefully)
+                        logger.debug(f"Learning tool already registered: {e}")
+                    except Exception as e:
+                        logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
+        except Exception as e:
+            logger.warning(f"Failed to initialize learning tool: {e}", exc_info=True)
     
     # Initialize self-model size manager if enabled
     size_manager = None

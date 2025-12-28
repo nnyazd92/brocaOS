@@ -81,8 +81,8 @@ class SelfModelCRUDTool:
                 },
                 "aspect": {
                     "type": "string",
-                    "enum": ["all", "capabilities", "knowledge_boundaries", "constraints"],
-                    "description": "Which aspect of self-model to operate on",
+                    "enum": ["all", "capabilities", "knowledge_boundaries", "constraints", "behaviors", "metadata"],
+                    "description": "Which aspect of self-model to operate on. 'behaviors' queries behavioral patterns from metadata.",
                     "default": "all"
                 },
                 "entries": {
@@ -450,6 +450,11 @@ class SelfModelCRUDTool:
             entries = list(self.self_model.knowledge_boundaries.items())
         elif aspect == "constraints":
             entries = list(self.self_model.constraints.items())
+        elif aspect == "behaviors":
+            # Behaviors are stored in metadata
+            entries = self.self_model.metadata.get("behaviors", [])
+        elif aspect == "metadata":
+            entries = list(self.self_model.metadata.items())
         else:
             return {"success": False, "error": f"Unknown aspect: {aspect}"}
         

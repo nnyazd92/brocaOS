@@ -5,288 +5,17 @@ Self-model tools for LLM introspection and manual updates.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
 from . import Tool
 from ..self_model.model import SelfModel
-from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..self_model.storage import SelfModelSQLiteStorage
+    from ..damping.action_gate import ActionGate
+    from ..signals.manager import SignalManager
 
 logger = logging.getLogger(__name__)
-
-
-class QuerySelfModelTool:
-    """
-    Tool for querying the current self-model.
-    
-    Allows the LLM to introspect its self-model to understand its capabilities,
-    preferences, knowledge boundaries, constraints, and behavioral patterns.
-    """
-    
-    def __init__(
-        self,
-        self_model: SelfModel,
-        storage: Any,
-    ) -> None:
-        """
-        Initialize the query self-model tool.
-        
-        Args:
-            self_model: SelfModel instance
-            storage: Storage instance for self-model
-        """
-        self.self_model = self_model
-        self.storage = storage
-        logger.info("Initialized QuerySelfModelTool")
-    
-    @property
-    def name(self) -> str:
-        """Tool identifier."""
-        return "query_self_model"
-    
-    @property
-    def description(self) -> str:
-        """Tool description for the LLM."""
-        return (
-            "Query your self-model to understand your capabilities, preferences, "
-            "knowledge boundaries, constraints, and behavioral patterns. "
-            "Use this tool when you need to introspect about what you know about yourself, "
-            "or when you need to check your self-model before making claims or taking actions."
-        )
-    
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        """JSON schema for tool parameters."""
-        return {
-            "type": "object",
-            "properties": {
-                "aspect": {
-                    "type": "string",
-                    "enum": ["all", "capabilities", "preferences", "knowledge_boundaries", "constraints", "behavioral_patterns", "metadata", "epistemic"],
-                    "description": "Which aspect of the self-model to query (default: 'all'). Use 'epistemic' to get only epistemic metadata.",
-                    "default": "all"
-                }
-            },
-            "required": []
-        }
-    
-    def execute(
-        self,
-        aspect: str = "all",
-    ) -> Dict[str, Any]:
-        """
-        Execute self-model query.
-        
-        Args:
-            aspect: Which aspect to query
-            
-        Returns:
-            Dictionary with self-model information
-        """
-        try:
-            if aspect == "all":
-                result = {
-                    "success": True,
-                    "self_model": self.self_model.to_dict(),
-                    "summary": self.self_model.get_summary(),
-                }
-                
-                # Add epistemic context if available
-                if self.self_model.epistemic_layer:
-                    try:
-                        from broca.self_model.epistemic.ids import generate_capability_id
-                        from broca.self_model.epistemic.engine import MetacognitiveEngine
-                        
-                        # Create epistemic engine if not available
-                        epistemic_engine = MetacognitiveEngine(epistemic_layer=self.self_model.epistemic_layer)
-                        
-                        # Get epistemic context for capabilities
-                        epistemic_context = {}
-                        for capability in self.self_model.capabilities:
-                            # Extract text from capability dict (capabilities are stored as dicts with "text" and "source")
-                            capability_text = capability.get("text", str(capability)) if isinstance(capability, dict) else str(capability)
-                            kid = generate_capability_id(capability_text)
-                            context = epistemic_engine.get_epistemic_context(kid)
-                            if context:
-                                epistemic_context[kid] = context
-                        
-                        result["epistemic_context"] = {
-                            "capabilities": epistemic_context,
-                            "has_epistemic_layer": True
-                        }
-                    except Exception as e:
-                        logger.warning(f"Error getting epistemic context: {e}", exc_info=True)
-                        result["epistemic_context"] = {"has_epistemic_layer": True, "error": str(e)}
-                else:
-                    result["epistemic_context"] = {"has_epistemic_layer": False}
-                
-                return result
-            elif aspect == "capabilities":
-                return {
-                    "success": True,
-                    "aspect": "capabilities",
-                    "capabilities": self.self_model.capabilities,
-                }
-            elif aspect == "preferences":
-                # Note: preferences attribute was removed from SelfModel - return empty dict for backward compatibility
-                return {
-                    "success": True,
-                    "aspect": "preferences",
-                    "preferences": {},
-                }
-            elif aspect == "knowledge_boundaries":
-                return {
-                    "success": True,
-                    "aspect": "knowledge_boundaries",
-                    "knowledge_boundaries": self.self_model.knowledge_boundaries,
-                }
-            elif aspect == "constraints":
-                return {
-                    "success": True,
-                    "aspect": "constraints",
-                    "constraints": self.self_model.constraints,
-                }
-            elif aspect == "behavioral_patterns":
-                # Note: behavioral_patterns attribute was removed from SelfModel - return empty list for backward compatibility
-                return {
-                    "success": True,
-                    "aspect": "behavioral_patterns",
-                    "behavioral_patterns": [],
-                }
-            elif aspect == "metadata":
-                return {
-                    "success": True,
-                    "aspect": "metadata",
-                    "metadata": self.self_model.metadata,
-                }
-            elif aspect == "epistemic":
-                # Return only epistemic metadata
-                if not self.self_model.epistemic_layer:
-                    # Attempt to lazy-load epistemic layer from storage if available
-                    try:
-                        if hasattr(self.storage, 'load'):
-                            loaded = self.storage.load()
-                            if getattr(loaded, 'epistemic_layer', None):
-                                self.self_model.epistemic_layer = loaded.epistemic_layer
-                                # Build contexts and counts the same way as the normal path
-                                from broca.self_model.epistemic.engine import MetacognitiveEngine
-                                epistemic_engine = MetacognitiveEngine(epistemic_layer=self.self_model.epistemic_layer)
-                                all_contexts = {}
-                                for kid in self.self_model.epistemic_layer.knowledge_sources.keys():
-                                    context = epistemic_engine.get_epistemic_context(kid)
-                                    if context:
-                                        all_contexts[kid] = context
-                                return {
-                                    "success": True,
-                                    "aspect": "epistemic",
-                                    "epistemic_layer": self.self_model.epistemic_layer.to_dict(),
-                                    "knowledge_contexts": all_contexts,
-                                    "total_knowledge_items": len(all_contexts),
-                                    "message": "Epistemic layer loaded from storage"
-                                }
-                    except Exception:
-                        pass
-
-                    return {
-                        "success": True,
-                        "aspect": "epistemic",
-                        "epistemic_layer": None,
-                        "message": "No epistemic layer available"
-                    }
-                
-                try:
-                    from broca.self_model.epistemic.engine import MetacognitiveEngine
-                    epistemic_engine = MetacognitiveEngine(epistemic_layer=self.self_model.epistemic_layer)
-                    
-                    # Get epistemic context for all knowledge items
-                    all_contexts = {}
-                    for kid in self.self_model.epistemic_layer.knowledge_sources.keys():
-                        context = epistemic_engine.get_epistemic_context(kid)
-                        if context:
-                            all_contexts[kid] = context
-                    
-                    return {
-                        "success": True,
-                        "aspect": "epistemic",
-                        "epistemic_layer": self.self_model.epistemic_layer.to_dict(),
-                        "knowledge_contexts": all_contexts,
-                        "total_knowledge_items": len(all_contexts)
-                    }
-                except Exception as e:
-                    logger.error(f"Error getting epistemic metadata: {e}", exc_info=True)
-                    return {
-                        "success": False,
-                        "error": str(e),
-                    }
-            else:
-                return {
-                    "success": False,
-                    "error": f"Unknown aspect: {aspect}",
-                }
-                
-        except Exception as e:
-            logger.error(f"Error querying self-model: {e}", exc_info=True)
-            return {
-                "success": False,
-                "error": str(e),
-            }
-    
-    def format_result(self, result: Dict[str, Any]) -> str:
-        """
-        Format query result for LLM consumption.
-        
-        Args:
-            result: Tool execution result dictionary
-            
-        Returns:
-            Formatted string representation
-        """
-        if not result.get("success"):
-            return f"Error querying self-model: {result.get('error', 'Unknown error')}"
-        
-        if "summary" in result:
-            return result["summary"]
-        
-        aspect = result.get("aspect", "unknown")
-        if aspect == "capabilities":
-            lines = ["Capabilities:"]
-            for cap in result.get("capabilities", []):
-                # Extract text from capability dict (capabilities are stored as dicts with "text" and "source")
-                cap_text = cap.get("text", str(cap)) if isinstance(cap, dict) else str(cap)
-                lines.append(f"  - {cap_text}")
-            return "\n".join(lines)
-        elif aspect == "preferences":
-            lines = ["Preferences:"]
-            for key, value in result.get("preferences", {}).items():
-                lines.append(f"  - {key}: {value}")
-            return "\n".join(lines)
-        elif aspect == "knowledge_boundaries":
-            lines = ["Knowledge Boundaries:"]
-            for key, value in result.get("knowledge_boundaries", {}).items():
-                lines.append(f"  - {key}: {value}")
-            return "\n".join(lines)
-        elif aspect == "constraints":
-            lines = ["Constraints:"]
-            for key, value in result.get("constraints", {}).items():
-                lines.append(f"  - {key}: {value}")
-            return "\n".join(lines)
-        elif aspect == "behavioral_patterns":
-            lines = ["Behavioral Patterns:"]
-            for i, pattern in enumerate(result.get("behavioral_patterns", []), 1):
-                if isinstance(pattern, dict):
-                    lines.append(f"  {i}. {pattern}")
-                else:
-                    lines.append(f"  {i}. {pattern}")
-            return "\n".join(lines)
-        elif aspect == "metadata":
-            lines = ["Metadata:"]
-            for key, value in result.get("metadata", {}).items():
-                lines.append(f"  - {key}: {value}")
-            return "\n".join(lines)
-        else:
-            return "Self-model information retrieved successfully."
 
 
 class UpdateSelfModelTool:
@@ -301,6 +30,8 @@ class UpdateSelfModelTool:
         self,
         self_model: SelfModel,
         storage: Any,
+        action_gate: Optional["ActionGate"] = None,
+        signal_manager: Optional["SignalManager"] = None,
     ) -> None:
         """
         Initialize the update self-model tool.
@@ -308,10 +39,22 @@ class UpdateSelfModelTool:
         Args:
             self_model: SelfModel instance
             storage: Storage instance for self-model
+            action_gate: Optional ActionGate for gating self-model updates
+            signal_manager: Optional SignalManager for getting trigger signals (dissonance)
         """
         self.self_model = self_model
         self.storage = storage
+        self._action_gate = action_gate
+        self._signal_manager = signal_manager
         logger.info("Initialized UpdateSelfModelTool")
+    
+    def set_action_gate(self, action_gate: Optional["ActionGate"]) -> None:
+        """Set the action gate for self-model updates."""
+        self._action_gate = action_gate
+    
+    def set_signal_manager(self, signal_manager: Optional["SignalManager"]) -> None:
+        """Set the signal manager for getting trigger signals."""
+        self._signal_manager = signal_manager
     
     @property
     def name(self) -> str:
@@ -389,6 +132,27 @@ class UpdateSelfModelTool:
             Dictionary with update result
         """
         try:
+            # Check action gate if available (for manual updates, we still gate based on frequency/dissonance)
+            if self._action_gate and self._signal_manager:
+                from datetime import datetime, timezone
+                # For manual updates, use a fixed trigger value (1.0 = always allow check, gate will handle cooldown)
+                # Or use dissonance level as trigger
+                dissonance_level = self._signal_manager.get("dissonance.level", default=1.0)
+                if not isinstance(dissonance_level, (int, float)):
+                    dissonance_level = float(dissonance_level) if dissonance_level is not None else 1.0
+                
+                should_update, reason = self._action_gate.should_allow_action(
+                    trigger_value=dissonance_level,
+                    timestamp=datetime.now(timezone.utc)
+                )
+                if not should_update:
+                    logger.debug(f"Manual self-model update gated: {reason}")
+                    return {
+                        "success": False,
+                        "error": f"Update gated: {reason}. Please try again later.",
+                        "gated": True,
+                    }
+            
             # Create updated model using updater
             from ..self_model.updater import SelfModelUpdater
             updater = SelfModelUpdater()
@@ -401,6 +165,10 @@ class UpdateSelfModelTool:
             updated_model.metadata["update_reason"] = "manual_update"
             if rationale:
                 updated_model.metadata["update_rationale"] = rationale
+            
+            # Record action in gate
+            if self._action_gate:
+                self._action_gate.record_action(datetime.now(timezone.utc))
             
             # Save updated model
             self.storage.save(updated_model)
@@ -440,4 +208,3 @@ class UpdateSelfModelTool:
             lines.append(f"Rationale: {result['rationale']}")
         
         return "\n".join(lines)
-

@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 import numpy as np
+
+if TYPE_CHECKING:
+    from ..damping.action_gate import ActionGate
+    from ..signals.manager import SignalManager
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +30,27 @@ class ReinforcementLearner:
         self,
         learning_rate: float = 0.1,
         discount_factor: float = 0.9,
-        dissonance_reward_weight: float = 1.0
+        dissonance_reward_weight: float = 1.0,
+        action_gate: Optional["ActionGate"] = None,
+        signal_manager: Optional["SignalManager"] = None,
     ):
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.dissonance_reward_weight = dissonance_reward_weight
         self.q_table: Dict[str, Dict[str, float]] = {}  # state -> action -> Q-value
         self.exploration_rate = 0.1
+        self._action_gate = action_gate
+        self._signal_manager = signal_manager
         
         logger.info(f"Initialized ReinforcementLearner (LR: {learning_rate}, DF: {discount_factor}, Dissonance Weight: {dissonance_reward_weight})")
+    
+    def set_action_gate(self, action_gate: Optional["ActionGate"]) -> None:
+        """Set the action gate for RL updates."""
+        self._action_gate = action_gate
+    
+    def set_signal_manager(self, signal_manager: Optional["SignalManager"]) -> None:
+        """Set the signal manager for getting trigger signals."""
+        self._signal_manager = signal_manager
     
     def select_action(
         self,
@@ -105,7 +121,30 @@ class ReinforcementLearner:
         Q(s, a) = Q(s, a) + α * [r + γ * max_a' Q(s', a') - Q(s, a)]
         
         If dissonance_reward is provided, it's incorporated into the reward signal.
+        
+        The update is gated by ActionGate if available.
         """
+        # Check action gate if available
+        if self._action_gate and self._signal_manager:
+            from datetime import datetime, timezone
+            # Use dissonance level as trigger signal (0.0-1.0)
+            # Normalize reward magnitude as additional trigger (abs reward as proxy for "need to learn")
+            dissonance_level = self._signal_manager.get("dissonance.level", default=0.0)
+            if not isinstance(dissonance_level, (int, float)):
+                dissonance_level = float(dissonance_level) if dissonance_level is not None else 0.0
+            
+            # Trigger value: higher when dissonance is high or reward magnitude is high
+            trigger_value = max(dissonance_level, min(1.0, abs(reward)))
+            
+            should_update, reason = self._action_gate.should_allow_action(
+                trigger_value=trigger_value,
+                timestamp=datetime.now(timezone.utc),
+                evidence_value=abs(reward)  # Use reward magnitude as evidence
+            )
+            if not should_update:
+                logger.debug(f"RL Q-value update gated: {reason}")
+                return  # Skip update
+        
         # Combine base reward with dissonance reward
         total_reward = reward
         if dissonance_reward is not None:
@@ -129,6 +168,11 @@ class ReinforcementLearner:
         # Q-learning update
         new_q = current_q + self.learning_rate * (total_reward + self.discount_factor * max_next_q - current_q)
         self.q_table[state][action] = new_q
+        
+        # Record action in gate
+        if self._action_gate:
+            from datetime import datetime, timezone
+            self._action_gate.record_action(datetime.now(timezone.utc))
         
         logger.debug(
             f"Updated Q({state}, {action}): {current_q:.3f} -> {new_q:.3f} "

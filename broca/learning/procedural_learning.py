@@ -58,9 +58,9 @@ class ToolCall:
 class ContextPattern:
     """Pattern that triggers procedure application."""
     
-    memory_patterns: List[Dict[str, Any]]  # Patterns in working memory
-    goal_patterns: List[Dict[str, Any]]    # Patterns in active goals
-    state_patterns: List[Dict[str, Any]]   # Patterns in system state
+    memory_patterns: List[Dict[str, Any]] = field(default_factory=list)  # Patterns in working memory
+    goal_patterns: List[Dict[str, Any]] = field(default_factory=list)    # Patterns in active goals
+    state_patterns: List[Dict[str, Any]] = field(default_factory=list)   # Patterns in system state
     
     def to_dict(self) -> Dict[str, Any]:
         return {

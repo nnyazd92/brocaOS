@@ -35,7 +35,6 @@ from .memory.vector_index import VectorIndex
 from .memory.embeddings import EmbeddingService
 from .memory.manager import MemoryManager
 from .self_model.model import SelfModel
-from .tools.self_model_tool import QuerySelfModelTool
 from .internal_sensing.framework import InternalSensingFramework
 from .repl.session import ConversationSession
 from .optimization.goal_manager import GoalManager
@@ -139,15 +138,24 @@ class OptimizationDaemon:
                     # If list_tools() fails (e.g., Mock object), skip removal
                     logger.debug("Could not remove restricted tools (registry may be mocked)")
         
-        # Register self-model query tool if self-model system is enabled
+        # Register self-model CRUD tool if self-model system is enabled
         # Note: UpdateSelfModelTool is NOT registered in autonomous mode for safety
+        # CRUD tool allows querying but not updates in autonomous mode
         if self_model and storage and tool_registry:
             try:
-                query_tool = QuerySelfModelTool(self_model, storage)
-                tool_registry.register_tool(query_tool)
-                logger.info("Registered self-model query tool (update tool excluded in autonomous mode)")
+                from .tools.self_model_crud_tool import SelfModelCRUDTool
+                from .self_model.epistemic.engine import MetacognitiveEngine
+                
+                # Create epistemic engine if available
+                epistemic_engine = None
+                if hasattr(self_model, 'epistemic_layer') and self_model.epistemic_layer:
+                    epistemic_engine = MetacognitiveEngine(epistemic_layer=self_model.epistemic_layer)
+                
+                crud_tool = SelfModelCRUDTool(self_model, storage, epistemic_engine=epistemic_engine)
+                tool_registry.register_tool(crud_tool)
+                logger.info("Registered self-model CRUD tool (query-only in autonomous mode)")
             except Exception as e:
-                logger.warning(f"Failed to register self-model query tool: {e}", exc_info=True)
+                logger.warning(f"Failed to register self-model CRUD tool: {e}", exc_info=True)
         
         # Internal sensing tools are NOT registered as tools since internal sensing data
         # is already included in the LLM's mutable system prompt via WorldStateAggregator.

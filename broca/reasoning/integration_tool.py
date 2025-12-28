@@ -577,3 +577,55 @@ class ReasoningTool:
                 "success": False,
                 "error": f"Failed to get daemon status: {str(e)}"
             }
+    
+    def format_result(self, result: Dict[str, Any]) -> str:
+        """
+        Format tool result for LLM consumption.
+        
+        Args:
+            result: Tool execution result dictionary
+            
+        Returns:
+            Formatted string representation
+        """
+        if not result.get("success"):
+            error = result.get("error", "Unknown error")
+            return f"Error: {error}"
+        
+        # Format based on action result structure
+        message = result.get("message", "")
+        
+        # If there's a message, use it
+        if message:
+            return message
+        
+        # Format specific result types
+        if "state" in result:
+            return f"Reasoning system state retrieved successfully"
+        elif "rules" in result:
+            count = result.get("count", 0)
+            return f"Found {count} production rule(s)"
+        elif "goals" in result:
+            count = result.get("count", 0)
+            return f"Found {count} goal(s)"
+        elif "results" in result or "queued_tools" in result:
+            # For execute_cycle results
+            results = result.get("results", [])
+            queued = result.get("queued_tools", [])
+            result_parts = []
+            if results:
+                result_parts.append(f"{len(results)} rule(s) fired")
+            if queued:
+                result_parts.append(f"{len(queued)} tool(s) queued")
+            if result_parts:
+                return f"Reasoning cycle executed: {', '.join(result_parts)}"
+            else:
+                return "Reasoning cycle executed"
+        elif "status" in result:
+            # For daemon status
+            status = result.get("status", {})
+            status_str = status.get("status", "unknown") if isinstance(status, dict) else str(status)
+            return f"Reasoning daemon status: {status_str}"
+        else:
+            # Generic success message
+            return "Reasoning operation completed successfully"

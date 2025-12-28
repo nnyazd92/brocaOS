@@ -9,12 +9,16 @@ from __future__ import annotations
 import logging
 from collections import deque
 from datetime import datetime, timezone
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, TYPE_CHECKING
 
 from .schema import SignalSpec, SIGNAL_REGISTRY
 from .models import SignalState
+from .window import WindowAggregator
 from ..damping.profiles import PROFILE_REGISTRY, DampingProfile
-from ..damping.pipeline import DampingPipeline
+from ..damping.beta_tracker import BetaSuccessTracker
+
+if TYPE_CHECKING:
+    from ..damping.pipeline import DampingPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +45,10 @@ class SignalManager:
         """
         self._signals: Dict[str, SignalState] = {}
         self._history: Dict[str, deque] = {}
-        self._pipelines: Dict[str, DampingPipeline] = {}
+        self._pipelines: Dict[str, Any] = {}  # DampingPipeline - type hint deferred to avoid circular import
         self._raw_history: Dict[str, deque] = {}  # Store raw values for observability
+        self._window_aggregators: Dict[str, WindowAggregator] = {}  # Window aggregators per signal
+        self._beta_trackers: Dict[str, BetaSuccessTracker] = {}  # Beta trackers for toolchain signals
         self._history_size = history_size
         self._default_profile = default_profile
         
@@ -71,6 +77,8 @@ class SignalManager:
             profile_name = self._default_profile
         
         profile = PROFILE_REGISTRY[profile_name]
+        # Local import to avoid circular dependency
+        from ..damping.pipeline import DampingPipeline
         pipeline = DampingPipeline(profile, spec)
         
         # Initialize signal state with default value
@@ -119,9 +127,23 @@ class SignalManager:
         # Store before value for observability
         before_value = signal_state.value
         
+        # Check if this signal uses Beta tracker (toolchain.*.success_rate)
+        # For Beta-tracked signals, use Beta mean as input to pipeline
+        use_beta = signal_name.startswith("toolchain.") and signal_name.endswith(".success_rate")
+        
+        if use_beta and signal_name in self._beta_trackers:
+            # Use Beta mean if tracker has observations, otherwise use raw_value
+            beta_tracker = self._beta_trackers[signal_name]
+            if beta_tracker.get_total_observations() > 0:
+                pipeline_input = beta_tracker.get_mean()
+            else:
+                pipeline_input = raw_value
+        else:
+            pipeline_input = raw_value
+        
         # Apply damping pipeline
         damped_value = pipeline.apply(
-            raw_value,
+            pipeline_input,
             signal_state.value,
             timestamp
         )
@@ -135,6 +157,11 @@ class SignalManager:
         # Append to history
         self._history[signal_name].append(damped_value)
         self._raw_history[signal_name].append(raw_value)
+        
+        # Update window aggregator (create on demand)
+        if signal_name not in self._window_aggregators:
+            self._window_aggregators[signal_name] = WindowAggregator(max_buffer_size=self._history_size)
+        self._window_aggregators[signal_name].update(float(damped_value))
         
         # Emit event (for observability - can be extended with event system)
         logger.debug(
@@ -234,4 +261,88 @@ class SignalManager:
     def list_signals(self) -> List[str]:
         """List all registered signal names."""
         return list(self._signals.keys())
+    
+    def get_window_aggregator(self, signal_name: str) -> WindowAggregator:
+        """
+        Get or create window aggregator for a signal.
+        
+        Args:
+            signal_name: Signal name
+            
+        Returns:
+            WindowAggregator instance (created on demand)
+        """
+        if signal_name not in self._window_aggregators:
+            self._window_aggregators[signal_name] = WindowAggregator(max_buffer_size=self._history_size)
+            # Initialize with current value if signal exists
+            if signal_name in self._signals:
+                current_value = float(self._signals[signal_name].value)
+                self._window_aggregators[signal_name].update(current_value)
+        
+        return self._window_aggregators[signal_name]
+    
+    def get_beta_tracker(self, signal_name: str) -> BetaSuccessTracker:
+        """
+        Get or create Beta tracker for a signal.
+        
+        Beta trackers are used for toolchain.*.success_rate signals
+        to provide Bayesian damping.
+        
+        Args:
+            signal_name: Signal name (should be toolchain.*.success_rate)
+            
+        Returns:
+            BetaSuccessTracker instance (created on demand)
+        """
+        if signal_name not in self._beta_trackers:
+            self._beta_trackers[signal_name] = BetaSuccessTracker()
+            logger.debug(f"Created Beta tracker for signal {signal_name}")
+        
+        return self._beta_trackers[signal_name]
+    
+    def record_tool_success(self, tool_name: str, success: bool) -> None:
+        """
+        Record tool success/failure for Beta tracking.
+        
+        This is a convenience method that automatically
+        updates the appropriate Beta tracker.
+        
+        Args:
+            tool_name: Name of the tool
+            success: Whether the tool execution was successful
+        """
+        signal_name = f"toolchain.{tool_name}.success_rate"
+        
+        # Ensure signal is registered (will auto-register if needed)
+        if signal_name not in self._signals:
+            # Create a temporary spec for toolchain signals
+            from .schema import SignalSpec, SignalType
+            from .schema import register_signal as reg_sig
+            
+            # Register signal if not in registry
+            if signal_name not in SIGNAL_REGISTRY:
+                reg_sig(SignalSpec(
+                    name=signal_name,
+                    type=SignalType.FLOAT,
+                    range=(0.0, 1.0),
+                    units="prob",
+                    default=0.5,
+                    update_frequency_hz=1.0,
+                    damping_profile_id="MED"
+                ))
+            
+            self.register_signal(signal_name)
+        
+        # Get or create Beta tracker
+        tracker = self.get_beta_tracker(signal_name)
+        
+        # Record success/failure
+        if success:
+            tracker.record_success()
+        else:
+            tracker.record_failure()
+        
+        # Update signal with Beta mean
+        beta_mean = tracker.get_mean()
+        self.update(signal_name, beta_mean)
 

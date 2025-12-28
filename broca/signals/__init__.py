@@ -8,6 +8,7 @@ unstable feedback loops across sensing → affect → self-model → dissonance 
 from .schema import SignalSpec, SIGNAL_REGISTRY, register_signal
 from .manager import SignalManager
 from .models import SignalState
+from .window import WindowAggregator, RingBuffer
 
 __all__ = [
     "SignalSpec",
@@ -15,5 +16,7 @@ __all__ = [
     "register_signal",
     "SignalManager",
     "SignalState",
+    "WindowAggregator",
+    "RingBuffer",
 ]
 

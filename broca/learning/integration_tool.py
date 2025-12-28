@@ -216,20 +216,13 @@ class LearningTool:
         self.experience_logger.log_experience(experience)
         
         # Update toolchain success rate signal if SignalManager available
-        # (Beta tracking will be added in Phase 2)
+        # Use Beta tracker for proper Bayesian damping
         tool_name = tool_call.get("name", "unknown")
+        success = result.get("success", False)
         if self._signal_manager:
             try:
-                # Calculate success rate for this tool (filter by tool_name in experience type)
-                # For now, just track overall success rate per tool via experience logger
-                # TODO: In Phase 2, this will use Beta tracker for proper Bayesian damping
-                tool_experiences = self.experience_logger.get_experiences_by_type("tool_execution", limit=100)
-                tool_specific = [exp for exp in tool_experiences if exp.data.get("tool_name") == tool_name]
-                if tool_specific:
-                    success_count = sum(1 for exp in tool_specific if exp.outcome == "success")
-                    success_rate = success_count / len(tool_specific)
-                    signal_name = f"toolchain.{tool_name}.success_rate"
-                    self._signal_manager.update(signal_name, success_rate)
+                # Use record_tool_success which handles Beta tracking automatically
+                self._signal_manager.record_tool_success(tool_name, success)
             except Exception as e:
                 logger.debug(f"Error updating toolchain success rate signal: {e}")
         
@@ -541,3 +534,64 @@ class LearningTool:
             "success": True,
             "message": "Cleared observation buffer",
         }
+    
+    def format_result(self, result: Dict[str, Any]) -> str:
+        """
+        Format tool result for LLM consumption.
+        
+        Args:
+            result: Tool execution result dictionary
+            
+        Returns:
+            Formatted string representation
+        """
+        if not result.get("success"):
+            error = result.get("error", "Unknown error")
+            return f"Error: {error}"
+        
+        # Format based on action result structure
+        message = result.get("message", "")
+        
+        # If there's a message, use it
+        if message:
+            return message
+        
+        # Format specific result types
+        if "new_procedures" in result:
+            # For extract_patterns
+            new_procedures = result.get("new_procedures", [])
+            count = len(new_procedures)
+            total = result.get("total_procedures", 0)
+            return f"Extracted {count} new procedure(s) (total: {total})"
+        elif "procedures" in result:
+            procedures = result.get("procedures", [])
+            count = len(procedures)
+            return f"Found {count} applicable procedure(s)"
+        elif "skills" in result:
+            skills = result.get("skills", [])
+            count = len(skills)
+            return f"Found {count} applicable skill(s)"
+        elif "suggestions" in result:
+            suggestions = result.get("suggestions", [])
+            count = len(suggestions)
+            return f"Generated {count} learning suggestion(s)"
+        elif "procedure_name" in result:
+            # For apply_procedure
+            proc_name = result.get("procedure_name", "unknown")
+            tool_calls_count = result.get("count", 0)
+            return f"Procedure '{proc_name}' applied: {tool_calls_count} tool call(s) generated"
+        elif "skill" in result or "skill_name" in result:
+            # For create_skill or update_skill_experience
+            skill = result.get("skill", {})
+            skill_name = skill.get("name", result.get("skill_name", "unknown")) if isinstance(skill, dict) else result.get("skill_name", "unknown")
+            return f"Skill '{skill_name}' updated successfully"
+        elif "state" in result:
+            # For get_learning_state
+            return "Learning system state retrieved successfully"
+        elif "tool_call" in result:
+            # For observe_tool_call
+            tool_name = result.get("tool_call", "unknown")
+            return f"Observed tool call: {tool_name}"
+        else:
+            # Generic success message
+            return "Learning operation completed successfully"

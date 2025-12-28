@@ -165,6 +165,36 @@ class ComputationalAffectMonitor:
         self._emotional_regulator = regulator
         logger.info("Set emotional regulator for ComputationalAffectMonitor")
     
+    def set_signal_manager(self, signal_manager: Optional[Any]) -> None:
+        """
+        Set signal manager for damping affect signals.
+        
+        Args:
+            signal_manager: SignalManager instance
+        """
+        self._signal_manager = signal_manager
+        logger.info("Set signal manager for ComputationalAffectMonitor")
+    
+    def _update_damped_signal(self, signal_name: str, raw_value: float) -> float:
+        """
+        Update a signal through SignalManager if available, returning the damped value.
+        
+        Args:
+            signal_name: Name of the signal (e.g., "affect.valence", "affect.arousal")
+            raw_value: Raw signal value before damping
+            
+        Returns:
+            Damped signal value if SignalManager is available, otherwise raw_value
+        """
+        if self._signal_manager:
+            try:
+                damped_value = self._signal_manager.update(signal_name, raw_value)
+                return damped_value
+            except Exception as e:
+                logger.debug(f"Error updating {signal_name} signal through SignalManager: {e}")
+                return raw_value
+        return raw_value
+    
     def _compute_exponential_weighted_average(self, history: deque, timestamps: Optional[deque] = None, decay_rate: float = 0.1) -> float:
         """
         Compute exponential weighted average with recency weighting.
