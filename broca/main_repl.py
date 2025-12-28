@@ -691,6 +691,7 @@ def _initialize_reasoning_system(
                 logger.warning(f"Failed to initialize fact checker: {e}")
             
             # Create cognitive dissonance monitor
+            # Note: goal_manager will be wired after reasoning_tool is created
             cognitive_dissonance_monitor = CognitiveDissonanceMonitor(
                 self_model=self_model,
                 consistency_checker=consistency_checker,
@@ -702,7 +703,8 @@ def _initialize_reasoning_system(
                 weight_goal=reasoning_config.dissonance_weight_goal,
                 memory_manager=memory_manager,
                 z3_validator=z3_validator,
-                fact_checker=fact_checker
+                fact_checker=fact_checker,
+                goal_manager=None  # Will be wired after reasoning_tool is created
             )
             logger.info("✓ Cognitive dissonance monitor initialized")
             
@@ -967,6 +969,9 @@ def _initialize_reasoning_system(
             reasoning_tool.feedback_loop_manager = feedback_loop_manager
         if cognitive_dissonance_monitor:
             reasoning_tool.cognitive_dissonance_monitor = cognitive_dissonance_monitor
+            # Wire goal_manager to cognitive dissonance monitor now that reasoning_tool exists
+            if reasoning_tool.goal_manager:
+                cognitive_dissonance_monitor.goal_manager = reasoning_tool.goal_manager
         if self_model_feedback_loop:
             reasoning_tool.self_model_feedback_loop = self_model_feedback_loop
         if affect_monitor:

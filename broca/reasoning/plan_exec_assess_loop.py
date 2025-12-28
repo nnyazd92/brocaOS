@@ -291,11 +291,6 @@ class PlanForecastReplanExecuteAssessLoop:
         if self.current_phase == LoopPhase.EXECUTE:
             return True
         
-        # Can execute if transitioning from FORECAST (forecast approved) to EXECUTE
-        if self.current_phase == LoopPhase.FORECAST and self.current_forecast:
-            if not self.current_forecast.should_replan:
-                return True
-        
         return False
     
     def extract_plan_from_response(self, response_text: str) -> Optional[Plan]:
@@ -500,8 +495,10 @@ class PlanForecastReplanExecuteAssessLoop:
             Forecast directive message
         """
         forecast_directive = (
-            f"\n\n[SYSTEM DIRECTIVE - FORECAST REQUIRED]\n"
-            f"Plan {plan.plan_id} has been created. Before executing actions, you MUST forecast the plan's feasibility and predict outcomes.\n\n"
+            f"\n\n[SYSTEM DIRECTIVE - FORECAST REQUIRED - DO NOT USE TOOLS]\n"
+            f"Plan {plan.plan_id} has been created. Before executing ANY actions or using ANY tools, you MUST provide a forecast.\n\n"
+            f"CRITICAL: You must provide the forecast in your text response. DO NOT use any tools. DO NOT make any tool calls.\n"
+            f"Simply provide your forecast analysis in the response text below.\n\n"
             f"Your forecast must include:\n"
             f"1. **Feasibility Score**: A score from 0.0 to 1.0 indicating how feasible the plan is\n"
             f"2. **Predicted Outcomes**: What you expect to happen if this plan is executed\n"
@@ -522,7 +519,7 @@ class PlanForecastReplanExecuteAssessLoop:
             f"**Recommendations:**\n"
             f"- [First recommendation]\n\n"
             f"After providing your forecast, the system will determine if re-planning is needed.\n"
-            f"DO NOT execute any tool calls until forecast is complete and plan is approved."
+            f"DO NOT execute any tool calls. DO NOT use any tools. Provide your forecast analysis in text only."
         )
         
         return forecast_directive

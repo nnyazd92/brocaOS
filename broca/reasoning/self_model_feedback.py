@@ -280,10 +280,29 @@ class SelfModelFeedbackLoop:
                 # Measure new dissonance (if response available)
                 new_dissonance = old_dissonance  # Default to old if can't measure
                 if response:
-                    new_metrics = self.cognitive_dissonance_monitor.measure_dissonance(
-                        response=response,
-                        conversation_context=conversation_context
-                    )
+                    # Use measure_dissonance_from_conversation if we have full messages
+                    # Otherwise use measure_dissonance with automatic extraction
+                    if conversation_context and isinstance(conversation_context, list) and len(conversation_context) > 0:
+                        # Check if conversation_context has full message structure
+                        has_full_messages = any(isinstance(msg, dict) and "tool_calls" in msg for msg in conversation_context)
+                        if has_full_messages:
+                            # Use helper method that extracts tool_usage automatically
+                            new_metrics = self.cognitive_dissonance_monitor.measure_dissonance(
+                                response=response,
+                                conversation_context=conversation_context
+                            )
+                        else:
+                            # Use basic method - it will try to extract tool_usage and reasoning_goals automatically
+                            new_metrics = self.cognitive_dissonance_monitor.measure_dissonance(
+                                response=response,
+                                conversation_context=conversation_context
+                            )
+                    else:
+                        # Use basic method with automatic extraction
+                        new_metrics = self.cognitive_dissonance_monitor.measure_dissonance(
+                            response=response,
+                            conversation_context=conversation_context
+                        )
                     new_dissonance = new_metrics.overall_dissonance
                 
                 # Compute effectiveness

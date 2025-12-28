@@ -9,7 +9,7 @@ from pathlib import Path
 
 import psutil
 import threading
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -201,19 +201,61 @@ def create_session(conversation_id: str) -> ConversationSession:
     return session
 
 def generate_title(user_message: str) -> str:
-    """Generate a short, punchy title using the LLM."""
+    """Generate a short, punchy title using the LLM.
+    
+    Note: This function blocks and should be called in a background thread/task.
+    For non-blocking usage, use update_conversation_title_async() instead.
+    
+    Uses direct LLM call to avoid tool access and PFREA loop interference.
+    """
     rt = get_runtime()
     prompt = f"Generate a very short (max 5 words), punchy title for a conversation that starts with: '{user_message}'. Return ONLY the title text, no quotes or punctuation."
+    
+    # Use direct LLM call to avoid tool access and session overhead
+    system_prompt = (
+        "You are a title generator. Your task is to generate very short, punchy titles for conversations. "
+        "DO NOT use any tools. DO NOT search the web. DO NOT make any tool calls. "
+        "Return ONLY the title text, no quotes, no punctuation, no explanations."
+    )
+    
     try:
-        temp_session = ConversationSession(
-            llm=rt.session.llm,
-            internal_sensing_framework=rt.internal_sensing,
-        )
-        title = temp_session.send(prompt, stream=False)
-        return title.strip().strip('"').strip("'")
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        
+        # Direct LLM call - no session, no tools, no PFREA loop
+        response = rt.session.llm.chat(messages, temperature=0.7)
+        title = rt.session.llm.extract_assistant_content(response)
+        
+        if not title:
+            return user_message[:40] + "..."
+        
+        # Clean up the title
+        title = title.strip().strip('"').strip("'").strip()
+        # Remove any markdown formatting
+        title = title.replace("**", "").replace("*", "").replace("#", "").strip()
+        
+        return title if title else user_message[:40] + "..."
     except Exception as e:
-        logger.warning(f"Failed to generate title: {e}")
+        logger.warning(f"Failed to generate title: {e}", exc_info=True)
         return user_message[:40] + "..."
+
+
+def update_conversation_title_async(conversation_id: str, user_message: str) -> None:
+    """Update conversation title asynchronously in background."""
+    try:
+        title = generate_title(user_message)
+        storage = get_storage()
+        data = storage.load_conversation(conversation_id)
+        if data:
+            metadata = data.get("metadata", {})
+            metadata["title"] = title
+            metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+            storage.save_conversation(conversation_id, data.get("messages", []), metadata)
+            logger.debug(f"Updated conversation title asynchronously: {title}")
+    except Exception as e:
+        logger.warning(f"Failed to update conversation title asynchronously: {e}", exc_info=True)
 
 
 @app.get("/api/metrics")
@@ -1112,7 +1154,17 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
         data = storage.load_conversation(conversation_id)
         metadata = data.get("metadata", {}) if data else {}
         if metadata.get("title") == "New conversation":
-            metadata["title"] = generate_title(user_message)
+            # Don't block - title generation will happen in background thread
+            # Use default title for now, will be updated asynchronously
+            metadata["title"] = user_message[:40] + "..."
+            # Schedule title generation in background thread (non-blocking)
+            import threading
+            thread = threading.Thread(
+                target=update_conversation_title_async,
+                args=(conversation_id, user_message),
+                daemon=True
+            )
+            thread.start()
         metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
         storage.save_conversation(conversation_id, session.messages, metadata)
         
@@ -1217,7 +1269,7 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
     yield json.dumps(done_data) + "\n"
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
     # Import config locally at the very start to avoid scoping issues
     from .config import config as app_config
     
@@ -1334,7 +1386,10 @@ async def chat(req: ChatRequest):
         data = storage.load_conversation(req.conversation_id)
         metadata = data.get("metadata", {}) if data else {}
         if metadata.get("title") == "New conversation":
-            metadata["title"] = generate_title(last.content)
+            # Don't block - use default title for now, generate proper title in background
+            metadata["title"] = last.content[:40] + "..."
+            # Schedule title generation as background task (non-blocking)
+            background_tasks.add_task(update_conversation_title_async, req.conversation_id, last.content)
         metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
         storage.save_conversation(req.conversation_id, session.messages, metadata)
         

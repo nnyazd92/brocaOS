@@ -95,7 +95,8 @@ class CognitiveDissonanceMonitor:
         weight_goal: float = 0.2,
         memory_manager: Optional[Any] = None,
         z3_validator: Optional[Any] = None,
-        fact_checker: Optional[Any] = None
+        fact_checker: Optional[Any] = None,
+        goal_manager: Optional[Any] = None
     ):
         """
         Initialize cognitive dissonance monitor.
@@ -112,6 +113,7 @@ class CognitiveDissonanceMonitor:
             memory_manager: Optional MemoryManager for memory conflict detection
             z3_validator: Optional Z3LogicalValidator for logical validation
             fact_checker: Optional FactChecker for web search fact-checking
+            goal_manager: Optional GoalManager for extracting active reasoning goals
         """
         self.self_model = self_model
         self.consistency_checker = consistency_checker
@@ -120,6 +122,7 @@ class CognitiveDissonanceMonitor:
         self.memory_manager = memory_manager
         self.z3_validator = z3_validator
         self.fact_checker = fact_checker
+        self.goal_manager = goal_manager
         
         # Weights for aggregation (must sum to ~1.0)
         total_weight = weight_logical + weight_factual + weight_behavioral + weight_goal
@@ -320,6 +323,10 @@ class CognitiveDissonanceMonitor:
                 metrics.has_sufficient_data = False
         
         # Measure behavioral dissonance
+        # Try to extract tool_usage from conversation_context if not provided
+        if not tool_usage and conversation_context:
+            tool_usage = self._extract_tool_usage_from_context(conversation_context)
+        
         if tool_usage:
             behavioral_dissonance = self._measure_behavioral_dissonance(tool_usage)
             if behavioral_dissonance is not None:
@@ -340,6 +347,10 @@ class CognitiveDissonanceMonitor:
                 metrics.has_sufficient_data = False
         
         # Measure goal-based dissonance
+        # Try to extract reasoning_goals from goal_manager if not provided
+        if not reasoning_goals and self.goal_manager:
+            reasoning_goals = self._extract_reasoning_goals_from_goal_manager()
+        
         if reasoning_goals:
             goal_dissonance = self._measure_goal_dissonance(reasoning_goals)
             if goal_dissonance is not None:
@@ -770,6 +781,10 @@ class CognitiveDissonanceMonitor:
             
             capability_text = " ".join(capabilities).lower()
             constraint_values = [v.get("value", str(v)).lower() for v in constraints.values()]
+            constraint_text = " ".join(constraint_values).lower()
+            
+            # Track tool usage frequency for pattern analysis
+            tool_counts: Dict[str, int] = {}
             
             # Analyze each tool usage
             for tool_call in tool_usage:
@@ -778,39 +793,91 @@ class CognitiveDissonanceMonitor:
                     continue
                 
                 tool_name_lower = tool_name.lower()
+                tool_counts[tool_name_lower] = tool_counts.get(tool_name_lower, 0) + 1
                 
-                # Check if tool is mentioned in capabilities
-                tool_mentioned = any(tool_name_lower in cap.lower() or cap.lower() in tool_name_lower 
-                                    for cap in capabilities)
+                # Enhanced capability matching - check for semantic similarity
+                # Split tool name into words for better matching
+                tool_words = set(tool_name_lower.split("_"))
+                tool_mentioned = False
+                for cap in capabilities:
+                    cap_lower = cap.lower()
+                    cap_words = set(cap_lower.split())
+                    # Check for word overlap (semantic similarity)
+                    if tool_words & cap_words:  # Intersection of word sets
+                        tool_mentioned = True
+                        break
+                    # Also check substring matches
+                    if tool_name_lower in cap_lower or cap_lower in tool_name_lower:
+                        tool_mentioned = True
+                        break
                 
-                # Check for constraint violations
+                # Check for constraint violations with enhanced detection
                 constraint_violation = False
                 violation_type = None
+                violation_severity = 0.0
                 
                 # Check for read-only constraint violations
-                if "read" in " ".join(constraint_values) and "read-only" in " ".join(constraint_values).lower():
-                    # Check if tool is a write operation
-                    write_tools = ["write", "create", "update", "delete", "modify", "edit", "save", "store"]
-                    if any(write in tool_name_lower for write in write_tools):
+                if "read-only" in constraint_text or "read only" in constraint_text:
+                    # Check if tool is a write operation (more comprehensive list)
+                    write_keywords = ["write", "create", "update", "delete", "modify", "edit", "save", "store", 
+                                     "remove", "add", "insert", "append", "change", "alter", "set"]
+                    if any(keyword in tool_name_lower for keyword in write_keywords):
                         constraint_violation = True
                         violation_type = "read_only_violation"
-                        deviation_score = max(deviation_score, 0.8)  # High deviation for constraint violation
-                        violations.append({
-                            "type": violation_type,
-                            "tool": tool_name,
-                            "severity": 0.8,
-                            "description": f"Tool {tool_name} violates read-only constraint"
-                        })
+                        violation_severity = 0.8
                 
-                # Check for capability mismatch
+                # Check for other constraint violations
+                # Look for explicit tool restrictions in constraints
+                for constraint_value in constraint_values:
+                    constraint_lower = constraint_value.lower()
+                    # Check if constraint explicitly mentions this tool or tool category
+                    if tool_name_lower in constraint_lower or any(word in constraint_lower for word in tool_words):
+                        # Check if it's a restriction (contains words like "not", "avoid", "prohibit", "forbid")
+                        restriction_keywords = ["not", "avoid", "prohibit", "forbid", "never", "don't", "do not"]
+                        if any(keyword in constraint_lower for keyword in restriction_keywords):
+                            constraint_violation = True
+                            violation_type = "explicit_constraint_violation"
+                            violation_severity = max(violation_severity, 0.9)  # Very high for explicit violations
+                
+                # Record constraint violations
+                if constraint_violation:
+                    deviation_score = max(deviation_score, violation_severity)
+                    violations.append({
+                        "type": violation_type,
+                        "tool": tool_name,
+                        "severity": violation_severity,
+                        "description": f"Tool {tool_name} violates constraint: {violation_type}"
+                    })
+                
+                # Check for capability mismatch (only if no constraint violation)
                 if not tool_mentioned and not constraint_violation:
                     # Tool not mentioned in capabilities - potential deviation
-                    deviation_score = max(deviation_score, 0.3)  # Medium deviation
+                    # Lower severity if tool seems reasonable (common tools)
+                    common_tools = ["read", "search", "get", "fetch", "list", "find", "query"]
+                    is_common = any(common in tool_name_lower for common in common_tools)
+                    severity = 0.2 if is_common else 0.4  # Lower for common tools
+                    deviation_score = max(deviation_score, severity)
                     violations.append({
                         "type": "capability_mismatch",
                         "tool": tool_name,
-                        "severity": 0.3,
+                        "severity": severity,
                         "description": f"Tool {tool_name} not mentioned in stated capabilities"
+                    })
+            
+            # Analyze tool usage patterns for additional insights
+            # Check for excessive use of same tool (might indicate inefficiency)
+            if len(tool_counts) > 0:
+                max_count = max(tool_counts.values())
+                total_tools = len(tool_usage)
+                if max_count > total_tools * 0.5 and total_tools > 3:
+                    # More than 50% of tools are the same - potential inefficiency
+                    most_used = [name for name, count in tool_counts.items() if count == max_count][0]
+                    deviation_score = max(deviation_score, 0.2)  # Low severity for pattern issues
+                    violations.append({
+                        "type": "inefficient_pattern",
+                        "tool": most_used,
+                        "severity": 0.2,
+                        "description": f"Excessive use of tool {most_used} ({max_count}/{total_tools} calls)"
                     })
             
             # Use Z3 to validate tool usage chains for logical consistency
@@ -879,40 +946,70 @@ class CognitiveDissonanceMonitor:
             conflict_score = 0.0
             violations: List[Dict[str, Any]] = []
             
-            # Extract constraints from self model
+            # Extract constraints and capabilities from self model
             constraints = self.self_model.constraints
             constraint_values = [v.get("value", str(v)).lower() for v in constraints.values()]
+            constraint_text = " ".join(constraint_values).lower()
             capabilities = [cap.get("text", str(cap)).lower() for cap in self.self_model.capabilities]
+            capability_text = " ".join(capabilities).lower()
             
-            # Use Z3 to check if goals conflict with constraints
-            if self.z3_validator and self.z3_validator.enabled:
+            # Extract self-model objectives (if available in metadata or constraints)
+            # Objectives might be in constraints with key "objectives" or in metadata
+            objectives = []
+            if "objectives" in constraints:
+                obj_value = constraints["objectives"]
+                if isinstance(obj_value, dict):
+                    objectives.append(obj_value.get("value", "").lower())
+                else:
+                    objectives.append(str(obj_value).lower())
+            
+            # Convert reasoning goals to a standard format for analysis
+            goals_to_check: List[Dict[str, Any]] = []
+            try:
+                from .goal_manager import Goal, GoalType, GoalStatus
+                
+                for goal_item in reasoning_goals:
+                    if isinstance(goal_item, Goal):
+                        goals_to_check.append({
+                            "name": goal_item.name,
+                            "description": goal_item.description,
+                            "goal_type": getattr(goal_item, 'goal_type', None),
+                            "status": getattr(goal_item, 'status', None),
+                            "priority": getattr(goal_item, 'priority', 0.5),
+                            "dependencies": getattr(goal_item, 'dependencies', [])
+                        })
+                    elif isinstance(goal_item, dict):
+                        goals_to_check.append(goal_item)
+            except Exception as e:
+                logger.debug(f"Error converting goals: {e}")
+                # Fallback: use goals as-is if conversion fails
+                goals_to_check = [g if isinstance(g, dict) else {"name": str(g), "description": str(g)} 
+                                 for g in reasoning_goals]
+            
+            # Use Z3 to check if goals conflict with constraints (if available)
+            if self.z3_validator and self.z3_validator.enabled and goals_to_check:
                 try:
                     from .goal_manager import Goal, GoalType, GoalStatus
                     
-                    # Convert reasoning goals to Goal objects if needed
-                    goals_to_check: List[Goal] = []
-                    for goal_dict in reasoning_goals:
-                        if isinstance(goal_dict, Goal):
-                            goals_to_check.append(goal_dict)
-                        else:
-                            # Try to create Goal from dict
-                            try:
-                                goal = Goal(
-                                    name=goal_dict.get("name", "unknown"),
-                                    description=goal_dict.get("description", str(goal_dict)),
-                                    goal_type=GoalType(goal_dict.get("goal_type", "achieve")),
-                                    status=GoalStatus(goal_dict.get("status", "active")),
-                                    priority=goal_dict.get("priority", 0.5),
-                                    dependencies=goal_dict.get("dependencies", [])
-                                )
-                                goals_to_check.append(goal)
-                            except Exception:
-                                # Skip invalid goals
-                                continue
+                    # Convert to Goal objects for Z3 validation
+                    goal_objects: List[Goal] = []
+                    for goal_dict in goals_to_check:
+                        try:
+                            goal = Goal(
+                                name=goal_dict.get("name", "unknown"),
+                                description=goal_dict.get("description", str(goal_dict)),
+                                goal_type=GoalType(goal_dict.get("goal_type", "achieve")),
+                                status=GoalStatus(goal_dict.get("status", "active")),
+                                priority=goal_dict.get("priority", 0.5),
+                                dependencies=goal_dict.get("dependencies", [])
+                            )
+                            goal_objects.append(goal)
+                        except Exception:
+                            continue
                     
-                    if goals_to_check:
+                    if goal_objects:
                         # Validate goal dependencies
-                        is_valid, error, warnings = self.z3_validator.validate_goal_dependencies(goals_to_check)
+                        is_valid, error, warnings = self.z3_validator.validate_goal_dependencies(goal_objects)
                         
                         if not is_valid:
                             conflict_score = max(conflict_score, 0.7)  # High conflict for unsatisfiable goals
@@ -922,41 +1019,91 @@ class CognitiveDissonanceMonitor:
                                 "error": error,
                                 "description": f"Goal dependencies are unsatisfiable: {error}"
                             })
-                        
-                        # Check each goal against constraints
-                        for goal in goals_to_check:
-                            goal_text = f"{goal.name} {goal.description}".lower()
-                            
-                            # Check for constraint violations
-                            for constraint_value in constraint_values:
-                                # Simple heuristic: check if goal conflicts with constraint
-                                # This is simplified - in practice would use semantic analysis
-                                
-                                # Check for explicit constraint violations
-                                if "read-only" in constraint_value and any(word in goal_text for word in ["write", "modify", "edit", "change"]):
-                                    conflict_score = max(conflict_score, 0.8)
-                                    violations.append({
-                                        "type": "constraint_violation",
-                                        "goal": goal.name,
-                                        "constraint": constraint_value,
-                                        "severity": 0.8,
-                                        "description": f"Goal {goal.name} violates constraint: {constraint_value}"
-                                    })
-                                
-                                # Check for capability mismatches
-                                if capabilities:
-                                    goal_mentions_capability = any(cap in goal_text for cap in capabilities)
-                                    if not goal_mentions_capability and len(goal_text) > 20:
-                                        # Goal doesn't align with stated capabilities
-                                        conflict_score = max(conflict_score, 0.4)
-                                        violations.append({
-                                            "type": "capability_mismatch",
-                                            "goal": goal.name,
-                                            "severity": 0.4,
-                                            "description": f"Goal {goal.name} doesn't align with stated capabilities"
-                                        })
                 except Exception as e:
                     logger.debug(f"Error in Z3 goal validation: {e}")
+            
+            # Check each goal against constraints and capabilities
+            for goal_dict in goals_to_check:
+                goal_name = goal_dict.get("name", "unknown")
+                goal_description = goal_dict.get("description", str(goal_dict))
+                goal_text = f"{goal_name} {goal_description}".lower()
+                goal_words = set(goal_text.split())
+                
+                # Check for constraint violations with enhanced detection
+                for constraint_value in constraint_values:
+                    constraint_lower = constraint_value.lower()
+                    
+                    # Check for explicit constraint violations
+                    # Read-only violations
+                    if "read-only" in constraint_lower or "read only" in constraint_lower:
+                        write_keywords = ["write", "modify", "edit", "change", "update", "delete", "create"]
+                        if any(keyword in goal_text for keyword in write_keywords):
+                            conflict_score = max(conflict_score, 0.8)
+                            violations.append({
+                                "type": "constraint_violation",
+                                "goal": goal_name,
+                                "constraint": constraint_value,
+                                "severity": 0.8,
+                                "description": f"Goal {goal_name} violates read-only constraint"
+                            })
+                    
+                    # Check for explicit restrictions in constraints
+                    restriction_keywords = ["not", "avoid", "prohibit", "forbid", "never", "don't", "do not"]
+                    if any(keyword in constraint_lower for keyword in restriction_keywords):
+                        # Check if goal mentions something that's restricted
+                        constraint_words = set(constraint_lower.split())
+                        if goal_words & constraint_words:  # Word overlap
+                            conflict_score = max(conflict_score, 0.9)  # Very high for explicit restrictions
+                            violations.append({
+                                "type": "explicit_constraint_violation",
+                                "goal": goal_name,
+                                "constraint": constraint_value,
+                                "severity": 0.9,
+                                "description": f"Goal {goal_name} violates explicit restriction: {constraint_value}"
+                            })
+                
+                # Check for capability mismatches with enhanced semantic matching
+                if capabilities:
+                    # Check for word overlap between goal and capabilities
+                    capability_words = set()
+                    for cap in capabilities:
+                        capability_words.update(cap.split())
+                    
+                    goal_capability_overlap = goal_words & capability_words
+                    goal_mentions_capability = len(goal_capability_overlap) > 0
+                    
+                    # Also check substring matches
+                    if not goal_mentions_capability:
+                        goal_mentions_capability = any(cap in goal_text or goal_text in cap for cap in capabilities)
+                    
+                    # Only flag mismatch if goal is substantial and clearly doesn't align
+                    if not goal_mentions_capability and len(goal_text) > 15:
+                        # Check if goal seems reasonable (common goal patterns)
+                        common_goal_patterns = ["help", "assist", "provide", "answer", "find", "search", "get", "retrieve"]
+                        is_common = any(pattern in goal_text for pattern in common_goal_patterns)
+                        severity = 0.3 if is_common else 0.5  # Lower for common patterns
+                        conflict_score = max(conflict_score, severity)
+                        violations.append({
+                            "type": "capability_mismatch",
+                            "goal": goal_name,
+                            "severity": severity,
+                            "description": f"Goal {goal_name} doesn't align with stated capabilities"
+                        })
+                
+                # Check goal alignment with objectives (if available)
+                if objectives:
+                    objective_text = " ".join(objectives).lower()
+                    objective_words = set(objective_text.split())
+                    goal_objective_overlap = goal_words & objective_words
+                    if len(goal_objective_overlap) == 0 and len(goal_text) > 20:
+                        # Goal doesn't align with stated objectives
+                        conflict_score = max(conflict_score, 0.4)
+                        violations.append({
+                            "type": "objective_mismatch",
+                            "goal": goal_name,
+                            "severity": 0.4,
+                            "description": f"Goal {goal_name} doesn't align with stated objectives"
+                        })
             
             # Track conflicts
             if violations:
@@ -1164,6 +1311,64 @@ class CognitiveDissonanceMonitor:
             if msg.get("role") == "assistant" and msg.get("tool_calls"):
                 tool_usage.extend(msg.get("tool_calls", []))
         return tool_usage
+    
+    def _extract_tool_usage_from_context(self, conversation_context: List[Dict[str, str]]) -> Optional[List[Dict[str, Any]]]:
+        """
+        Extract tool usage from conversation context.
+        
+        Args:
+            conversation_context: List of conversation context dictionaries
+            
+        Returns:
+            List of tool calls if found, None otherwise
+        """
+        try:
+            # Look for tool_calls in context messages
+            tool_usage = []
+            for msg in conversation_context:
+                if isinstance(msg, dict) and msg.get("role") == "assistant":
+                    # Check if message has tool_calls (might be in different format)
+                    if "tool_calls" in msg:
+                        tool_calls = msg.get("tool_calls", [])
+                        if isinstance(tool_calls, list):
+                            tool_usage.extend(tool_calls)
+            return tool_usage if tool_usage else None
+        except Exception as e:
+            logger.debug(f"Error extracting tool usage from context: {e}")
+            return None
+    
+    def _extract_reasoning_goals_from_goal_manager(self) -> Optional[List[Dict[str, Any]]]:
+        """
+        Extract active reasoning goals from GoalManager.
+        
+        Returns:
+            List of goal dictionaries if found, None otherwise
+        """
+        try:
+            if not self.goal_manager:
+                return None
+            
+            # Get active goals from goal manager
+            if hasattr(self.goal_manager, 'get_active_goals'):
+                active_goals = self.goal_manager.get_active_goals()
+                if active_goals:
+                    # Convert Goal objects to dictionaries
+                    goals_list = []
+                    for goal in active_goals:
+                        if hasattr(goal, 'name') and hasattr(goal, 'description'):
+                            goals_list.append({
+                                "name": goal.name,
+                                "description": goal.description,
+                                "goal_type": getattr(goal, 'goal_type', None),
+                                "status": getattr(goal, 'status', None),
+                                "priority": getattr(goal, 'priority', 0.5),
+                                "dependencies": getattr(goal, 'dependencies', [])
+                            })
+                    return goals_list if goals_list else None
+            return None
+        except Exception as e:
+            logger.debug(f"Error extracting reasoning goals from goal manager: {e}")
+            return None
     
     @staticmethod
     def extract_conversation_context(messages: List[Dict[str, Any]], limit: int = 5) -> List[Dict[str, str]]:

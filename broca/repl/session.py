@@ -192,6 +192,7 @@ class ConversationSession:
         # Initialize PFREA loop (always enabled - mandatory)
         self.pea_loop = None  # Keep name for backward compatibility
         self.pfrea_loop = None
+        self._forecast_directive_count = 0  # Track forecast directive injections to prevent infinite loops
         try:
             from ..reasoning.plan_exec_assess_loop import PlanForecastReplanExecuteAssessLoop, PlanExecuteAssessLoop
             self.pfrea_loop = PlanForecastReplanExecuteAssessLoop(
@@ -690,15 +691,17 @@ When you need to use tools to complete a task:
         # Handle tool calls iteratively (may require multiple LLM calls)
         iterations = 0
         
-        # PEA Loop: Check if planning is required before tool execution
-        if self.pea_loop:
+        # PFREA Loop: Check if planning is required before tool execution
+        loop = self.pfrea_loop or self.pea_loop
+        if loop:
             # Reset for new goal if this is a new user message
-            if self.pea_loop.current_phase is None or (LoopPhase and self.pea_loop.current_phase == LoopPhase.COMPLETE):
-                self.pea_loop.reset_for_new_goal(user_text)
+            if loop.current_phase is None or (LoopPhase and loop.current_phase == LoopPhase.COMPLETE):
+                loop.reset_for_new_goal(user_text)
+                self._forecast_directive_count = 0  # Reset forecast directive counter for new goal
             
             # Check if planning should be enforced
-            if self.pea_loop.should_require_plan(user_text, has_tool_calls=False):
-                user_text = self.pea_loop.enforce_planning_phase(user_text)
+            if loop.should_require_plan(user_text, has_tool_calls=False):
+                user_text = loop.enforce_planning_phase(user_text)
                 # Update user message in messages list
                 if self.messages and self.messages[-1].get("role") == "user":
                     self.messages[-1]["content"] = user_text
@@ -1212,9 +1215,48 @@ When you need to use tools to complete a task:
                 self._save_conversation()
                 return error_with_trace
 
+            # Extract thought_signature for Gemini 3 FIRST (before processing tool_calls)
+            # Thought signature persists across turns to maintain reasoning context
+            # Must be extracted BEFORE tool_calls so it's available when _handle_tool_calls processes them
+            if is_gemini and hasattr(self.llm, 'extract_thought_signature'):
+                extracted_sig = self.llm.extract_thought_signature(response)
+                if extracted_sig:
+                    self._current_thought_signature = extracted_sig
+                    logger.info(
+                        "Extracted thought_signature from Gemini response",
+                        extra={
+                            "event": "thought_signature_extracted",
+                            "iteration": iterations,
+                        }
+                    )
+                else:
+                    logger.debug(
+                        "No thought_signature in Gemini response",
+                        extra={
+                            "event": "no_thought_signature_in_response",
+                            "iteration": iterations,
+                        }
+                    )
+
             # Extract tool calls if any (needed for logging below)
             extract_tool_calls = getattr(self.llm, 'extract_tool_calls', lambda resp: [])
             tool_calls = extract_tool_calls(response) or []
+
+            # For Gemini, also check if tool_calls themselves contain thought_signature
+            # (they might have been included in the response)
+            if is_gemini and tool_calls and not getattr(self, '_current_thought_signature', None):
+                for tool_call in tool_calls:
+                    if isinstance(tool_call, dict) and "thought_signature" in tool_call:
+                        self._current_thought_signature = tool_call["thought_signature"]
+                        logger.info(
+                            "Extracted thought_signature from tool_call in Gemini response",
+                            extra={
+                                "event": "thought_signature_extracted_from_tool_call",
+                                "iteration": iterations,
+                                "tool_call_id": tool_call.get("id", "unknown"),
+                            }
+                        )
+                        break  # Use first found signature
 
             # Extract reasoning_content for reasoner model (if present)
             # Always try to extract, even if None (for logging purposes)
@@ -1251,30 +1293,6 @@ When you need to use tools to complete a task:
                     # Initialize to empty string if we have tool_calls (field must exist)
                     if tool_calls and not hasattr(self, '_current_reasoning_content'):
                         self._current_reasoning_content = ""
-            
-            # Extract thought_signature for Gemini 3 (if present)
-            # Thought signature persists across turns to maintain reasoning context
-            if is_gemini and hasattr(self.llm, 'extract_thought_signature'):
-                extracted_sig = self.llm.extract_thought_signature(response)
-                if extracted_sig:
-                    self._current_thought_signature = extracted_sig
-                    logger.info(
-                        "Extracted thought_signature from Gemini response",
-                        extra={
-                            "event": "thought_signature_extracted",
-                            "iteration": iterations,
-                            "has_tool_calls": bool(tool_calls),
-                        }
-                    )
-                else:
-                    logger.debug(
-                        "No thought_signature in Gemini response",
-                        extra={
-                            "event": "no_thought_signature_in_response",
-                            "iteration": iterations,
-                            "has_tool_calls": bool(tool_calls),
-                        }
-                    )
 
             # Instrumentation: Track processing depth from tool calls
             if self.internal_sensing_framework and tool_calls:
@@ -1305,11 +1323,13 @@ When you need to use tools to complete a task:
                     loop.current_plan = plan
                     loop.current_phase = LoopPhase.PLAN
                     logger.info(f"PFREA: Extracted plan from response: {plan.plan_id}")
+                    self._forecast_directive_count = 0  # Reset counter when plan is extracted
                     # If forecast is enabled, transition to FORECAST phase
                     if forecast_enabled and not tool_calls:
                         loop.current_phase = LoopPhase.FORECAST
                         forecast_directive = loop.enforce_forecast_phase(plan)
                         self.messages.append({"role": "user", "content": forecast_directive})
+                        self._forecast_directive_count = 1  # First forecast directive injection
                         logger.info("PFREA: Plan extracted, requesting forecast")
                         continue
                     elif not forecast_enabled:
@@ -1317,10 +1337,33 @@ When you need to use tools to complete a task:
                         loop.current_phase = LoopPhase.EXECUTE
 
             if tool_calls and self.tool_registry:
-                # PFREA Loop: Check if we can execute actions (mandatory enforcement)
+                # PFREA Loop: Try to extract forecast even when tool_calls are present (fallback)
                 loop = self.pfrea_loop or self.pea_loop
                 forecast_enabled = config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True
                 
+                if loop and loop.current_phase == LoopPhase.FORECAST and loop.current_plan and assistant_text:
+                    # Try to extract forecast from the text response even if tool calls are present
+                    forecast = loop.extract_forecast_from_response(assistant_text)
+                    if forecast:
+                        loop.current_forecast = forecast
+                        loop.forecast_history.append(forecast)
+                        logger.info(f"PFREA: Extracted forecast from response with tool calls (feasibility={forecast.feasibility_score:.2f})")
+                        self._forecast_directive_count = 0  # Reset counter
+                        
+                        # Check if re-planning is needed
+                        if loop.should_replan_after_forecast(forecast):
+                            loop.current_phase = LoopPhase.RE_PLAN
+                            replan_directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
+                            self.messages.append({"role": "user", "content": replan_directive})
+                            logger.info("PFREA: Forecast indicates re-planning needed")
+                            continue
+                        else:
+                            # Forecast approved, transition to EXECUTE
+                            loop.current_phase = LoopPhase.EXECUTE
+                            logger.info("PFREA: Forecast approved, proceeding to execution")
+                            # Continue to allow tool execution
+                
+                # PFREA Loop: Check if we can execute actions (mandatory enforcement)
                 if loop:
                     # Block tool execution if required phases are not complete
                     if not loop.can_execute_actions(forecast_enabled=forecast_enabled):
@@ -1331,10 +1374,20 @@ When you need to use tools to complete a task:
                             logger.warning("PFREA: Blocked tool execution - planning required")
                             continue
                         elif loop.should_require_forecast():
-                            directive = loop.enforce_forecast_phase(loop.current_plan)
-                            self.messages.append({"role": "user", "content": directive})
-                            logger.warning("PFREA: Blocked tool execution - forecast required")
-                            continue
+                            # Loop protection: prevent infinite loops
+                            if self._forecast_directive_count >= 3:
+                                logger.error("PFREA: Forecast directive injected 3 times, skipping forecast to prevent infinite loop")
+                                # Skip forecast and proceed to EXECUTE (graceful degradation)
+                                loop.current_forecast = None  # Mark as skipped
+                                loop.current_phase = LoopPhase.EXECUTE
+                                logger.warning("PFREA: Skipped forecast phase due to loop protection, proceeding to execution")
+                                # Continue to allow tool execution
+                            else:
+                                self._forecast_directive_count += 1
+                                directive = loop.enforce_forecast_phase(loop.current_plan)
+                                self.messages.append({"role": "user", "content": directive})
+                                logger.warning(f"PFREA: Blocked tool execution - forecast required (attempt {self._forecast_directive_count}/3)")
+                                continue
                         elif loop.should_require_replan():
                             # Re-plan based on forecast
                             forecast = loop.current_forecast
@@ -1470,6 +1523,7 @@ When you need to use tools to complete a task:
                         if forecast:
                             loop.current_forecast = forecast
                             loop.forecast_history.append(forecast)
+                            self._forecast_directive_count = 0  # Reset counter when forecast is successfully extracted
                             logger.info(f"PFREA: Extracted forecast for plan {forecast.plan_id} (feasibility={forecast.feasibility_score:.2f})")
                             
                             # Check if re-planning is needed
@@ -1493,6 +1547,7 @@ When you need to use tools to complete a task:
                             loop.current_plan = new_plan
                             loop.current_forecast = None  # Reset forecast for new plan
                             loop.current_phase = LoopPhase.FORECAST
+                            self._forecast_directive_count = 1  # Reset counter for new plan forecast
                             forecast_directive = loop.enforce_forecast_phase(new_plan)
                             self.messages.append({"role": "user", "content": forecast_directive})
                             logger.info(f"PFREA: Re-plan extracted, requesting forecast for new plan {new_plan.plan_id}")
