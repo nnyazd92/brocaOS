@@ -340,6 +340,9 @@ class BrowseConfig(BaseModel):
     session_storage_path: str = os.getenv("BROCA_BROWSE_SESSION_STORAGE_PATH", "runtime/browser_sessions")
     session_ttl_hours: int = int(os.getenv("BROCA_BROWSE_SESSION_TTL_HOURS", "24"))
     
+    # Trace storage
+    trace_storage_path: str = os.getenv("BROCA_BROWSE_TRACE_STORAGE_PATH", "docs/browse_traces")
+    
     # Budgets
     default_max_actions: int = int(os.getenv("BROCA_BROWSE_MAX_ACTIONS", "20"))
     default_max_wallclock_ms: int = int(os.getenv("BROCA_BROWSE_MAX_WALLCLOCK_MS", "60000"))
@@ -359,6 +362,9 @@ class BrowseConfig(BaseModel):
     
     # Domain reputation
     domain_reputation_file: str = os.getenv("BROCA_BROWSE_DOMAIN_REPUTATION_FILE", "data/browse_domain_reputation.json")
+    
+    # Safety
+    safety: BrowseSafetyConfig = BrowseSafetyConfig()
 
 
 class DampingConfig(BaseModel):

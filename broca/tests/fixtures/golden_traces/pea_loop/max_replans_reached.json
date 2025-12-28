@@ -1,0 +1,24 @@
+{
+  "scenario": "max_replans_reached",
+  "description": "All replan attempts exhausted",
+  "inputs": {
+    "user_message": "Fix the bug",
+    "max_replan_attempts": 3,
+    "plans": [
+      {"goal": "Fix the bug", "steps": [{"description": "Try A"}]},
+      {"goal": "Fix the bug", "steps": [{"description": "Try B"}]},
+      {"goal": "Fix the bug", "steps": [{"description": "Try C"}]}
+    ],
+    "executions": [
+      [{"tool_name": "terminal", "success": false}],
+      [{"tool_name": "terminal", "success": false}],
+      [{"tool_name": "terminal", "success": false}]
+    ]
+  },
+  "expected_outputs": {
+    "final_replan_count": 3,
+    "final_should_replan": false,
+    "final_phase": "complete"
+  }
+}
+

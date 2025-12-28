@@ -70,6 +70,7 @@ class FeedbackMetrics:
     behavioral_dissonance: float = 0.0
     goal_dissonance: float = 0.0
     dissonance_trend: str = "stable"  # "increasing", "decreasing", "stable"
+    has_sufficient_dissonance_data: bool = False  # True only when real measurements exist
 
 
 class FeedbackLoopManager:
@@ -262,14 +263,31 @@ class FeedbackLoopManager:
         behavioral_dissonance = 0.0
         goal_dissonance = 0.0
         dissonance_trend = "stable"
+        has_sufficient_dissonance_data = False
         
         if self.cognitive_dissonance_monitor:
             dissonance_data = self.cognitive_dissonance_monitor.get_aggregated_dissonance()
-            overall_dissonance = dissonance_data.get("overall_dissonance", 0.0)
-            logical_dissonance = dissonance_data.get("logical_dissonance", 0.0)
-            factual_dissonance = dissonance_data.get("factual_dissonance", 0.0)
-            behavioral_dissonance = dissonance_data.get("behavioral_dissonance", 0.0)
-            goal_dissonance = dissonance_data.get("goal_dissonance", 0.0)
+            # Check if we have sufficient data - must have both has_data AND has_sufficient_data
+            has_data = dissonance_data.get("has_data", False)
+            has_sufficient_data = dissonance_data.get("has_sufficient_data", False)
+            
+            if not has_data or not has_sufficient_data:
+                # Insufficient data - use 0.0 (neutral) and mark as insufficient
+                # Do NOT log warnings - this is expected when no measurements exist yet
+                overall_dissonance = 0.0
+                logical_dissonance = 0.0
+                factual_dissonance = 0.0
+                behavioral_dissonance = 0.0
+                goal_dissonance = 0.0
+                has_sufficient_dissonance_data = False
+            else:
+                # We have real measurements - use them
+                overall_dissonance = dissonance_data.get("overall_dissonance", 0.0)
+                logical_dissonance = dissonance_data.get("logical_dissonance", 0.0)
+                factual_dissonance = dissonance_data.get("factual_dissonance", 0.0)
+                behavioral_dissonance = dissonance_data.get("behavioral_dissonance", 0.0)
+                goal_dissonance = dissonance_data.get("goal_dissonance", 0.0)
+                has_sufficient_dissonance_data = True
             
             trend_analysis = self.cognitive_dissonance_monitor.get_trend_analysis()
             dissonance_trend = trend_analysis.get("trend", "stable")
@@ -287,7 +305,8 @@ class FeedbackLoopManager:
             factual_dissonance=factual_dissonance,
             behavioral_dissonance=behavioral_dissonance,
             goal_dissonance=goal_dissonance,
-            dissonance_trend=dissonance_trend
+            dissonance_trend=dissonance_trend,
+            has_sufficient_dissonance_data=has_sufficient_dissonance_data
         )
     
     def _apply_reinforcing_feedback(
@@ -553,6 +572,10 @@ class FeedbackLoopManager:
         metrics: FeedbackMetrics
     ):
         """Apply dissonance feedback using RL signal (for consistency with multi-signal approach)."""
+        # CRITICAL: Only process dissonance feedback if we have sufficient real data
+        if not metrics.has_sufficient_dissonance_data:
+            return
+        
         dissonance_reward = rl_metrics.dissonance_reward
         dissonance = 1.0 - dissonance_reward  # Convert reward back to dissonance
         
@@ -589,6 +612,11 @@ class FeedbackLoopManager:
     def _apply_dissonance_feedback(self, metrics: FeedbackMetrics):
         """Apply feedback based on cognitive dissonance metrics (backward compatibility)."""
         if not self.cognitive_dissonance_monitor:
+            return
+        
+        # CRITICAL: Only process dissonance feedback if we have sufficient real data
+        # Skip entirely if data is insufficient (no warnings, no corrections)
+        if not metrics.has_sufficient_dissonance_data:
             return
         
         # When dissonance is low, maintain current strategies (reinforcing)

@@ -28,6 +28,12 @@ if TYPE_CHECKING:
     from ..summarization.event_logger import EventLogger
     from ..summarization.manager import SummarizationManager
 
+# Import LoopPhase for PEA loop integration
+try:
+    from ..reasoning.plan_exec_assess_loop import LoopPhase
+except ImportError:
+    LoopPhase = None  # type: ignore
+
 # Import response analyzer for instrumentation
 try:
     from ..internal_sensing.response_analyzer import ResponseAnalyzer
@@ -61,7 +67,13 @@ class ConversationSession:
         world_state_aggregator: Optional["WorldStateAggregator"] = None,
         base_system_prompt: Optional[str] = None,
         color_manager: Optional[Any] = None,
+        goal_manager: Optional[Any] = None,
+        skill_manager: Optional[Any] = None,
+        experience_logger: Optional[Any] = None,
     ) -> None:
+        # Import config early for use throughout initialization
+        from ..config import config
+        
         # If an LLM client is provided, use it directly.
         # Otherwise, if a world_state_aggregator is available, wrap the
         # underlying client with a world-state-aware caching layer.
@@ -106,8 +118,6 @@ class ConversationSession:
             self._base_system_prompt_explicit = True
         else:
             # Fall back to config if not provided
-            from ..config import config
-
             self._base_system_prompt_internal = config.storage.base_system_prompt
             self._base_system_prompt_explicit = False
         
@@ -122,7 +132,6 @@ class ConversationSession:
         # Initialize summarization components if enabled (for manual /summarize command only)
         self._event_logger = None
         self._summarization_manager = None
-        from ..config import config
         if config.summarization.enabled:
             try:
                 from ..summarization.event_logger import EventLogger
@@ -180,6 +189,33 @@ class ConversationSession:
         # Store color manager for colorizing output
         self._color_manager = color_manager
 
+        # Initialize PEA loop if enabled
+        self.pea_loop = None
+        if config.reasoning.pea_loop_enabled:
+            try:
+                from ..reasoning.plan_exec_assess_loop import PlanExecuteAssessLoop
+                self.pea_loop = PlanExecuteAssessLoop(
+                    goal_manager=goal_manager,
+                    skill_manager=skill_manager,
+                    experience_logger=experience_logger,
+                    require_planning=config.reasoning.pea_loop_require_planning,
+                    max_replan_attempts=config.reasoning.pea_loop_max_replans,
+                    success_threshold=config.reasoning.pea_loop_success_threshold,
+                    track_failed_patterns=config.reasoning.pea_loop_track_failed_patterns,
+                    max_failed_patterns=config.reasoning.pea_loop_max_failed_patterns,
+                )
+                if goal_manager or skill_manager or experience_logger:
+                    logger.debug(f"PEA loop enabled for session with managers: goal_manager={goal_manager is not None}, skill_manager={skill_manager is not None}, experience_logger={experience_logger is not None}")
+                else:
+                    logger.debug("PEA loop enabled for session (managers will be wired later)")
+            except Exception as e:
+                logger.warning(f"Failed to initialize PEA loop: {e}", exc_info=True)
+        
+        # Store managers for later wiring if PEA loop is created later
+        self._goal_manager = goal_manager
+        self._skill_manager = skill_manager
+        self._experience_logger = experience_logger
+
         # Update system prompt with world state immediately if aggregator is available
         # This ensures world state is populated even before first user message
         # Note: We don't manually add system_prompt here because _update_system_prompt() will
@@ -236,6 +272,9 @@ When you need to use tools to complete a task:
         world_state_aggregator: Optional["WorldStateAggregator"] = None,
         base_system_prompt: Optional[str] = None,
         color_manager: Optional[Any] = None,
+        goal_manager: Optional[Any] = None,
+        skill_manager: Optional[Any] = None,
+        experience_logger: Optional[Any] = None,
     ) -> "ConversationSession":
         """Rehydrate a ConversationSession from stored conversation data.
 
@@ -245,6 +284,7 @@ When you need to use tools to complete a task:
         If no stored conversation exists, this behaves like creating a fresh
         session with the provided session_id.
         """
+        from ..config import config
         data = storage.load_conversation(session_id)
 
         # Create a bare session with explicit session_id and dependencies
@@ -258,6 +298,9 @@ When you need to use tools to complete a task:
             world_state_aggregator=world_state_aggregator,
             base_system_prompt=base_system_prompt,
             color_manager=color_manager,
+            goal_manager=goal_manager,
+            skill_manager=skill_manager,
+            experience_logger=experience_logger,
         )
 
         if not data:
@@ -374,7 +417,6 @@ When you need to use tools to complete a task:
         # Rebuild context graph from loaded messages if enabled
         if session._context_graph:
             try:
-                from ..config import config
                 if config.context.enabled:
                     # Rebuild graph from existing messages
                     parent_id = None
@@ -443,6 +485,38 @@ When you need to use tools to complete a task:
             ToolStatusDisplay instance or None if not available
         """
         return self._tool_status_display
+    
+    def wire_pea_loop_managers(
+        self,
+        goal_manager: Optional[Any] = None,
+        skill_manager: Optional[Any] = None,
+        experience_logger: Optional[Any] = None,
+    ) -> None:
+        """
+        Wire PEA loop managers after session initialization.
+        
+        Args:
+            goal_manager: Optional goal manager
+            skill_manager: Optional skill manager
+            experience_logger: Optional experience logger
+        """
+        if self.pea_loop:
+            if goal_manager is not None:
+                self.pea_loop.goal_manager = goal_manager
+                self._goal_manager = goal_manager
+            if skill_manager is not None:
+                self.pea_loop.skill_manager = skill_manager
+                self._skill_manager = skill_manager
+            if experience_logger is not None:
+                self.pea_loop.experience_logger = experience_logger
+                self._experience_logger = experience_logger
+            
+            if goal_manager or skill_manager or experience_logger:
+                logger.debug(
+                    f"Wired PEA loop managers: goal_manager={goal_manager is not None}, "
+                    f"skill_manager={skill_manager is not None}, "
+                    f"experience_logger={experience_logger is not None}"
+                )
 
     # ---------- Public API ----------
 
@@ -472,6 +546,7 @@ When you need to use tools to complete a task:
 
         Returns the assistant's final reply text after all tool calls are resolved.
         """
+        from ..config import config
         self._log_context_before_turn(user_text=user_text)
 
         # Clear reasoning_content when starting a new user turn (prevents 400 errors)
@@ -590,7 +665,6 @@ When you need to use tools to complete a task:
 
         # Determine if streaming should be used (default from config if not specified)
         if stream is None:
-            from ..config import config
             stream = config.llm.streaming_enabled
         
         # Track if we've had tool calls in this turn (affects streaming decision)
@@ -609,6 +683,19 @@ When you need to use tools to complete a task:
         
         # Handle tool calls iteratively (may require multiple LLM calls)
         iterations = 0
+        
+        # PEA Loop: Check if planning is required before tool execution
+        if self.pea_loop:
+            # Reset for new goal if this is a new user message
+            if self.pea_loop.current_phase is None or (LoopPhase and self.pea_loop.current_phase == LoopPhase.COMPLETE):
+                self.pea_loop.reset_for_new_goal(user_text)
+            
+            # Check if planning should be enforced
+            if self.pea_loop.should_require_plan(user_text, has_tool_calls=False):
+                user_text = self.pea_loop.enforce_planning_phase(user_text)
+                # Update user message in messages list
+                if self.messages and self.messages[-1].get("role") == "user":
+                    self.messages[-1]["content"] = user_text
         response = None
         # Track last warning iteration to prevent duplicate warnings at the same threshold
         last_warning_iteration = 0
@@ -736,7 +823,6 @@ When you need to use tools to complete a task:
                     prompt_printed = False  # Track if we've printed the prompt yet
                     
                     # Get streaming delay from config
-                    from ..config import config
                     streaming_delay = config.llm.streaming_delay
                     
                     # Try to flush any pending input before streaming starts
@@ -1208,6 +1294,14 @@ When you need to use tools to complete a task:
                 # Mark that we've had tool calls
                 had_tool_calls = True
                 
+                # PEA Loop: Extract plan if this is first iteration and no plan exists
+                if self.pea_loop and iterations == 1 and self.pea_loop.current_plan is None and assistant_text:
+                    plan = self.pea_loop.extract_plan_from_response(assistant_text)
+                    if plan:
+                        self.pea_loop.current_plan = plan
+                        self.pea_loop.current_phase = LoopPhase.PLAN
+                        logger.info(f"Extracted plan from response: {plan.plan_id}")
+                
                 # Log tool calls detected
                 tool_names = [
                     tc.get("function", {}).get("name", "unknown") for tc in tool_calls
@@ -1223,6 +1317,57 @@ When you need to use tools to complete a task:
                 )
                 # Handle tool calls
                 self._handle_tool_calls(response, tool_calls)
+                
+                # PEA Loop: Record action executions after tool calls complete
+                if self.pea_loop and self.pea_loop.current_plan:
+                    # Get tool results from the last messages (tool role messages)
+                    tool_result_messages = [msg for msg in self.messages if msg.get("role") == "tool"]
+                    # Match tool calls with their results
+                    for i, tool_call in enumerate(tool_calls):
+                        tool_name = tool_call.get("function", {}).get("name", "unknown")
+                        tool_call_id = tool_call.get("id", "")
+                        # Find corresponding tool result
+                        tool_result = None
+                        for tool_msg in tool_result_messages[-len(tool_calls):]:
+                            if tool_msg.get("tool_call_id") == tool_call_id:
+                                tool_result = tool_msg
+                                break
+                        
+                        # Extract success from tool result
+                        success = True
+                        if tool_result:
+                            # Check for explicit success field
+                            if "_success" in tool_result.get("content", {}):
+                                success = tool_result["content"]["_success"]
+                            else:
+                                # Parse from content string
+                                content = tool_result.get("content", "")
+                                if isinstance(content, str):
+                                    content_lower = content.lower()
+                                    if "error" in content_lower or "failed" in content_lower:
+                                        # More nuanced check - skip common false positives
+                                        if "error output:" not in content_lower:
+                                            success = False
+                        
+                        # Record execution
+                        try:
+                            import json as json_module
+                            arguments_str = tool_call.get("function", {}).get("arguments", "{}")
+                            try:
+                                arguments = json_module.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
+                            except:
+                                arguments = {}
+                            
+                            self.pea_loop.record_action_execution(
+                                plan_id=self.pea_loop.current_plan.plan_id,
+                                step_index=i,
+                                tool_name=tool_name,
+                                arguments=arguments,
+                                result=tool_result.get("content", {}) if tool_result else {},
+                                success=success,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to record action execution: {e}", exc_info=True)
 
                 # Note: We don't enforce critic iteration immediately after tool calls.
                 # This allows the LLM to use other tools (terminal, web_search, etc.) to
@@ -1267,6 +1412,36 @@ When you need to use tools to complete a task:
                 # The LLM will automatically receive tool results and should continue without waiting for user input
                 continue
             else:
+                # No tool calls - assess execution if we have a plan and were in ACTION phase
+                if self.pea_loop and self.pea_loop.current_plan and LoopPhase and self.pea_loop.current_phase == LoopPhase.ACTION:
+                    # Get executions for current plan
+                    plan_executions = [
+                        e for e in self.pea_loop.execution_history
+                        if e.plan_id == self.pea_loop.current_plan.plan_id
+                    ]
+                    
+                    if plan_executions:
+                        # Assess the execution
+                        assessment = self.pea_loop.assess_execution(
+                            self.pea_loop.current_plan,
+                            plan_executions
+                        )
+                        
+                        # If replanning is needed, inject assessment directive
+                        if assessment.should_replan:
+                            assessment_msg = self.pea_loop.enforce_assessment_phase(assessment)
+                            self.messages.append({
+                                "role": "user",
+                                "content": assessment_msg,
+                            })
+                            logger.info(f"PEA loop: Replanning required for plan {assessment.plan_id}")
+                            # Continue loop to get new plan
+                            continue
+                        else:
+                            # Mark as complete
+                            self.pea_loop.current_phase = LoopPhase.COMPLETE
+                            logger.info(f"PEA loop: Plan {assessment.plan_id} completed (goal_achieved={assessment.goal_achieved})")
+                
                 # No tool calls - extract final response
                 logger.info(f"NO TOOL CALLS: Reached final response path (iteration {iterations}), will run post-processing")
                 if iterations > 1:
@@ -1333,32 +1508,40 @@ When you need to use tools to complete a task:
                 self.messages.append(assistant_message)
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 
-                # Measure cognitive dissonance if available
+                # Measure cognitive dissonance if available (NON-BLOCKING - runs in background)
                 if self.world_state_aggregator and hasattr(self.world_state_aggregator, 'reasoning_tool'):
                     reasoning_tool = self.world_state_aggregator.reasoning_tool
                     if reasoning_tool and hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
                         cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
                         if cognitive_dissonance_monitor:
-                            try:
-                                # Extract tool usage from messages
-                                tool_usage = []
-                                for msg in self.messages[-20:]:  # Check last 20 messages
-                                    if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                                        tool_usage.extend(msg.get("tool_calls", []))
-                                
-                                # Measure dissonance
-                                conversation_context = [
-                                    {"role": m.get("role"), "content": m.get("content", "")[:200]}
-                                    for m in self.messages[-5:]
-                                ]
-                                
-                                cognitive_dissonance_monitor.measure_dissonance(
-                                    response=assistant_text,
-                                    conversation_context=conversation_context,
-                                    tool_usage=tool_usage if tool_usage else None
-                                )
-                            except Exception as e:
-                                logger.warning(f"Error measuring cognitive dissonance in session: {e}", exc_info=True)
+                            # Run in background thread to avoid blocking conversation
+                            import threading
+                            
+                            def measure_dissonance_async():
+                                try:
+                                    # Extract tool usage from messages
+                                    tool_usage = []
+                                    for msg in self.messages[-20:]:  # Check last 20 messages
+                                        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                                            tool_usage.extend(msg.get("tool_calls", []))
+                                    
+                                    # Measure dissonance
+                                    conversation_context = [
+                                        {"role": m.get("role"), "content": (m.get("content") or "")[:200]}
+                                        for m in self.messages[-5:]
+                                    ]
+                                    
+                                    cognitive_dissonance_monitor.measure_dissonance(
+                                        response=assistant_text,
+                                        conversation_context=conversation_context,
+                                        tool_usage=tool_usage if tool_usage else None
+                                    )
+                                except Exception as e:
+                                    logger.warning(f"Error measuring cognitive dissonance in session (background): {e}", exc_info=True)
+                            
+                            # Start background thread (fire-and-forget)
+                            thread = threading.Thread(target=measure_dissonance_async, daemon=True)
+                            thread.start()
                 
                 # Update context graph with new message
                 if self._context_graph:
@@ -3644,11 +3827,12 @@ When you need to use tools to complete a task:
         Implements size limits, deduplication, and hash-based change detection
         to prevent unbounded growth and duplicate content.
         """
+        from ..config import config
+        
         if not self.world_state_aggregator or not self._world_state_formatter:
             return
 
         try:
-            from ..config import config
             
             # Runtime monitoring: validate state before update
             self._validate_before_update()
@@ -4573,6 +4757,8 @@ When you need to use tools to complete a task:
             response: Raw LLM response
             tool_calls: List of tool call dictionaries
         """
+        from ..config import config
+        
         if not self.tool_registry:
             logger.warning(
                 "Received tool calls but no tool registry available",
@@ -4774,7 +4960,6 @@ When you need to use tools to complete a task:
                         logger.debug(f"Failed to complete tool status display: {e}", exc_info=True)
                 
                 # Truncate tool result if it exceeds size limit
-                from ..config import config
                 max_tool_result_size = config.summarization.max_tool_result_size
                 tool_result = truncate_tool_result(tool_result, max_tool_result_size)
                 

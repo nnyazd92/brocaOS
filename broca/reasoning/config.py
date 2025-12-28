@@ -95,6 +95,7 @@ class ReasoningConfig(BaseModel):
     skill_dissonance_threshold: float = float(os.getenv("BROCA_REASONING_SKILL_DISSONANCE_THRESHOLD", "-0.2"))
     
     # Z3 logical validation
+    z3_enabled: bool = os.getenv("BROCA_REASONING_Z3_ENABLED", "false").lower() == "true"
     z3_validation_enabled: bool = os.getenv("BROCA_REASONING_Z3_VALIDATION_ENABLED", "true").lower() == "true"
     z3_validation_timeout: float = float(os.getenv("BROCA_REASONING_Z3_VALIDATION_TIMEOUT", "5.0"))
     z3_max_constraints: int = int(os.getenv("BROCA_REASONING_Z3_MAX_CONSTRAINTS", "1000"))
@@ -119,6 +120,14 @@ class ReasoningConfig(BaseModel):
     rl_surprise_threshold: float = float(os.getenv("BROCA_REASONING_RL_SURPRISE_THRESHOLD", "0.3"))
     rl_curiosity_threshold: float = float(os.getenv("BROCA_REASONING_RL_CURIOSITY_THRESHOLD", "0.5"))
     rl_exploration_ratio: float = float(os.getenv("BROCA_REASONING_RL_EXPLORATION_RATIO", "0.6"))
+    
+    # PEA Loop configuration
+    pea_loop_enabled: bool = os.getenv("BROCA_PEA_LOOP_ENABLED", "true").lower() == "true"
+    pea_loop_require_planning: bool = os.getenv("BROCA_PEA_LOOP_REQUIRE", "true").lower() == "true"
+    pea_loop_max_replans: int = int(os.getenv("BROCA_PEA_LOOP_MAX_REPLANS", "3"))
+    pea_loop_success_threshold: float = float(os.getenv("BROCA_PEA_LOOP_SUCCESS_THRESHOLD", "0.8"))
+    pea_loop_track_failed_patterns: bool = os.getenv("BROCA_PEA_LOOP_TRACK_PATTERNS", "true").lower() == "true"
+    pea_loop_max_failed_patterns: int = int(os.getenv("BROCA_PEA_LOOP_MAX_FAILED_PATTERNS", "10"))
     
     # Debugging
     debug_mode: bool = os.getenv("BROCA_REASONING_DEBUG_MODE", "false").lower() == "true"

@@ -122,12 +122,30 @@ def get_storage():
 
 def create_session(conversation_id: str) -> ConversationSession:
     rt = get_runtime()
+    
+    # Extract PEA loop managers from reasoning_tool if available
+    goal_manager = None
+    skill_manager = None
+    experience_logger = None
+    
+    if rt.reasoning_tool:
+        if hasattr(rt.reasoning_tool, 'goal_manager'):
+            goal_manager = rt.reasoning_tool.goal_manager
+        if hasattr(rt.reasoning_tool, 'learning_tool') and rt.reasoning_tool.learning_tool:
+            if hasattr(rt.reasoning_tool.learning_tool, 'skill_manager'):
+                skill_manager = rt.reasoning_tool.learning_tool.skill_manager
+            if hasattr(rt.reasoning_tool.learning_tool, 'experience_logger'):
+                experience_logger = rt.reasoning_tool.learning_tool.experience_logger
+    
     session = ConversationSession.from_storage(
         session_id=conversation_id,
         storage=rt.conversation_storage,
         tool_registry=rt.tool_registry,
         internal_sensing_framework=rt.internal_sensing,
-        world_state_aggregator=rt.world_state_aggregator
+        world_state_aggregator=rt.world_state_aggregator,
+        goal_manager=goal_manager,
+        skill_manager=skill_manager,
+        experience_logger=experience_logger,
     )
     return session
 
@@ -136,7 +154,10 @@ def generate_title(user_message: str) -> str:
     rt = get_runtime()
     prompt = f"Generate a very short (max 5 words), punchy title for a conversation that starts with: '{user_message}'. Return ONLY the title text, no quotes or punctuation."
     try:
-        temp_session = ConversationSession(llm=rt.session.llm)
+        temp_session = ConversationSession(
+            llm=rt.session.llm,
+            internal_sensing_framework=rt.internal_sensing,
+        )
         title = temp_session.send(prompt, stream=False)
         return title.strip().strip('"').strip("'")
     except Exception as e:
@@ -300,17 +321,37 @@ class CognitiveQueryResponse(BaseModel):
 @app.post("/api/cognitive/query", response_model=CognitiveQueryResponse)
 async def cognitive_query(req: CognitiveQueryRequest):
     """Process a cognitive query with full introspection."""
+    # Import config locally at the very start to avoid scoping issues
+    from .config import config as app_config
+    
     begin_request()
     start_time = time.time()
     try:
         rt = get_runtime()
+        
+        # Extract PEA loop managers from reasoning_tool if available
+        goal_manager = None
+        skill_manager = None
+        experience_logger = None
+        
+        if rt.reasoning_tool:
+            if hasattr(rt.reasoning_tool, 'goal_manager'):
+                goal_manager = rt.reasoning_tool.goal_manager
+            if hasattr(rt.reasoning_tool, 'learning_tool') and rt.reasoning_tool.learning_tool:
+                if hasattr(rt.reasoning_tool.learning_tool, 'skill_manager'):
+                    skill_manager = rt.reasoning_tool.learning_tool.skill_manager
+                if hasattr(rt.reasoning_tool.learning_tool, 'experience_logger'):
+                    experience_logger = rt.reasoning_tool.learning_tool.experience_logger
         
         # Create a temporary session for this query
         temp_session = ConversationSession(
             llm=rt.session.llm,
             tool_registry=rt.tool_registry,
             internal_sensing_framework=rt.internal_sensing,
-            world_state_aggregator=rt.world_state_aggregator
+            world_state_aggregator=rt.world_state_aggregator,
+            goal_manager=goal_manager,
+            skill_manager=skill_manager,
+            experience_logger=experience_logger,
         )
         
         # Get the response
@@ -538,9 +579,34 @@ async def delete_conversation(conversation_id: str):
     return {"success": True}
 
 def stream_response(conversation_id: str, user_message: str, web_search_enabled: bool = True, include_rl_signals: bool = False) -> Generator[str, None, None]:
+    # Import config locally at the very start to avoid scoping issues
+    # This ensures config is available before any methods that might import it locally
+    from .config import config as app_config
+    
     rt = get_runtime()
     storage = get_storage()
     session = create_session(conversation_id)
+    
+    # Ensure PEA loop managers are wired (in case they weren't available during create_session)
+    if session.pea_loop and rt.reasoning_tool:
+        goal_manager = None
+        skill_manager = None
+        experience_logger = None
+        
+        if hasattr(rt.reasoning_tool, 'goal_manager'):
+            goal_manager = rt.reasoning_tool.goal_manager
+        if hasattr(rt.reasoning_tool, 'learning_tool') and rt.reasoning_tool.learning_tool:
+            if hasattr(rt.reasoning_tool.learning_tool, 'skill_manager'):
+                skill_manager = rt.reasoning_tool.learning_tool.skill_manager
+            if hasattr(rt.reasoning_tool.learning_tool, 'experience_logger'):
+                experience_logger = rt.reasoning_tool.learning_tool.experience_logger
+        
+        if goal_manager or skill_manager or experience_logger:
+            session.wire_pea_loop_managers(
+                goal_manager=goal_manager,
+                skill_manager=skill_manager,
+                experience_logger=experience_logger,
+            )
 
     mark_work()
     
@@ -576,8 +642,7 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
             hasattr(rt.tool_registry, 'tool_selection_guidance') and
             rt.tool_registry.tool_selection_guidance is not None):
             try:
-                from ..config import config
-                if config.tools.pre_filtering_enabled:
+                if app_config and app_config.tools.pre_filtering_enabled:
                     context = rt.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
             except Exception as e:
                 logger.debug(f"Error gathering context for tool filtering in web_api: {e}", exc_info=True)
@@ -780,30 +845,38 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                 if rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
                     reasoning_tool = rt.world_state_aggregator.reasoning_tool
                     if reasoning_tool:
-                        # Measure cognitive dissonance
+                        # Measure cognitive dissonance (NON-BLOCKING - runs in background)
                         if hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
                             cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
                             if cognitive_dissonance_monitor:
-                                try:
-                                    # Extract tool usage from messages
-                                    tool_usage = []
-                                    for msg in session.messages[-20:]:  # Check last 20 messages
-                                        if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                                            tool_usage.extend(msg.get("tool_calls", []))
-                                    
-                                    # Measure dissonance
-                                    conversation_context = [
-                                        {"role": m.get("role"), "content": m.get("content", "")[:200]}
-                                        for m in session.messages[-5:]
-                                    ]
-                                    
-                                    cognitive_dissonance_monitor.measure_dissonance(
-                                        response=content,
-                                        conversation_context=conversation_context,
-                                        tool_usage=tool_usage if tool_usage else None
-                                    )
-                                except Exception as e:
-                                    logger.warning(f"Error measuring cognitive dissonance in web_api: {e}", exc_info=True)
+                                # Run in background thread to avoid blocking conversation
+                                import threading
+                                
+                                def measure_dissonance_async():
+                                    try:
+                                        # Extract tool usage from messages
+                                        tool_usage = []
+                                        for msg in session.messages[-20:]:  # Check last 20 messages
+                                            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                                                tool_usage.extend(msg.get("tool_calls", []))
+                                        
+                                        # Measure dissonance
+                                        conversation_context = [
+                                            {"role": m.get("role"), "content": (m.get("content") or "")[:200]}
+                                            for m in session.messages[-5:]
+                                        ]
+                                        
+                                        cognitive_dissonance_monitor.measure_dissonance(
+                                            response=content,
+                                            conversation_context=conversation_context,
+                                            tool_usage=tool_usage if tool_usage else None
+                                        )
+                                    except Exception as e:
+                                        logger.warning(f"Error measuring cognitive dissonance in web_api (background): {e}", exc_info=True)
+                                
+                                # Start background thread (fire-and-forget)
+                                thread = threading.Thread(target=measure_dissonance_async, daemon=True)
+                                thread.start()
                         
                         # Compute RL signals if feedback loop manager is available
                         if hasattr(reasoning_tool, 'feedback_loop_manager') and reasoning_tool.feedback_loop_manager:
@@ -900,9 +973,17 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
         if session.internal_sensing_framework and ResponseAnalyzer and 'assistant_text' in locals():
             try:
                 response_id = getattr(session, "_current_response_id", f"response_{len(session.messages)}")
-                latency = session.internal_sensing_framework.interoception.physiology._record_operation_end(
-                    response_id
-                )
+                # Only record operation end if operation start was called (check if response_id exists in starts)
+                if hasattr(session.internal_sensing_framework.interoception.physiology, '_operation_starts'):
+                    if response_id in session.internal_sensing_framework.interoception.physiology._operation_starts:
+                        latency = session.internal_sensing_framework.interoception.physiology._record_operation_end(
+                            response_id
+                        )
+                    else:
+                        logger.debug(f"Skipping operation end for {response_id}: operation start not found")
+                        latency = None
+                else:
+                    latency = None
                 if latency is not None and latency > 0:
                     normalized_latency = session.internal_sensing_framework.interoception.physiology._normalize_latency(
                         latency
@@ -1094,6 +1175,9 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
+    # Import config locally at the very start to avoid scoping issues
+    from .config import config as app_config
+    
     begin_request()
     try:
         if not req.messages:
@@ -1114,6 +1198,29 @@ async def chat(req: ChatRequest):
             )
 
         session = create_session(req.conversation_id)
+        
+        # Ensure PEA loop managers are wired (in case they weren't available during create_session)
+        rt = get_runtime()
+        if session.pea_loop and rt.reasoning_tool:
+            goal_manager = None
+            skill_manager = None
+            experience_logger = None
+            
+            if hasattr(rt.reasoning_tool, 'goal_manager'):
+                goal_manager = rt.reasoning_tool.goal_manager
+            if hasattr(rt.reasoning_tool, 'learning_tool') and rt.reasoning_tool.learning_tool:
+                if hasattr(rt.reasoning_tool.learning_tool, 'skill_manager'):
+                    skill_manager = rt.reasoning_tool.learning_tool.skill_manager
+                if hasattr(rt.reasoning_tool.learning_tool, 'experience_logger'):
+                    experience_logger = rt.reasoning_tool.learning_tool.experience_logger
+            
+            if goal_manager or skill_manager or experience_logger:
+                session.wire_pea_loop_managers(
+                    goal_manager=goal_manager,
+                    skill_manager=skill_manager,
+                    experience_logger=experience_logger,
+                )
+        
         reply_text = session.send(last.content, stream=False)
         
         # Compute RL signals if requested and available
@@ -1306,9 +1413,10 @@ async def get_project_config():
     return {"root_path": str(PROJECT_ROOT)}
 
 @app.post("/api/project/config")
-async def update_project_config(config: ProjectConfig):
+async def update_project_config(project_config: ProjectConfig):
+    """Update project configuration."""
     global PROJECT_ROOT
-    new_path = Path(config.root_path).resolve()
+    new_path = Path(project_config.root_path).resolve()
     if not new_path.exists():
         raise HTTPException(status_code=400, detail="Path does not exist")
     PROJECT_ROOT = new_path

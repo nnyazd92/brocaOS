@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 from .logging_config import setup_logging
 from .repl.session import ConversationSession
-from .config import config
+# Config is imported locally in functions to avoid scoping issues
 from .storage.json_storage import JSONFileStorage
 from .storage import ConversationStorage
 from .tools.registry import ToolRegistry
@@ -70,13 +70,14 @@ def _initialize_storage() -> ConversationStorage | None:
     Returns:
         Storage instance if successfully initialized, None otherwise.
     """
+    from .config import config as app_config
     try:
-        if config.storage.storage_type == "json":
-            storage = JSONFileStorage(storage_path=config.storage.storage_path)
-            logger.info(f"Initialized {config.storage.storage_type} storage at {config.storage.storage_path}")
+        if app_config.storage.storage_type == "json":
+            storage = JSONFileStorage(storage_path=app_config.storage.storage_path)
+            logger.info(f"Initialized {app_config.storage.storage_type} storage at {app_config.storage.storage_path}")
             return storage
         else:
-            logger.warning(f"Unknown storage type: {config.storage.storage_type}, storage disabled")
+            logger.warning(f"Unknown storage type: {app_config.storage.storage_type}, storage disabled")
             return None
     except Exception as e:
         logger.warning(f"Failed to initialize storage: {e}, continuing without storage", exc_info=True)
@@ -90,6 +91,7 @@ def _initialize_memory_manager() -> MemoryManager | None:
     Returns:
         MemoryManager instance if successfully initialized, None otherwise.
     """
+    from .config import config as app_config
     try:
         # Initialize embedding service
         try:
@@ -99,13 +101,13 @@ def _initialize_memory_manager() -> MemoryManager | None:
             return None
         
         # Initialize storage
-        storage = MemoryStorage(db_path=config.memory.memory_db_path)
+        storage = MemoryStorage(db_path=app_config.memory.memory_db_path)
         
         # Initialize vector index
         try:
             vector_index = VectorIndex(
-                dimension=config.memory.embedding_dimension,
-                index_path=config.memory.vector_index_path
+                dimension=app_config.memory.embedding_dimension,
+                index_path=app_config.memory.vector_index_path
             )
         except ValueError as e:
             logger.warning(f"Failed to initialize vector index: {e}, memory disabled", exc_info=True)
@@ -145,10 +147,11 @@ def _initialize_tool_registry(
     Returns:
         ToolRegistry instance if successfully initialized, None otherwise.
     """
+    from .config import config as app_config
     try:
         # Initialize tool selection guidance if enabled
         tool_selection_guidance = None
-        if config.tools.selection_guidance_enabled:
+        if app_config.tools.selection_guidance_enabled:
             try:
                 from .tools.selection_guidance import ToolSelectionGuidance, ValidationStrictness
                 
@@ -159,7 +162,7 @@ def _initialize_tool_registry(
                     "hard_block": ValidationStrictness.HARD_BLOCK,
                 }
                 validation_strictness = strictness_map.get(
-                    config.tools.validation_strictness,
+                    app_config.tools.validation_strictness,
                     ValidationStrictness.ADVISORY
                 )
                 
@@ -168,20 +171,20 @@ def _initialize_tool_registry(
                     rl_signal_aggregator=rl_signal_aggregator,
                     skill_manager=skill_manager,
                     goal_manager=goal_manager,
-                    max_guidance_length=config.tools.max_guidance_length,
-                    guidance_text_style=config.tools.guidance_text_style,
-                    ranking_algorithm=config.tools.ranking_algorithm,
+                    max_guidance_length=app_config.tools.max_guidance_length,
+                    guidance_text_style=app_config.tools.guidance_text_style,
+                    ranking_algorithm=app_config.tools.ranking_algorithm,
                     validation_strictness=validation_strictness,
-                    validation_confidence_threshold=config.tools.validation_confidence_threshold,
-                    context_cache_ttl_seconds=config.tools.context_cache_ttl_seconds,
-                    exploration_factor=config.tools.exploration_factor,
+                    validation_confidence_threshold=app_config.tools.validation_confidence_threshold,
+                    context_cache_ttl_seconds=app_config.tools.context_cache_ttl_seconds,
+                    exploration_factor=app_config.tools.exploration_factor,
                 )
                 
                 # Initialize metrics if enabled
-                if config.tools.metrics_enabled:
+                if app_config.tools.metrics_enabled:
                     try:
                         from .tools.selection_metrics import ToolSelectionMetrics
-                        metrics = ToolSelectionMetrics(window_size=config.tools.metrics_window_size)
+                        metrics = ToolSelectionMetrics(window_size=app_config.tools.metrics_window_size)
                         tool_selection_guidance.set_metrics(metrics)
                         logger.info("✓ Tool selection metrics enabled")
                     except Exception as e:
@@ -199,11 +202,11 @@ def _initialize_tool_registry(
         
         # Register web search tool if enabled
         # Browser-based search is now primary (no Tavily API key required)
-        if config.tools.enable_web_search:
+        if app_config.tools.enable_web_search:
             try:
                 # WebSearchTool uses browser-based search by default
                 # Tavily is only used as emergency fallback if explicitly enabled
-                web_search_tool = WebSearchTool(api_key=config.tools.tavily_api_key or None)
+                web_search_tool = WebSearchTool(api_key=app_config.tools.tavily_api_key or None)
                 registry.register_tool(web_search_tool)
                 logger.info("Registered web search tool (browser-based search)")
             except Exception as e:
@@ -239,7 +242,7 @@ def _initialize_tool_registry(
                 logger.warning(f"Failed to register memory tools: {e}", exc_info=True)
         
         # Register terminal tool if enabled
-        if config.tools.enable_terminal:
+        if app_config.tools.enable_terminal:
             try:
                 terminal_tool = TerminalTool()
                 registry.register_tool(terminal_tool)
@@ -248,11 +251,11 @@ def _initialize_tool_registry(
                 logger.warning(f"Failed to register terminal tool: {e}", exc_info=True)
         
         # Register critic tool if enabled
-        if config.tools.enable_critic:
+        if app_config.tools.enable_critic:
             try:
                 from .tools.critic import CriticTool
                 critic_tool = CriticTool(
-                    system_prompt_template=config.tools.critic_system_prompt_template
+                    system_prompt_template=app_config.tools.critic_system_prompt_template
                 )
                 registry.register_tool(critic_tool)
                 logger.info("Registered critic tool")
@@ -260,16 +263,16 @@ def _initialize_tool_registry(
                 logger.warning(f"Failed to register critic tool: {e}", exc_info=True)
         
         # Register browser navigation tool if enabled
-        if config.tools.enable_browser_navigation:
+        if app_config.tools.enable_browser_navigation:
             try:
                 from .tools.browser_navigation import BrowserNavigationTool
                 browser_tool = BrowserNavigationTool(
-                    headless=config.tools.browser_headless,
-                    timeout=config.tools.browser_timeout,
-                    stealth_mode=config.tools.browser_stealth_mode,
-                    viewport_width=config.tools.browser_viewport_width,
-                    viewport_height=config.tools.browser_viewport_height,
-                    user_agents=config.tools.browser_user_agents
+                    headless=app_config.tools.browser_headless,
+                    timeout=app_config.tools.browser_timeout,
+                    stealth_mode=app_config.tools.browser_stealth_mode,
+                    viewport_width=app_config.tools.browser_viewport_width,
+                    viewport_height=app_config.tools.browser_viewport_height,
+                    user_agents=app_config.tools.browser_user_agents
                 )
                 registry.register_tool(browser_tool)
                 logger.info("Registered browser navigation tool")
@@ -417,7 +420,9 @@ def _initialize_self_model(
     Returns:
         Tuple of (SelfModel instance or None, storage instance or None, MetacognitiveEngine or None)
     """
-    if not config.self_model.enabled:
+    from .config import config as app_config
+    
+    if not app_config or not app_config.self_model.enabled:
         logger.debug("Self-model system is disabled")
         return None, None, None
     
@@ -426,12 +431,12 @@ def _initialize_self_model(
         from .self_model.storage import create_storage
         storage_path = (
             storage_path_override or
-            (config.self_model.sqlite_db_path 
-             if config.self_model.storage_type == "sqlite" 
-             else config.self_model.storage_path)
+            (app_config.self_model.sqlite_db_path 
+             if app_config.self_model.storage_type == "sqlite" 
+             else app_config.self_model.storage_path)
         )
         storage = create_storage(
-            storage_type=config.self_model.storage_type,
+            storage_type=app_config.self_model.storage_type,
             storage_path=storage_path
         )
         
@@ -449,7 +454,7 @@ def _initialize_self_model(
         enable_epistemic = (
             enable_epistemic_override 
             if enable_epistemic_override is not None 
-            else config.self_model.enable_epistemic
+            else (app_config.self_model.enable_epistemic if app_config else False)
         )
         epistemic_engine = None
         if self_model and enable_epistemic:
@@ -498,7 +503,9 @@ def _initialize_environment_system():
     Returns:
         EnvironmentAccessSystem instance or None
     """
-    if not config.environment.enabled:
+    from .config import config as app_config
+    
+    if not app_config or not app_config.environment.enabled:
         logger.debug("Environment access system is disabled")
         return None
     
@@ -509,7 +516,8 @@ def _initialize_environment_system():
         # Determine initial access level
         initial_level = AccessLevel.SANDBOXED
         try:
-            initial_level = AccessLevel[config.environment.access_level]
+            if app_config:
+                initial_level = AccessLevel[app_config.environment.access_level]
         except (KeyError, AttributeError):
             pass
         
@@ -517,7 +525,7 @@ def _initialize_environment_system():
         system.policy_manager.current_level = initial_level
         
         # Discover and register sensors if enabled
-        if config.environment.enable_sensors:
+        if app_config and app_config.environment.enable_sensors:
             system.discover_and_register_sensors()
             logger.info(f"Discovered and registered {len(system.sensor_registry.sensors)} sensors")
         
@@ -540,26 +548,28 @@ def _initialize_internal_sensing(embedding_service: Optional[EmbeddingService] =
     Returns:
         InternalSensingFramework instance or None
     """
-    if not config.internal_sensing.enabled:
+    from .config import config as app_config
+    
+    if not app_config or not app_config.internal_sensing.enabled:
         logger.debug("Internal sensing system is disabled")
         return None
     
     try:
         framework = InternalSensingFramework(
-            sampling_rate=config.internal_sensing.sampling_rate,
-            history_window=config.internal_sensing.history_window,
+            sampling_rate=app_config.internal_sensing.sampling_rate,
+            history_window=app_config.internal_sensing.history_window,
             embedding_service=embedding_service,
             epistemic_engine=epistemic_engine,
         )
         
         # Enable/disable specific components based on config
-        if not config.internal_sensing.enable_physiology:
+        if not app_config.internal_sensing.enable_physiology:
             framework.interoception.physiology = None  # type: ignore
-        if not config.internal_sensing.enable_cognitive:
+        if not app_config.internal_sensing.enable_cognitive:
             framework.interoception.cognition = None  # type: ignore
-        if not config.internal_sensing.enable_affective:
+        if not app_config.internal_sensing.enable_affective:
             framework.interoception.affect = None  # type: ignore
-        if not config.internal_sensing.enable_predictive:
+        if not app_config.internal_sensing.enable_predictive:
             framework.interoception.prediction = None  # type: ignore
         
         logger.info("Initialized internal sensing system")
@@ -596,6 +606,7 @@ def _initialize_reasoning_system(
     Returns:
         ReasoningTool instance if successfully initialized, None otherwise
     """
+    from .config import config as app_config
     try:
         from .reasoning.config import ReasoningConfig
         from .reasoning.declarative_memory import DeclarativeMemoryInterface
@@ -715,7 +726,7 @@ def _initialize_reasoning_system(
         
         # Initialize learning tool if enabled and integration enabled
         learning_tool = None
-        if config.learning.enabled and reasoning_config.learning_integration_enabled:
+        if app_config and app_config.learning.enabled and reasoning_config.learning_integration_enabled:
             try:
                 from .learning.integration_tool import LearningTool
                 learning_tool = LearningTool()
@@ -854,7 +865,7 @@ def _initialize_reasoning_system(
         
         # Initialize MPC controller if enabled
         mpc_controller = None
-        if config.control.mpc_enabled:
+        if app_config and app_config.control.mpc_enabled:
             try:
                 from ..control.mpc_controller import MPCController
                 mpc_controller = MPCController(
@@ -867,7 +878,7 @@ def _initialize_reasoning_system(
         
         # Initialize distributed control if enabled
         distributed_control = None
-        if config.control.distributed_control_enabled:
+        if app_config and app_config.control.distributed_control_enabled:
             try:
                 from ..control.distributed_control import DistributedControlSystem
                 distributed_control = DistributedControlSystem(
@@ -896,7 +907,7 @@ def _initialize_reasoning_system(
         
         # Initialize emotional regulation components if internal sensing is available
         affect_monitor = None
-        if internal_sensing and config.internal_sensing.emotional_regulation_enabled:
+        if internal_sensing and app_config and app_config.internal_sensing.emotional_regulation_enabled:
             try:
                 from .internal_sensing.emotional_appraisal import CognitiveAppraisalEngine
                 from .internal_sensing.emotional_regulation import HomeostaticEmotionalRegulator
@@ -910,15 +921,15 @@ def _initialize_reasoning_system(
                 
                 # Create emotional regulator
                 emotional_regulator = HomeostaticEmotionalRegulator(
-                    target_valence=config.internal_sensing.target_valence,
-                    target_arousal=config.internal_sensing.target_arousal,
-                    target_curiosity=config.internal_sensing.target_curiosity,
-                    kp_valence=config.internal_sensing.pid_kp_valence,
-                    ki_valence=config.internal_sensing.pid_ki_valence,
-                    kd_valence=config.internal_sensing.pid_kd_valence,
-                    kp_arousal=config.internal_sensing.pid_kp_arousal,
-                    ki_arousal=config.internal_sensing.pid_ki_arousal,
-                    kd_arousal=config.internal_sensing.pid_kd_arousal
+                    target_valence=app_config.internal_sensing.target_valence,
+                    target_arousal=app_config.internal_sensing.target_arousal,
+                    target_curiosity=app_config.internal_sensing.target_curiosity,
+                    kp_valence=app_config.internal_sensing.pid_kp_valence,
+                    ki_valence=app_config.internal_sensing.pid_ki_valence,
+                    kd_valence=app_config.internal_sensing.pid_kd_valence,
+                    kp_arousal=app_config.internal_sensing.pid_kp_arousal,
+                    ki_arousal=app_config.internal_sensing.pid_ki_arousal,
+                    kd_arousal=app_config.internal_sensing.pid_kd_arousal
                 )
                 affect_monitor.set_emotional_regulator(emotional_regulator)
                 
@@ -1008,6 +1019,13 @@ def _initialize_reasoning_system(
 
 
 def main() -> None:
+    # Import config locally at the very start to avoid scoping issues
+    # This ensures config is available before any methods that might import it locally
+    try:
+        from .config import config as app_config
+    except ImportError:
+        app_config = None
+    
     setup_logging()
 
     # Detect workspace root (parent of broca package directory)
@@ -1107,7 +1125,7 @@ def main() -> None:
         
         logger.info(
             f"World state aggregator will include: {', '.join(components_summary) if components_summary else 'system_info only'}. "
-            f"Reduction level: {config.self_model.self_model_reduction_level}"
+            f"Reduction level: {app_config.self_model.self_model_reduction_level if app_config else 'default'}"
         )
         
         # Initialize reasoning system with cognitive dissonance integration
@@ -1115,7 +1133,7 @@ def main() -> None:
         rl_signal_aggregator = None
         skill_manager = None
         goal_manager = None
-        if config.reasoning.enabled:
+        if app_config and app_config.reasoning.enabled:
             try:
                 reasoning_tool = _initialize_reasoning_system(
                     memory_manager=memory_manager,
@@ -1155,7 +1173,7 @@ def main() -> None:
                     
                     # Wire tool selection guidance if enabled and not already initialized
                     if (tool_registry and 
-                        config.tools.selection_guidance_enabled and
+                        app_config and app_config.tools.selection_guidance_enabled and
                         (tool_registry.tool_selection_guidance is None or 
                          tool_registry.tool_selection_guidance.guidance_aggregator.reasoning_tool is None)):
                         try:
@@ -1171,7 +1189,7 @@ def main() -> None:
                                     "hard_block": ValidationStrictness.HARD_BLOCK,
                                 }
                                 validation_strictness = strictness_map.get(
-                                    config.tools.validation_strictness,
+                                    app_config.tools.validation_strictness if app_config else "advisory",
                                     ValidationStrictness.ADVISORY
                                 )
                                 
@@ -1180,20 +1198,20 @@ def main() -> None:
                                     rl_signal_aggregator=rl_signal_aggregator,
                                     skill_manager=skill_manager,
                                     goal_manager=goal_manager,
-                                    max_guidance_length=config.tools.max_guidance_length,
-                                    guidance_text_style=config.tools.guidance_text_style,
-                                    ranking_algorithm=config.tools.ranking_algorithm,
+                                    max_guidance_length=app_config.tools.max_guidance_length if app_config else 2000,
+                                    guidance_text_style=app_config.tools.guidance_text_style if app_config else "prioritized",
+                                    ranking_algorithm=app_config.tools.ranking_algorithm if app_config else "simple",
                                     validation_strictness=validation_strictness,
-                                    validation_confidence_threshold=config.tools.validation_confidence_threshold,
-                                    context_cache_ttl_seconds=config.tools.context_cache_ttl_seconds,
-                                    exploration_factor=config.tools.exploration_factor,
+                                    validation_confidence_threshold=app_config.tools.validation_confidence_threshold if app_config else 0.7,
+                                    context_cache_ttl_seconds=app_config.tools.context_cache_ttl_seconds if app_config else 5,
+                                    exploration_factor=app_config.tools.exploration_factor if app_config else 0.1,
                                 )
                                 
                                 # Initialize metrics if enabled
-                                if config.tools.metrics_enabled:
+                                if app_config and app_config.tools.metrics_enabled:
                                     try:
                                         from .tools.selection_metrics import ToolSelectionMetrics
-                                        metrics = ToolSelectionMetrics(window_size=config.tools.metrics_window_size)
+                                        metrics = ToolSelectionMetrics(window_size=app_config.tools.metrics_window_size)
                                         tool_registry.tool_selection_guidance.set_metrics(metrics)
                                     except Exception as e:
                                         logger.warning(f"Failed to initialize tool selection metrics: {e}", exc_info=True)
@@ -1217,7 +1235,7 @@ def main() -> None:
         model_router = None
         llm_ensemble = None
         recursive_prompting = None
-        if config.llm_ensemble.enabled:
+        if app_config and app_config.llm_ensemble.enabled:
             try:
                 from .llm.model_router import ModelRouter
                 from .llm.ensemble import LLMEnsemble, EnsembleStrategy
@@ -1226,15 +1244,16 @@ def main() -> None:
                 
                 # Create model router with primary LLM client
                 primary_client = create_llm_client()
-                models_dict = {config.llm.model: primary_client}
+                models_dict = {app_config.llm.model if app_config else "deepseek-chat": primary_client}
                 
                 model_router = ModelRouter(models=models_dict)
                 logger.info("✓ Model router initialized")
                 
                 # Create LLM ensemble
+                default_strategy_name = app_config.llm_ensemble.default_strategy if app_config else "weighted"
                 llm_ensemble = LLMEnsemble(
                     model_router=model_router,
-                    default_strategy=EnsembleStrategy[config.llm_ensemble.default_strategy.upper()] if hasattr(EnsembleStrategy, config.llm_ensemble.default_strategy.upper()) else EnsembleStrategy.WEIGHTED
+                    default_strategy=EnsembleStrategy[default_strategy_name.upper()] if hasattr(EnsembleStrategy, default_strategy_name.upper()) else EnsembleStrategy.WEIGHTED
                 )
                 logger.info("✓ LLM ensemble initialized")
                 
@@ -1253,14 +1272,14 @@ def main() -> None:
         system_dynamics = None
         system_health_monitor = None
         reconfiguration_manager = None
-        if config.systems.dynamics_enabled or config.systems.health_monitoring_enabled:
+        if app_config and (app_config.systems.dynamics_enabled or app_config.systems.health_monitoring_enabled):
             try:
                 from .systems.dynamics import SystemDynamicsModel
                 from .systems.health_monitor import SystemHealthMonitor
                 from .systems.reconfiguration import ReconfigurationManager
                 
                 # Initialize system dynamics
-                if config.systems.dynamics_enabled:
+                if app_config.systems.dynamics_enabled:
                     system_dynamics = SystemDynamicsModel(
                         feedback_loop_manager=None,  # Will be set after feedback loop manager is created
                         cognitive_dissonance_monitor=None  # Will be set after dissonance monitor is created
@@ -1268,17 +1287,17 @@ def main() -> None:
                     logger.info("✓ System dynamics model initialized")
                 
                 # Initialize health monitor
-                if config.systems.health_monitoring_enabled:
+                if app_config.systems.health_monitoring_enabled:
                     system_health_monitor = SystemHealthMonitor(
                         system_dynamics=system_dynamics,
-                        health_threshold_warning=config.systems.health_threshold_warning,
-                        health_threshold_critical=config.systems.health_threshold_critical,
-                        stability_threshold=config.systems.stability_threshold
+                        health_threshold_warning=app_config.systems.health_threshold_warning,
+                        health_threshold_critical=app_config.systems.health_threshold_critical,
+                        stability_threshold=app_config.systems.stability_threshold
                     )
                     logger.info("✓ System health monitor initialized")
                     
                     # Initialize reconfiguration manager
-                    if config.systems.reconfiguration_enabled:
+                    if app_config.systems.reconfiguration_enabled:
                         reconfiguration_manager = ReconfigurationManager(
                             health_monitor=system_health_monitor
                         )
@@ -1294,7 +1313,7 @@ def main() -> None:
         
         # Initialize recursive self-improvement if enabled
         recursive_improvement = None
-        if config.learning.enabled:
+        if app_config and app_config.learning.enabled:
             try:
                 from .learning.recursive_improvement import RecursiveSelfImprovement
                 from .self_model.updater import SelfModelUpdater
@@ -1334,7 +1353,7 @@ def main() -> None:
         
         # Initialize learning tool independently if enabled (regardless of reasoning integration)
         learning_tool_standalone = None
-        if config.learning.enabled:
+        if app_config and app_config.learning.enabled:
             try:
                 from .learning.integration_tool import LearningTool
                 learning_tool_standalone = LearningTool()
@@ -1358,16 +1377,16 @@ def main() -> None:
         
         # Initialize self-model size manager if enabled
         size_manager = None
-        if self_model and config.self_model.size_management_enabled:
+        if self_model and app_config and app_config.self_model.size_management_enabled:
             try:
                 from .self_model.size_manager import SelfModelSizeManager, SizeLimits
                 limits = SizeLimits(
-                    max_capabilities=config.self_model.max_capabilities,
-                    max_knowledge_boundaries=config.self_model.max_knowledge_boundaries,
-                    max_constraints=config.self_model.max_constraints,
-                    soft_capabilities=config.self_model.soft_capabilities,
-                    soft_knowledge_boundaries=config.self_model.soft_knowledge_boundaries,
-                    soft_constraints=config.self_model.soft_constraints
+                    max_capabilities=app_config.self_model.max_capabilities,
+                    max_knowledge_boundaries=app_config.self_model.max_knowledge_boundaries,
+                    max_constraints=app_config.self_model.max_constraints,
+                    soft_capabilities=app_config.self_model.soft_capabilities,
+                    soft_knowledge_boundaries=app_config.self_model.soft_knowledge_boundaries,
+                    soft_constraints=app_config.self_model.soft_constraints
                 )
                 size_manager = SelfModelSizeManager(
                     limits=limits,
@@ -1384,10 +1403,10 @@ def main() -> None:
             tool_registry=tool_registry,
             memory_manager=memory_manager,
             directory_structure_generator=directory_structure_generator,
-            self_model_reduction_level=config.self_model.self_model_reduction_level,
+            self_model_reduction_level=app_config.self_model.self_model_reduction_level if app_config else "medium",
             reasoning_tool=reasoning_tool,
             size_manager=size_manager,
-            config=config,
+            config=app_config,
         )
         
         # Extract cognitive architecture components from reasoning tool for world state aggregator
@@ -1426,25 +1445,40 @@ def main() -> None:
             color_manager = ColorManager()
             
             # Load profile from config
-            color_config = config.repl_color
-            if color_config.profile == "custom" and (
-                color_config.custom_brocaos_prompt or
-                color_config.custom_response_text or
-                color_config.custom_you_prompt or
-                color_config.custom_input_text
-            ):
-                custom_profile = CustomColorProfile(
-                    brocaos_prompt=color_config.custom_brocaos_prompt,
-                    response_text=color_config.custom_response_text,
-                    you_prompt=color_config.custom_you_prompt,
-                    input_text=color_config.custom_input_text
-                )
-                color_manager.set_custom_profile(custom_profile)
-            
-            color_manager.set_profile(color_config.profile)
+            if app_config:
+                color_config = app_config.repl_color
+                if color_config.profile == "custom" and (
+                    color_config.custom_brocaos_prompt or
+                    color_config.custom_response_text or
+                    color_config.custom_you_prompt or
+                    color_config.custom_input_text
+                ):
+                    custom_profile = CustomColorProfile(
+                        brocaos_prompt=color_config.custom_brocaos_prompt,
+                        response_text=color_config.custom_response_text,
+                        you_prompt=color_config.custom_you_prompt,
+                        input_text=color_config.custom_input_text
+                    )
+                    color_manager.set_custom_profile(custom_profile)
+                
+                color_manager.set_profile(color_config.profile)
         except Exception as e:
             logger.debug(f"Failed to initialize color manager: {e}", exc_info=True)
             color_manager = None
+        
+        # Extract PEA loop managers from reasoning_tool if available
+        goal_manager = None
+        skill_manager = None
+        experience_logger = None
+        
+        if reasoning_tool:
+            if hasattr(reasoning_tool, 'goal_manager'):
+                goal_manager = reasoning_tool.goal_manager
+            if hasattr(reasoning_tool, 'learning_tool') and reasoning_tool.learning_tool:
+                if hasattr(reasoning_tool.learning_tool, 'skill_manager'):
+                    skill_manager = reasoning_tool.learning_tool.skill_manager
+                if hasattr(reasoning_tool.learning_tool, 'experience_logger'):
+                    experience_logger = reasoning_tool.learning_tool.experience_logger
         
         session = ConversationSession(
             system_prompt=None,
@@ -1453,9 +1487,12 @@ def main() -> None:
             internal_sensing_framework=internal_sensing,
             world_state_aggregator=world_state_aggregator,
             color_manager=color_manager,
+            goal_manager=goal_manager,
+            skill_manager=skill_manager,
+            experience_logger=experience_logger,
         )
 
-        provider_name = config.llm.provider.upper()
+        provider_name = (app_config.llm.provider if app_config else "deepseek").upper()
         storage_status = "enabled" if conversation_storage else "disabled"
         tools_status = "enabled" if tool_registry else "disabled"
         memory_status = "enabled" if memory_manager else "disabled"
@@ -1502,6 +1539,20 @@ def main() -> None:
             if user_input == "/reset":
                 # Recreate the session to drop history (new session ID, fresh start)
                 # Note: Memories persist across resets
+                # Extract PEA loop managers from reasoning_tool if available
+                goal_manager = None
+                skill_manager = None
+                experience_logger = None
+                
+                if reasoning_tool:
+                    if hasattr(reasoning_tool, 'goal_manager'):
+                        goal_manager = reasoning_tool.goal_manager
+                    if hasattr(reasoning_tool, 'learning_tool') and reasoning_tool.learning_tool:
+                        if hasattr(reasoning_tool.learning_tool, 'skill_manager'):
+                            skill_manager = reasoning_tool.learning_tool.skill_manager
+                        if hasattr(reasoning_tool.learning_tool, 'experience_logger'):
+                            experience_logger = reasoning_tool.learning_tool.experience_logger
+                
                 session = ConversationSession(
                     system_prompt=None,
                     storage=conversation_storage,
@@ -1509,6 +1560,9 @@ def main() -> None:
                     internal_sensing_framework=internal_sensing,
                     world_state_aggregator=world_state_aggregator,
                     color_manager=color_manager,
+                    goal_manager=goal_manager,
+                    skill_manager=skill_manager,
+                    experience_logger=experience_logger,
                 )
                 print("[context reset]")
                 continue
@@ -1520,7 +1574,7 @@ def main() -> None:
                 # - When streaming is used, it prints during streaming with "BrocaOS> " prefix
                 # - When streaming is not used, it prints the response with "BrocaOS> " prefix
                 # So we don't need to print here - session.send() handles it all
-                stream_enabled = config.llm.streaming_enabled
+                stream_enabled = app_config.llm.streaming_enabled if app_config else True
                 reply = session.send(user_input, stream=stream_enabled)
                 # Response is already printed by session.send(), no need to print again
             except Exception as e:

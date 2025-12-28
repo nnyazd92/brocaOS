@@ -1,0 +1,25 @@
+{
+  "scenario": "successful_execution",
+  "description": "Plan succeeds on first try",
+  "inputs": {
+    "user_message": "Fix the bug",
+    "plan": {
+      "goal": "Fix the bug",
+      "steps": [
+        {"description": "Check error logs"},
+        {"description": "Apply fix"}
+      ]
+    },
+    "executions": [
+      {"tool_name": "terminal", "success": true},
+      {"tool_name": "terminal", "success": true}
+    ]
+  },
+  "expected_outputs": {
+    "goal_achieved": true,
+    "success_rate": 1.0,
+    "should_replan": false,
+    "final_phase": "complete"
+  }
+}
+

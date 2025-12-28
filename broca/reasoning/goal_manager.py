@@ -103,6 +103,18 @@ class Goal:
             "metadata": self.metadata,
         }
     
+    @staticmethod
+    def _parse_progress(progress_value: Any) -> Optional[float]:
+        """Parse progress value, handling None and 0.0 cases."""
+        if progress_value is None:
+            return None  # Not computed
+        elif isinstance(progress_value, (int, float)) and progress_value == 0.0:
+            # Could be default 0.0 from old code - set to None to trigger recomputation
+            return None
+        else:
+            # progress > 0.0, so it was computed - keep it
+            return float(progress_value)
+    
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> Goal:
         """Create goal from dictionary representation."""
@@ -122,15 +134,7 @@ class Goal:
             # If progress is 0.0, it might be a default value from old code
             # We'll set it to None and let refresh_goal_progress recompute it
             # If progress > 0.0, we know it was computed, so keep it
-            progress = data.get("progress")
-            if progress is None:
-                progress = None  # Not computed
-            elif isinstance(progress, (int, float)) and progress == 0.0:
-                # Could be default 0.0 from old code - set to None to trigger recomputation
-                progress = None
-            else:
-                # progress > 0.0, so it was computed - keep it
-                progress = float(progress)
+            progress=cls._parse_progress(data.get("progress")),
             last_updated=datetime.fromisoformat(data["last_updated"]) if "last_updated" in data else datetime.now(timezone.utc),
             attempts=data.get("attempts", 0),
             max_attempts=data.get("max_attempts", 3),
@@ -550,6 +554,12 @@ class GoalManager:
             elif self._cognitive_dissonance_monitor:
                 try:
                     dissonance_data = self._cognitive_dissonance_monitor.get_aggregated_dissonance()
+                    # Check if we have sufficient data
+                    has_data = dissonance_data.get("has_data", True)  # Default to True for backward compatibility
+                    if not has_data:
+                        # Insufficient data - return None to indicate cannot compute
+                        logger.debug("Cannot compute progress for minimize_cognitive_dissonance: insufficient dissonance data")
+                        return None
                     overall_dissonance = dissonance_data.get("overall_dissonance", 0.0)
                     return max(0.0, min(1.0, 1.0 - overall_dissonance))
                 except Exception as e:

@@ -251,8 +251,15 @@ class RLSignalAggregator:
         elif self.cognitive_dissonance_monitor:
             try:
                 dissonance_data = self.cognitive_dissonance_monitor.get_aggregated_dissonance()
-                overall_dissonance = dissonance_data.get("overall_dissonance", 0.0)
-                metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
+                # Check if we have sufficient data
+                has_data = dissonance_data.get("has_data", True)  # Default to True for backward compatibility
+                if not has_data:
+                    # Insufficient data - use neutral reward (0.5) instead of assuming zero dissonance
+                    logger.debug("Insufficient dissonance data for RL signals, using neutral reward")
+                    metrics.dissonance_reward = 0.5
+                else:
+                    overall_dissonance = dissonance_data.get("overall_dissonance", 0.0)
+                    metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
             except Exception as e:
                 logger.debug(f"Error getting dissonance signal: {e}")
                 metrics.dissonance_reward = 0.5  # Default neutral

@@ -244,13 +244,13 @@ class ToolRegistry:
     def to_openai_format(self, context: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Convert registered tools to OpenAI function calling format.
-        
+
         Optionally filters and ranks tools based on context if tool selection
         guidance is enabled and available.
-        
+
         Args:
             context: Optional context dictionary for tool filtering/ranking
-        
+
         Returns:
             List of tool definitions in OpenAI format
         """
@@ -258,7 +258,8 @@ class ToolRegistry:
         all_tools = list(self._tools.values())
         
         # Apply filtering/ranking if enabled and guidance is available
-        if (config.tools.pre_filtering_enabled and 
+        # Use module-level config (imported at top of file)
+        if (config.tools.pre_filtering_enabled and
             self.tool_selection_guidance is not None):
             try:
                 all_tools = self.tool_selection_guidance.filter_and_rank_tools(
@@ -302,7 +303,7 @@ class ToolRegistry:
         )
         
         # Log full tool schemas at DEBUG level or if configured
-        from ..config import config
+        # Use module-level config (imported at top of file)
         if config.logging.level == "DEBUG" or config.logging.log_tool_schemas:
             logger.debug(
                 "Tool schemas",

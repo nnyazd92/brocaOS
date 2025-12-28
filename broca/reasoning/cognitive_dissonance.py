@@ -51,6 +51,16 @@ class DissonanceMetrics:
     weight_behavioral: float = 0.2
     weight_goal: float = 0.2
     
+    # Measurement quality indicators
+    measurement_quality: Optional[str] = None  # "measured", "estimated", "unavailable", "error"
+    has_sufficient_data: bool = True  # indicates if measurement is based on actual data
+    component_availability: Dict[str, bool] = field(default_factory=lambda: {
+        "logical": True,
+        "factual": True,
+        "behavioral": True,
+        "goal": True,
+    })
+    
     def compute_overall(self) -> float:
         """Compute overall dissonance from component scores."""
         self.overall_dissonance = (
@@ -189,37 +199,64 @@ class CognitiveDissonanceMonitor:
             weight_logical=self.weight_logical,
             weight_factual=self.weight_factual,
             weight_behavioral=self.weight_behavioral,
-            weight_goal=self.weight_goal
+            weight_goal=self.weight_goal,
+            measurement_quality="measured",  # Default to measured, will update if unavailable
+            has_sufficient_data=True,  # Default to True, will update if using fallbacks
         )
         
         # Measure logical dissonance (uses ConsistencyChecker)
         if response and self.consistency_checker:
             logical_dissonance = self._measure_logical_dissonance(response, conversation_context)
             metrics.logical_dissonance = logical_dissonance
+            metrics.component_availability["logical"] = True
         else:
             # Use historical average if no current measurement
             metrics.logical_dissonance = self._get_average_logical_dissonance()
+            metrics.component_availability["logical"] = len(self.logical_violations) > 0
+            if not metrics.component_availability["logical"]:
+                metrics.measurement_quality = "estimated"
+                metrics.has_sufficient_data = False
         
         # Measure factual dissonance
         if response:
             factual_dissonance = self._measure_factual_dissonance(response)
             metrics.factual_dissonance = factual_dissonance
+            metrics.component_availability["factual"] = True
         else:
             metrics.factual_dissonance = self._get_average_factual_dissonance()
+            metrics.component_availability["factual"] = len(self.factual_errors) > 0
+            if not metrics.component_availability["factual"]:
+                metrics.measurement_quality = "estimated"
+                metrics.has_sufficient_data = False
         
         # Measure behavioral dissonance
         if tool_usage:
             behavioral_dissonance = self._measure_behavioral_dissonance(tool_usage)
             metrics.behavioral_dissonance = behavioral_dissonance
+            metrics.component_availability["behavioral"] = True
         else:
             metrics.behavioral_dissonance = self._get_average_behavioral_dissonance()
+            metrics.component_availability["behavioral"] = len(self.behavioral_deviations) > 0
+            if not metrics.component_availability["behavioral"]:
+                metrics.measurement_quality = "estimated"
+                metrics.has_sufficient_data = False
         
         # Measure goal-based dissonance
         if reasoning_goals:
             goal_dissonance = self._measure_goal_dissonance(reasoning_goals)
             metrics.goal_dissonance = goal_dissonance
+            metrics.component_availability["goal"] = True
         else:
             metrics.goal_dissonance = self._get_average_goal_dissonance()
+            metrics.component_availability["goal"] = len(self.goal_conflicts) > 0
+            if not metrics.component_availability["goal"]:
+                metrics.measurement_quality = "estimated"
+                metrics.has_sufficient_data = False
+        
+        # If no components have data, mark as unavailable
+        if not any(metrics.component_availability.values()):
+            metrics.measurement_quality = "unavailable"
+            metrics.has_sufficient_data = False
         
         # Compute overall dissonance
         metrics.compute_overall()
@@ -490,8 +527,27 @@ class CognitiveDissonanceMonitor:
                             kid = generate_knowledge_boundary_id(key, value)
                             context = self.epistemic_engine.get_epistemic_context(kid)
                             if context and context.get("confidence_metrics"):
-                                conf = context["confidence_metrics"].get("overall_confidence", 0.5)
-                                confidence_scores.append(conf)
+                                conf = context["confidence_metrics"].get("overall_confidence")
+                                if conf is not None:
+                                    confidence_scores.append(conf)
+                                else:
+                                    # No confidence in metrics - use assess_source_reliability() instead of hardcoded 0.5
+                                    if hasattr(self.epistemic_engine, 'validator'):
+                                        try:
+                                            from ..self_model.epistemic.models import SourceType, SourceMetadata
+                                            # Get source from knowledge boundary
+                                            source_dict = value_dict.get("source", {})
+                                            if source_dict:
+                                                source_type = SourceType(source_dict.get("source_type", SourceType.SYSTEM_DEFAULT))
+                                                source = SourceMetadata(
+                                                    source_type=source_type,
+                                                    timestamp=datetime.now(timezone.utc)
+                                                )
+                                                assessed_reliability = self.epistemic_engine.validator.assess_source_reliability(source)
+                                                confidence_scores.append(assessed_reliability)
+                                                logger.debug(f"Used assessed source reliability ({assessed_reliability:.3f}) instead of hardcoded 0.5 for knowledge boundary confidence")
+                                        except Exception as e2:
+                                            logger.debug(f"Error assessing source reliability for knowledge boundary: {e2}")
                         except Exception:
                             pass
                     
@@ -501,6 +557,23 @@ class CognitiveDissonanceMonitor:
                         # Festinger: importance of conflicting elements amplifies dissonance
                         confidence_weight = 0.8 + (avg_confidence * 0.4)  # Range: 0.8-1.2
                         dissonance_score = min(1.0, dissonance_score * confidence_weight)
+                    else:
+                        # No confidence scores available - use assess_source_reliability() instead of hardcoded 0.5
+                        if hasattr(self.epistemic_engine, 'validator'):
+                            try:
+                                from ..self_model.epistemic.models import SourceType, SourceMetadata
+                                # Create a default source to assess reliability
+                                default_source = SourceMetadata(
+                                    source_type=SourceType.SYSTEM_DEFAULT,
+                                    timestamp=datetime.now(timezone.utc)
+                                )
+                                assessed_reliability = self.epistemic_engine.validator.assess_source_reliability(default_source)
+                                # Use assessed reliability as confidence weight (instead of hardcoded 0.5)
+                                confidence_weight = 0.8 + (assessed_reliability * 0.4)  # Range: 0.8-1.2
+                                dissonance_score = min(1.0, dissonance_score * confidence_weight)
+                                logger.debug(f"Used assessed source reliability ({assessed_reliability:.3f}) instead of hardcoded 0.5 for factual dissonance weighting")
+                            except Exception as e:
+                                logger.debug(f"Error assessing source reliability for factual dissonance: {e}")
                 except Exception as e:
                     logger.debug(f"Error weighting factual dissonance by epistemic confidence: {e}")
             
@@ -535,7 +608,8 @@ class CognitiveDissonanceMonitor:
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc)
             })
-            logger.warning(f"Failed to measure factual dissonance: {e}. Returning 0.0 (no dissonance detected)", exc_info=True)
+            logger.warning(f"Failed to measure factual dissonance: {e}. Returning 0.0 (measurement error - not actual zero dissonance)", exc_info=True)
+            # Return 0.0 but caller should set measurement_quality="error" to distinguish from actual zero
             return 0.0
     
     def _measure_behavioral_dissonance(self, tool_usage: List[Dict[str, Any]]) -> float:
@@ -653,7 +727,8 @@ class CognitiveDissonanceMonitor:
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc)
             })
-            logger.warning(f"Failed to measure behavioral dissonance: {e}. Returning 0.0 (no dissonance detected)", exc_info=True)
+            logger.warning(f"Failed to measure behavioral dissonance: {e}. Returning 0.0 (measurement error - not actual zero dissonance)", exc_info=True)
+            # Return 0.0 but caller should set measurement_quality="error" to distinguish from actual zero
             return 0.0
     
     def _measure_goal_dissonance(self, reasoning_goals: List[Dict[str, Any]]) -> float:
@@ -770,7 +845,8 @@ class CognitiveDissonanceMonitor:
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc)
             })
-            logger.warning(f"Failed to measure goal dissonance: {e}. Returning 0.0 (no dissonance detected)", exc_info=True)
+            logger.warning(f"Failed to measure goal dissonance: {e}. Returning 0.0 (measurement error - not actual zero dissonance)", exc_info=True)
+            # Return 0.0 but caller should set measurement_quality="error" to distinguish from actual zero
             return 0.0
     
     def _get_average_logical_dissonance(self) -> float:
@@ -810,7 +886,13 @@ class CognitiveDissonanceMonitor:
         self.fact_checker = fact_checker
     
     def get_aggregated_dissonance(self) -> Dict[str, Any]:
-        """Get aggregated dissonance metrics from history."""
+        """
+        Get aggregated dissonance metrics from history.
+        
+        Returns:
+            Dictionary with aggregated metrics. If no history, returns structure indicating
+            "insufficient data" rather than zero values (which would imply "no dissonance").
+        """
         if len(self.dissonance_history) == 0:
             return {
                 "overall_dissonance": 0.0,
@@ -818,7 +900,9 @@ class CognitiveDissonanceMonitor:
                 "factual_dissonance": 0.0,
                 "behavioral_dissonance": 0.0,
                 "goal_dissonance": 0.0,
-                "samples": 0
+                "samples": 0,
+                "has_data": False,  # Indicates insufficient data vs. zero dissonance
+                "measurement_quality": "unavailable",
             }
         
         # Compute averages
@@ -836,6 +920,11 @@ class CognitiveDissonanceMonitor:
         else:
             trend = 0.0
         
+        # Determine measurement quality from latest measurement
+        latest_metrics = self.dissonance_history[-1]
+        measurement_quality = latest_metrics.measurement_quality or "measured"
+        has_sufficient_data = latest_metrics.has_sufficient_data if hasattr(latest_metrics, 'has_sufficient_data') else True
+        
         return {
             "overall_dissonance": avg_overall,
             "logical_dissonance": avg_logical,
@@ -844,6 +933,15 @@ class CognitiveDissonanceMonitor:
             "goal_dissonance": avg_goal,
             "trend": trend,  # Positive = increasing, negative = decreasing
             "samples": len(self.dissonance_history),
+            "has_data": True,  # We have history data
+            "measurement_quality": measurement_quality,
+            "has_sufficient_data": has_sufficient_data,
+            "component_availability": latest_metrics.component_availability if hasattr(latest_metrics, 'component_availability') else {
+                "logical": True,
+                "factual": True,
+                "behavioral": True,
+                "goal": True,
+            },
             "latest": {
                 "overall": self.dissonance_history[-1].overall_dissonance,
                 "timestamp": self.dissonance_history[-1].timestamp.isoformat()

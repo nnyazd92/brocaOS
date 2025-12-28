@@ -17,6 +17,64 @@ The reasoning system provides symbolic reasoning capabilities using production r
 - **WorkingMemory**: Active memory buffer with activation-based retrieval
 - **WorkingMemoryItem**: Items in working memory with activation levels
 
+### PEA Loop (Planning-Execution-Assessment)
+
+The PEA loop enforces structured problem-solving by requiring planning before execution, tracking all actions, and assessing results to enable recursive learning from failures.
+
+#### PlanExecuteAssessLoop
+
+Forces Broca to always follow:
+1. **PLAN**: Create a plan before executing actions
+2. **ACTION(S)**: Execute planned actions with tracking
+3. **ASSESS**: Evaluate results and learn from failures
+4. **RECURSE**: Use assessment to form new plan (if needed)
+
+Key features:
+- Prevents mindless repetition by tracking failed patterns
+- Limits replan attempts (default: 3)
+- Integrates with goal_manager, skill_manager, experience_logger
+- Maintains execution history and assessment history
+
+#### Configuration
+
+PEA loop is configured via `ReasoningConfig`:
+
+```python
+pea_loop_enabled: bool = True                    # Enable/disable PEA loop
+pea_loop_require_planning: bool = True          # Force planning before actions
+pea_loop_max_replans: int = 3                   # Maximum replan attempts
+pea_loop_success_threshold: float = 0.8         # Success rate threshold for goal achievement
+pea_loop_track_failed_patterns: bool = True    # Track failed patterns to prevent repetition
+pea_loop_max_failed_patterns: int = 10          # Maximum failed patterns to track
+```
+
+#### Integration Points
+
+1. **ConversationSession**: PEA loop is initialized in session and integrated into `send()` method
+2. **Tool Execution**: All tool executions are tracked with success/failure
+3. **Assessment**: After tool calls complete, execution is assessed
+4. **Replanning**: If assessment indicates failure, new plan is required
+
+#### Usage
+
+The PEA loop is automatically integrated into the conversation flow. When a user requests an action:
+
+1. **Planning Phase**: If no plan exists, LLM is required to create a plan
+2. **Action Phase**: Tool calls are executed and tracked
+3. **Assessment Phase**: After execution, results are assessed
+4. **Replanning**: If goal not achieved and replan attempts remain, new plan is required
+
+#### Testing
+
+The PEA loop includes comprehensive tests following AGENTS.md requirements:
+
+- **Unit tests**: `test_pea_loop.py`
+- **Mutation tests**: `test_pea_loop_mutation.py`
+- **Property-based tests**: `test_pea_loop_property.py` (Hypothesis)
+- **Fault injection**: `test_pea_loop_fault_injection.py`
+- **Golden traces**: `test_pea_loop_golden_traces.py` with fixtures in `fixtures/golden_traces/pea_loop/`
+- **Integration tests**: `test_pea_loop_integration.py`
+
 ### Z3 Logical Validation
 
 The reasoning system includes Z3-based logical validation to ensure consistency:
