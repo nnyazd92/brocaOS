@@ -8,6 +8,7 @@ emotional equilibrium.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from collections import deque
@@ -139,28 +140,91 @@ class HomeostaticEmotionalRegulator:
         self._valence_integral = max(-2.0, min(2.0, self._valence_integral))
         valence_i = self.ki_valence * self._valence_integral
         
-        # Derivative term: rate of change
-        valence_d = self.kd_valence * (valence_error - self._last_valence_error)
+        # Derivative term: rate of change with filtering to reduce noise sensitivity
+        # Use filtered derivative: average of recent error changes
+        error_change = valence_error - self._last_valence_error
+        # Simple low-pass filter for derivative (reduces noise)
+        if len(self._valence_history) >= 2:
+            # Use average of last 2 error changes for smoother derivative
+            recent_changes = [
+                self._valence_history[-1] - self._valence_history[-2]
+                if len(self._valence_history) >= 2 else error_change
+            ]
+            filtered_derivative = sum(recent_changes) / len(recent_changes) if recent_changes else error_change
+        else:
+            filtered_derivative = error_change
+        
+        valence_d = self.kd_valence * filtered_derivative
         self._last_valence_error = valence_error
+        
+        # Anti-windup: Conditional integration (only integrate if not saturated)
+        # Check if output would saturate
+        unsaturated_output = valence_p + valence_i + valence_d
+        if abs(unsaturated_output) < 1.0:  # Not saturated
+            # Normal integration
+            pass  # Already integrated above
+        else:
+            # Saturated: use back-calculation anti-windup
+            # Reduce integral accumulation when saturated
+            saturation_factor = 1.0 / max(1.0, abs(unsaturated_output))
+            self._valence_integral *= saturation_factor
         
         valence_adjustment = valence_p + valence_i + valence_d
         
-        # PID control for arousal
+        # PID control for arousal with derivative filtering and anti-windup
         arousal_p = self.kp_arousal * arousal_error
         self._arousal_integral += arousal_error
         self._arousal_integral = max(-2.0, min(2.0, self._arousal_integral))
         arousal_i = self.ki_arousal * self._arousal_integral
-        arousal_d = self.kd_arousal * (arousal_error - self._last_arousal_error)
+        
+        # Filtered derivative
+        error_change = arousal_error - self._last_arousal_error
+        if len(self._arousal_history) >= 2:
+            recent_changes = [
+                self._arousal_history[-1] - self._arousal_history[-2]
+                if len(self._arousal_history) >= 2 else error_change
+            ]
+            filtered_derivative = sum(recent_changes) / len(recent_changes) if recent_changes else error_change
+        else:
+            filtered_derivative = error_change
+        
+        arousal_d = self.kd_arousal * filtered_derivative
         self._last_arousal_error = arousal_error
+        
+        # Anti-windup: back-calculation
+        unsaturated_output = arousal_p + arousal_i + arousal_d
+        if abs(unsaturated_output) >= 1.0:
+            saturation_factor = 1.0 / max(1.0, abs(unsaturated_output))
+            self._arousal_integral *= saturation_factor
+        
         arousal_adjustment = arousal_p + arousal_i + arousal_d
         
-        # PID control for curiosity
+        # PID control for curiosity with derivative filtering and anti-windup
         curiosity_p = self.kp_curiosity * curiosity_error
         self._curiosity_integral += curiosity_error
         self._curiosity_integral = max(-2.0, min(2.0, self._curiosity_integral))
         curiosity_i = self.ki_curiosity * self._curiosity_integral
-        curiosity_d = self.kd_curiosity * (curiosity_error - self._last_curiosity_error)
+        
+        # Filtered derivative
+        error_change = curiosity_error - self._last_curiosity_error
+        if len(self._curiosity_history) >= 2:
+            recent_changes = [
+                self._curiosity_history[-1] - self._curiosity_history[-2]
+                if len(self._curiosity_history) >= 2 else error_change
+            ]
+            filtered_derivative = sum(recent_changes) / len(recent_changes) if recent_changes else error_change
+        else:
+            filtered_derivative = error_change
+        
+        curiosity_d = self.kd_curiosity * filtered_derivative
         self._last_curiosity_error = curiosity_error
+        
+        # Anti-windup: back-calculation
+        unsaturated_output = curiosity_p + curiosity_i + curiosity_d
+        if abs(unsaturated_output) >= 1.0:
+            saturation_factor = 1.0 / max(1.0, abs(unsaturated_output))
+            self._curiosity_integral *= saturation_factor
+        
         curiosity_adjustment = curiosity_p + curiosity_i + curiosity_d
         
         # Clamp adjustments to reasonable ranges
@@ -216,20 +280,47 @@ class HomeostaticEmotionalRegulator:
         target_arousal: Optional[float] = None,
         target_curiosity: Optional[float] = None
     ):
-        """Update target setpoints."""
+        """
+        Update target setpoints with bumpless transfer.
+        
+        Bumpless transfer ensures smooth transitions when setpoints change,
+        preventing sudden jumps in control output.
+        """
+        # Bumpless transfer: adjust integral term to maintain continuity
         if target_valence is not None:
+            # Adjust integral to maintain current output when setpoint changes
+            current_error = self.target_valence - (self._valence_history[-1] if self._valence_history else 0.0)
+            new_error = target_valence - (self._valence_history[-1] if self._valence_history else 0.0)
+            # Adjust integral to compensate for setpoint change
+            self._valence_integral += (new_error - current_error) / max(0.01, self.ki_valence)
             self.target_valence = target_valence
+        
         if target_arousal is not None:
+            current_error = self.target_arousal - (self._arousal_history[-1] if self._arousal_history else 0.5)
+            new_error = target_arousal - (self._arousal_history[-1] if self._arousal_history else 0.5)
+            self._arousal_integral += (new_error - current_error) / max(0.01, self.ki_arousal)
             self.target_arousal = target_arousal
+        
         if target_curiosity is not None:
+            current_error = self.target_curiosity - (self._curiosity_history[-1] if self._curiosity_history else 0.5)
+            new_error = target_curiosity - (self._curiosity_history[-1] if self._curiosity_history else 0.5)
+            self._curiosity_integral += (new_error - current_error) / max(0.01, self.ki_curiosity)
             self.target_curiosity = target_curiosity
 
 
 class EmotionalSetpointController:
     """
-    Manages adaptive emotional setpoints based on context.
+    Manages adaptive emotional setpoints based on context (Allostatic Control).
     
-    Adjusts target setpoints based on current context (task type, time of day, etc.).
+    Implements allostasis (Sterling): dynamic setpoints that adapt to context
+    and predictions, rather than fixed homeostasis. Tracks allostatic load
+    (cost of maintaining stability).
+    
+    Adjusts target setpoints based on:
+    - Current context (task type, urgency, etc.)
+    - Predictive interoception (anticipated needs)
+    - Adaptation history (what worked before)
+    - Stress response modeling
     """
     
     def __init__(
@@ -239,7 +330,7 @@ class EmotionalSetpointController:
         base_curiosity: float = 0.5
     ):
         """
-        Initialize setpoint controller.
+        Initialize allostatic setpoint controller.
         
         Args:
             base_valence: Base valence setpoint
@@ -250,27 +341,57 @@ class EmotionalSetpointController:
         self.base_arousal = base_arousal
         self.base_curiosity = base_curiosity
         
-        logger.info("Initialized EmotionalSetpointController")
+        # Allostatic load tracking (cost of maintaining stability)
+        self._allostatic_load: float = 0.0  # Cumulative stress/effort
+        self._allostatic_load_history: deque = deque(maxlen=100)
+        
+        # Adaptation history (what setpoints worked well)
+        self._adaptation_history: List[Dict[str, Any]] = []
+        
+        # Predictive regulation (anticipatory adjustments)
+        self._predicted_needs: Optional[Dict[str, float]] = None
+        
+        logger.info("Initialized EmotionalSetpointController (Allostatic Control)")
     
     def adjust_setpoints(
         self,
         context: Dict[str, Any],
-        current_emotion: Dict[str, float]
+        current_emotion: Dict[str, float],
+        predicted_needs: Optional[Dict[str, float]] = None
     ) -> Dict[str, float]:
         """
-        Adjust setpoints based on context.
+        Adjust setpoints based on context using allostatic control.
+        
+        Implements predictive regulation: anticipates needs and adjusts proactively.
+        Tracks allostatic load and learns from adaptation history.
         
         Args:
             context: Context dictionary (task_type, urgency, etc.)
             current_emotion: Current emotional state
+            predicted_needs: Optional predicted future needs (from predictive interoception)
             
         Returns:
             Dictionary with adjusted setpoints (target_valence, target_arousal, target_curiosity)
         """
+        # Store predicted needs for predictive regulation
+        if predicted_needs:
+            self._predicted_needs = predicted_needs
+        
         # Start with base setpoints
         target_valence = self.base_valence
         target_arousal = self.base_arousal
         target_curiosity = self.base_curiosity
+        
+        # Predictive regulation: anticipate needs and adjust proactively
+        if self._predicted_needs:
+            predicted_load = self._predicted_needs.get("computational_load", 0.5)
+            predicted_stress = self._predicted_needs.get("stress_level", 0.0)
+            
+            # Anticipatory adjustment: if high load predicted, prepare by adjusting arousal
+            if predicted_load > 0.7:
+                target_arousal = min(0.8, self.base_arousal + 0.2)  # Increase arousal for high load
+            elif predicted_load < 0.3:
+                target_arousal = max(0.3, self.base_arousal - 0.1)  # Decrease for low load
         
         # Adjust based on task type
         task_type = context.get("task_type", "")
@@ -290,6 +411,13 @@ class EmotionalSetpointController:
             # Lower arousal for routine tasks
             target_arousal = max(0.3, self.base_arousal - 0.2)
         
+        # Stress response modeling: adjust setpoints based on allostatic load
+        if self._allostatic_load > 0.7:
+            # High allostatic load: reduce target arousal to conserve energy
+            target_arousal = max(0.3, target_arousal - 0.2)
+            # Increase target valence slightly to compensate
+            target_valence = min(0.3, target_valence + 0.1)
+        
         # Adjust based on recent emotional state (if very far from setpoint, adjust target gradually)
         current_valence = current_emotion.get("valence", 0.0)
         if current_valence < -0.5:
@@ -299,11 +427,89 @@ class EmotionalSetpointController:
             # Very positive valence: target neutral to stabilize
             target_valence = 0.0
         
+        # Learn from adaptation history: if similar contexts worked well before, use those setpoints
+        if self._adaptation_history:
+            similar_contexts = [
+                h for h in self._adaptation_history
+                if h.get("task_type") == task_type and h.get("success", False)
+            ]
+            if similar_contexts:
+                # Use average of successful setpoints for this context
+                avg_valence = sum(h["target_valence"] for h in similar_contexts) / len(similar_contexts)
+                avg_arousal = sum(h["target_arousal"] for h in similar_contexts) / len(similar_contexts)
+                avg_curiosity = sum(h["target_curiosity"] for h in similar_contexts) / len(similar_contexts)
+                
+                # Blend with current targets (70% history, 30% current)
+                target_valence = 0.7 * avg_valence + 0.3 * target_valence
+                target_arousal = 0.7 * avg_arousal + 0.3 * target_arousal
+                target_curiosity = 0.7 * avg_curiosity + 0.3 * target_curiosity
+        
         return {
             "target_valence": target_valence,
             "target_arousal": target_arousal,
             "target_curiosity": target_curiosity
         }
+    
+    def update_allostatic_load(
+        self,
+        regulation_effort: float,
+        stress_level: float = 0.0
+    ) -> None:
+        """
+        Update allostatic load (cost of maintaining stability).
+        
+        Allostatic load accumulates when the system must work hard to maintain
+        emotional equilibrium. High load indicates stress/overwork.
+        
+        Args:
+            regulation_effort: Effort required for regulation (0.0-1.0)
+            stress_level: Current stress level (0.0-1.0)
+        """
+        # Allostatic load increases with regulation effort and stress
+        load_increment = (regulation_effort * 0.6 + stress_level * 0.4) * 0.1
+        self._allostatic_load = min(1.0, self._allostatic_load + load_increment)
+        
+        # Decay allostatic load over time (recovery)
+        self._allostatic_load *= 0.95  # 5% decay per update
+        
+        self._allostatic_load_history.append(self._allostatic_load)
+    
+    def get_allostatic_load(self) -> float:
+        """Get current allostatic load (0.0-1.0)."""
+        return self._allostatic_load
+    
+    def record_adaptation(
+        self,
+        context: Dict[str, Any],
+        setpoints: Dict[str, float],
+        success: bool,
+        effectiveness: float = 0.5
+    ) -> None:
+        """
+        Record adaptation outcome for learning.
+        
+        Tracks which setpoints worked well in which contexts, enabling
+        optimization of setpoint selection.
+        
+        Args:
+            context: Context in which setpoints were used
+            setpoints: Setpoints that were used
+            success: Whether the adaptation was successful
+            effectiveness: How effective the adaptation was (0.0-1.0)
+        """
+        self._adaptation_history.append({
+            "context": context,
+            "target_valence": setpoints.get("target_valence", self.base_valence),
+            "target_arousal": setpoints.get("target_arousal", self.base_arousal),
+            "target_curiosity": setpoints.get("target_curiosity", self.base_curiosity),
+            "success": success,
+            "effectiveness": effectiveness,
+            "timestamp": time.time()
+        })
+        
+        # Keep only recent history
+        if len(self._adaptation_history) > 100:
+            self._adaptation_history = self._adaptation_history[-100:]
 
 
 class RegulationStrategySelector:

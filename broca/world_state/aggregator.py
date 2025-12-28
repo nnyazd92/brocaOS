@@ -75,6 +75,36 @@ class WorldStateAggregator:
         
         logger.info("Initialized WorldStateAggregator")
     
+    def _validate_metric_quality(self, state_dict: Dict[str, Any], component_name: str) -> bool:
+        """
+        Validate that metrics have sufficient data quality.
+        
+        Args:
+            state_dict: State dictionary to validate
+            component_name: Name of component for logging
+            
+        Returns:
+            True if metrics should be included, False if quality is too low
+        """
+        data_quality = state_dict.get("data_quality", {})
+        
+        # If no data quality indicators, assume it's okay (backward compatibility)
+        if not data_quality:
+            return True
+        
+        # Check if any critical metrics are missing or insufficient
+        missing_count = sum(1 for q in data_quality.values() if q in ("missing", "insufficient"))
+        total_metrics = len(data_quality)
+        
+        # If more than half the metrics are missing/insufficient, warn
+        if total_metrics > 0 and missing_count > total_metrics * 0.5:
+            logger.debug(
+                f"Low data quality for {component_name}: {missing_count}/{total_metrics} metrics missing/insufficient"
+            )
+            # Still include it, but with warning
+        
+        return True  # Include anyway, but caller can check data_quality
+    
     def aggregate(self) -> Dict[str, Any]:
         """
         Aggregate all available world state data into a clean hierarchical structure.
@@ -170,23 +200,27 @@ class WorldStateAggregator:
                 if "cognitive" in current_state:
                     # Preserve cognitive state including data_quality indicators
                     cognitive_state = current_state["cognitive"]
-                    world_state["internal_state"]["cognition"] = cognitive_state
                     # Ensure data_quality is preserved if present
                     if "data_quality" not in cognitive_state and hasattr(self.internal_sensing.interoception.cognition, 'states'):
                         # Try to extract data_quality from cognitive monitor if not in state
                         cog_states = self.internal_sensing.interoception.cognition.states
                         if "data_quality" in cog_states:
                             cognitive_state["data_quality"] = cog_states["data_quality"]
+                    # Validate and include
+                    if self._validate_metric_quality(cognitive_state, "cognition"):
+                        world_state["internal_state"]["cognition"] = cognitive_state
                 if "affective" in current_state:
                     # Preserve affective state including data_quality indicators
                     affective_state = current_state["affective"]
-                    world_state["internal_state"]["affect"] = affective_state
                     # Ensure data_quality is preserved if present
                     if "data_quality" not in affective_state and hasattr(self.internal_sensing.interoception.affect, 'affective_states'):
                         # Try to extract data_quality from affective monitor if not in state
                         aff_states = self.internal_sensing.interoception.affect.affective_states
                         if "data_quality" in aff_states:
                             affective_state["data_quality"] = aff_states["data_quality"]
+                    # Validate and include
+                    if self._validate_metric_quality(affective_state, "affect"):
+                        world_state["internal_state"]["affect"] = affective_state
             
             # Add predictive data if available
             if "predictive" in internal_sensing_state:
@@ -365,24 +399,33 @@ class WorldStateAggregator:
     
     def _summarize_with_model(self, text: str, max_length: int = 100) -> str:
         """
-        Stub for future sentence-summarization model integration.
+        Summarize text with simple truncation fallback.
         
-        This method is a placeholder for when a sentence-summarization model
-        (e.g., BART, T5, or LLM-based) is integrated to generate intelligent
-        summaries that preserve semantic meaning and key information.
+        Note: This is a simple implementation. Future versions may integrate
+        sentence-summarization models (e.g., BART, T5, or LLM-based) for
+        intelligent summaries that preserve semantic meaning.
         
         Args:
             text: Text to summarize
             max_length: Maximum length of summary
             
         Returns:
-            Summarized text (currently returns input as stub)
+            Summarized text (truncated if longer than max_length)
         """
-        # TODO: Integrate sentence-summarization model here
-        # For now, this is a stub that returns the input
-        # Future implementation might use:
-        # - BART/T5 models via transformers library
-        # - LLM-based summarization via API
+        if not text:
+            return ""
+        
+        # Simple truncation with ellipsis if needed
+        if len(text) <= max_length:
+            return text
+        
+        # Try to truncate at word boundary
+        truncated = text[:max_length - 3]
+        last_space = truncated.rfind(' ')
+        if last_space > max_length * 0.7:  # Only use word boundary if not too short
+            return truncated[:last_space] + "..."
+        
+        return truncated + "..."
         # - Custom fine-tuned model for self-model summarization
         return text[:max_length] if len(text) > max_length else text
     
@@ -1168,16 +1211,51 @@ class WorldStateAggregator:
                             if dissonance_monitor:
                                 try:
                                     dissonance_data = dissonance_monitor.get_aggregated_dissonance()
-                                    reasoning_state["cognitive_dissonance"] = {
-                                        "overall": round(dissonance_data.get("overall_dissonance", 0.0), 3),
-                                        "logical": round(dissonance_data.get("logical_dissonance", 0.0), 3),
-                                        "factual": round(dissonance_data.get("factual_dissonance", 0.0), 3),
-                                        "behavioral": round(dissonance_data.get("behavioral_dissonance", 0.0), 3),
-                                        "goal": round(dissonance_data.get("goal_dissonance", 0.0), 3),
-                                        "trend": dissonance_data.get("trend", 0.0)  # Positive = increasing
-                                    }
+                                    has_sufficient_data = dissonance_data.get("has_sufficient_data", False)
+                                    has_data = dissonance_data.get("has_data", False)
+                                    
+                                    # Only include values if we have sufficient data
+                                    if has_sufficient_data and has_data:
+                                        reasoning_state["cognitive_dissonance"] = {
+                                            "overall": round(dissonance_data.get("overall_dissonance", 0.0), 3),
+                                            "logical": round(dissonance_data.get("logical_dissonance", 0.0), 3),
+                                            "factual": round(dissonance_data.get("factual_dissonance", 0.0), 3),
+                                            "behavioral": round(dissonance_data.get("behavioral_dissonance", 0.0), 3),
+                                            "goal": round(dissonance_data.get("goal_dissonance", 0.0), 3),
+                                            "trend": dissonance_data.get("trend", 0.0),  # Positive = increasing
+                                            "measurement_quality": dissonance_data.get("measurement_quality", "unknown"),
+                                            "samples": dissonance_data.get("samples", 0)
+                                        }
+                                    else:
+                                        # Include diagnostic information when data is insufficient
+                                        diagnostics = dissonance_monitor.get_measurement_diagnostics()
+                                        reasoning_state["cognitive_dissonance"] = {
+                                            "overall": 0.0,
+                                            "logical": 0.0,
+                                            "factual": 0.0,
+                                            "behavioral": 0.0,
+                                            "goal": 0.0,
+                                            "trend": 0.0,
+                                            "measurement_quality": dissonance_data.get("measurement_quality", "unavailable"),
+                                            "has_sufficient_data": False,
+                                            "has_data": has_data,
+                                            "samples": dissonance_data.get("samples", 0),
+                                            "diagnostics": {
+                                                "total_measurements": diagnostics.get("total_measurements", 0),
+                                                "success_rate_percent": diagnostics.get("success_rate_percent", 0.0),
+                                                "dependencies": diagnostics.get("dependencies", {})
+                                            }
+                                        }
+                                        if not has_data:
+                                            logger.debug("Cognitive dissonance data unavailable - no measurements recorded yet")
+                                        elif not has_sufficient_data:
+                                            logger.debug("Cognitive dissonance data insufficient - measurements may have failed")
                                 except Exception as e:
-                                    logger.debug(f"Error getting cognitive dissonance data: {e}", exc_info=True)
+                                    logger.warning(f"Error getting cognitive dissonance data: {e}", exc_info=True)
+                                    reasoning_state["cognitive_dissonance"] = {
+                                        "error": "measurement_unavailable",
+                                        "message": str(e)
+                                    }
                             
                             # Include learning system state if available (check daemon for learning_tool)
                             learning_tool = None

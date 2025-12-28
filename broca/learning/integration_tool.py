@@ -40,6 +40,8 @@ class LearningTool:
         skill_manager: Optional[SkillManager] = None,
         experience_logger: Optional[ExperienceLogger] = None,
         pattern_extractor: Optional[PatternExtractor] = None,
+        skills_storage_path: Optional[str] = None,
+        experiences_storage_path: Optional[str] = None,
     ):
         """
         Initialize learning tool.
@@ -49,10 +51,23 @@ class LearningTool:
             skill_manager: Skill manager (creates default if None)
             experience_logger: Experience logger (creates default if None)
             pattern_extractor: Pattern extractor (creates default if None)
+            skills_storage_path: Path for skill persistence (defaults to data/skills.json)
+            experiences_storage_path: Path for experience persistence (defaults to data/experiences.json)
         """
         self.procedural_learner = procedural_learner or ProceduralLearner()
-        self.skill_manager = skill_manager or SkillManager()
-        self.experience_logger = experience_logger or ExperienceLogger()
+        
+        # Initialize skill manager with persistence if not provided
+        if skill_manager is None:
+            self.skill_manager = SkillManager(storage_path=skills_storage_path)
+        else:
+            self.skill_manager = skill_manager
+        
+        # Initialize experience logger with persistence if not provided
+        if experience_logger is None:
+            self.experience_logger = ExperienceLogger(storage_path=experiences_storage_path)
+        else:
+            self.experience_logger = experience_logger
+        
         self.pattern_extractor = pattern_extractor or PatternExtractor()
         
         # Signal manager for damping (optional)
@@ -538,6 +553,29 @@ class LearningTool:
             "success": True,
             "message": "Cleared observation buffer",
         }
+    
+    def auto_extract_patterns_if_ready(self, context: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """
+        Automatically extract patterns if enough observations are available.
+        
+        Called periodically or after certain thresholds are met.
+        
+        Args:
+            context: Optional context for pattern extraction
+            
+        Returns:
+            List of newly created procedure dictionaries
+        """
+        # Check if we have enough observations
+        if len(self.procedural_learner.observation_buffer) >= self.procedural_learner.min_sequence_length * 2:
+            try:
+                new_procedures = self.procedural_learner.extract_patterns(context)
+                if new_procedures:
+                    logger.info(f"Auto-extracted {len(new_procedures)} new procedure(s) from observations")
+                return [proc.to_dict() for proc in new_procedures]
+            except Exception as e:
+                logger.debug(f"Error in auto pattern extraction: {e}", exc_info=True)
+        return []
     
     def format_result(self, result: Dict[str, Any]) -> str:
         """

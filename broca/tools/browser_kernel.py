@@ -15,6 +15,7 @@ import random
 import time
 import hashlib
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, TypedDict
 from pathlib import Path
@@ -79,11 +80,17 @@ class BrowserKernel:
         self._registry_path = self._session_storage_path / "sessions.db"
         self._init_registry()
         
-        # Active sessions: session_id -> (playwright, browser, context, page, config)
+        # Active sessions: session_id -> (playwright, browser, context, page, config, thread_id)
         self._active_sessions: Dict[str, tuple] = {}
         
         # Playwright instance (shared)
         self._playwright = None
+        
+        # Thread safety: lock for session operations
+        self._session_lock = threading.RLock()
+        
+        # Track which thread created each session (for thread-local access)
+        self._session_threads: Dict[str, int] = {}
         
         logger.info(f"Initialized BrowserKernel with storage at {self._session_storage_path}")
     
@@ -188,8 +195,10 @@ class BrowserKernel:
         # Set default timeout
         page.set_default_timeout(config.tools.browser_timeout * 1000)
         
-        # Store active session
-        self._active_sessions[session_id] = (playwright, browser, context, page, session_config)
+        # Store active session with thread ID
+        current_thread_id = threading.get_ident()
+        self._active_sessions[session_id] = (playwright, browser, context, page, session_config, current_thread_id)
+        self._session_threads[session_id] = current_thread_id
         
         # Register in database
         conn = sqlite3.connect(self._registry_path)
@@ -215,7 +224,12 @@ class BrowserKernel:
             logger.warning(f"Session {session_id} not found in active sessions")
             return
         
-        playwright, browser, context, page, _ = self._active_sessions[session_id]
+        with self._session_lock:
+            if session_id not in self._active_sessions:
+                logger.warning(f"Session {session_id} not found in active sessions")
+                return
+            
+            playwright, browser, context, page, _, _ = self._active_sessions[session_id]
         
         try:
             # Save cookies and localStorage before closing
@@ -227,7 +241,9 @@ class BrowserKernel:
         except Exception as e:
             logger.debug(f"Error closing session {session_id}: {e}")
         
-        del self._active_sessions[session_id]
+            del self._active_sessions[session_id]
+            if session_id in self._session_threads:
+                del self._session_threads[session_id]
         
         # Update registry
         conn = sqlite3.connect(self._registry_path)
@@ -262,7 +278,10 @@ class BrowserKernel:
         if session_id not in self._active_sessions:
             return {"error": "Session not found"}
         
-        _, _, _, page, session_config = self._active_sessions[session_id]
+        with self._session_lock:
+            if session_id not in self._active_sessions:
+                return {"error": "Session not found"}
+            _, _, _, page, session_config, _ = self._active_sessions[session_id]
         
         return {
             "session_id": session_id,
@@ -272,12 +291,27 @@ class BrowserKernel:
         }
     
     def _get_page(self, session_id: str) -> Page:
-        """Get page for a session."""
-        if session_id not in self._active_sessions:
-            raise ValueError(f"Session {session_id} not found")
+        """
+        Get page for a session with thread safety check.
         
-        _, _, _, page, _ = self._active_sessions[session_id]
-        return page
+        Raises RuntimeError if accessed from a different thread than the one that created it.
+        """
+        with self._session_lock:
+            if session_id not in self._active_sessions:
+                raise ValueError(f"Session {session_id} not found")
+            
+            _, _, _, page, _, thread_id = self._active_sessions[session_id]
+            current_thread_id = threading.get_ident()
+            
+            # Check if we're on the same thread that created the session
+            if thread_id != current_thread_id:
+                raise RuntimeError(
+                    f"Cannot access session {session_id} from different thread. "
+                    f"Session was created in thread {thread_id}, current thread is {current_thread_id}. "
+                    f"Playwright contexts are thread-local and must be accessed from the creating thread."
+                )
+            
+            return page
     
     def _save_session_state(self, session_id: str, page: Page) -> None:
         """Save cookies and localStorage for a session."""
@@ -342,7 +376,9 @@ class BrowserKernel:
         """
         try:
             page = self._get_page(session_id)
-            _, _, _, _, session_config = self._active_sessions[session_id]
+            # Get session config (already validated thread safety in _get_page)
+            with self._session_lock:
+                _, _, _, _, session_config, _ = self._active_sessions[session_id]
             
             response = page.goto(url, timeout=timeout_ms, wait_until=wait_until)
             self._human_delay(session_config.stealth_mode)
@@ -382,7 +418,9 @@ class BrowserKernel:
         """
         try:
             page = self._get_page(session_id)
-            _, _, _, session_config = self._active_sessions[session_id]
+            # Get session config (already validated thread safety in _get_page)
+            with self._session_lock:
+                _, _, _, _, session_config, _ = self._active_sessions[session_id]
             
             if selector:
                 page.click(selector, timeout=timeout_ms)
@@ -430,7 +468,9 @@ class BrowserKernel:
         """
         try:
             page = self._get_page(session_id)
-            _, _, _, session_config = self._active_sessions[session_id]
+            # Get session config (already validated thread safety in _get_page)
+            with self._session_lock:
+                _, _, _, _, session_config, _ = self._active_sessions[session_id]
             
             if clear:
                 page.fill(selector, text, timeout=timeout_ms)

@@ -282,12 +282,8 @@ def _initialize_tool_registry(
         # Register self-model tools if self-model is available
         if self_model and storage:
             try:
-                from .tools.self_model_tool import UpdateSelfModelTool
-                update_tool = UpdateSelfModelTool(self_model, storage)
-                registry.register_tool(update_tool)
-                logger.info("Registered self-model update tool")
-                
                 # Register CRUD tool (comprehensive self-model management)
+                # All self-model updates should be done through the CRUD tool
                 crud_tool = SelfModelCRUDTool(
                     self_model=self_model,
                     storage=storage,
@@ -1155,6 +1151,14 @@ def main() -> None:
                         if hasattr(reasoning_tool.learning_tool, 'skill_manager'):
                             skill_manager = reasoning_tool.learning_tool.skill_manager
                     
+                    # Wire learning tool from reasoning system to tool registry for automatic observation
+                    if tool_registry and hasattr(reasoning_tool, 'learning_tool') and reasoning_tool.learning_tool:
+                        try:
+                            tool_registry.set_learning_tool(reasoning_tool.learning_tool)
+                            logger.info("✓ Learning tool (from reasoning) wired to tool registry for automatic observation")
+                        except Exception as e:
+                            logger.warning(f"Failed to wire reasoning learning tool to tool registry: {e}", exc_info=True)
+                    
                     # Register reasoning tool in tool registry
                     if tool_registry:
                         try:
@@ -1372,6 +1376,14 @@ def main() -> None:
                             logger.debug(f"Learning tool already registered: {e}")
                         except Exception as e:
                             logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
+                
+                # Wire learning_tool to tool_registry for automatic observation
+                if tool_registry and learning_tool_standalone:
+                    try:
+                        tool_registry.set_learning_tool(learning_tool_standalone)
+                        logger.info("✓ Learning tool wired to tool registry for automatic observation")
+                    except Exception as e:
+                        logger.warning(f"Failed to wire learning tool to tool registry: {e}", exc_info=True)
             except Exception as e:
                 logger.warning(f"Failed to initialize learning tool: {e}", exc_info=True)
         

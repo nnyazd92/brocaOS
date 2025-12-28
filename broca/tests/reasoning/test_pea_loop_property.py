@@ -219,5 +219,5 @@ class TestPropertyBased:
         """Property: Phase enum values are valid."""
         phase = LoopPhase(phase_value)
         assert phase.value == phase_value
-        assert phase in [LoopPhase.PLAN, LoopPhase.ACTION, LoopPhase.ASSESS, LoopPhase.COMPLETE]
+        assert phase in [LoopPhase.PLAN, LoopPhase.FORECAST, LoopPhase.RE_PLAN, LoopPhase.EXECUTE, LoopPhase.ASSESS, LoopPhase.COMPLETE]
 

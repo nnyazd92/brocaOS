@@ -139,7 +139,7 @@ class OptimizationDaemon:
                     logger.debug("Could not remove restricted tools (registry may be mocked)")
         
         # Register self-model CRUD tool if self-model system is enabled
-        # Note: UpdateSelfModelTool is NOT registered in autonomous mode for safety
+        # Note: UpdateSelfModelTool is no longer registered anywhere (all updates go through CRUD tool)
         # CRUD tool allows querying but not updates in autonomous mode
         if self_model and storage and tool_registry:
             try:

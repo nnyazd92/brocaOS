@@ -150,10 +150,80 @@ class CognitiveDissonanceMonitor:
         self._measurement_success_count = 0
         self._measurement_failure_count = 0
         
+        # Commitment tracking (Festinger: commitment strength amplifies dissonance)
+        # Tracks how invested the system is in specific cognitions
+        self._commitment_strength: Dict[str, float] = {}  # cognition_id -> commitment (0.0-1.0)
+        self._commitment_history: deque = deque(maxlen=history_window)
+        
+        # Dissonance reduction strategies tracking
+        self._reduction_strategies: deque = deque(maxlen=history_window)
+        
         # Signal manager for damping (optional)
         self._signal_manager: Optional[Any] = None
         
-        logger.info("Initialized CognitiveDissonanceMonitor")
+        logger.info("Initialized CognitiveDissonanceMonitor (with commitment tracking)")
+    
+    def track_commitment(
+        self,
+        cognition_id: str,
+        commitment_strength: float,
+        evidence: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Track commitment strength to a cognition (Festinger's commitment principle).
+        
+        Higher commitment to a cognition means dissonance from contradicting it
+        will be stronger. Commitment can come from:
+        - Public commitment (stated publicly)
+        - Effort justification (invested effort/resources)
+        - Choice justification (actively chose this cognition)
+        - Time invested (long-held belief)
+        
+        Args:
+            cognition_id: Identifier for the cognition (e.g., knowledge boundary ID)
+            commitment_strength: Commitment strength (0.0-1.0)
+            evidence: Optional evidence for commitment (effort, time, public, etc.)
+        """
+        self._commitment_strength[cognition_id] = max(0.0, min(1.0, commitment_strength))
+        self._commitment_history.append({
+            "cognition_id": cognition_id,
+            "commitment": commitment_strength,
+            "evidence": evidence or {},
+            "timestamp": datetime.now(timezone.utc)
+        })
+        logger.debug(f"Tracked commitment for {cognition_id}: {commitment_strength:.3f}")
+    
+    def get_commitment(self, cognition_id: str) -> float:
+        """Get commitment strength for a cognition (0.0-1.0)."""
+        return self._commitment_strength.get(cognition_id, 0.5)  # Default moderate commitment
+    
+    def record_reduction_strategy(
+        self,
+        strategy: str,
+        effectiveness: float,
+        component: str
+    ) -> None:
+        """
+        Record dissonance reduction strategy and its effectiveness.
+        
+        Festinger: people use various strategies to reduce dissonance:
+        - Change behavior
+        - Change cognition
+        - Add consonant cognitions
+        - Reduce importance of dissonant cognitions
+        
+        Args:
+            strategy: Strategy name (e.g., "change_behavior", "add_consonant_cognition")
+            effectiveness: How effective the strategy was (0.0-1.0)
+            component: Which component (logical, factual, behavioral, goal)
+        """
+        self._reduction_strategies.append({
+            "strategy": strategy,
+            "effectiveness": effectiveness,
+            "component": component,
+            "timestamp": datetime.now(timezone.utc)
+        })
+        logger.debug(f"Recorded reduction strategy: {strategy} (effectiveness={effectiveness:.3f})")
     
     def measure_dissonance(
         self,
@@ -191,7 +261,11 @@ class CognitiveDissonanceMonitor:
         logger.debug(
             f"Measuring cognitive dissonance: response={'present' if response else 'none'}, "
             f"tool_usage={len(tool_usage) if tool_usage else 0}, "
-            f"goals={len(reasoning_goals) if reasoning_goals else 0}"
+            f"goals={len(reasoning_goals) if reasoning_goals else 0}, "
+            f"components: consistency_checker={self.consistency_checker is not None}, "
+            f"fact_checker={self.fact_checker is not None}, "
+            f"z3_validator={self.z3_validator is not None if self.z3_validator else False}, "
+            f"memory_manager={self.memory_manager is not None}"
         )
         
         metrics = DissonanceMetrics(
@@ -207,8 +281,16 @@ class CognitiveDissonanceMonitor:
         # Measure logical dissonance (uses ConsistencyChecker)
         if response and self.consistency_checker:
             logical_dissonance = self._measure_logical_dissonance(response, conversation_context)
-            metrics.logical_dissonance = logical_dissonance
-            metrics.component_availability["logical"] = True
+            if logical_dissonance is not None:
+                metrics.logical_dissonance = logical_dissonance
+                metrics.component_availability["logical"] = True
+            else:
+                # Measurement failed - use historical average or mark as unavailable
+                metrics.logical_dissonance = self._get_average_logical_dissonance()
+                metrics.component_availability["logical"] = len(self.logical_violations) > 0
+                if not metrics.component_availability["logical"]:
+                    metrics.measurement_quality = "error"
+                    metrics.has_sufficient_data = False
         else:
             # Use historical average if no current measurement
             metrics.logical_dissonance = self._get_average_logical_dissonance()
@@ -220,8 +302,16 @@ class CognitiveDissonanceMonitor:
         # Measure factual dissonance
         if response:
             factual_dissonance = self._measure_factual_dissonance(response)
-            metrics.factual_dissonance = factual_dissonance
-            metrics.component_availability["factual"] = True
+            if factual_dissonance is not None:
+                metrics.factual_dissonance = factual_dissonance
+                metrics.component_availability["factual"] = True
+            else:
+                # Measurement failed - use historical average or mark as unavailable
+                metrics.factual_dissonance = self._get_average_factual_dissonance()
+                metrics.component_availability["factual"] = len(self.factual_errors) > 0
+                if not metrics.component_availability["factual"]:
+                    metrics.measurement_quality = "error"
+                    metrics.has_sufficient_data = False
         else:
             metrics.factual_dissonance = self._get_average_factual_dissonance()
             metrics.component_availability["factual"] = len(self.factual_errors) > 0
@@ -232,8 +322,16 @@ class CognitiveDissonanceMonitor:
         # Measure behavioral dissonance
         if tool_usage:
             behavioral_dissonance = self._measure_behavioral_dissonance(tool_usage)
-            metrics.behavioral_dissonance = behavioral_dissonance
-            metrics.component_availability["behavioral"] = True
+            if behavioral_dissonance is not None:
+                metrics.behavioral_dissonance = behavioral_dissonance
+                metrics.component_availability["behavioral"] = True
+            else:
+                # Measurement failed - use historical average or mark as unavailable
+                metrics.behavioral_dissonance = self._get_average_behavioral_dissonance()
+                metrics.component_availability["behavioral"] = len(self.behavioral_deviations) > 0
+                if not metrics.component_availability["behavioral"]:
+                    metrics.measurement_quality = "error"
+                    metrics.has_sufficient_data = False
         else:
             metrics.behavioral_dissonance = self._get_average_behavioral_dissonance()
             metrics.component_availability["behavioral"] = len(self.behavioral_deviations) > 0
@@ -244,8 +342,16 @@ class CognitiveDissonanceMonitor:
         # Measure goal-based dissonance
         if reasoning_goals:
             goal_dissonance = self._measure_goal_dissonance(reasoning_goals)
-            metrics.goal_dissonance = goal_dissonance
-            metrics.component_availability["goal"] = True
+            if goal_dissonance is not None:
+                metrics.goal_dissonance = goal_dissonance
+                metrics.component_availability["goal"] = True
+            else:
+                # Measurement failed - use historical average or mark as unavailable
+                metrics.goal_dissonance = self._get_average_goal_dissonance()
+                metrics.component_availability["goal"] = len(self.goal_conflicts) > 0
+                if not metrics.component_availability["goal"]:
+                    metrics.measurement_quality = "error"
+                    metrics.has_sufficient_data = False
         else:
             metrics.goal_dissonance = self._get_average_goal_dissonance()
             metrics.component_availability["goal"] = len(self.goal_conflicts) > 0
@@ -291,13 +397,16 @@ class CognitiveDissonanceMonitor:
             logger.info(
                 f"Cognitive dissonance measured: overall={metrics.overall_dissonance:.3f}, "
                 f"logical={metrics.logical_dissonance:.3f}, factual={metrics.factual_dissonance:.3f}, "
-                f"behavioral={metrics.behavioral_dissonance:.3f}, goal={metrics.goal_dissonance:.3f}"
+                f"behavioral={metrics.behavioral_dissonance:.3f}, goal={metrics.goal_dissonance:.3f}, "
+                f"quality={metrics.measurement_quality}, has_sufficient_data={metrics.has_sufficient_data}"
             )
         else:
             logger.debug(
                 f"Measured dissonance: overall={metrics.overall_dissonance:.3f}, "
                 f"logical={metrics.logical_dissonance:.3f}, factual={metrics.factual_dissonance:.3f}, "
-                f"behavioral={metrics.behavioral_dissonance:.3f}, goal={metrics.goal_dissonance:.3f}"
+                f"behavioral={metrics.behavioral_dissonance:.3f}, goal={metrics.goal_dissonance:.3f}, "
+                f"quality={metrics.measurement_quality}, has_sufficient_data={metrics.has_sufficient_data}, "
+                f"components_available={metrics.component_availability}"
             )
         
         return metrics
@@ -306,7 +415,7 @@ class CognitiveDissonanceMonitor:
         self,
         response: str,
         conversation_context: Optional[List[Dict[str, str]]]
-    ) -> float:
+    ) -> Optional[float]:
         """
         Measure logical dissonance using ConsistencyChecker.
         
@@ -314,11 +423,11 @@ class CognitiveDissonanceMonitor:
         contradictions between stated capabilities/knowledge boundaries and actual responses.
         
         Returns:
-            Dissonance score (0.0 = consistent, 1.0 = highly inconsistent)
+            Dissonance score (0.0 = consistent, 1.0 = highly inconsistent), or None if measurement unavailable
         """
         if not self.consistency_checker:
             logger.debug("Logical dissonance measurement skipped: consistency_checker not available")
-            return 0.0
+            return None
         
         try:
             consistency_result = self.consistency_checker.validate(
@@ -370,10 +479,10 @@ class CognitiveDissonanceMonitor:
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc)
             })
-            logger.warning(f"Failed to measure logical dissonance: {e}. Returning 0.0 (no dissonance detected)", exc_info=True)
-            return 0.0  # Default to no dissonance on error (distinguish from actual zero)
+            logger.warning(f"Failed to measure logical dissonance: {e}. Returning None (measurement unavailable)", exc_info=True)
+            return None  # Return None to indicate measurement failure, not zero dissonance
     
-    def _measure_factual_dissonance(self, response: str) -> float:
+    def _measure_factual_dissonance(self, response: str) -> Optional[float]:
         """
         Measure factual dissonance (claims vs. knowledge boundaries).
         
@@ -382,7 +491,7 @@ class CognitiveDissonanceMonitor:
         Uses ratio of dissonant to consonant cognitions (Festinger's key principle).
         
         Returns:
-            Dissonance score (0.0 = no contradictions, 1.0 = severe contradictions)
+            Dissonance score (0.0 = no contradictions, 1.0 = severe contradictions), or None if measurement unavailable
         """
         try:
             dissonance_score = 0.0
@@ -578,17 +687,39 @@ class CognitiveDissonanceMonitor:
                     logger.debug(f"Error weighting factual dissonance by epistemic confidence: {e}")
             
             # Apply Festinger's ratio principle: dissonance magnitude depends on ratio of dissonant to consonant cognitions
+            # Improved formula: dissonance = dissonant / (dissonant + consonant)
             if dissonant_elements > 0 or consonant_elements > 0:
                 total_elements = dissonant_elements + consonant_elements
                 if total_elements > 0:
-                    # Ratio-based adjustment: higher ratio of dissonant elements increases dissonance
-                    dissonance_ratio = dissonant_elements / total_elements
-                    # Combine base score with ratio-based adjustment (weighted average)
-                    ratio_adjusted_score = (dissonance_score * 0.7) + (dissonance_ratio * 0.3)
+                    # Festinger's ratio: dissonant/(dissonant + consonant)
+                    # This gives higher weight when dissonant elements dominate
+                    dissonance_ratio = dissonant_elements / (dissonant_elements + consonant_elements)
+                    
+                    # Apply commitment weighting: higher commitment to violated cognitions amplifies dissonance
+                    commitment_weight = 1.0
+                    if violations and self._commitment_strength:
+                        # Check commitment to violated knowledge boundaries
+                        avg_commitment = 0.0
+                        commitment_count = 0
+                        for violation in violations:
+                            if violation.get("type") == "knowledge_boundary":
+                                # Estimate commitment based on how long knowledge boundary has existed
+                                # (simplified: use epistemic confidence as proxy)
+                                commitment_count += 1
+                                avg_commitment += 0.7  # Default moderate commitment
+                        if commitment_count > 0:
+                            avg_commitment /= commitment_count
+                            # Commitment amplifies dissonance: 1.0 + commitment
+                            commitment_weight = 1.0 + (avg_commitment * 0.5)  # Range: 1.0-1.5
+                    
+                    # Combine base score with ratio-based adjustment, weighted by commitment
+                    # Festinger: ratio is primary, but commitment amplifies
+                    ratio_adjusted_score = (dissonance_score * 0.6) + (dissonance_ratio * 0.4)
+                    ratio_adjusted_score *= commitment_weight
                     dissonance_score = min(1.0, max(dissonance_score, ratio_adjusted_score))
                     logger.debug(
-                        f"Factual dissonance ratio: {dissonant_elements}/{total_elements} = {dissonance_ratio:.3f}, "
-                        f"adjusted score: {dissonance_score:.3f}"
+                        f"Factual dissonance ratio: {dissonant_elements}/({dissonant_elements}+{consonant_elements}) = {dissonance_ratio:.3f}, "
+                        f"commitment_weight={commitment_weight:.3f}, adjusted score: {dissonance_score:.3f}"
                     )
             
             # Track violations
@@ -608,11 +739,11 @@ class CognitiveDissonanceMonitor:
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc)
             })
-            logger.warning(f"Failed to measure factual dissonance: {e}. Returning 0.0 (measurement error - not actual zero dissonance)", exc_info=True)
-            # Return 0.0 but caller should set measurement_quality="error" to distinguish from actual zero
-            return 0.0
+            logger.warning(f"Failed to measure factual dissonance: {e}. Returning None (measurement unavailable)", exc_info=True)
+            # Return None to indicate measurement failure, not zero dissonance
+            return None
     
-    def _measure_behavioral_dissonance(self, tool_usage: List[Dict[str, Any]]) -> float:
+    def _measure_behavioral_dissonance(self, tool_usage: List[Dict[str, Any]]) -> Optional[float]:
         """
         Measure behavioral dissonance (tool usage vs. stated patterns).
         
@@ -620,11 +751,11 @@ class CognitiveDissonanceMonitor:
         actions that contradict stated behavioral patterns, preferences, or constraints.
         
         Returns:
-            Dissonance score (0.0 = aligned behavior, 1.0 = severe behavioral deviation)
+            Dissonance score (0.0 = aligned behavior, 1.0 = severe behavioral deviation), or None if measurement unavailable
         """
         try:
             if not tool_usage:
-                return 0.0
+                return None
             
             deviation_score = 0.0
             violations: List[Dict[str, Any]] = []
@@ -635,7 +766,7 @@ class CognitiveDissonanceMonitor:
             
             # If no capabilities listed, can't measure deviation
             if not capabilities:
-                return 0.0
+                return None
             
             capability_text = " ".join(capabilities).lower()
             constraint_values = [v.get("value", str(v)).lower() for v in constraints.values()]
@@ -727,11 +858,11 @@ class CognitiveDissonanceMonitor:
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc)
             })
-            logger.warning(f"Failed to measure behavioral dissonance: {e}. Returning 0.0 (measurement error - not actual zero dissonance)", exc_info=True)
-            # Return 0.0 but caller should set measurement_quality="error" to distinguish from actual zero
-            return 0.0
+            logger.warning(f"Failed to measure behavioral dissonance: {e}. Returning None (measurement unavailable)", exc_info=True)
+            # Return None to indicate measurement failure, not zero dissonance
+            return None
     
-    def _measure_goal_dissonance(self, reasoning_goals: List[Dict[str, Any]]) -> float:
+    def _measure_goal_dissonance(self, reasoning_goals: List[Dict[str, Any]]) -> Optional[float]:
         """
         Measure goal-based dissonance (reasoning goals vs. self-model objectives).
         
@@ -739,11 +870,11 @@ class CognitiveDissonanceMonitor:
         goals/actions that conflict with self-model objectives, constraints, or capabilities.
         
         Returns:
-            Dissonance score (0.0 = aligned goals, 1.0 = severe goal conflicts)
+            Dissonance score (0.0 = aligned goals, 1.0 = severe goal conflicts), or None if measurement unavailable
         """
         try:
             if not reasoning_goals:
-                return 0.0
+                return None
             
             conflict_score = 0.0
             violations: List[Dict[str, Any]] = []
@@ -845,9 +976,9 @@ class CognitiveDissonanceMonitor:
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc)
             })
-            logger.warning(f"Failed to measure goal dissonance: {e}. Returning 0.0 (measurement error - not actual zero dissonance)", exc_info=True)
-            # Return 0.0 but caller should set measurement_quality="error" to distinguish from actual zero
-            return 0.0
+            logger.warning(f"Failed to measure goal dissonance: {e}. Returning None (measurement unavailable)", exc_info=True)
+            # Return None to indicate measurement failure, not zero dissonance
+            return None
     
     def _get_average_logical_dissonance(self) -> float:
         """Get average logical dissonance from history."""
@@ -1015,4 +1146,69 @@ class CognitiveDissonanceMonitor:
                 "epistemic_engine": self.epistemic_engine is not None
             }
         }
+    
+    @staticmethod
+    def extract_tool_usage_from_messages(messages: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Extract tool usage from conversation messages.
+        
+        Args:
+            messages: List of conversation messages
+            limit: Maximum number of messages to check (from end)
+            
+        Returns:
+            List of tool calls extracted from messages
+        """
+        tool_usage = []
+        for msg in messages[-limit:]:
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                tool_usage.extend(msg.get("tool_calls", []))
+        return tool_usage
+    
+    @staticmethod
+    def extract_conversation_context(messages: List[Dict[str, Any]], limit: int = 5) -> List[Dict[str, str]]:
+        """
+        Extract conversation context from messages.
+        
+        Args:
+            messages: List of conversation messages
+            limit: Maximum number of messages to include (from end)
+            
+        Returns:
+            List of formatted conversation context dictionaries
+        """
+        return [
+            {"role": m.get("role", "unknown"), "content": (m.get("content") or "")[:200]}
+            for m in messages[-limit:]
+        ]
+    
+    def measure_dissonance_from_conversation(
+        self,
+        response: str,
+        messages: List[Dict[str, Any]],
+        reasoning_goals: Optional[List[Dict[str, Any]]] = None,
+        emotional_context: Optional[Dict[str, float]] = None
+    ) -> DissonanceMetrics:
+        """
+        Measure dissonance from conversation context (helper method to reduce duplication).
+        
+        Args:
+            response: LLM response text
+            messages: Full conversation message history
+            reasoning_goals: Optional reasoning goals
+            emotional_context: Optional emotional state
+            
+        Returns:
+            DissonanceMetrics with measurement results
+        """
+        tool_usage = self.extract_tool_usage_from_messages(messages)
+        conversation_context = self.extract_conversation_context(messages)
+        
+        return self.measure_dissonance(
+            response=response,
+            conversation_context=conversation_context,
+            tool_usage=tool_usage if tool_usage else None,
+            reasoning_goals=reasoning_goals,
+            emotional_context=emotional_context
+        )
 

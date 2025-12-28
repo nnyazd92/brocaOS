@@ -141,6 +141,12 @@ class FeedbackLoopManager:
         # Goal progress tracking
         self.goal_progress_history: Dict[str, List[float]] = {}  # goal_name -> [progress values]
         
+        # Stability analysis tracking (systems theory)
+        self._oscillation_detection: deque = deque(maxlen=50)  # Track for oscillation detection
+        self._loop_gain_history: deque = deque(maxlen=100)  # Track loop gains
+        self._phase_margin_history: deque = deque(maxlen=100)  # Track phase margins
+        self._stability_warnings: List[Dict[str, Any]] = []
+        
         logger.info(f"Initialized FeedbackLoopManager (RL signals: {'enabled' if rl_signals_enabled else 'disabled'})")
     
     def evaluate_cycle_outcomes(self, cycle_outcome: Dict[str, Any]) -> FeedbackMetrics:
@@ -747,6 +753,9 @@ class FeedbackLoopManager:
         
         metrics = self._compute_aggregated_metrics()
         
+        # Add stability analysis
+        stability = self._analyze_stability()
+        
         return {
             "cycles_tracked": len(self.metrics_history),
             "success_rate": metrics.success_rate,
@@ -754,6 +763,221 @@ class FeedbackLoopManager:
             "avg_cycle_duration": metrics.avg_cycle_duration,
             "goal_completion_rate": metrics.goal_completion_rate,
             "rule_effectiveness_count": len(metrics.rule_effectiveness),
-            "goal_trends_count": len(metrics.goal_progress_trends)
+            "goal_trends_count": len(metrics.goal_progress_trends),
+            "stability": stability
         }
+    
+    def _analyze_stability(self) -> Dict[str, Any]:
+        """
+        Analyze feedback loop stability (systems theory).
+        
+        Implements stability analysis:
+        - Oscillation detection (sign of instability)
+        - Loop gain estimation (too high = unstable)
+        - Phase margin estimation (too low = unstable)
+        - Negative feedback verification (should be stabilizing)
+        
+        Returns:
+            Dictionary with stability metrics and warnings
+        """
+        if len(self.metrics_history) < 5:
+            return {"status": "insufficient_data", "stable": True}
+        
+        # Extract recent metrics for analysis
+        recent_metrics = list(self.metrics_history)[-20:]
+        success_rates = [m.success_rate for m in recent_metrics]
+        error_rates = [m.error_rate for m in recent_metrics]
+        
+        # 1. Oscillation Detection
+        # Check for alternating high/low values (oscillation pattern)
+        oscillations_detected = self._detect_oscillations(success_rates)
+        
+        # 2. Loop Gain Estimation
+        # Gain = change in output / change in input
+        # For feedback loops: gain = change in success_rate / change in error_rate
+        loop_gain = self._estimate_loop_gain(success_rates, error_rates)
+        self._loop_gain_history.append(loop_gain)
+        
+        # 3. Phase Margin Estimation (simplified)
+        # Phase margin indicates how close to instability
+        # Simplified: based on oscillation frequency and damping
+        phase_margin = self._estimate_phase_margin(success_rates)
+        self._phase_margin_history.append(phase_margin)
+        
+        # 4. Negative Feedback Verification
+        # Negative feedback should reduce errors (stabilizing)
+        # Positive feedback would amplify errors (destabilizing)
+        is_negative_feedback = self._verify_negative_feedback(success_rates, error_rates)
+        
+        # 5. Stability Assessment
+        stable = True
+        warnings = []
+        
+        if oscillations_detected:
+            stable = False
+            warnings.append({
+                "type": "oscillation",
+                "severity": "high",
+                "message": "Oscillations detected in feedback loop - system may be unstable"
+            })
+        
+        if loop_gain > 2.0:  # High gain can cause instability
+            stable = False
+            warnings.append({
+                "type": "high_gain",
+                "severity": "medium",
+                "message": f"High loop gain ({loop_gain:.2f}) may cause instability"
+            })
+        
+        if phase_margin < 30.0:  # Low phase margin (degrees) indicates instability risk
+            stable = False
+            warnings.append({
+                "type": "low_phase_margin",
+                "severity": "medium",
+                "message": f"Low phase margin ({phase_margin:.1f}°) indicates instability risk"
+            })
+        
+        if not is_negative_feedback:
+            stable = False
+            warnings.append({
+                "type": "positive_feedback",
+                "severity": "high",
+                "message": "Positive feedback detected - system may be destabilizing"
+            })
+        
+        # Store warnings
+        if warnings:
+            self._stability_warnings.extend(warnings)
+            if len(self._stability_warnings) > 50:
+                self._stability_warnings = self._stability_warnings[-50:]
+        
+        return {
+            "stable": stable,
+            "oscillations_detected": oscillations_detected,
+            "loop_gain": loop_gain,
+            "phase_margin": phase_margin,
+            "is_negative_feedback": is_negative_feedback,
+            "warnings": warnings,
+            "avg_loop_gain": sum(self._loop_gain_history) / len(self._loop_gain_history) if self._loop_gain_history else 0.0,
+            "avg_phase_margin": sum(self._phase_margin_history) / len(self._phase_margin_history) if self._phase_margin_history else 0.0
+        }
+    
+    def _detect_oscillations(self, values: List[float]) -> bool:
+        """
+        Detect oscillations in a time series.
+        
+        Oscillations indicate instability - system is not converging.
+        
+        Args:
+            values: Time series of values
+            
+        Returns:
+            True if oscillations detected
+        """
+        if len(values) < 5:
+            return False
+        
+        # Count sign changes (alternating pattern)
+        sign_changes = 0
+        for i in range(1, len(values)):
+            if (values[i] > values[i-1] and i > 1 and values[i-1] < values[i-2]) or \
+               (values[i] < values[i-1] and i > 1 and values[i-1] > values[i-2]):
+                sign_changes += 1
+        
+        # High number of sign changes indicates oscillation
+        oscillation_ratio = sign_changes / (len(values) - 2) if len(values) > 2 else 0.0
+        return oscillation_ratio > 0.5  # More than 50% sign changes
+    
+    def _estimate_loop_gain(self, output_values: List[float], input_values: List[float]) -> float:
+        """
+        Estimate loop gain (systems theory).
+        
+        Gain = Δoutput / Δinput
+        High gain can cause instability.
+        
+        Args:
+            output_values: Output time series (e.g., success_rate)
+            input_values: Input time series (e.g., error_rate)
+            
+        Returns:
+            Estimated loop gain
+        """
+        if len(output_values) < 2 or len(input_values) < 2:
+            return 0.0
+        
+        # Calculate average change ratios
+        gains = []
+        for i in range(1, len(output_values)):
+            delta_output = abs(output_values[i] - output_values[i-1])
+            delta_input = abs(input_values[i] - input_values[i-1]) if input_values[i] != input_values[i-1] else 0.001
+            if delta_input > 0.001:  # Avoid division by zero
+                gain = delta_output / delta_input
+                gains.append(gain)
+        
+        if not gains:
+            return 0.0
+        
+        return sum(gains) / len(gains)
+    
+    def _estimate_phase_margin(self, values: List[float]) -> float:
+        """
+        Estimate phase margin (simplified).
+        
+        Phase margin indicates stability margin. Low phase margin = unstable.
+        Simplified estimation based on oscillation frequency and damping.
+        
+        Args:
+            values: Time series of values
+            
+        Returns:
+            Estimated phase margin in degrees (higher = more stable)
+        """
+        if len(values) < 5:
+            return 90.0  # Default stable
+        
+        # Estimate oscillation frequency (how often values change direction)
+        direction_changes = 0
+        for i in range(1, len(values)):
+            if (values[i] > values[i-1] and i > 1 and values[i-1] < values[i-2]) or \
+               (values[i] < values[i-1] and i > 1 and values[i-1] > values[i-2]):
+                direction_changes += 1
+        
+        # High frequency = low phase margin
+        frequency_ratio = direction_changes / (len(values) - 2) if len(values) > 2 else 0.0
+        
+        # Estimate damping (how quickly oscillations decay)
+        if len(values) >= 3:
+            variance = sum((v - sum(values)/len(values))**2 for v in values) / len(values)
+            damping = 1.0 / (1.0 + variance)  # Lower variance = higher damping
+        
+        # Phase margin: 90° - (frequency_penalty + damping_penalty)
+        phase_margin = 90.0 - (frequency_ratio * 60.0) - ((1.0 - damping) * 30.0)
+        return max(0.0, min(90.0, phase_margin))
+    
+    def _verify_negative_feedback(self, output_values: List[float], error_values: List[float]) -> bool:
+        """
+        Verify that feedback is negative (stabilizing).
+        
+        Negative feedback: errors decrease over time (system corrects itself)
+        Positive feedback: errors increase over time (system destabilizes)
+        
+        Args:
+            output_values: Output time series
+            error_values: Error time series
+            
+        Returns:
+            True if negative feedback (stabilizing), False if positive (destabilizing)
+        """
+        if len(error_values) < 3:
+            return True  # Assume stable if insufficient data
+        
+        # Check trend: negative feedback should reduce errors
+        recent_errors = error_values[-5:]
+        if len(recent_errors) >= 2:
+            error_trend = recent_errors[-1] - recent_errors[0]
+            # Negative trend (decreasing errors) = negative feedback = good
+            # Positive trend (increasing errors) = positive feedback = bad
+            return error_trend <= 0.0
+        
+        return True  # Default: assume stable
 

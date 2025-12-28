@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import logging
 import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
@@ -59,11 +62,38 @@ class ExperienceLogger:
     experience history, and provides data for learning algorithms.
     """
     
-    def __init__(self, max_experiences: int = 1000):
-        self.experiences: List[Experience] = []
-        self.max_experiences = max_experiences
+    def __init__(self, max_experiences: int = 1000, storage_path: Optional[str] = None, auto_save: bool = True):
+        """
+        Initialize ExperienceLogger.
         
-        logger.info(f"Initialized ExperienceLogger with capacity {max_experiences}")
+        Args:
+            max_experiences: Maximum number of experiences to maintain in memory
+            storage_path: Path to JSON file for persistence. If None, uses default from data/experiences.json
+            auto_save: If True, automatically save on each experience log
+        """
+        self.max_experiences = max_experiences
+        self.auto_save = auto_save
+        
+        # Set storage path
+        if storage_path is None:
+            # Default to data/experiences.json
+            storage_path = "data/experiences.json"
+        self.storage_path = Path(storage_path)
+        
+        # Create parent directory if needed
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Load existing experiences if file exists
+        self.experiences: List[Experience] = []
+        if self.storage_path.exists():
+            try:
+                self.load()
+                logger.info(f"Loaded {len(self.experiences)} experiences from {self.storage_path}")
+            except Exception as e:
+                logger.warning(f"Failed to load experiences from {self.storage_path}: {e}, starting empty")
+                self.experiences = []
+        else:
+            logger.info(f"Initialized ExperienceLogger with capacity {max_experiences} (new file)")
     
     def log_experience(self, experience_data: Dict[str, Any]) -> bool:
         """
@@ -95,6 +125,14 @@ class ExperienceLogger:
                 self.experiences = self.experiences[-self.max_experiences:]
             
             logger.debug(f"Logged experience: {exp_type} ({outcome})")
+            
+            # Auto-save if enabled
+            if self.auto_save:
+                try:
+                    self.save()
+                except Exception as e:
+                    logger.warning(f"Failed to auto-save after logging experience: {e}")
+            
             return True
             
         except Exception as e:
@@ -139,6 +177,13 @@ class ExperienceLogger:
         """Clear all experiences."""
         self.experiences = []
         logger.info("Cleared all experiences")
+        
+        # Auto-save if enabled
+        if self.auto_save:
+            try:
+                self.save()
+            except Exception as e:
+                logger.warning(f"Failed to auto-save after clearing experiences: {e}")
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert logger to dictionary representation."""
@@ -147,9 +192,95 @@ class ExperienceLogger:
             "max_experiences": self.max_experiences,
         }
     
+    def load(self) -> None:
+        """
+        Load experiences from storage file.
+        
+        Raises:
+            OSError: If file cannot be read
+            json.JSONDecodeError: If file is not valid JSON
+        """
+        if not self.storage_path.exists():
+            logger.debug(f"Experiences file does not exist: {self.storage_path}")
+            return
+        
+        try:
+            with open(self.storage_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            # Load experiences
+            self.experiences = [
+                Experience.from_dict(exp_data)
+                for exp_data in data.get("experiences", [])
+            ]
+            
+            # Update max_experiences if present in data
+            if "max_experiences" in data:
+                self.max_experiences = data["max_experiences"]
+            
+            # Limit to max_experiences (keep most recent)
+            if len(self.experiences) > self.max_experiences:
+                self.experiences = self.experiences[-self.max_experiences:]
+            
+            logger.debug(f"Loaded {len(self.experiences)} experiences from {self.storage_path}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse experiences file {self.storage_path}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error loading experiences from {self.storage_path}: {e}", exc_info=True)
+            raise
+    
+    def save(self) -> None:
+        """
+        Save experiences to storage file using atomic write.
+        
+        Uses temp file + rename pattern for safety.
+        Only saves the most recent experiences (up to max_experiences).
+        
+        Raises:
+            OSError: If file cannot be written
+        """
+        try:
+            # Prepare data structure (save last 500 experiences to avoid huge files)
+            save_limit = min(500, self.max_experiences)
+            experiences_to_save = self.experiences[-save_limit:] if len(self.experiences) > save_limit else self.experiences
+            
+            data = {
+                "experiences": [exp.to_dict() for exp in experiences_to_save],
+                "max_experiences": self.max_experiences,
+                "total_experiences": len(self.experiences),
+                "saved_count": len(experiences_to_save),
+                "last_saved": datetime.now(timezone.utc).isoformat(),
+            }
+            
+            # Atomic write: write to temp file, then rename
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                dir=self.storage_path.parent,
+                delete=False,
+                suffix='.tmp',
+                encoding='utf-8'
+            ) as tmp_file:
+                json.dump(data, tmp_file, indent=2, ensure_ascii=False, default=str)
+                tmp_path = tmp_file.name
+            
+            # Atomic rename
+            os.replace(tmp_path, self.storage_path)
+            
+            logger.debug(f"Saved {len(experiences_to_save)} experiences to {self.storage_path}")
+        except (OSError, IOError, json.JSONEncodeError) as e:
+            logger.error(f"Failed to save experiences to {self.storage_path}: {e}", exc_info=True)
+            # Clean up temp file if it exists
+            if 'tmp_path' in locals():
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            raise
+    
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ExperienceLogger:
         """Create logger from dictionary representation."""
-        logger = cls(max_experiences=data.get("max_experiences", 1000))
+        logger = cls(max_experiences=data.get("max_experiences", 1000), storage_path=None, auto_save=False)
         logger.experiences = [Experience.from_dict(exp_data) for exp_data in data.get("experiences", [])]
         return logger

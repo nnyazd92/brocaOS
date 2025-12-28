@@ -338,6 +338,37 @@ class DeepSeekClient:
         """
         return self.model == "deepseek-reasoner"
     
+    def get_max_context_tokens(self) -> int:
+        """
+        Get the maximum context tokens for the current model.
+        
+        Returns the model-specific hard limit if the model has one,
+        otherwise returns the configured max_context_tokens from config
+        (which respects BROCA_MAX_CONTEXT_TOKENS from .env).
+        
+        Model-specific hard limits take precedence to prevent API errors.
+        For example, deepseek-reasoner has a hard limit of 131,072 tokens,
+        regardless of what BROCA_MAX_CONTEXT_TOKENS is set to.
+        
+        Returns:
+            Maximum context tokens for this model
+        """
+        # Model-specific hard limits (these override config)
+        MODEL_LIMITS: Dict[str, int] = {
+            "deepseek-reasoner": 131072,
+            # Add other model-specific limits here as needed
+        }
+        
+        # Check if this model has a hard limit
+        if self.model in MODEL_LIMITS:
+            model_limit = MODEL_LIMITS[self.model]
+            config_limit = config.llm.max_context_tokens
+            # Return the minimum to respect both model limit and config
+            return min(model_limit, config_limit)
+        
+        # No model-specific limit, use config (which reads from .env BROCA_MAX_CONTEXT_TOKENS)
+        return config.llm.max_context_tokens
+    
     @staticmethod
     def extract_reasoning_content(response: Dict[str, Any]) -> Optional[str]:
         """

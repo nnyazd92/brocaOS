@@ -189,6 +189,21 @@ class CognitiveStateMonitor:
             
             # Update meta-confidence
             self._update_meta_confidence()
+            
+            # Mark as having high quality data
+            if HAS_DATA_QUALITY:
+                if "data_quality" not in self.states:
+                    self.states["data_quality"] = {}
+                # Determine quality based on sample size
+                sample_size = len(self._confidence_history)
+                if sample_size >= 20:
+                    self.states["data_quality"]["confidence_level"] = DataQuality.HIGH.value
+                elif sample_size >= 10:
+                    self.states["data_quality"]["confidence_level"] = DataQuality.MEDIUM.value
+                elif sample_size >= 5:
+                    self.states["data_quality"]["confidence_level"] = DataQuality.LOW.value
+                else:
+                    self.states["data_quality"]["confidence_level"] = DataQuality.INSUFFICIENT.value
         else:
             # No data yet: use prior with high uncertainty instead of default
             if HAS_DATA_QUALITY:
@@ -197,7 +212,7 @@ class CognitiveStateMonitor:
                 # Mark as having missing data
                 if "data_quality" not in self.states:
                     self.states["data_quality"] = {}
-                self.states["data_quality"]["confidence"] = DataQuality.MISSING.value
+                self.states["data_quality"]["confidence_level"] = DataQuality.MISSING.value
             else:
                 self.states["confidence_level"] = 0.5
             logger.debug("Confidence level using prior (no history yet)")
@@ -589,6 +604,13 @@ class CognitiveStateMonitor:
             self.states["conceptual_coherence"] = 0.5
             self.states["coherence_local"] = 0.5
             self.states["coherence_global"] = 0.5
+            # Mark as missing data
+            if HAS_DATA_QUALITY:
+                if "data_quality" not in self.states:
+                    self.states["data_quality"] = {}
+                self.states["data_quality"]["conceptual_coherence"] = DataQuality.MISSING.value
+                self.states["data_quality"]["coherence_local"] = DataQuality.MISSING.value
+                self.states["data_quality"]["coherence_global"] = DataQuality.MISSING.value
             return
         
         # 1. Local coherence: step-to-step consistency
@@ -652,6 +674,24 @@ class CognitiveStateMonitor:
         final_coherence = base_coherence * (1.0 - (reversal_score * 0.5))
         
         self.states["conceptual_coherence"] = max(0.0, min(1.0, final_coherence))
+        
+        # Mark data quality based on reasoning steps available
+        if HAS_DATA_QUALITY:
+            if "data_quality" not in self.states:
+                self.states["data_quality"] = {}
+            step_count = len(self._reasoning_steps)
+            if step_count >= 10:
+                self.states["data_quality"]["conceptual_coherence"] = DataQuality.HIGH.value
+                self.states["data_quality"]["coherence_local"] = DataQuality.HIGH.value
+                self.states["data_quality"]["coherence_global"] = DataQuality.HIGH.value
+            elif step_count >= 5:
+                self.states["data_quality"]["conceptual_coherence"] = DataQuality.MEDIUM.value
+                self.states["data_quality"]["coherence_local"] = DataQuality.MEDIUM.value
+                self.states["data_quality"]["coherence_global"] = DataQuality.MEDIUM.value
+            elif step_count >= 2:
+                self.states["data_quality"]["conceptual_coherence"] = DataQuality.LOW.value
+                self.states["data_quality"]["coherence_local"] = DataQuality.LOW.value
+                self.states["data_quality"]["coherence_global"] = DataQuality.LOW.value
 
     
     def _calculate_coherence(self) -> Optional[float]:

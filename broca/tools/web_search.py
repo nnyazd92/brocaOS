@@ -226,7 +226,44 @@ class WebSearchTool:
                 return result
                 
             except Exception as e:
-                logger.error(f"Browser search failed: {e}", exc_info=True)
+                error_str = str(e)
+                is_threading_error = "cannot switch to a different thread" in error_str.lower() or "thread" in error_str.lower()
+                
+                if is_threading_error:
+                    logger.error(
+                        f"Browser search failed due to threading error: {e}",
+                        exc_info=True,
+                        extra={
+                            "event": "browser_threading_error",
+                            "error_type": "threading",
+                            "query": query
+                        }
+                    )
+                    # Threading errors indicate the session was created in a different thread
+                    # Try to create a new session and retry once
+                    try:
+                        logger.info("Attempting to recover from threading error by creating new session")
+                        # Force creation of new session by clearing task session mapping
+                        if hasattr(self._browse_orchestrator, '_task_sessions'):
+                            # Clear the task session to force new session creation
+                            task_id = getattr(self._browse_orchestrator, '_current_task_id', None)
+                            if task_id and task_id in self._browse_orchestrator._task_sessions:
+                                old_session = self._browse_orchestrator._task_sessions.pop(task_id)
+                                logger.debug(f"Cleared old session {old_session} for task {task_id} due to threading error")
+                        
+                        # Retry with new session
+                        result = self._browse_orchestrator.search(
+                            query=query,
+                            max_results=max_results,
+                            engine=config.browse.default_search_engine
+                        )
+                        logger.info("Successfully recovered from threading error with new session")
+                        return result
+                    except Exception as retry_error:
+                        logger.error(f"Retry after threading error also failed: {retry_error}", exc_info=True)
+                        # Fall through to Tavily fallback or error return
+                else:
+                    logger.error(f"Browser search failed: {e}", exc_info=True)
                 
                 # Try Tavily fallback only if explicitly enabled
                 if config.browse.enable_tavily_fallback and self._tavily_client:

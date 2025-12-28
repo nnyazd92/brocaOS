@@ -8,10 +8,11 @@ import time
 from pathlib import Path
 
 import psutil
+import threading
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 import uvicorn
 
 from .main_repl_runtime import initialize_runtime, BrocaRuntime
@@ -31,30 +32,80 @@ PROJECT_ROOT: Path = Path(__file__).parent.parent.resolve()
 
 app = FastAPI(title="BrocaOS Web API")
 
-# --- Activity / Metrics State ---
-LAST_WORK_TS: float = 0.0
-ACTIVE_REQUESTS: int = 0
+
+class RequestState:
+    """
+    Thread-safe request state tracking.
+    
+    Tracks active requests and last work timestamp with proper synchronization
+    for multi-worker/async FastAPI deployments.
+    """
+    
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._last_work_ts: float = 0.0
+        self._active_requests: int = 0
+    
+    def mark_work(self) -> None:
+        """Mark that the system is actively processing work."""
+        with self._lock:
+            self._last_work_ts = time.time()
+    
+    def begin_request(self) -> None:
+        """Mark the start of a request that may involve tools / cognition."""
+        with self._lock:
+            self._active_requests += 1
+            self._last_work_ts = time.time()
+    
+    def end_request(self) -> None:
+        """Mark the end of an active request."""
+        with self._lock:
+            if self._active_requests > 0:
+                self._active_requests -= 1
+            self._last_work_ts = time.time()
+    
+    def get_metrics(self, recent_window: float = 5.0) -> Dict[str, Any]:
+        """
+        Get current metrics in a thread-safe way.
+        
+        Args:
+            recent_window: Time window in seconds to consider recent work
+            
+        Returns:
+            Dictionary with metrics including is_working flag
+        """
+        now_sec = time.time()
+        with self._lock:
+            active_requests = self._active_requests
+            last_work_ts = self._last_work_ts
+        
+        is_working = active_requests > 0 or (now_sec - last_work_ts) < recent_window
+        
+        return {
+            "active_requests": active_requests,
+            "last_work_ts": last_work_ts,
+            "is_working": is_working,
+        }
 
 
+# Singleton instance for request state
+_request_state = RequestState()
+
+
+# Convenience functions for backward compatibility
 def mark_work() -> None:
     """Mark that the system is actively processing work."""
-    global LAST_WORK_TS
-    LAST_WORK_TS = time.time()
+    _request_state.mark_work()
 
 
 def begin_request() -> None:
     """Mark the start of a request that may involve tools / cognition."""
-    global ACTIVE_REQUESTS
-    ACTIVE_REQUESTS += 1
-    mark_work()
+    _request_state.begin_request()
 
 
 def end_request() -> None:
     """Mark the end of an active request."""
-    global ACTIVE_REQUESTS
-    if ACTIVE_REQUESTS > 0:
-        ACTIVE_REQUESTS -= 1
-    mark_work()
+    _request_state.end_request()
 
 
 
@@ -174,7 +225,10 @@ async def metrics():
     now_sec = time.time()
     uptime = int(now_sec - boot_time)
     RECENT_WINDOW = 5.0
-    is_working = ACTIVE_REQUESTS > 0 or (now_sec - LAST_WORK_TS) < RECENT_WINDOW
+    
+    # Get thread-safe metrics
+    state_metrics = _request_state.get_metrics(recent_window=RECENT_WINDOW)
+    is_working = state_metrics["is_working"]
 
     return {
         "cpu": max(0.0, min(cpu_percent, 1.0)),
@@ -848,29 +902,18 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                         # Measure cognitive dissonance (NON-BLOCKING - runs in background)
                         if hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
                             cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
-                            if cognitive_dissonance_monitor:
+                            if cognitive_dissonance_monitor and content:
                                 # Run in background thread to avoid blocking conversation
                                 import threading
                                 
                                 def measure_dissonance_async():
                                     try:
-                                        # Extract tool usage from messages
-                                        tool_usage = []
-                                        for msg in session.messages[-20:]:  # Check last 20 messages
-                                            if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                                                tool_usage.extend(msg.get("tool_calls", []))
-                                        
-                                        # Measure dissonance
-                                        conversation_context = [
-                                            {"role": m.get("role"), "content": (m.get("content") or "")[:200]}
-                                            for m in session.messages[-5:]
-                                        ]
-                                        
-                                        cognitive_dissonance_monitor.measure_dissonance(
+                                        logger.debug("Measuring cognitive dissonance from conversation (background thread)")
+                                        cognitive_dissonance_monitor.measure_dissonance_from_conversation(
                                             response=content,
-                                            conversation_context=conversation_context,
-                                            tool_usage=tool_usage if tool_usage else None
+                                            messages=session.messages
                                         )
+                                        logger.debug("Cognitive dissonance measurement completed")
                                     except Exception as e:
                                         logger.warning(f"Error measuring cognitive dissonance in web_api (background): {e}", exc_info=True)
                                 
@@ -1421,3 +1464,164 @@ async def update_project_config(project_config: ProjectConfig):
         raise HTTPException(status_code=400, detail="Path does not exist")
     PROJECT_ROOT = new_path
     return {"success": True, "root_path": str(PROJECT_ROOT)}
+
+# ===== REASONING & LEARNING TOOL ENDPOINTS =====
+
+class ToolExecutionRequest(BaseModel):
+    """Request to execute a tool."""
+    tool_name: str
+    action: str
+    parameters: Dict[str, Any] = {}
+
+class PriorityRequest(BaseModel):
+    """Request to add a priority."""
+    name: str
+    description: Optional[str] = None
+    importance: float = Field(0.5, ge=0.0, le=1.0)
+
+@app.post("/api/tools/execute")
+async def execute_tool(request: ToolExecutionRequest):
+    """Execute any registered tool directly."""
+    begin_request()
+    try:
+        rt = get_runtime()
+        tool = rt.tool_registry.get_tool(request.tool_name)
+        if not tool:
+            raise HTTPException(status_code=404, detail=f"Tool '{{request.tool_name}}' not found")
+        
+        result = tool.execute(request.action, **request.parameters)
+        
+        # Automatically observe tool execution for learning if learning_tool is available
+        if rt.tool_registry and rt.tool_registry.learning_tool:
+            try:
+                tool_call_data = {
+                    "name": request.tool_name,
+                    "parameters": {"action": request.action, **request.parameters}
+                }
+                success = result.get("success", True) if isinstance(result, dict) else True
+                result_data = {
+                    "success": success,
+                    "result": result
+                }
+                rt.tool_registry.learning_tool.execute("observe_tool_call", tool_call=tool_call_data, result=result_data)
+                logger.debug(f"Automatically observed tool execution '{request.tool_name}' for learning (web_api)")
+            except Exception as e:
+                logger.debug(f"Failed to observe tool execution for learning: {e}", exc_info=True)
+        
+        return result
+    finally:
+        end_request()
+
+@app.get("/api/tools")
+async def list_tools():
+    """List all available tools with descriptions."""
+    rt = get_runtime()
+    tools = rt.tool_registry.list_tools()
+    return [{
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": tool.parameters
+    } for tool in tools]
+
+@app.post("/api/priorities")
+async def add_priority(priority: PriorityRequest):
+    """Add a priority to the reasoning system."""
+    begin_request()
+    try:
+        rt = get_runtime()
+        reasoning = rt.tool_registry.get_tool("reasoning")
+        if not reasoning:
+            raise HTTPException(status_code=503, detail="Reasoning system not available")
+        
+        from datetime import datetime, timezone
+        
+        result = reasoning.execute("add_to_memory", memory_content={
+            "type": "priority",
+            "name": priority.name,
+            "description": priority.description or f"Manage {{priority.name}}",
+            "status": "active",
+            "importance": priority.importance,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        
+        return {
+            "success": True,
+            "priority": priority.name,
+            "importance": priority.importance,
+            "result": "Priority added to reasoning system"
+        }
+    finally:
+        end_request()
+
+@app.get("/api/priorities")
+async def list_priorities():
+    """List all priorities in the reasoning system."""
+    rt = get_runtime()
+    reasoning = rt.tool_registry.get_tool("reasoning")
+    if not reasoning:
+        raise HTTPException(status_code=503, detail="Reasoning system not available")
+    
+    result = reasoning.execute("retrieve_from_memory", 
+                             memory_pattern={"type": "priority"})
+    return result
+
+@app.get("/api/cognitive-architecture/status")
+async def get_cognitive_status():
+    """Get comprehensive cognitive architecture status."""
+    rt = get_runtime()
+    from datetime import datetime, timezone
+    
+    status = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "components": {}
+    }
+    
+    # Get reasoning system status
+    reasoning = rt.tool_registry.get_tool("reasoning")
+    if reasoning:
+        try:
+            state_result = reasoning.execute("get_state")
+            status["components"]["reasoning"] = state_result.get("state", {})
+        except Exception as e:
+            status["components"]["reasoning"] = {"error": str(e)}
+    
+    # Get learning system status
+    learning = rt.tool_registry.get_tool("learning")
+    if learning:
+        try:
+            learning_result = learning.execute("get_learning_state")
+            status["components"]["learning"] = learning_result
+        except Exception as e:
+            status["components"]["learning"] = {"error": str(e)}
+    
+    # Count tools
+    if rt.tool_registry:
+        tools = rt.tool_registry.list_tools()
+        status["tools"] = {
+            "count": len(tools),
+            "available": [t.name for t in tools]
+        }
+    
+    return status
+
+@app.get("/api/reasoning/rules")
+async def list_reasoning_rules():
+    """List all production rules in the reasoning system."""
+    rt = get_runtime()
+    reasoning = rt.tool_registry.get_tool("reasoning")
+    if not reasoning:
+        raise HTTPException(status_code=503, detail="Reasoning system not available")
+    
+    result = reasoning.execute("list_rules")
+    return result
+
+@app.get("/api/reasoning/goals")
+async def list_reasoning_goals():
+    """List all active goals in the reasoning system."""
+    rt = get_runtime()
+    reasoning = rt.tool_registry.get_tool("reasoning")
+    if not reasoning:
+        raise HTTPException(status_code=503, detail="Reasoning system not available")
+    
+    result = reasoning.execute("get_goals")
+    return result

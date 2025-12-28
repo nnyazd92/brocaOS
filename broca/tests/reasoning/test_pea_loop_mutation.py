@@ -175,7 +175,7 @@ class TestMutationKillers:
             success=True,
         )
         
-        assert pea_loop.current_phase == LoopPhase.ACTION
+        assert pea_loop.current_phase == LoopPhase.EXECUTE
     
     def test_phase_transition_action_to_assess(self, pea_loop):
         """Kills mutation: phase not transitioning from ACTION to ASSESS."""

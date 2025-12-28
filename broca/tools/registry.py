@@ -42,7 +42,8 @@ class ToolRegistry:
         self,
         epistemic_engine: Optional[Any] = None,
         internal_sensing_framework: Optional["InternalSensingFramework"] = None,
-        tool_selection_guidance: Optional[Any] = None
+        tool_selection_guidance: Optional[Any] = None,
+        learning_tool: Optional[Any] = None
     ) -> None:
         """
         Initialize an empty tool registry.
@@ -51,11 +52,13 @@ class ToolRegistry:
             epistemic_engine: Optional MetacognitiveEngine for epistemic tracking
             internal_sensing_framework: Optional InternalSensingFramework for tool usage tracking
             tool_selection_guidance: Optional ToolSelectionGuidance for intelligent tool selection
+            learning_tool: Optional LearningTool for automatic learning observation
         """
         self._tools: Dict[str, Tool] = {}
         self.epistemic_engine = epistemic_engine
         self.internal_sensing_framework = internal_sensing_framework
         self.tool_selection_guidance = tool_selection_guidance
+        self.learning_tool = learning_tool
         # Policy mode (read-only)
         # Read from env first (to support tests patching os.environ), fallback to config
         self._policy_mode = os.getenv("BROCA_TOOLS_MODE", getattr(config.tools, "tools_mode", "normal"))
@@ -66,6 +69,19 @@ class ToolRegistry:
         """Reset per-turn counters at start of a new user turn."""
         # No-op: kept for API compatibility, but no counters to reset
         pass
+    
+    def set_learning_tool(self, learning_tool: Optional[Any]) -> None:
+        """
+        Set the learning tool for automatic observation.
+        
+        Args:
+            learning_tool: LearningTool instance or None to disable
+        """
+        self.learning_tool = learning_tool
+        if learning_tool:
+            logger.debug("Learning tool set on ToolRegistry for automatic observation")
+        else:
+            logger.debug("Learning tool removed from ToolRegistry")
     
     def _validate_tool_arguments(self, tool: Tool, arguments: Dict[str, Any]) -> Optional[str]:
         """
@@ -647,6 +663,30 @@ class ToolRegistry:
                     self.tool_selection_guidance.record_tool_outcome(tool_name, success)
                 except Exception as e:
                     logger.debug(f"Error recording tool outcome: {e}", exc_info=True)
+            
+            # Automatically observe tool call for learning if learning_tool is available
+            if self.learning_tool:
+                try:
+                    # Prepare tool call observation data
+                    tool_call_data = {
+                        "name": tool_name,
+                        "parameters": arguments
+                    }
+                    
+                    # Prepare result observation data (with success flag)
+                    success = result.get("success", True) if isinstance(result, dict) else True
+                    result_data = {
+                        "success": success,
+                        "result": result,
+                        "execution_time_ms": execution_time_ms
+                    }
+                    
+                    # Observe the tool call via execute method (this records it for pattern extraction)
+                    self.learning_tool.execute("observe_tool_call", tool_call=tool_call_data, result=result_data)
+                    logger.debug(f"Automatically observed tool call '{tool_name}' for learning")
+                except Exception as e:
+                    # Don't fail tool execution if learning observation fails
+                    logger.debug(f"Failed to observe tool call for learning: {e}", exc_info=True)
             
             return result_dict
             

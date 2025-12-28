@@ -121,9 +121,15 @@ class ReasoningConfig(BaseModel):
     rl_curiosity_threshold: float = float(os.getenv("BROCA_REASONING_RL_CURIOSITY_THRESHOLD", "0.5"))
     rl_exploration_ratio: float = float(os.getenv("BROCA_REASONING_RL_EXPLORATION_RATIO", "0.6"))
     
-    # PEA Loop configuration
-    pea_loop_enabled: bool = os.getenv("BROCA_PEA_LOOP_ENABLED", "true").lower() == "true"
-    pea_loop_require_planning: bool = os.getenv("BROCA_PEA_LOOP_REQUIRE", "true").lower() == "true"
+    # PFREA Loop configuration (Plan-Forecast-Replan-Execute-Assess)
+    # PFREA is ALWAYS enabled (mandatory)
+    pfrea_loop_enabled: bool = True  # Always True - PFREA is mandatory
+    pea_loop_enabled: bool = True  # Backward compatibility alias - always True
+    
+    pfrea_forecast_enabled: bool = os.getenv("BROCA_PFREA_FORECAST_ENABLED", "true").lower() == "true"
+    pfrea_enforce_strict: bool = os.getenv("BROCA_PFREA_ENFORCE_STRICT", "true").lower() == "true"
+    
+    pea_loop_require_planning: bool = True  # Always True - planning is mandatory
     pea_loop_max_replans: int = int(os.getenv("BROCA_PEA_LOOP_MAX_REPLANS", "3"))
     pea_loop_success_threshold: float = float(os.getenv("BROCA_PEA_LOOP_SUCCESS_THRESHOLD", "0.8"))
     pea_loop_track_failed_patterns: bool = os.getenv("BROCA_PEA_LOOP_TRACK_PATTERNS", "true").lower() == "true"

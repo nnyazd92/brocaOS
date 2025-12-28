@@ -8,6 +8,7 @@ outcomes to emotional responses (valence, arousal, etc.).
 from __future__ import annotations
 
 import logging
+import time
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -20,13 +21,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EmotionalAppraisal:
-    """Appraisal of an event along cognitive appraisal dimensions."""
-    goal_relevance: float = 0.0  # 0.0-1.0: How relevant to current goals?
-    goal_congruence: float = 0.0  # -1.0-1.0: Positive = goal-aligned, negative = goal-conflicting
-    coping_potential: float = 0.5  # 0.0-1.0: Ability to cope with/address the event
-    agency: float = 0.5  # 0.0-1.0: System responsibility/control over event
-    certainty: float = 0.5  # 0.0-1.0: Certainty about event characteristics
-    novelty: float = 0.0  # 0.0-1.0: Novelty/surprise factor
+    """
+    Appraisal of an event along cognitive appraisal dimensions (Scherer's CPM).
+    
+    Sequential appraisal checks:
+    1. Relevance: Is this event relevant?
+    2. Implications: What are the implications? (goal congruence, certainty)
+    3. Coping: Can the system cope?
+    4. Norm Significance: What is the normative significance? (agency, novelty)
+    """
+    goal_relevance: float = 0.0  # 0.0-1.0: How relevant to current goals? (Relevance check)
+    goal_congruence: float = 0.0  # -1.0-1.0: Positive = goal-aligned, negative = goal-conflicting (Implications)
+    coping_potential: float = 0.5  # 0.0-1.0: Ability to cope with/address the event (Coping check)
+    agency: float = 0.5  # 0.0-1.0: System responsibility/control over event (Norm significance)
+    certainty: float = 0.5  # 0.0-1.0: Certainty about event characteristics (Implications)
+    novelty: float = 0.0  # 0.0-1.0: Novelty/surprise factor (Norm significance)
+    norm_significance: float = 0.5  # 0.0-1.0: Social/moral significance (CPM addition)
 
 
 @dataclass
@@ -42,13 +52,16 @@ class CognitiveAppraisalEngine:
     """
     Appraises events using cognitive appraisal theory dimensions.
     
-    Based on cognitive appraisal theory (Lazarus, Scherer), appraises events
-    along dimensions: goal relevance, goal congruence, coping potential, agency.
+    Implements Scherer's Component Process Model (CPM) with sequential
+    appraisal checks: relevance → implications → coping → norm significance.
+    Based on cognitive appraisal theory (Lazarus, Scherer).
     """
     
     def __init__(self):
         """Initialize cognitive appraisal engine."""
-        logger.info("Initialized CognitiveAppraisalEngine")
+        # Track appraisal sequence for emotion differentiation
+        self._appraisal_history: List[Dict[str, Any]] = []
+        logger.info("Initialized CognitiveAppraisalEngine (CPM sequential checks)")
     
     def appraise_dissonance(
         self,
@@ -57,7 +70,10 @@ class CognitiveAppraisalEngine:
         coping_resources: Optional[Dict[str, float]] = None
     ) -> EmotionalAppraisal:
         """
-        Appraise cognitive dissonance along appraisal dimensions.
+        Appraise cognitive dissonance using Scherer's CPM sequential checks.
+        
+        Implements sequential appraisal: relevance → implications → coping → norm significance.
+        This sequential process allows for emotion differentiation.
         
         Args:
             dissonance_metrics: Dissonance metrics from CognitiveDissonanceMonitor
@@ -69,19 +85,25 @@ class CognitiveAppraisalEngine:
         """
         overall_dissonance = dissonance_metrics.overall_dissonance
         
-        # Goal relevance: High if dissonance relates to active goals
-        # Assume high relevance if dissonance is significant
+        # CPM Step 1: Relevance Check
+        # Is this event relevant to the system's goals?
         goal_relevance = min(1.0, overall_dissonance * 1.2)  # Scale up slightly
+        if not current_goals:
+            goal_relevance = 0.3  # Lower relevance if no active goals
         
-        # Goal congruence: Negative if high dissonance (conflicts with goal of consistency)
-        # Positive if dissonance is being reduced
+        # CPM Step 2: Implications Check (goal congruence, certainty)
+        # What are the implications for goals?
         goal_congruence = -overall_dissonance  # High dissonance = goal-incongruent
         
         # Check if dissonance is trending down (improvement)
         if hasattr(dissonance_metrics, 'trend') and dissonance_metrics.trend == "decreasing":
             goal_congruence = 0.2  # Slight positive for improvement
         
-        # Coping potential: Based on available resources and system capabilities
+        # Certainty: Higher certainty for clear dissonance signals
+        certainty = min(1.0, overall_dissonance * 1.5)
+        
+        # CPM Step 3: Coping Potential Check
+        # Can the system cope with/address this event?
         coping_potential = 0.5  # Default moderate
         if coping_resources:
             # Average available resources
@@ -93,9 +115,8 @@ class CognitiveAppraisalEngine:
             # High dissonance = lower coping potential (harder to address)
             coping_potential = max(0.2, 0.8 - overall_dissonance * 0.6)
         
-        # Agency: System is responsible for its own consistency
-        # Higher if dissonance is behavioral/goal-based (system control)
-        # Lower if dissonance is logical/factual (less direct control)
+        # CPM Step 4: Norm Significance Check (agency, novelty)
+        # What is the normative/moral significance? Who is responsible?
         agency = 0.5  # Default moderate
         behavioral_weight = dissonance_metrics.behavioral_dissonance
         goal_weight = dissonance_metrics.goal_dissonance
@@ -106,16 +127,13 @@ class CognitiveAppraisalEngine:
         else:
             agency = 0.4  # Lower agency for logical/factual issues
         
-        # Certainty: Higher certainty for clear dissonance signals
-        certainty = min(1.0, overall_dissonance * 1.5)
-        
         # Novelty: High if unexpected dissonance (if trend is increasing unexpectedly)
         novelty = 0.0
         if hasattr(dissonance_metrics, 'trend'):
             if dissonance_metrics.trend == "increasing" and overall_dissonance > 0.5:
                 novelty = 0.6  # Unexpected increase
         
-        return EmotionalAppraisal(
+        appraisal = EmotionalAppraisal(
             goal_relevance=goal_relevance,
             goal_congruence=goal_congruence,
             coping_potential=coping_potential,
@@ -123,6 +141,17 @@ class CognitiveAppraisalEngine:
             certainty=certainty,
             novelty=novelty
         )
+        
+        # Track appraisal sequence for emotion differentiation
+        self._appraisal_history.append({
+            "appraisal": appraisal,
+            "dissonance": overall_dissonance,
+            "timestamp": time.time()
+        })
+        if len(self._appraisal_history) > 100:
+            self._appraisal_history = self._appraisal_history[-100:]
+        
+        return appraisal
     
     def appraise_learning_outcome(
         self,
@@ -171,21 +200,28 @@ class CognitiveAppraisalEngine:
             if success != expected_success:
                 novelty = 0.5  # Unexpected outcome
         
+        # Norm significance: Higher for behavioral/goal violations (system norms)
+        norm_significance = 0.5
+        if behavioral_weight + goal_weight > 0.3:
+            norm_significance = 0.7  # Behavioral violations have higher normative significance
+        
         return EmotionalAppraisal(
             goal_relevance=goal_relevance,
             goal_congruence=goal_congruence,
             coping_potential=coping_potential,
             agency=agency,
             certainty=certainty,
-            novelty=novelty
+            novelty=novelty,
+            norm_significance=norm_significance
         )
 
 
 class DissonanceEmotionalMapper:
     """
-    Maps cognitive dissonance to emotional responses.
+    Maps cognitive dissonance to emotional responses using CPM emotion differentiation.
     
     Translates appraisal dimensions into emotional state changes (valence, arousal).
+    Based on Scherer's CPM: different appraisal patterns lead to different emotions.
     """
     
     def __init__(
@@ -263,17 +299,80 @@ class DissonanceEmotionalMapper:
         surprise_delta = appraisal.novelty * 0.5
         surprise_delta = max(0.0, min(1.0, surprise_delta))
         
+        # CPM Emotion Differentiation: Map appraisal patterns to specific emotions
+        # High negative valence + high arousal + low coping = fear/anxiety
+        # High negative valence + high arousal + high agency = anger
+        # High positive valence + moderate arousal = joy
+        # Low valence + low arousal + low coping = sadness
+        emotion_type = self._differentiate_emotion(appraisal, overall_dissonance)
+        
         logger.debug(
-            f"Mapped dissonance to emotion: valence={valence_delta:.3f}, "
+            f"Mapped dissonance to emotion: {emotion_type}, valence={valence_delta:.3f}, "
             f"arousal={arousal_delta:.3f}, curiosity={curiosity_delta:.3f}, surprise={surprise_delta:.3f}"
         )
         
-        return EmotionalMapping(
+        mapping = EmotionalMapping(
             valence_delta=valence_delta,
             arousal_delta=arousal_delta,
             curiosity_delta=curiosity_delta,
             surprise_delta=surprise_delta
         )
+        
+        # Add emotion type to mapping for tracking
+        if hasattr(mapping, '__dict__'):
+            mapping.__dict__['emotion_type'] = emotion_type
+        
+        return mapping
+    
+    def _differentiate_emotion(
+        self,
+        appraisal: EmotionalAppraisal,
+        dissonance: float
+    ) -> str:
+        """
+        Differentiate specific emotion from appraisal pattern (CPM).
+        
+        Based on Scherer's Component Process Model: different appraisal
+        combinations lead to different discrete emotions.
+        
+        Args:
+            appraisal: Emotional appraisal
+            dissonance: Overall dissonance level
+            
+        Returns:
+            Emotion type string (fear, anger, sadness, joy, surprise, etc.)
+        """
+        valence = appraisal.goal_congruence  # Negative = bad, positive = good
+        arousal = abs(appraisal.goal_relevance)  # High relevance = high arousal potential
+        coping = appraisal.coping_potential
+        agency = appraisal.agency
+        
+        # Fear/Anxiety: Negative + High arousal + Low coping
+        if valence < -0.3 and arousal > 0.6 and coping < 0.4:
+            return "fear"
+        
+        # Anger: Negative + High arousal + High agency (can act)
+        if valence < -0.3 and arousal > 0.6 and agency > 0.6:
+            return "anger"
+        
+        # Sadness: Negative + Low arousal + Low coping
+        if valence < -0.3 and arousal < 0.4 and coping < 0.4:
+            return "sadness"
+        
+        # Joy: Positive + Moderate arousal
+        if valence > 0.3 and arousal > 0.3:
+            return "joy"
+        
+        # Surprise: High novelty
+        if appraisal.novelty > 0.6:
+            return "surprise"
+        
+        # Disgust: Negative + High norm significance (violation)
+        if valence < -0.2 and getattr(appraisal, 'norm_significance', 0.5) > 0.7:
+            return "disgust"
+        
+        # Default: neutral or mixed
+        return "neutral"
 
 
 class LearningOutcomeAppraiser:

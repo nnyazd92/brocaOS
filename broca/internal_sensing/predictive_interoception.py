@@ -32,7 +32,12 @@ class PredictiveInteroception:
     """
     
     def __init__(self) -> None:
-        """Initialize predictive interoception system."""
+        """
+        Initialize predictive interoception system.
+        
+        Implements predictive coding theory (Friston, Seth) with hierarchical
+        prediction errors and Bayesian updating.
+        """
         self.internal_models: Dict[str, Any] = {
             "resource_prediction": {},
             "cognitive_load_prediction": {},
@@ -43,7 +48,15 @@ class PredictiveInteroception:
         self._prediction_history: deque = deque(maxlen=100)
         self._prediction_errors: deque = deque(maxlen=100)
         
-        logger.info("Initialized PredictiveInteroception")
+        # Hierarchical prediction error tracking (multi-scale)
+        self._short_term_errors: deque = deque(maxlen=10)  # Immediate prediction errors
+        self._long_term_errors: deque = deque(maxlen=50)   # Long-term prediction errors
+        
+        # Bayesian confidence tracking
+        self._prediction_confidence: Dict[str, float] = {}  # Confidence per model type
+        self._prediction_uncertainty: Dict[str, float] = {}  # Uncertainty per model type
+        
+        logger.info("Initialized PredictiveInteroception (predictive coding theory)")
     
     def predict_resources(
         self,
@@ -78,9 +91,12 @@ class PredictiveInteroception:
                 # Calculate uncertainty (variance in recent values)
                 variance = sum((l - sum(loads)/len(loads))**2 for l in loads) / len(loads)
                 load_uncertainty = min(1.0, variance ** 0.5)
+                load_uncertainty_quality = "high"
             else:
                 predicted_load = current_load
-                load_uncertainty = 0.5
+                # High uncertainty when insufficient data for trend
+                load_uncertainty = 0.8  # High uncertainty instead of neutral 0.5
+                load_uncertainty_quality = "insufficient"
             
             # Calculate trend for memory_pressure
             memories = [s.get("memory_pressure", 0.5) for s in recent if s.get("memory_pressure") is not None]
@@ -89,15 +105,21 @@ class PredictiveInteroception:
                 predicted_memory = min(1.0, max(0.0, memories[-1] + trend * horizon))
                 variance = sum((m - sum(memories)/len(memories))**2 for m in memories) / len(memories)
                 memory_uncertainty = min(1.0, variance ** 0.5)
+                memory_uncertainty_quality = "high"
             else:
                 predicted_memory = current_memory
-                memory_uncertainty = 0.5
+                # High uncertainty when insufficient data for trend
+                memory_uncertainty = 0.8  # High uncertainty instead of neutral 0.5
+                memory_uncertainty_quality = "insufficient"
         else:
             # Use current values if no history
             predicted_load = current_load
             predicted_memory = current_memory
-            load_uncertainty = 0.5
-            memory_uncertainty = 0.5
+            # High uncertainty when no history available
+            load_uncertainty = 0.8  # High uncertainty instead of neutral 0.5
+            memory_uncertainty = 0.8  # High uncertainty instead of neutral 0.5
+            load_uncertainty_quality = "missing"
+            memory_uncertainty_quality = "missing"
         
         prediction = {
             "computational_load": predicted_load,
@@ -114,6 +136,25 @@ class PredictiveInteroception:
             "timestamp": time.time() + horizon,
             "horizon": horizon,
         }
+        
+        # Add data quality indicators
+        prediction["data_quality"] = {
+            "computational_load_uncertainty": load_uncertainty_quality,
+            "memory_pressure_uncertainty": memory_uncertainty_quality
+        }
+        
+        # Add Bayesian confidence based on prediction error history
+        model_type = "resource_prediction"
+        if model_type in self._prediction_confidence:
+            prediction["prediction_confidence"] = self._prediction_confidence[model_type]
+            prediction["prediction_uncertainty"] = self._prediction_uncertainty.get(model_type, load_uncertainty)
+        else:
+            # Initialize with high uncertainty if no history
+            prediction["prediction_confidence"] = 0.5
+            prediction["prediction_uncertainty"] = max(load_uncertainty, memory_uncertainty)
+        
+        # Store prediction for later error computation (predictive coding)
+        prediction["_prediction_id"] = f"resource_{time.time()}_{horizon}"
         
         # Multi-horizon predictions if requested
         if multi_horizon:
@@ -250,30 +291,53 @@ class PredictiveInteroception:
         actual: Dict[str, Any]
     ) -> float:
         """
-        Compute prediction error between predicted and actual values.
+        Compute hierarchical prediction error between predicted and actual values.
+        
+        Implements predictive coding theory: prediction errors drive model updates.
+        Uses weighted errors based on importance of different metrics.
         
         Args:
             predicted: Predicted values dictionary
             actual: Actual values dictionary
             
         Returns:
-            Average prediction error (0.0-1.0)
+            Weighted average prediction error (0.0-1.0)
         """
         errors = []
+        weights = []
+        
+        # Weight different metrics by importance
+        metric_weights = {
+            "computational_load": 0.3,
+            "memory_pressure": 0.3,
+            "confidence_level": 0.2,
+            "valence": 0.1,
+            "arousal": 0.1,
+        }
         
         for key in predicted:
-            if key in actual and key != "timestamp":
+            if key in actual and key not in ("timestamp", "_prediction_id", "data_quality", 
+                                             "prediction_confidence", "prediction_uncertainty"):
                 pred_val = predicted[key]
                 actual_val = actual[key]
                 
                 if isinstance(pred_val, (int, float)) and isinstance(actual_val, (int, float)):
                     error = abs(pred_val - actual_val)
                     errors.append(error)
+                    # Use specific weight if available, otherwise default
+                    weight = metric_weights.get(key, 0.1)
+                    weights.append(weight)
         
         if len(errors) == 0:
             return 0.0
         
-        return sum(errors) / len(errors)
+        # Weighted average prediction error
+        if weights and sum(weights) > 0:
+            weighted_error = sum(e * w for e, w in zip(errors, weights)) / sum(weights)
+        else:
+            weighted_error = sum(errors) / len(errors)
+        
+        return min(1.0, weighted_error)
     
     def update_models(
         self,
@@ -283,11 +347,14 @@ class PredictiveInteroception:
         actual: Dict[str, Any]
     ) -> None:
         """
-        Update internal models based on prediction errors.
+        Update internal models based on prediction errors (predictive coding theory).
+        
+        Implements hierarchical prediction error tracking and Bayesian updating
+        for model confidence. Based on Friston's predictive coding framework.
         
         Args:
             model_type: Type of model to update
-            error: Prediction error
+            error: Prediction error (hierarchical prediction error)
             predicted: Predicted values
             actual: Actual values
         """
@@ -325,9 +392,49 @@ class PredictiveInteroception:
             self.internal_models[model_type]["error_history"] = deque(maxlen=50)
         self.internal_models[model_type]["error_history"].append(error)
         
+        # Hierarchical error tracking (short-term vs long-term)
+        self._short_term_errors.append(error)
+        self._long_term_errors.append(error)
+        
+        # Bayesian updating of prediction confidence
+        # Confidence increases with low errors, decreases with high errors
+        if model_type not in self._prediction_confidence:
+            self._prediction_confidence[model_type] = 0.5  # Prior: uniform
+            self._prediction_uncertainty[model_type] = 0.5
+        
+        # Update confidence using Bayesian approach (simplified)
+        # Lower error = higher confidence
+        error_normalized = min(1.0, error)  # Normalize to [0, 1]
+        confidence_update = (1.0 - error_normalized) * 0.1  # Learning rate
+        old_confidence = self._prediction_confidence[model_type]
+        
+        # Bayesian update: blend old confidence with new evidence
+        # Weight recent errors more heavily
+        if len(self._short_term_errors) >= 3:
+            recent_avg_error = sum(list(self._short_term_errors)[-3:]) / 3
+            recent_confidence = 1.0 - min(1.0, recent_avg_error)
+            # Exponential moving average
+            self._prediction_confidence[model_type] = (
+                0.7 * old_confidence + 0.3 * recent_confidence
+            )
+        else:
+            # Simple update if insufficient short-term data
+            self._prediction_confidence[model_type] = old_confidence + confidence_update
+        
+        # Clamp confidence to [0, 1]
+        self._prediction_confidence[model_type] = max(0.0, min(1.0, self._prediction_confidence[model_type]))
+        
+        # Update uncertainty based on error variance (predictive coding)
+        error_history = list(self.internal_models[model_type]["error_history"])
+        if len(error_history) >= 5:
+            # Calculate variance in prediction errors
+            mean_error = sum(error_history) / len(error_history)
+            variance = sum((e - mean_error) ** 2 for e in error_history) / len(error_history)
+            # Uncertainty is proportional to error variance
+            self._prediction_uncertainty[model_type] = min(1.0, variance ** 0.5)
+        
         # Model adaptation: adjust prediction strategy based on recent errors
         # If errors are consistently high, increase uncertainty in future predictions
-        error_history = list(self.internal_models[model_type]["error_history"])
         if len(error_history) >= 5:
             recent_avg_error = sum(error_history[-5:]) / 5
             # If recent errors are high, increase adaptation (be more conservative)

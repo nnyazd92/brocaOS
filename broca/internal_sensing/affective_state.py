@@ -99,6 +99,10 @@ class ComputationalAffectMonitor:
         # Instead, let moving averages build naturally from actual recorded data
         # The affective_states dictionary still has defaults which will be used until data is recorded
         
+        # Initialize data quality tracking
+        if HAS_DATA_QUALITY:
+            self.affective_states["data_quality"] = {}
+        
         self._motivational_drives: Dict[str, float] = {}
         # Use bounded deque to prevent unbounded memory growth
         # Limit to last 1000 satisfaction/frustration patterns
@@ -418,6 +422,18 @@ class ComputationalAffectMonitor:
             )
             # Update through SignalManager if available (hybrid approach)
             self.affective_states["valence"] = self._update_damped_signal("affect.valence", raw_valence)
+            
+            # Update data quality
+            if HAS_DATA_QUALITY:
+                sample_size = len(self._valence_history)
+                if sample_size >= 20:
+                    self.affective_states["data_quality"]["valence"] = DataQuality.HIGH.value
+                elif sample_size >= 10:
+                    self.affective_states["data_quality"]["valence"] = DataQuality.MEDIUM.value
+                elif sample_size >= 5:
+                    self.affective_states["data_quality"]["valence"] = DataQuality.LOW.value
+                else:
+                    self.affective_states["data_quality"]["valence"] = DataQuality.INSUFFICIENT.value
     
     
     def compute_valence_from_text(self, text: str, use_semantic: bool = True) -> None:
@@ -481,6 +497,19 @@ class ComputationalAffectMonitor:
             # Update through SignalManager if available (hybrid approach)
             damped_valence = self._update_damped_signal("affect.valence", new_valence)
             self.affective_states["valence"] = damped_valence
+            
+            # Update data quality
+            if HAS_DATA_QUALITY:
+                sample_size = len(self._valence_history)
+                if sample_size >= 20:
+                    self.affective_states["data_quality"]["valence"] = DataQuality.HIGH.value
+                elif sample_size >= 10:
+                    self.affective_states["data_quality"]["valence"] = DataQuality.MEDIUM.value
+                elif sample_size >= 5:
+                    self.affective_states["data_quality"]["valence"] = DataQuality.LOW.value
+                else:
+                    self.affective_states["data_quality"]["valence"] = DataQuality.INSUFFICIENT.value
+            
             logger.debug(f"Updated valence: {old_valence:.3f} -> {new_valence:.3f} -> {damped_valence:.3f} (computed={final_valence:.3f}, semantic={semantic_valence}, context_adj={context_adj:.3f}, history_len={len(self._valence_history)})")
 
     
@@ -720,6 +749,18 @@ class ComputationalAffectMonitor:
         self._certainty_affect_history.append(certainty)
         if len(self._certainty_affect_history) > 0:
             self.affective_states["certainty_affect"] = sum(self._certainty_affect_history) / len(self._certainty_affect_history)
+            
+            # Update data quality
+            if HAS_DATA_QUALITY:
+                sample_size = len(self._certainty_affect_history)
+                if sample_size >= 20:
+                    self.affective_states["data_quality"]["certainty_affect"] = DataQuality.HIGH.value
+                elif sample_size >= 10:
+                    self.affective_states["data_quality"]["certainty_affect"] = DataQuality.MEDIUM.value
+                elif sample_size >= 5:
+                    self.affective_states["data_quality"]["certainty_affect"] = DataQuality.LOW.value
+                else:
+                    self.affective_states["data_quality"]["certainty_affect"] = DataQuality.INSUFFICIENT.value
     
     
     def _compute_kl_divergence(self, prior: Dict[str, float], posterior: Dict[str, float]) -> float:

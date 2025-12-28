@@ -394,6 +394,14 @@ class ReasoningDaemon:
             # Learning system integration with emotional state
             if self.learning_tool:
                 try:
+                    # Get emotional state from affect monitor if available
+                    emotional_state = None
+                    if self.affect_monitor:
+                        try:
+                            emotional_state = self.affect_monitor.sample_affective_state()
+                        except Exception as e:
+                            logger.debug(f"Error sampling emotional state from affect monitor: {e}")
+                    
                     # Observe cycle outcomes for learning with emotional context
                     cycle_context = {
                         "cycle_outcome": cycle_outcome,

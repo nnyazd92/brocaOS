@@ -188,6 +188,13 @@ def initialize_runtime() -> BrocaRuntime:
                         logger.info("Registered learning tool")
                     except Exception as e:
                         logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
+                    
+                    # Wire learning tool from reasoning system to tool registry for automatic observation
+                    try:
+                        tool_registry.set_learning_tool(reasoning_tool.learning_tool)
+                        logger.info("✓ Learning tool (from reasoning) wired to tool registry for automatic observation (runtime)")
+                    except Exception as e:
+                        logger.warning(f"Failed to wire reasoning learning tool to tool registry: {e}", exc_info=True)
                 
                 # Wire tool selection guidance if enabled and not already initialized
                 if (tool_registry and 
@@ -292,6 +299,14 @@ def initialize_runtime() -> BrocaRuntime:
                         logger.debug(f"Learning tool already registered: {e}")
                     except Exception as e:
                         logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
+                
+                # Wire learning_tool to tool_registry for automatic observation
+                if tool_registry and learning_tool_standalone:
+                    try:
+                        tool_registry.set_learning_tool(learning_tool_standalone)
+                        logger.info("✓ Learning tool wired to tool registry for automatic observation (runtime)")
+                    except Exception as e:
+                        logger.warning(f"Failed to wire learning tool to tool registry: {e}", exc_info=True)
         except Exception as e:
             logger.warning(f"Failed to initialize learning tool: {e}", exc_info=True)
     

@@ -219,6 +219,75 @@ class TerminalTool:
         # All commands are allowed - no whitelist restrictions
         return True
     
+    def _is_python_code_command(self, command: str) -> bool:
+        """
+        Check if command is a Python code execution command (python -c "...").
+        
+        Args:
+            command: Command string to check
+            
+        Returns:
+            True if command appears to be Python code execution
+        """
+        # Check for python -c or python3 -c patterns
+        python_patterns = [
+            r'python\s+-c\s+',
+            r'python3\s+-c\s+',
+            r'python\s+-m\s+',
+            r'python3\s+-m\s+',
+        ]
+        
+        import re
+        for pattern in python_patterns:
+            if re.search(pattern, command, re.IGNORECASE):
+                return True
+        
+        # Check for multiline Python scripts (contains import statements, def, class, etc.)
+        python_keywords = ['import ', 'from ', 'def ', 'class ', 'if __name__', 'sys.path']
+        if any(keyword in command for keyword in python_keywords):
+            # Likely Python code if it has Python keywords and is multiline
+            if '\n' in command or command.count('"') >= 2 or command.count("'") >= 2:
+                return True
+        
+        return False
+    
+    def _is_likely_code_string(self, arg: str) -> bool:
+        """
+        Check if an argument looks like a code string literal rather than an actual file path.
+        
+        Args:
+            arg: Argument string to check
+            
+        Returns:
+            True if argument looks like code (string literal), False if it looks like a path
+        """
+        # If it's wrapped in quotes, it's likely a string literal
+        if (arg.startswith('"') and arg.endswith('"')) or (arg.startswith("'") and arg.endswith("'")):
+            return True
+        
+        # If it contains Python-like syntax (imports, function calls, etc.), it's likely code
+        code_indicators = [
+            'import ', 'from ', 'sys.', 'os.', 'print(', 'def ', 'class ',
+            'if ', 'for ', 'while ', 'try:', 'except', 'with ', 'as ',
+            '=', '==', '!=', '(', ')', '[', ']', '{', '}'
+        ]
+        
+        # If it has multiple code indicators, it's likely code
+        indicator_count = sum(1 for indicator in code_indicators if indicator in arg)
+        if indicator_count >= 2:
+            return True
+        
+        # If it's very long and contains newlines, it's likely multiline code
+        if len(arg) > 200 and '\n' in arg:
+            return True
+        
+        # If it looks like a Python expression (has operators, function calls)
+        if any(op in arg for op in ['(', ')', '=', '[', ']']) and not os.path.exists(arg):
+            # Has code-like syntax and doesn't exist as a file - likely code
+            return True
+        
+        return False
+    
     def _validate_path(self, path: str) -> bool:
         """
         Validate file path (prevent path traversal).
@@ -568,10 +637,22 @@ class TerminalTool:
                 # For heredoc commands, skip path validation of arguments
                 # The shell will handle the heredoc correctly when executed
                 logger.debug("Skipping path validation for heredoc command")
+            elif self._is_python_code_command(command):
+                # For Python code commands (python -c "..."), skip path validation
+                # Path strings in Python code are not actual file system paths
+                logger.debug("Skipping path validation for Python code command")
             else:
                 # For normal commands, validate file paths in arguments
+                # But only validate actual file paths, not string literals in code
                 for arg in args:
                     if os.path.sep in arg or "/" in arg or "\\" in arg:
+                        # Check if this looks like a code string literal vs actual path
+                        if self._is_likely_code_string(arg):
+                            # This is likely a string literal in code, not an actual path
+                            logger.debug(f"Skipping path validation for code string: {arg[:50]}...")
+                            continue
+                        
+                        # This looks like an actual file path, validate it
                         if not self._validate_path(arg):
                             return {
                                 "success": False,

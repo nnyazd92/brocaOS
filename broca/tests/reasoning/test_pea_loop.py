@@ -93,7 +93,7 @@ class TestActionExecution:
         assert len(pea_loop.execution_history) == 1
         assert pea_loop.execution_history[0].tool_name == "test_tool"
         assert pea_loop.execution_history[0].success is True
-        assert pea_loop.current_phase == LoopPhase.ACTION
+        assert pea_loop.current_phase == LoopPhase.EXECUTE
     
     def test_record_multiple_executions(self, pea_loop):
         """Test recording multiple action executions."""
@@ -302,7 +302,7 @@ class TestStateManagement:
         """Test resetting state for new goal."""
         plan = Plan(goal="Old goal", steps=[{"description": "Step"}])
         pea_loop.current_plan = plan
-        pea_loop.current_phase = LoopPhase.ACTION
+        pea_loop.current_phase = LoopPhase.EXECUTE
         pea_loop.replan_count = 2
         
         pea_loop.reset_for_new_goal("New goal")
@@ -316,7 +316,7 @@ class TestStateManagement:
         """Test getting loop state."""
         plan = Plan(goal="Test goal", steps=[{"description": "Step"}])
         pea_loop.current_plan = plan
-        pea_loop.current_phase = LoopPhase.ACTION
+        pea_loop.current_phase = LoopPhase.EXECUTE
         
         state = pea_loop.get_loop_state()
         
@@ -336,7 +336,7 @@ class TestPlanningEnforcement:
         """Test that planning is not required when plan exists."""
         plan = Plan(goal="Test", steps=[{"description": "Step"}])
         pea_loop.current_plan = plan
-        pea_loop.current_phase = LoopPhase.ACTION
+        pea_loop.current_phase = LoopPhase.EXECUTE
         
         assert pea_loop.should_require_plan("User request", has_tool_calls=True) is False
     

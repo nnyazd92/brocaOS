@@ -321,24 +321,34 @@ class IntegratedInteroception:
         Track interoceptive accuracy.
         
         Returns:
-            Dictionary with accuracy metrics (always returns defaults instead of None)
+            Dictionary with accuracy metrics and data quality indicators
         """
-        # Get prediction accuracy (defaults to 0.5 if None)
+        # Get prediction accuracy
         pred_accuracy = self.prediction.get_prediction_accuracy()
-        if pred_accuracy is None:
-            pred_accuracy = 0.5
+        has_data = pred_accuracy is not None
+        
+        if not has_data:
+            # Return with missing data indicator
+            return {
+                "prediction_accuracy": None,
+                "overall_accuracy": None,
+                "has_data": False,
+                "data_quality": "missing"
+            }
         
         return {
             "prediction_accuracy": pred_accuracy,
             "overall_accuracy": pred_accuracy,  # Simplified for now
+            "has_data": True,
+            "data_quality": "high"  # If we have prediction accuracy, it's based on actual data
         }
     
-    def measure_self_awareness_quality(self) -> float:
+    def measure_self_awareness_quality(self) -> Optional[float]:
         """
         Measure self-awareness quality.
         
         Returns:
-            Quality score (0.0-1.0), always returns a value (defaults to 0.5 if insufficient data)
+            Quality score (0.0-1.0) if sufficient data, None if insufficient
         """
         # Quality based on:
         # - Prediction accuracy
@@ -348,14 +358,32 @@ class IntegratedInteroception:
         accuracy = self.prediction.get_prediction_accuracy()
         coherence = self.cognition.states.get("conceptual_coherence", 0.5)
         
-        # Use available metrics, default missing ones to neutral (0.5)
-        acc_value = accuracy if accuracy is not None else 0.5
-        coh_value = coherence if coherence is not None else 0.5
+        # Check if we have sufficient data
+        has_accuracy = accuracy is not None
+        # Check coherence data quality
+        cog_data_quality = self.cognition.states.get("data_quality", {}).get("conceptual_coherence")
+        has_coherence_data = cog_data_quality not in (None, "missing", "insufficient")
         
-        # Combine factors
-        quality = (acc_value * 0.5 + coh_value * 0.5)
+        # Need at least one metric with data
+        if not has_accuracy and not has_coherence_data:
+            logger.debug("Insufficient data for self_awareness_quality measurement")
+            return None
         
-        logger.debug(f"Computed self_awareness_quality: {quality:.3f} (accuracy: {acc_value:.3f}, coherence: {coh_value:.3f})")
+        # Use available metrics, use None for missing ones
+        acc_value = accuracy if has_accuracy else None
+        coh_value = coherence if has_coherence_data else None
+        
+        # Combine factors (weight by availability)
+        if acc_value is not None and coh_value is not None:
+            quality = (acc_value * 0.5 + coh_value * 0.5)
+        elif acc_value is not None:
+            quality = acc_value  # Use accuracy alone
+        elif coh_value is not None:
+            quality = coh_value  # Use coherence alone
+        else:
+            return None
+        
+        logger.debug(f"Computed self_awareness_quality: {quality:.3f} (accuracy: {acc_value}, coherence: {coh_value})")
         
         return quality
 

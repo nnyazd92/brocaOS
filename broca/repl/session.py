@@ -189,27 +189,30 @@ class ConversationSession:
         # Store color manager for colorizing output
         self._color_manager = color_manager
 
-        # Initialize PEA loop if enabled
-        self.pea_loop = None
-        if config.reasoning.pea_loop_enabled:
-            try:
-                from ..reasoning.plan_exec_assess_loop import PlanExecuteAssessLoop
-                self.pea_loop = PlanExecuteAssessLoop(
-                    goal_manager=goal_manager,
-                    skill_manager=skill_manager,
-                    experience_logger=experience_logger,
-                    require_planning=config.reasoning.pea_loop_require_planning,
-                    max_replan_attempts=config.reasoning.pea_loop_max_replans,
-                    success_threshold=config.reasoning.pea_loop_success_threshold,
-                    track_failed_patterns=config.reasoning.pea_loop_track_failed_patterns,
-                    max_failed_patterns=config.reasoning.pea_loop_max_failed_patterns,
-                )
-                if goal_manager or skill_manager or experience_logger:
-                    logger.debug(f"PEA loop enabled for session with managers: goal_manager={goal_manager is not None}, skill_manager={skill_manager is not None}, experience_logger={experience_logger is not None}")
-                else:
-                    logger.debug("PEA loop enabled for session (managers will be wired later)")
-            except Exception as e:
-                logger.warning(f"Failed to initialize PEA loop: {e}", exc_info=True)
+        # Initialize PFREA loop (always enabled - mandatory)
+        self.pea_loop = None  # Keep name for backward compatibility
+        self.pfrea_loop = None
+        try:
+            from ..reasoning.plan_exec_assess_loop import PlanForecastReplanExecuteAssessLoop, PlanExecuteAssessLoop
+            self.pfrea_loop = PlanForecastReplanExecuteAssessLoop(
+                goal_manager=goal_manager,
+                skill_manager=skill_manager,
+                experience_logger=experience_logger,
+                require_planning=True,  # Always require planning
+                max_replan_attempts=config.reasoning.pea_loop_max_replans,
+                success_threshold=config.reasoning.pea_loop_success_threshold,
+                track_failed_patterns=config.reasoning.pea_loop_track_failed_patterns,
+                max_failed_patterns=config.reasoning.pea_loop_max_failed_patterns,
+            )
+            # Backward compatibility alias
+            self.pea_loop = self.pfrea_loop
+            if goal_manager or skill_manager or experience_logger:
+                logger.debug(f"PFREA loop initialized for session with managers: goal_manager={goal_manager is not None}, skill_manager={skill_manager is not None}, experience_logger={experience_logger is not None}")
+            else:
+                logger.debug("PFREA loop initialized for session (managers will be wired later)")
+        except Exception as e:
+            logger.error(f"Failed to initialize PFREA loop (mandatory): {e}", exc_info=True)
+            raise  # PFREA is mandatory, so fail if initialization fails
         
         # Store managers for later wiring if PEA loop is created later
         self._goal_manager = goal_manager
@@ -493,27 +496,30 @@ When you need to use tools to complete a task:
         experience_logger: Optional[Any] = None,
     ) -> None:
         """
-        Wire PEA loop managers after session initialization.
+        Wire PFREA loop managers after session initialization.
         
         Args:
             goal_manager: Optional goal manager
             skill_manager: Optional skill manager
             experience_logger: Optional experience logger
+        
+        Backward compatibility: method name kept as wire_pea_loop_managers.
         """
-        if self.pea_loop:
+        loop = self.pfrea_loop or self.pea_loop
+        if loop:
             if goal_manager is not None:
-                self.pea_loop.goal_manager = goal_manager
+                loop.goal_manager = goal_manager
                 self._goal_manager = goal_manager
             if skill_manager is not None:
-                self.pea_loop.skill_manager = skill_manager
+                loop.skill_manager = skill_manager
                 self._skill_manager = skill_manager
             if experience_logger is not None:
-                self.pea_loop.experience_logger = experience_logger
+                loop.experience_logger = experience_logger
                 self._experience_logger = experience_logger
             
             if goal_manager or skill_manager or experience_logger:
                 logger.debug(
-                    f"Wired PEA loop managers: goal_manager={goal_manager is not None}, "
+                    f"Wired PFREA loop managers: goal_manager={goal_manager is not None}, "
                     f"skill_manager={skill_manager is not None}, "
                     f"experience_logger={experience_logger is not None}"
                 )
@@ -1289,18 +1295,58 @@ When you need to use tools to complete a task:
                 # Repair broken ANSI escape sequences in extracted text
                 if assistant_text:
                     assistant_text = repair_ansi_codes(assistant_text)
+            
+            # PFREA Loop: Extract plan from response if we don't have one yet
+            loop = self.pfrea_loop or self.pea_loop
+            forecast_enabled = config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True
+            if loop and assistant_text and loop.current_plan is None:
+                plan = loop.extract_plan_from_response(assistant_text)
+                if plan:
+                    loop.current_plan = plan
+                    loop.current_phase = LoopPhase.PLAN
+                    logger.info(f"PFREA: Extracted plan from response: {plan.plan_id}")
+                    # If forecast is enabled, transition to FORECAST phase
+                    if forecast_enabled and not tool_calls:
+                        loop.current_phase = LoopPhase.FORECAST
+                        forecast_directive = loop.enforce_forecast_phase(plan)
+                        self.messages.append({"role": "user", "content": forecast_directive})
+                        logger.info("PFREA: Plan extracted, requesting forecast")
+                        continue
+                    elif not forecast_enabled:
+                        # Forecast disabled, go straight to EXECUTE
+                        loop.current_phase = LoopPhase.EXECUTE
 
             if tool_calls and self.tool_registry:
+                # PFREA Loop: Check if we can execute actions (mandatory enforcement)
+                loop = self.pfrea_loop or self.pea_loop
+                forecast_enabled = config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True
+                
+                if loop:
+                    # Block tool execution if required phases are not complete
+                    if not loop.can_execute_actions(forecast_enabled=forecast_enabled):
+                        # Inject appropriate phase directive
+                        if loop.should_require_plan(user_text, has_tool_calls=True):
+                            directive = loop.enforce_planning_phase(user_text)
+                            self.messages.append({"role": "user", "content": directive})
+                            logger.warning("PFREA: Blocked tool execution - planning required")
+                            continue
+                        elif loop.should_require_forecast():
+                            directive = loop.enforce_forecast_phase(loop.current_plan)
+                            self.messages.append({"role": "user", "content": directive})
+                            logger.warning("PFREA: Blocked tool execution - forecast required")
+                            continue
+                        elif loop.should_require_replan():
+                            # Re-plan based on forecast
+                            forecast = loop.current_forecast
+                            directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
+                            loop.current_phase = LoopPhase.RE_PLAN
+                            self.messages.append({"role": "user", "content": directive})
+                            logger.warning("PFREA: Blocked tool execution - re-planning required")
+                            continue
+                
                 # Mark that we've had tool calls
                 had_tool_calls = True
                 
-                # PEA Loop: Extract plan if this is first iteration and no plan exists
-                if self.pea_loop and iterations == 1 and self.pea_loop.current_plan is None and assistant_text:
-                    plan = self.pea_loop.extract_plan_from_response(assistant_text)
-                    if plan:
-                        self.pea_loop.current_plan = plan
-                        self.pea_loop.current_phase = LoopPhase.PLAN
-                        logger.info(f"Extracted plan from response: {plan.plan_id}")
                 
                 # Log tool calls detected
                 tool_names = [
@@ -1318,8 +1364,9 @@ When you need to use tools to complete a task:
                 # Handle tool calls
                 self._handle_tool_calls(response, tool_calls)
                 
-                # PEA Loop: Record action executions after tool calls complete
-                if self.pea_loop and self.pea_loop.current_plan:
+                # PFREA Loop: Record action executions after tool calls complete
+                loop = self.pfrea_loop or self.pea_loop
+                if loop and loop.current_plan:
                     # Get tool results from the last messages (tool role messages)
                     tool_result_messages = [msg for msg in self.messages if msg.get("role") == "tool"]
                     # Match tool calls with their results
@@ -1358,8 +1405,8 @@ When you need to use tools to complete a task:
                             except:
                                 arguments = {}
                             
-                            self.pea_loop.record_action_execution(
-                                plan_id=self.pea_loop.current_plan.plan_id,
+                            loop.record_action_execution(
+                                plan_id=loop.current_plan.plan_id,
                                 step_index=i,
                                 tool_name=tool_name,
                                 arguments=arguments,
@@ -1412,35 +1459,76 @@ When you need to use tools to complete a task:
                 # The LLM will automatically receive tool results and should continue without waiting for user input
                 continue
             else:
-                # No tool calls - assess execution if we have a plan and were in ACTION phase
-                if self.pea_loop and self.pea_loop.current_plan and LoopPhase and self.pea_loop.current_phase == LoopPhase.ACTION:
+                # No tool calls - handle PFREA phase transitions
+                loop = self.pfrea_loop or self.pea_loop
+                forecast_enabled = config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True
+                
+                if loop and assistant_text:
+                    # Extract forecast if we're in FORECAST phase
+                    if loop.current_phase == LoopPhase.FORECAST and loop.current_plan:
+                        forecast = loop.extract_forecast_from_response(assistant_text)
+                        if forecast:
+                            loop.current_forecast = forecast
+                            loop.forecast_history.append(forecast)
+                            logger.info(f"PFREA: Extracted forecast for plan {forecast.plan_id} (feasibility={forecast.feasibility_score:.2f})")
+                            
+                            # Check if re-planning is needed
+                            if loop.should_replan_after_forecast(forecast):
+                                loop.current_phase = LoopPhase.RE_PLAN
+                                replan_directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
+                                self.messages.append({"role": "user", "content": replan_directive})
+                                logger.info("PFREA: Forecast indicates re-planning needed")
+                                continue
+                            else:
+                                # Forecast approved, transition to EXECUTE
+                                loop.current_phase = LoopPhase.EXECUTE
+                                logger.info("PFREA: Forecast approved, proceeding to execution")
+                                # Continue loop to allow tool execution
+                                continue
+                    
+                    # Extract plan if we're in RE_PLAN phase
+                    if loop.current_phase == LoopPhase.RE_PLAN and assistant_text:
+                        new_plan = loop.extract_plan_from_response(assistant_text)
+                        if new_plan:
+                            loop.current_plan = new_plan
+                            loop.current_forecast = None  # Reset forecast for new plan
+                            loop.current_phase = LoopPhase.FORECAST
+                            forecast_directive = loop.enforce_forecast_phase(new_plan)
+                            self.messages.append({"role": "user", "content": forecast_directive})
+                            logger.info(f"PFREA: Re-plan extracted, requesting forecast for new plan {new_plan.plan_id}")
+                            continue
+                
+                # Assess execution if we have a plan and were in EXECUTE phase
+                loop = self.pfrea_loop or self.pea_loop
+                if loop and loop.current_plan and LoopPhase and loop.current_phase == LoopPhase.EXECUTE:
                     # Get executions for current plan
                     plan_executions = [
-                        e for e in self.pea_loop.execution_history
-                        if e.plan_id == self.pea_loop.current_plan.plan_id
+                        e for e in loop.execution_history
+                        if e.plan_id == loop.current_plan.plan_id
                     ]
                     
                     if plan_executions:
                         # Assess the execution
-                        assessment = self.pea_loop.assess_execution(
-                            self.pea_loop.current_plan,
+                        assessment = loop.assess_execution(
+                            loop.current_plan,
                             plan_executions
                         )
                         
                         # If replanning is needed, inject assessment directive
                         if assessment.should_replan:
-                            assessment_msg = self.pea_loop.enforce_assessment_phase(assessment)
+                            assessment_msg = loop.enforce_assessment_phase(assessment)
                             self.messages.append({
                                 "role": "user",
                                 "content": assessment_msg,
                             })
-                            logger.info(f"PEA loop: Replanning required for plan {assessment.plan_id}")
+                            loop.current_phase = LoopPhase.PLAN  # Start new plan cycle
+                            logger.info(f"PFREA: Replanning required for plan {assessment.plan_id}")
                             # Continue loop to get new plan
                             continue
                         else:
                             # Mark as complete
-                            self.pea_loop.current_phase = LoopPhase.COMPLETE
-                            logger.info(f"PEA loop: Plan {assessment.plan_id} completed (goal_achieved={assessment.goal_achieved})")
+                            loop.current_phase = LoopPhase.COMPLETE
+                            logger.info(f"PFREA: Plan {assessment.plan_id} completed (goal_achieved={assessment.goal_achieved})")
                 
                 # No tool calls - extract final response
                 logger.info(f"NO TOOL CALLS: Reached final response path (iteration {iterations}), will run post-processing")
@@ -1513,29 +1601,18 @@ When you need to use tools to complete a task:
                     reasoning_tool = self.world_state_aggregator.reasoning_tool
                     if reasoning_tool and hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
                         cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
-                        if cognitive_dissonance_monitor:
+                        if cognitive_dissonance_monitor and assistant_text:
                             # Run in background thread to avoid blocking conversation
                             import threading
                             
                             def measure_dissonance_async():
                                 try:
-                                    # Extract tool usage from messages
-                                    tool_usage = []
-                                    for msg in self.messages[-20:]:  # Check last 20 messages
-                                        if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                                            tool_usage.extend(msg.get("tool_calls", []))
-                                    
-                                    # Measure dissonance
-                                    conversation_context = [
-                                        {"role": m.get("role"), "content": (m.get("content") or "")[:200]}
-                                        for m in self.messages[-5:]
-                                    ]
-                                    
-                                    cognitive_dissonance_monitor.measure_dissonance(
+                                    logger.debug("Measuring cognitive dissonance from conversation (background thread)")
+                                    cognitive_dissonance_monitor.measure_dissonance_from_conversation(
                                         response=assistant_text,
-                                        conversation_context=conversation_context,
-                                        tool_usage=tool_usage if tool_usage else None
+                                        messages=self.messages
                                     )
+                                    logger.debug("Cognitive dissonance measurement completed")
                                 except Exception as e:
                                     logger.warning(f"Error measuring cognitive dissonance in session (background): {e}", exc_info=True)
                             
@@ -2306,8 +2383,23 @@ When you need to use tools to complete a task:
         # Validate system message count before filtering
         self._ensure_single_system_message()
         
+        # Get model-specific context limit if LLM client supports it
+        # This respects model hard limits (e.g., deepseek-reasoner: 131072)
+        # while still honoring BROCA_MAX_CONTEXT_TOKENS from .env for other models
         max_context_tokens = config.llm.max_context_tokens
-        if not isinstance(max_context_tokens, int):
+        if hasattr(self.llm, 'get_max_context_tokens'):
+            try:
+                model_limit = self.llm.get_max_context_tokens()
+                max_context_tokens = model_limit
+                logger.debug(
+                    f"Using model-specific context limit: {model_limit} tokens (model: {getattr(self.llm, 'model', 'unknown')})"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get model-specific context limit, using config default: {e}")
+                # Fall back to config default
+                if not isinstance(max_context_tokens, int):
+                    max_context_tokens = 100000  # Default value
+        elif not isinstance(max_context_tokens, int):
             max_context_tokens = 100000  # Default value
         
         # Use context graph if enabled
@@ -3315,7 +3407,15 @@ When you need to use tools to complete a task:
         from ..config import config
         
         if max_tokens is None:
-            max_tokens = config.llm.max_context_tokens
+            # Get model-specific context limit if LLM client supports it
+            if hasattr(self.llm, 'get_max_context_tokens'):
+                try:
+                    max_tokens = self.llm.get_max_context_tokens()
+                except Exception as e:
+                    logger.warning(f"Failed to get model-specific context limit, using config default: {e}")
+                    max_tokens = config.llm.max_context_tokens
+            else:
+                max_tokens = config.llm.max_context_tokens
         
         # Estimate tokens
         estimated_tokens = estimate_messages_tokens(messages)

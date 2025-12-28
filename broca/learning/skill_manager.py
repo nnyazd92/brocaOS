@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import logging
 import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
@@ -204,14 +207,47 @@ class SkillManager:
     and handles skill improvement through experience.
     """
     
-    def __init__(self, max_skills: int = 50):
-        self.skills: Dict[str, Skill] = {}
+    def __init__(self, max_skills: int = 50, storage_path: Optional[str] = None, auto_save: bool = True):
+        """
+        Initialize SkillManager.
+        
+        Args:
+            max_skills: Maximum number of skills to maintain
+            storage_path: Path to JSON file for persistence. If None, uses default from data/skills.json
+            auto_save: If True, automatically save on skill updates
+        """
         self.max_skills = max_skills
+        self.auto_save = auto_save
         
-        # Default skills
-        self._add_default_skills()
+        # Set storage path
+        if storage_path is None:
+            # Default to data/skills.json
+            storage_path = "data/skills.json"
+        self.storage_path = Path(storage_path)
         
-        logger.info(f"Initialized SkillManager with {len(self.skills)} default skills")
+        # Create parent directory if needed
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Load existing skills if file exists, otherwise start with defaults
+        self.skills: Dict[str, Skill] = {}
+        if self.storage_path.exists():
+            try:
+                self.load()
+                logger.info(f"Loaded {len(self.skills)} skills from {self.storage_path}")
+            except Exception as e:
+                logger.warning(f"Failed to load skills from {self.storage_path}: {e}, starting with defaults")
+                self._add_default_skills()
+        else:
+            # Default skills
+            self._add_default_skills()
+            # Save defaults on first init
+            if self.auto_save:
+                try:
+                    self.save()
+                except Exception as e:
+                    logger.warning(f"Failed to save default skills: {e}")
+        
+        logger.info(f"Initialized SkillManager with {len(self.skills)} skills")
     
     def _add_default_skills(self):
         """Add default skills based on system capabilities."""
@@ -272,6 +308,14 @@ class SkillManager:
         
         self.skills[skill.name] = skill
         logger.info(f"Added skill: {skill.name}")
+        
+        # Auto-save if enabled
+        if self.auto_save:
+            try:
+                self.save()
+            except Exception as e:
+                logger.warning(f"Failed to auto-save after adding skill: {e}")
+        
         return True
     
     def get_skill(self, skill_name: str) -> Optional[Skill]:
@@ -425,6 +469,13 @@ class SkillManager:
         else:
             skill.record_failure()
             logger.info(f"Skill '{skill_name}' recorded failure")
+        
+        # Auto-save if enabled
+        if self.auto_save:
+            try:
+                self.save()
+            except Exception as e:
+                logger.warning(f"Failed to auto-save after updating skill: {e}")
     
     def retire_high_dissonance_skills(self, max_dissonance_threshold: float = -0.2, min_applications: int = 5):
         """
@@ -457,6 +508,13 @@ class SkillManager:
         for skill in self.skills.values():
             skill.apply_decay(days_passed)
         logger.info(f"Applied time decay to {len(self.skills)} skills")
+        
+        # Auto-save if enabled
+        if self.auto_save:
+            try:
+                self.save()
+            except Exception as e:
+                logger.warning(f"Failed to auto-save after time decay: {e}")
     
     def get_top_skills(self, limit: int = 10) -> List[Skill]:
         """Get top skills by proficiency."""
@@ -472,10 +530,83 @@ class SkillManager:
             "max_skills": self.max_skills,
         }
     
+    def load(self) -> None:
+        """
+        Load skills from storage file.
+        
+        Raises:
+            OSError: If file cannot be read
+            json.JSONDecodeError: If file is not valid JSON
+        """
+        if not self.storage_path.exists():
+            logger.debug(f"Skills file does not exist: {self.storage_path}")
+            return
+        
+        try:
+            with open(self.storage_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            # Load skills
+            self.skills = {
+                name: Skill.from_dict(skill_data)
+                for name, skill_data in data.get("skills", {}).items()
+            }
+            
+            # Update max_skills if present in data
+            if "max_skills" in data:
+                self.max_skills = data["max_skills"]
+            
+            logger.debug(f"Loaded {len(self.skills)} skills from {self.storage_path}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse skills file {self.storage_path}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error loading skills from {self.storage_path}: {e}", exc_info=True)
+            raise
+    
+    def save(self) -> None:
+        """
+        Save skills to storage file using atomic write.
+        
+        Uses temp file + rename pattern for safety.
+        
+        Raises:
+            OSError: If file cannot be written
+        """
+        try:
+            # Prepare data structure
+            data = self.to_dict()
+            data["last_saved"] = datetime.now(timezone.utc).isoformat()
+            
+            # Atomic write: write to temp file, then rename
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                dir=self.storage_path.parent,
+                delete=False,
+                suffix='.tmp',
+                encoding='utf-8'
+            ) as tmp_file:
+                json.dump(data, tmp_file, indent=2, ensure_ascii=False, default=str)
+                tmp_path = tmp_file.name
+            
+            # Atomic rename
+            os.replace(tmp_path, self.storage_path)
+            
+            logger.debug(f"Saved {len(self.skills)} skills to {self.storage_path}")
+        except (OSError, IOError, json.JSONEncodeError) as e:
+            logger.error(f"Failed to save skills to {self.storage_path}: {e}", exc_info=True)
+            # Clean up temp file if it exists
+            if 'tmp_path' in locals():
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            raise
+    
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> SkillManager:
         """Create manager from dictionary representation."""
-        manager = cls(max_skills=data.get("max_skills", 50))
+        manager = cls(max_skills=data.get("max_skills", 50), storage_path=None, auto_save=False)
         manager.skills = {
             name: Skill.from_dict(skill_data) 
             for name, skill_data in data.get("skills", {}).items()
