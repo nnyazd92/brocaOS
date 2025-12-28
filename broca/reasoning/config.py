@@ -99,6 +99,16 @@ class ReasoningConfig(BaseModel):
     z3_validation_timeout: float = float(os.getenv("BROCA_REASONING_Z3_VALIDATION_TIMEOUT", "5.0"))
     z3_max_constraints: int = int(os.getenv("BROCA_REASONING_Z3_MAX_CONSTRAINTS", "1000"))
     
+    # Hierarchical control
+    hierarchical_control_enabled: bool = os.getenv("BROCA_REASONING_HIERARCHICAL_CONTROL_ENABLED", "true").lower() == "true"
+    strategic_threshold: float = float(os.getenv("BROCA_REASONING_STRATEGIC_THRESHOLD", "0.8"))
+    tactical_threshold: float = float(os.getenv("BROCA_REASONING_TACTICAL_THRESHOLD", "0.5"))
+    
+    # Recursive reasoning
+    recursive_reasoning_enabled: bool = os.getenv("BROCA_REASONING_RECURSIVE_REASONING_ENABLED", "true").lower() == "true"
+    max_recursion_depth: int = int(os.getenv("BROCA_REASONING_MAX_RECURSION_DEPTH", "3"))
+    recursion_timeout_seconds: float = float(os.getenv("BROCA_REASONING_RECURSION_TIMEOUT_SECONDS", "30.0"))
+    
     # Debugging
     debug_mode: bool = os.getenv("BROCA_REASONING_DEBUG_MODE", "false").lower() == "true"
     log_rule_firings: bool = os.getenv("BROCA_REASONING_LOG_RULE_FIRINGS", "true").lower() == "true"

@@ -685,6 +685,105 @@ def _initialize_reasoning_system(
             )
             logger.info("✓ Feedback loop manager initialized")
         
+        # Initialize hierarchical control if enabled
+        hierarchical_controller = None
+        if reasoning_config.hierarchical_control_enabled:
+            try:
+                from .reasoning.hierarchical_control import HierarchicalController
+                hierarchical_controller = HierarchicalController(
+                    goal_manager=None,  # Will be set after goal manager is created
+                    strategic_threshold=reasoning_config.strategic_threshold,
+                    tactical_threshold=reasoning_config.tactical_threshold
+                )
+                logger.info("✓ Hierarchical controller initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize hierarchical controller: {e}", exc_info=True)
+        
+        # Initialize recursive reasoning engine if enabled
+        recursive_reasoning_engine = None
+        if reasoning_config.recursive_reasoning_enabled:
+            try:
+                from .reasoning.recursive_reasoning import RecursiveReasoningEngine
+                recursive_reasoning_engine = RecursiveReasoningEngine(
+                    max_depth=reasoning_config.max_recursion_depth,
+                    timeout_seconds=reasoning_config.recursion_timeout_seconds,
+                    working_memory=None,  # Will be set after working memory is created
+                    rule_engine=None  # Will be set after rule engine is created
+                )
+                logger.info("✓ Recursive reasoning engine initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize recursive reasoning engine: {e}", exc_info=True)
+        
+        # Initialize metacognitive loops if enabled
+        metacognitive_loop = None
+        if reasoning_config.recursive_reasoning_enabled:
+            try:
+                from .reasoning.metacognitive_loops import MetacognitiveLoop
+                # Get epistemic engine if available
+                epistemic_engine_for_meta = None
+                if hasattr(self_model, 'epistemic_layer') and self_model.epistemic_layer:
+                    try:
+                        from .self_model.epistemic.engine import MetacognitiveEngine
+                        if internal_sensing and hasattr(internal_sensing, 'epistemic_engine'):
+                            epistemic_engine_for_meta = internal_sensing.epistemic_engine
+                        else:
+                            epistemic_engine_for_meta = MetacognitiveEngine(epistemic_layer=self_model.epistemic_layer)
+                    except Exception:
+                        pass
+                
+                metacognitive_loop = MetacognitiveLoop(
+                    epistemic_engine=epistemic_engine_for_meta,
+                    recursive_reasoning=recursive_reasoning_engine,
+                    max_monitoring_depth=2
+                )
+                logger.info("✓ Metacognitive loop initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize metacognitive loop: {e}", exc_info=True)
+        
+        # Initialize nested feedback system if enabled
+        nested_feedback_system = None
+        if reasoning_config.feedback_loops_enabled:
+            try:
+                from .reasoning.nested_feedback import NestedFeedbackSystem, NestedFeedbackConfig
+                nested_config = NestedFeedbackConfig(
+                    fast_interval=0.1,
+                    medium_interval=5.0,
+                    slow_interval=60.0
+                )
+                nested_feedback_system = NestedFeedbackSystem(
+                    config=nested_config,
+                    feedback_loop_manager=None,  # Will be set after feedback loop manager is created
+                    cognitive_dissonance_monitor=None  # Will be set after dissonance monitor is created
+                )
+                logger.info("✓ Nested feedback system initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize nested feedback system: {e}", exc_info=True)
+        
+        # Initialize MPC controller if enabled
+        mpc_controller = None
+        if config.control.mpc_enabled:
+            try:
+                from ..control.mpc_controller import MPCController
+                mpc_controller = MPCController(
+                    goal_manager=None,  # Will be set after goal manager is created
+                    config=None  # Uses defaults
+                )
+                logger.info("✓ MPC controller initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize MPC controller: {e}", exc_info=True)
+        
+        # Initialize distributed control if enabled
+        distributed_control = None
+        if config.control.distributed_control_enabled:
+            try:
+                from ..control.distributed_control import DistributedControlSystem
+                distributed_control = DistributedControlSystem(
+                    goal_manager=None  # Will be set after goal manager is created
+                )
+                logger.info("✓ Distributed control system initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize distributed control: {e}", exc_info=True)
+        
         # Create reasoning tool
         reasoning_tool = ReasoningTool(
             declarative_memory=declarative_memory,
@@ -734,6 +833,34 @@ def _initialize_reasoning_system(
             except Exception as e:
                 logger.warning(f"Failed to initialize emotional regulation: {e}", exc_info=True)
         
+        # Wire hierarchical controller to goal manager
+        if hierarchical_controller and reasoning_tool.goal_manager:
+            hierarchical_controller.goal_manager = reasoning_tool.goal_manager
+            reasoning_tool.hierarchical_controller = hierarchical_controller
+        
+        # Wire recursive reasoning to rule engine
+        if recursive_reasoning_engine and reasoning_tool.rule_engine:
+            recursive_reasoning_engine.rule_engine = reasoning_tool.rule_engine
+            if reasoning_tool.rule_system.working_memory:
+                recursive_reasoning_engine.working_memory = reasoning_tool.rule_system.working_memory
+            reasoning_tool.recursive_reasoning_engine = recursive_reasoning_engine
+        
+        # Wire nested feedback to feedback loop manager
+        if nested_feedback_system and feedback_loop_manager:
+            nested_feedback_system.feedback_loop_manager = feedback_loop_manager
+            nested_feedback_system.cognitive_dissonance_monitor = cognitive_dissonance_monitor
+            reasoning_tool.nested_feedback_system = nested_feedback_system
+        
+        # Wire MPC controller to goal manager
+        if mpc_controller and reasoning_tool.goal_manager:
+            mpc_controller.goal_manager = reasoning_tool.goal_manager
+            reasoning_tool.mpc_controller = mpc_controller
+        
+        # Wire distributed control to goal manager
+        if distributed_control and reasoning_tool.goal_manager:
+            distributed_control.goal_manager = reasoning_tool.goal_manager
+            reasoning_tool.distributed_control = distributed_control
+        
         # Wire feedback loop and cognitive dissonance components to reasoning tool
         # Store as attributes for access by daemon/world state aggregator
         if feedback_loop_manager:
@@ -744,6 +871,8 @@ def _initialize_reasoning_system(
             reasoning_tool.self_model_feedback_loop = self_model_feedback_loop
         if affect_monitor:
             reasoning_tool.affect_monitor = affect_monitor
+        if metacognitive_loop:
+            reasoning_tool.metacognitive_loop = metacognitive_loop
         
         # Create reasoning daemon if autonomous mode is enabled
         if reasoning_config.autonomous_enabled:
@@ -922,6 +1051,124 @@ def main() -> None:
                 logger.warning(f"Failed to initialize reasoning system: {e}", exc_info=True)
                 reasoning_tool = None
         
+        # Initialize LLM ensemble components if enabled
+        model_router = None
+        llm_ensemble = None
+        recursive_prompting = None
+        if config.llm_ensemble.enabled:
+            try:
+                from .llm.model_router import ModelRouter
+                from .llm.ensemble import LLMEnsemble, EnsembleStrategy
+                from .llm.recursive_prompting import RecursivePromptingSystem
+                from .llm import create_llm_client
+                
+                # Create model router with primary LLM client
+                primary_client = create_llm_client()
+                models_dict = {config.llm.model: primary_client}
+                
+                model_router = ModelRouter(models=models_dict)
+                logger.info("✓ Model router initialized")
+                
+                # Create LLM ensemble
+                llm_ensemble = LLMEnsemble(
+                    model_router=model_router,
+                    default_strategy=EnsembleStrategy[config.llm_ensemble.default_strategy.upper()] if hasattr(EnsembleStrategy, config.llm_ensemble.default_strategy.upper()) else EnsembleStrategy.WEIGHTED
+                )
+                logger.info("✓ LLM ensemble initialized")
+                
+                # Create recursive prompting system
+                recursive_prompting = RecursivePromptingSystem(
+                    llm_client=primary_client,
+                    ensemble=llm_ensemble,
+                    max_iterations=3,
+                    max_depth=2
+                )
+                logger.info("✓ Recursive prompting system initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM ensemble components: {e}", exc_info=True)
+        
+        # Initialize systems components if enabled
+        system_dynamics = None
+        system_health_monitor = None
+        reconfiguration_manager = None
+        if config.systems.dynamics_enabled or config.systems.health_monitoring_enabled:
+            try:
+                from .systems.dynamics import SystemDynamicsModel
+                from .systems.health_monitor import SystemHealthMonitor
+                from .systems.reconfiguration import ReconfigurationManager
+                
+                # Initialize system dynamics
+                if config.systems.dynamics_enabled:
+                    system_dynamics = SystemDynamicsModel(
+                        feedback_loop_manager=None,  # Will be set after feedback loop manager is created
+                        cognitive_dissonance_monitor=None  # Will be set after dissonance monitor is created
+                    )
+                    logger.info("✓ System dynamics model initialized")
+                
+                # Initialize health monitor
+                if config.systems.health_monitoring_enabled:
+                    system_health_monitor = SystemHealthMonitor(
+                        system_dynamics=system_dynamics,
+                        health_threshold_warning=config.systems.health_threshold_warning,
+                        health_threshold_critical=config.systems.health_threshold_critical,
+                        stability_threshold=config.systems.stability_threshold
+                    )
+                    logger.info("✓ System health monitor initialized")
+                    
+                    # Initialize reconfiguration manager
+                    if config.systems.reconfiguration_enabled:
+                        reconfiguration_manager = ReconfigurationManager(
+                            health_monitor=system_health_monitor
+                        )
+                        logger.info("✓ Reconfiguration manager initialized")
+                
+                # Wire system dynamics to feedback loops and dissonance monitor
+                if system_dynamics:
+                    system_dynamics.feedback_loop_manager = feedback_loop_manager
+                    system_dynamics.cognitive_dissonance_monitor = cognitive_dissonance_monitor
+                    
+            except Exception as e:
+                logger.warning(f"Failed to initialize systems components: {e}", exc_info=True)
+        
+        # Initialize recursive self-improvement if enabled
+        recursive_improvement = None
+        if config.learning.enabled:
+            try:
+                from .learning.recursive_improvement import RecursiveSelfImprovement
+                from .self_model.updater import SelfModelUpdater
+                from .llm import create_llm_client
+                
+                # Get skill manager from learning tool if available
+                skill_manager = None
+                if learning_tool and hasattr(learning_tool, 'skill_manager'):
+                    skill_manager = learning_tool.skill_manager
+                
+                # Get self model updater
+                self_model_updater_for_improvement = None
+                if self_model_updater:
+                    self_model_updater_for_improvement = self_model_updater
+                elif self_model_storage:
+                    self_model_updater_for_improvement = SelfModelUpdater(llm_client=create_llm_client())
+                
+                recursive_improvement = RecursiveSelfImprovement(
+                    skill_manager=skill_manager,
+                    self_model_updater=self_model_updater_for_improvement,
+                    max_improvement_depth=2
+                )
+                logger.info("✓ Recursive self-improvement initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize recursive self-improvement: {e}", exc_info=True)
+        
+        # Wire systems components to reasoning tool
+        if system_dynamics:
+            reasoning_tool.system_dynamics = system_dynamics
+        if system_health_monitor:
+            reasoning_tool.system_health_monitor = system_health_monitor
+        if reconfiguration_manager:
+            reasoning_tool.reconfiguration_manager = reconfiguration_manager
+        if recursive_improvement:
+            reasoning_tool.recursive_improvement = recursive_improvement
+        
         # Initialize learning tool independently if enabled (regardless of reasoning integration)
         learning_tool_standalone = None
         if config.learning.enabled:
@@ -967,7 +1214,7 @@ def main() -> None:
             except Exception as e:
                 logger.warning(f"Failed to initialize self-model size manager: {e}", exc_info=True)
         
-        # Create world state aggregator
+        # Create world state aggregator with new components
         world_state_aggregator = WorldStateAggregator(
             internal_sensing=internal_sensing,
             self_model=self_model,
@@ -979,6 +1226,20 @@ def main() -> None:
             size_manager=size_manager,
             config=config,
         )
+        
+        # Store new components in aggregator for world state inclusion
+        if hasattr(world_state_aggregator, '__dict__'):
+            world_state_aggregator.hierarchical_controller = hierarchical_controller
+            world_state_aggregator.recursive_reasoning_engine = recursive_reasoning_engine
+            world_state_aggregator.metacognitive_loop = metacognitive_loop
+            world_state_aggregator.nested_feedback_system = nested_feedback_system
+            world_state_aggregator.system_dynamics = system_dynamics
+            world_state_aggregator.system_health_monitor = system_health_monitor
+            world_state_aggregator.mpc_controller = mpc_controller
+            world_state_aggregator.distributed_control = distributed_control
+            world_state_aggregator.llm_ensemble = llm_ensemble
+            world_state_aggregator.recursive_prompting = recursive_prompting
+            world_state_aggregator.recursive_improvement = recursive_improvement
         
         # Initialize color manager
         try:

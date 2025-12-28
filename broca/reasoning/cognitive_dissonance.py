@@ -1,11 +1,22 @@
 """
 Cognitive dissonance measurement system.
 
+Based on Festinger's Cognitive Dissonance Theory (1957):
+Measures psychological discomfort from holding contradictory beliefs, attitudes, or values.
+
+Key principles implemented:
+1. Multi-dimensional measurement (logical, factual, behavioral, goal-based)
+2. Importance weighting: Higher confidence contradictions amplify dissonance (epistemic confidence)
+3. Ratio-based calculation: Dissonance magnitude depends on ratio of dissonant to consonant cognitions
+4. Number of dissonant elements: More contradictions increase overall dissonance
+
 Measures multi-dimensional drift from self-model:
 - Logical dissonance: Contradictions with capabilities/knowledge boundaries
-- Factual dissonance: Claims contradicting self-model facts
+- Factual dissonance: Claims contradicting self-model facts (uses ratio of dissonant/consonant elements)
 - Behavioral dissonance: Actions not matching stated preferences/patterns
 - Goal-based dissonance: Goals/actions not aligned with self-model objectives
+
+Reference: Festinger, L. (1957). A Theory of Cognitive Dissonance. Stanford University Press.
 """
 
 from __future__ import annotations
@@ -124,6 +135,11 @@ class CognitiveDissonanceMonitor:
         self.behavioral_deviations: deque = deque(maxlen=history_window)
         self.goal_conflicts: deque = deque(maxlen=history_window)
         
+        # Measurement tracking (for diagnostics)
+        self._measurement_errors: deque = deque(maxlen=history_window)
+        self._measurement_success_count = 0
+        self._measurement_failure_count = 0
+        
         # Signal manager for damping (optional)
         self._signal_manager: Optional[Any] = None
         
@@ -139,6 +155,18 @@ class CognitiveDissonanceMonitor:
     ) -> DissonanceMetrics:
         """
         Measure multi-dimensional cognitive dissonance.
+        
+        Based on Festinger's cognitive dissonance theory (1957): measures discomfort from
+        holding contradictory beliefs, attitudes, or values. Multi-dimensional approach tracks:
+        - Logical: contradictions with capabilities/knowledge boundaries
+        - Factual: claims contradicting self-model facts
+        - Behavioral: actions not matching stated preferences/patterns
+        - Goal-based: goals/actions not aligned with self-model objectives
+        
+        Dissonance magnitude follows Festinger's principles:
+        - Importance of conflicting elements (weighted by epistemic confidence)
+        - Ratio of dissonant to consonant cognitions
+        - Number of dissonant elements
 
         Args:
             response: Optional LLM response to check
@@ -150,6 +178,12 @@ class CognitiveDissonanceMonitor:
         Returns:
             DissonanceMetrics with all component scores
         """
+        logger.debug(
+            f"Measuring cognitive dissonance: response={'present' if response else 'none'}, "
+            f"tool_usage={len(tool_usage) if tool_usage else 0}, "
+            f"goals={len(reasoning_goals) if reasoning_goals else 0}"
+        )
+        
         metrics = DissonanceMetrics(
             timestamp=datetime.now(timezone.utc),
             weight_logical=self.weight_logical,
@@ -213,12 +247,21 @@ class CognitiveDissonanceMonitor:
         
         # Store in history
         self.dissonance_history.append(metrics)
+        self._measurement_success_count += 1
         
-        logger.debug(
-            f"Measured dissonance: overall={metrics.overall_dissonance:.3f}, "
-            f"logical={metrics.logical_dissonance:.3f}, factual={metrics.factual_dissonance:.3f}, "
-            f"behavioral={metrics.behavioral_dissonance:.3f}, goal={metrics.goal_dissonance:.3f}"
-        )
+        # Log measurement results (info level for non-zero values, debug for zero)
+        if metrics.overall_dissonance > 0.0:
+            logger.info(
+                f"Cognitive dissonance measured: overall={metrics.overall_dissonance:.3f}, "
+                f"logical={metrics.logical_dissonance:.3f}, factual={metrics.factual_dissonance:.3f}, "
+                f"behavioral={metrics.behavioral_dissonance:.3f}, goal={metrics.goal_dissonance:.3f}"
+            )
+        else:
+            logger.debug(
+                f"Measured dissonance: overall={metrics.overall_dissonance:.3f}, "
+                f"logical={metrics.logical_dissonance:.3f}, factual={metrics.factual_dissonance:.3f}, "
+                f"behavioral={metrics.behavioral_dissonance:.3f}, goal={metrics.goal_dissonance:.3f}"
+            )
         
         return metrics
     
@@ -227,8 +270,17 @@ class CognitiveDissonanceMonitor:
         response: str,
         conversation_context: Optional[List[Dict[str, str]]]
     ) -> float:
-        """Measure logical dissonance using ConsistencyChecker."""
+        """
+        Measure logical dissonance using ConsistencyChecker.
+        
+        Based on Festinger's cognitive dissonance theory: measures discomfort from
+        contradictions between stated capabilities/knowledge boundaries and actual responses.
+        
+        Returns:
+            Dissonance score (0.0 = consistent, 1.0 = highly inconsistent)
+        """
         if not self.consistency_checker:
+            logger.debug("Logical dissonance measurement skipped: consistency_checker not available")
             return 0.0
         
         try:
@@ -240,6 +292,12 @@ class CognitiveDissonanceMonitor:
             
             # Logical dissonance is the severity score (0.0 = consistent, 1.0 = highly inconsistent)
             dissonance = consistency_result.severity
+            
+            # Extract logical violations first (needed for epistemic weighting)
+            logical_violations = [
+                v for v in consistency_result.violations
+                if v.get("type") == "logical"
+            ]
             
             # Weight by epistemic confidence if available
             if self.epistemic_engine and self.self_model.epistemic_layer:
@@ -259,10 +317,6 @@ class CognitiveDissonanceMonitor:
                 dissonance = min(1.0, dissonance * confidence_weight)
             
             # Track violations
-            logical_violations = [
-                v for v in consistency_result.violations
-                if v.get("type") == "logical"
-            ]
             if logical_violations:
                 self.logical_violations.append({
                     "timestamp": datetime.now(timezone.utc),
@@ -273,14 +327,31 @@ class CognitiveDissonanceMonitor:
             return dissonance
             
         except Exception as e:
-            logger.error(f"Error measuring logical dissonance: {e}", exc_info=True)
-            return 0.0  # Default to no dissonance on error
+            self._measurement_failure_count += 1
+            self._measurement_errors.append({
+                "method": "_measure_logical_dissonance",
+                "error": str(e),
+                "timestamp": datetime.now(timezone.utc)
+            })
+            logger.warning(f"Failed to measure logical dissonance: {e}. Returning 0.0 (no dissonance detected)", exc_info=True)
+            return 0.0  # Default to no dissonance on error (distinguish from actual zero)
     
     def _measure_factual_dissonance(self, response: str) -> float:
-        """Measure factual dissonance (claims vs. knowledge boundaries) with real analysis."""
+        """
+        Measure factual dissonance (claims vs. knowledge boundaries).
+        
+        Based on Festinger's cognitive dissonance theory: measures discomfort from
+        contradictions between factual claims and established knowledge boundaries.
+        Uses ratio of dissonant to consonant cognitions (Festinger's key principle).
+        
+        Returns:
+            Dissonance score (0.0 = no contradictions, 1.0 = severe contradictions)
+        """
         try:
             dissonance_score = 0.0
             violations: List[Dict[str, Any]] = []
+            dissonant_elements = 0
+            consonant_elements = 0
             
             # 1. Extract factual claims from response
             if self.fact_checker:
@@ -304,6 +375,10 @@ class CognitiveDissonanceMonitor:
                     
                     if contradiction_score > 0.0:
                         dissonance_score = max(dissonance_score, contradiction_score)
+                        dissonant_elements += contradicted_count
+                        # Count total claims checked (dissonant + consonant)
+                        total_claims = fact_check_result.get("total_claims_checked", contradicted_count)
+                        consonant_elements += max(0, total_claims - contradicted_count)
                         violations.append({
                             "type": "web_fact_check",
                             "severity": contradiction_score,
@@ -355,6 +430,9 @@ class CognitiveDissonanceMonitor:
                             max_conflict_confidence = max(c.confidence for c in conflicts)
                             boundary_dissonance = max_conflict_confidence
                             dissonance_score = max(dissonance_score, boundary_dissonance)
+                            dissonant_elements += len(conflicts)
+                            # Count boundaries checked (some may be consonant)
+                            consonant_elements += max(0, len(boundary_memories) - len(conflicts))
                             
                             violations.append({
                                 "type": "knowledge_boundary",
@@ -387,11 +465,16 @@ class CognitiveDissonanceMonitor:
                     z3_contradiction_score = z3_result.get("overall_contradiction_score", 0.0)
                     if z3_contradiction_score > 0.0:
                         dissonance_score = max(dissonance_score, z3_contradiction_score)
+                        z3_contradictions = z3_result.get("total_contradictions", 0)
+                        dissonant_elements += z3_contradictions
+                        # Z3 checks logical consistency - count total statements checked
+                        total_statements = z3_result.get("total_statements_checked", z3_contradictions)
+                        consonant_elements += max(0, total_statements - z3_contradictions)
                         violations.append({
                             "type": "z3_logical",
                             "severity": z3_contradiction_score,
-                            "contradictions_count": z3_result.get("total_contradictions", 0),
-                            "description": f"Z3 validation found {z3_result.get('total_contradictions', 0)} logical contradictions"
+                            "contradictions_count": z3_contradictions,
+                            "description": f"Z3 validation found {z3_contradictions} logical contradictions"
                         })
                 except Exception as e:
                     logger.debug(f"Error in Z3 validation: {e}")
@@ -415,10 +498,25 @@ class CognitiveDissonanceMonitor:
                     if confidence_scores:
                         avg_confidence = sum(confidence_scores) / len(confidence_scores)
                         # Higher confidence knowledge boundaries -> stronger dissonance signal when violated
+                        # Festinger: importance of conflicting elements amplifies dissonance
                         confidence_weight = 0.8 + (avg_confidence * 0.4)  # Range: 0.8-1.2
                         dissonance_score = min(1.0, dissonance_score * confidence_weight)
                 except Exception as e:
                     logger.debug(f"Error weighting factual dissonance by epistemic confidence: {e}")
+            
+            # Apply Festinger's ratio principle: dissonance magnitude depends on ratio of dissonant to consonant cognitions
+            if dissonant_elements > 0 or consonant_elements > 0:
+                total_elements = dissonant_elements + consonant_elements
+                if total_elements > 0:
+                    # Ratio-based adjustment: higher ratio of dissonant elements increases dissonance
+                    dissonance_ratio = dissonant_elements / total_elements
+                    # Combine base score with ratio-based adjustment (weighted average)
+                    ratio_adjusted_score = (dissonance_score * 0.7) + (dissonance_ratio * 0.3)
+                    dissonance_score = min(1.0, max(dissonance_score, ratio_adjusted_score))
+                    logger.debug(
+                        f"Factual dissonance ratio: {dissonant_elements}/{total_elements} = {dissonance_ratio:.3f}, "
+                        f"adjusted score: {dissonance_score:.3f}"
+                    )
             
             # Track violations
             if violations:
@@ -431,11 +529,25 @@ class CognitiveDissonanceMonitor:
             return dissonance_score
             
         except Exception as e:
-            logger.error(f"Error measuring factual dissonance: {e}", exc_info=True)
+            self._measurement_failure_count += 1
+            self._measurement_errors.append({
+                "method": "_measure_factual_dissonance",
+                "error": str(e),
+                "timestamp": datetime.now(timezone.utc)
+            })
+            logger.warning(f"Failed to measure factual dissonance: {e}. Returning 0.0 (no dissonance detected)", exc_info=True)
             return 0.0
     
     def _measure_behavioral_dissonance(self, tool_usage: List[Dict[str, Any]]) -> float:
-        """Measure behavioral dissonance (tool usage vs. stated patterns) with real analysis."""
+        """
+        Measure behavioral dissonance (tool usage vs. stated patterns).
+        
+        Based on Festinger's cognitive dissonance theory: measures discomfort from
+        actions that contradict stated behavioral patterns, preferences, or constraints.
+        
+        Returns:
+            Dissonance score (0.0 = aligned behavior, 1.0 = severe behavioral deviation)
+        """
         try:
             if not tool_usage:
                 return 0.0
@@ -535,11 +647,25 @@ class CognitiveDissonanceMonitor:
             return deviation_score
             
         except Exception as e:
-            logger.error(f"Error measuring behavioral dissonance: {e}", exc_info=True)
+            self._measurement_failure_count += 1
+            self._measurement_errors.append({
+                "method": "_measure_behavioral_dissonance",
+                "error": str(e),
+                "timestamp": datetime.now(timezone.utc)
+            })
+            logger.warning(f"Failed to measure behavioral dissonance: {e}. Returning 0.0 (no dissonance detected)", exc_info=True)
             return 0.0
     
     def _measure_goal_dissonance(self, reasoning_goals: List[Dict[str, Any]]) -> float:
-        """Measure goal-based dissonance (reasoning goals vs. self-model objectives) with real analysis."""
+        """
+        Measure goal-based dissonance (reasoning goals vs. self-model objectives).
+        
+        Based on Festinger's cognitive dissonance theory: measures discomfort from
+        goals/actions that conflict with self-model objectives, constraints, or capabilities.
+        
+        Returns:
+            Dissonance score (0.0 = aligned goals, 1.0 = severe goal conflicts)
+        """
         try:
             if not reasoning_goals:
                 return 0.0
@@ -638,7 +764,13 @@ class CognitiveDissonanceMonitor:
             return conflict_score
             
         except Exception as e:
-            logger.error(f"Error measuring goal dissonance: {e}", exc_info=True)
+            self._measurement_failure_count += 1
+            self._measurement_errors.append({
+                "method": "_measure_goal_dissonance",
+                "error": str(e),
+                "timestamp": datetime.now(timezone.utc)
+            })
+            logger.warning(f"Failed to measure goal dissonance: {e}. Returning 0.0 (no dissonance detected)", exc_info=True)
             return 0.0
     
     def _get_average_logical_dissonance(self) -> float:
@@ -759,5 +891,30 @@ class CognitiveDissonanceMonitor:
             "trend": trend_direction,
             "trend_magnitude": overall_trend,
             "component_drifts": component_drifts
+        }
+    
+    def get_measurement_diagnostics(self) -> Dict[str, Any]:
+        """
+        Get diagnostics about measurement success/failure rates.
+        
+        Returns:
+            Dictionary with measurement statistics
+        """
+        total_measurements = self._measurement_success_count + self._measurement_failure_count
+        success_rate = (self._measurement_success_count / total_measurements * 100.0) if total_measurements > 0 else 0.0
+        
+        return {
+            "total_measurements": total_measurements,
+            "successful_measurements": self._measurement_success_count,
+            "failed_measurements": self._measurement_failure_count,
+            "success_rate_percent": round(success_rate, 2),
+            "recent_errors": list(self._measurement_errors)[-10:] if self._measurement_errors else [],
+            "dependencies": {
+                "consistency_checker": self.consistency_checker is not None,
+                "fact_checker": self.fact_checker is not None,
+                "z3_validator": self.z3_validator is not None and (self.z3_validator.enabled if hasattr(self.z3_validator, 'enabled') else False),
+                "memory_manager": self.memory_manager is not None,
+                "epistemic_engine": self.epistemic_engine is not None
+            }
         }
 

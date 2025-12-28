@@ -36,6 +36,20 @@ class BrocaRuntime:
     world_state_aggregator: WorldStateAggregator | None
     tool_registry: ToolRegistry | None
     environment_system: Any | None
+    reasoning_tool: ReasoningTool | None = None
+    # Cognitive architecture components
+    hierarchical_controller: Any | None = None
+    recursive_reasoning_engine: Any | None = None
+    metacognitive_loop: Any | None = None
+    nested_feedback_system: Any | None = None
+    system_dynamics: Any | None = None
+    system_health_monitor: Any | None = None
+    reconfiguration_manager: Any | None = None
+    mpc_controller: Any | None = None
+    distributed_control: Any | None = None
+    llm_ensemble: Any | None = None
+    recursive_prompting: Any | None = None
+    recursive_improvement: Any | None = None
 
 
 def initialize_runtime() -> BrocaRuntime:
@@ -248,6 +262,37 @@ def initialize_runtime() -> BrocaRuntime:
         size_manager=size_manager,
         config=config,
     )
+    
+    # Extract cognitive architecture components from reasoning tool for runtime
+    hierarchical_controller = None
+    recursive_reasoning_engine = None
+    metacognitive_loop = None
+    nested_feedback_system = None
+    system_dynamics = None
+    system_health_monitor = None
+    reconfiguration_manager = None
+    mpc_controller = None
+    distributed_control = None
+    llm_ensemble = None
+    recursive_prompting = None
+    recursive_improvement = None
+    
+    if reasoning_tool:
+        hierarchical_controller = getattr(reasoning_tool, 'hierarchical_controller', None)
+        recursive_reasoning_engine = getattr(reasoning_tool, 'recursive_reasoning_engine', None)
+        metacognitive_loop = getattr(reasoning_tool, 'metacognitive_loop', None)
+        nested_feedback_system = getattr(reasoning_tool, 'nested_feedback_system', None)
+        system_dynamics = getattr(reasoning_tool, 'system_dynamics', None)
+        system_health_monitor = getattr(reasoning_tool, 'system_health_monitor', None)
+        reconfiguration_manager = getattr(reasoning_tool, 'reconfiguration_manager', None)
+        mpc_controller = getattr(reasoning_tool, 'mpc_controller', None)
+        distributed_control = getattr(reasoning_tool, 'distributed_control', None)
+        recursive_improvement = getattr(reasoning_tool, 'recursive_improvement', None)
+    
+    # Get LLM ensemble components from world state aggregator if available
+    if hasattr(world_state_aggregator, 'llm_ensemble'):
+        llm_ensemble = world_state_aggregator.llm_ensemble
+        recursive_prompting = world_state_aggregator.recursive_prompting
 
     # Initialize color manager
     try:
@@ -293,4 +338,17 @@ def initialize_runtime() -> BrocaRuntime:
         world_state_aggregator=world_state_aggregator,
         tool_registry=tool_registry,
         environment_system=environment_system,
+        reasoning_tool=reasoning_tool,
+        hierarchical_controller=hierarchical_controller,
+        recursive_reasoning_engine=recursive_reasoning_engine,
+        metacognitive_loop=metacognitive_loop,
+        nested_feedback_system=nested_feedback_system,
+        system_dynamics=system_dynamics,
+        system_health_monitor=system_health_monitor,
+        reconfiguration_manager=reconfiguration_manager,
+        mpc_controller=mpc_controller,
+        distributed_control=distributed_control,
+        llm_ensemble=llm_ensemble,
+        recursive_prompting=recursive_prompting,
+        recursive_improvement=recursive_improvement,
     )

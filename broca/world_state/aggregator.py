@@ -248,6 +248,11 @@ class WorldStateAggregator:
         if reasoning_state.get("available"):
             world_state["reasoning"] = reasoning_state.get("reasoning", {})
         
+        # Cognitive architecture components - only include if available
+        cognitive_arch_state = self.get_cognitive_architecture_state()
+        if cognitive_arch_state.get("available"):
+            world_state["cognitive_architecture"] = cognitive_arch_state.get("components", {})
+        
         return world_state
     
     def get_internal_sensing_state(self) -> Dict[str, Any]:
@@ -1140,9 +1145,22 @@ class WorldStateAggregator:
                             }
                             
                             # Add cognitive dissonance metrics if available
-                            if hasattr(self.reasoning_tool.daemon.feedback_loop_manager, 'cognitive_dissonance_monitor'):
+                            # Check both paths: daemon.feedback_loop_manager and direct attachment
+                            dissonance_monitor = None
+                            
+                            # First, try daemon path
+                            if (hasattr(self.reasoning_tool, 'daemon') and 
+                                self.reasoning_tool.daemon and
+                                hasattr(self.reasoning_tool.daemon, 'feedback_loop_manager') and
+                                hasattr(self.reasoning_tool.daemon.feedback_loop_manager, 'cognitive_dissonance_monitor')):
                                 dissonance_monitor = self.reasoning_tool.daemon.feedback_loop_manager.cognitive_dissonance_monitor
-                                if dissonance_monitor:
+                            
+                            # Fallback to direct attachment path
+                            if not dissonance_monitor and hasattr(self.reasoning_tool, 'cognitive_dissonance_monitor'):
+                                dissonance_monitor = self.reasoning_tool.cognitive_dissonance_monitor
+                            
+                            if dissonance_monitor:
+                                try:
                                     dissonance_data = dissonance_monitor.get_aggregated_dissonance()
                                     reasoning_state["cognitive_dissonance"] = {
                                         "overall": round(dissonance_data.get("overall_dissonance", 0.0), 3),
@@ -1152,6 +1170,8 @@ class WorldStateAggregator:
                                         "goal": round(dissonance_data.get("goal_dissonance", 0.0), 3),
                                         "trend": dissonance_data.get("trend", 0.0)  # Positive = increasing
                                     }
+                                except Exception as e:
+                                    logger.debug(f"Error getting cognitive dissonance data: {e}", exc_info=True)
                             
                             # Include learning system state if available (check daemon for learning_tool)
                             learning_tool = None
@@ -1235,4 +1255,142 @@ class WorldStateAggregator:
         except Exception as e:
             logger.warning(f"Error getting reasoning state: {e}", exc_info=True)
             return {"available": False, "error": str(e)}
+    
+    def get_cognitive_architecture_state(self) -> Dict[str, Any]:
+        """
+        Get cognitive architecture components state.
+        
+        Returns:
+            Dictionary with statistics from new cognitive architecture components
+        """
+        components = {}
+        
+        # Hierarchical control statistics
+        if hasattr(self, 'hierarchical_controller') and self.hierarchical_controller:
+            try:
+                stats = self.hierarchical_controller.get_control_statistics()
+                if stats.get("status") != "no_data":
+                    components["hierarchical_control"] = {
+                        "total_decisions": stats.get("total_decisions", 0),
+                        "decisions_by_level": stats.get("decisions_by_level", {}),
+                        "avg_confidence_by_level": stats.get("avg_confidence_by_level", {})
+                    }
+            except Exception as e:
+                logger.debug(f"Error getting hierarchical control stats: {e}")
+        
+        # Recursive reasoning statistics
+        if hasattr(self, 'recursive_reasoning_engine') and self.recursive_reasoning_engine:
+            try:
+                stats = self.recursive_reasoning_engine.get_statistics()
+                if stats.get("status") != "no_data":
+                    components["recursive_reasoning"] = {
+                        "total_tasks": stats.get("total_tasks", 0),
+                        "success_rate": round(stats.get("success_rate", 0.0), 2),
+                        "avg_depth": round(stats.get("avg_depth", 0.0), 2),
+                        "max_observed_depth": stats.get("max_observed_depth", 0)
+                    }
+            except Exception as e:
+                logger.debug(f"Error getting recursive reasoning stats: {e}")
+        
+        # Metacognitive loops statistics
+        if hasattr(self, 'metacognitive_loop') and self.metacognitive_loop:
+            try:
+                stats = self.metacognitive_loop.get_statistics()
+                if stats.get("status") != "no_data":
+                    components["metacognitive"] = {
+                        "total_cycles": stats.get("total_cycles", 0),
+                        "first_order_cycles": stats.get("first_order_cycles", 0),
+                        "second_order_cycles": stats.get("second_order_cycles", 0),
+                        "avg_awareness": round(stats.get("avg_awareness", 0.0), 2)
+                    }
+            except Exception as e:
+                logger.debug(f"Error getting metacognitive stats: {e}")
+        
+        # Nested feedback statistics
+        if hasattr(self, 'nested_feedback_system') and self.nested_feedback_system:
+            try:
+                stats = self.nested_feedback_system.get_statistics()
+                components["nested_feedback"] = {
+                    "total_loops": stats.get("total_loops", 0),
+                    "fast_loops": stats.get("fast_loops", 0),
+                    "medium_loops": stats.get("medium_loops", 0),
+                    "slow_loops": stats.get("slow_loops", 0),
+                    "total_updates": stats.get("total_updates", 0)
+                }
+            except Exception as e:
+                logger.debug(f"Error getting nested feedback stats: {e}")
+        
+        # System dynamics statistics
+        if hasattr(self, 'system_dynamics') and self.system_dynamics:
+            try:
+                stats = self.system_dynamics.get_statistics()
+                if stats.get("status") != "no_data":
+                    components["system_dynamics"] = {
+                        "current_stability": round(stats.get("current_stability", 0.5), 2),
+                        "current_health": round(stats.get("current_health", 0.5), 2),
+                        "emergent_properties": stats.get("emergent_properties", [])
+                    }
+            except Exception as e:
+                logger.debug(f"Error getting system dynamics stats: {e}")
+        
+        # System health statistics
+        if hasattr(self, 'system_health_monitor') and self.system_health_monitor:
+            try:
+                health_report = self.system_health_monitor.assess_health()
+                components["system_health"] = {
+                    "overall_health": round(health_report.overall_health, 2),
+                    "status": health_report.status.value,
+                    "stability_score": round(health_report.stability_score, 2),
+                    "issues_count": len(health_report.issues)
+                }
+            except Exception as e:
+                logger.debug(f"Error getting system health stats: {e}")
+        
+        # MPC controller statistics
+        if hasattr(self, 'mpc_controller') and self.mpc_controller:
+            try:
+                stats = self.mpc_controller.get_statistics()
+                if stats.get("status") != "no_data":
+                    components["mpc_control"] = {
+                        "total_control_actions": stats.get("total_control_actions", 0),
+                        "avg_control": round(stats.get("avg_control", 0.0), 2)
+                    }
+            except Exception as e:
+                logger.debug(f"Error getting MPC controller stats: {e}")
+        
+        # Distributed control statistics
+        if hasattr(self, 'distributed_control') and self.distributed_control:
+            try:
+                stats = self.distributed_control.get_statistics()
+                components["distributed_control"] = {
+                    "total_components": stats.get("total_components", 0),
+                    "coordination_events": stats.get("coordination_events", 0)
+                }
+            except Exception as e:
+                logger.debug(f"Error getting distributed control stats: {e}")
+        
+        # LLM ensemble statistics (if available)
+        if hasattr(self, 'llm_ensemble') and self.llm_ensemble:
+            # Ensemble stats would be available if needed
+            pass
+        
+        # Recursive improvement statistics
+        if hasattr(self, 'recursive_improvement') and self.recursive_improvement:
+            try:
+                stats = self.recursive_improvement.get_statistics()
+                components["recursive_improvement"] = {
+                    "total_improvements": stats.get("total_improvements", 0),
+                    "applied_improvements": stats.get("applied_improvements", 0),
+                    "avg_effectiveness": round(stats.get("avg_effectiveness", 0.0), 2)
+                }
+            except Exception as e:
+                logger.debug(f"Error getting recursive improvement stats: {e}")
+        
+        if components:
+            return {
+                "available": True,
+                "components": components
+            }
+        else:
+            return {"available": False}
 

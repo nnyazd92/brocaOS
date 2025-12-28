@@ -370,6 +370,45 @@ class DampingConfig(BaseModel):
     suggestion_injection_min_evidence_count: int = int(os.getenv("BROCA_SUGGESTION_INJECTION_MIN_EVIDENCE_COUNT", "5"))
 
 
+class LLMEnsembleConfig(BaseModel):
+    """Configuration for LLM ensemble and multi-model reasoning."""
+    enabled: bool = os.getenv("BROCA_LLM_ENSEMBLE_ENABLED", "false").lower() == "true"
+    default_strategy: str = os.getenv("BROCA_LLM_ENSEMBLE_STRATEGY", "weighted")  # "voting", "consensus", "weighted", "specialized"
+    max_models: int = int(os.getenv("BROCA_LLM_ENSEMBLE_MAX_MODELS", "3"))
+
+
+class ModelRouterConfig(BaseModel):
+    """Configuration for model router and escalation."""
+    enabled: bool = os.getenv("BROCA_MODEL_ROUTER_ENABLED", "true").lower() == "true"
+    escalation_enabled: bool = os.getenv("BROCA_MODEL_ROUTER_ESCALATION_ENABLED", "true").lower() == "true"
+    default_model: str = os.getenv("BROCA_MODEL_ROUTER_DEFAULT_MODEL", "deepseek-chat")  # Start with cheapest
+    escalation_chain: List[str] = os.getenv("BROCA_MODEL_ROUTER_ESCALATION_CHAIN", "deepseek-chat,gpt-5-nano,gpt-5-mini").split(",")
+    success_rate_threshold: float = float(os.getenv("BROCA_MODEL_ROUTER_SUCCESS_RATE_THRESHOLD", "0.7"))
+    error_rate_threshold: float = float(os.getenv("BROCA_MODEL_ROUTER_ERROR_RATE_THRESHOLD", "0.3"))
+    confidence_threshold: float = float(os.getenv("BROCA_MODEL_ROUTER_CONFIDENCE_THRESHOLD", "0.5"))
+    dissonance_threshold: float = float(os.getenv("BROCA_MODEL_ROUTER_DISSONANCE_THRESHOLD", "0.3"))
+    min_attempts_before_escalation: int = int(os.getenv("BROCA_MODEL_ROUTER_MIN_ATTEMPTS", "3"))
+    escalation_cooldown_seconds: float = float(os.getenv("BROCA_MODEL_ROUTER_COOLDOWN_SECONDS", "60.0"))
+
+
+class SystemsConfig(BaseModel):
+    """Configuration for systems theory integration."""
+    dynamics_enabled: bool = os.getenv("BROCA_SYSTEMS_DYNAMICS_ENABLED", "true").lower() == "true"
+    health_monitoring_enabled: bool = os.getenv("BROCA_SYSTEMS_HEALTH_MONITORING_ENABLED", "true").lower() == "true"
+    reconfiguration_enabled: bool = os.getenv("BROCA_SYSTEMS_RECONFIGURATION_ENABLED", "true").lower() == "true"
+    health_threshold_warning: float = float(os.getenv("BROCA_SYSTEMS_HEALTH_THRESHOLD_WARNING", "0.6"))
+    health_threshold_critical: float = float(os.getenv("BROCA_SYSTEMS_HEALTH_THRESHOLD_CRITICAL", "0.4"))
+    stability_threshold: float = float(os.getenv("BROCA_SYSTEMS_STABILITY_THRESHOLD", "0.5"))
+
+
+class ControlConfig(BaseModel):
+    """Configuration for advanced control theory."""
+    mpc_enabled: bool = os.getenv("BROCA_CONTROL_MPC_ENABLED", "true").lower() == "true"
+    distributed_control_enabled: bool = os.getenv("BROCA_CONTROL_DISTRIBUTED_ENABLED", "true").lower() == "true"
+    mpc_prediction_horizon: int = int(os.getenv("BROCA_CONTROL_MPC_PREDICTION_HORIZON", "5"))
+    mpc_control_horizon: int = int(os.getenv("BROCA_CONTROL_MPC_CONTROL_HORIZON", "3"))
+
+
 class LearningConfig(BaseModel):
     """Configuration for learning system."""
     
@@ -421,6 +460,8 @@ class LearningConfig(BaseModel):
 class BrocaConfig(BaseModel):
     cache: CacheConfig = CacheConfig()
     llm: LLMConfig = LLMConfig()
+    llm_ensemble: LLMEnsembleConfig = LLMEnsembleConfig()
+    model_router: ModelRouterConfig = ModelRouterConfig()
     logging: LoggingConfig = LoggingConfig()
     storage: StorageConfig = StorageConfig()
     tools: ToolsConfig = ToolsConfig()
@@ -436,6 +477,8 @@ class BrocaConfig(BaseModel):
     reasoning: ReasoningConfig = ReasoningConfig()
     learning: LearningConfig = LearningConfig()
     damping: DampingConfig = DampingConfig()
+    systems: SystemsConfig = SystemsConfig()
+    control: ControlConfig = ControlConfig()
 
 
 config = BrocaConfig()

@@ -1344,7 +1344,7 @@ When you need to use tools to complete a task:
                                     tool_usage=tool_usage if tool_usage else None
                                 )
                             except Exception as e:
-                                logger.debug(f"Error measuring cognitive dissonance: {e}", exc_info=True)
+                                logger.warning(f"Error measuring cognitive dissonance in session: {e}", exc_info=True)
                 
                 # Update context graph with new message
                 if self._context_graph:

@@ -162,6 +162,141 @@ async def metrics():
     }
 
 
+@app.get("/api/cognitive-architecture/health")
+async def get_system_health():
+    """Get system health status from health monitor."""
+    rt = get_runtime()
+    if not rt.system_health_monitor:
+        raise HTTPException(status_code=503, detail="System health monitoring not enabled")
+    
+    try:
+        health_report = rt.system_health_monitor.assess_health()
+        return {
+            "overall_health": health_report.overall_health,
+            "status": health_report.status.value,
+            "stability_score": health_report.stability_score,
+            "issues": [{"severity": issue.severity.value, "message": issue.message} for issue in health_report.issues],
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting system health: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/cognitive-architecture/statistics")
+async def get_cognitive_architecture_stats():
+    """Get statistics from all cognitive architecture components."""
+    rt = get_runtime()
+    stats = {}
+    
+    # Hierarchical control stats
+    if rt.hierarchical_controller:
+        try:
+            control_stats = rt.hierarchical_controller.get_control_statistics()
+            if control_stats.get("status") != "no_data":
+                stats["hierarchical_control"] = control_stats
+        except Exception as e:
+            logger.debug(f"Error getting hierarchical control stats: {e}")
+    
+    # Recursive reasoning stats
+    if rt.recursive_reasoning_engine:
+        try:
+            reasoning_stats = rt.recursive_reasoning_engine.get_statistics()
+            if reasoning_stats.get("status") != "no_data":
+                stats["recursive_reasoning"] = reasoning_stats
+        except Exception as e:
+            logger.debug(f"Error getting recursive reasoning stats: {e}")
+    
+    # Metacognitive loops stats
+    if rt.metacognitive_loop:
+        try:
+            meta_stats = rt.metacognitive_loop.get_statistics()
+            if meta_stats.get("status") != "no_data":
+                stats["metacognitive"] = meta_stats
+        except Exception as e:
+            logger.debug(f"Error getting metacognitive stats: {e}")
+    
+    # Nested feedback stats
+    if rt.nested_feedback_system:
+        try:
+            feedback_stats = rt.nested_feedback_system.get_statistics()
+            stats["nested_feedback"] = feedback_stats
+        except Exception as e:
+            logger.debug(f"Error getting nested feedback stats: {e}")
+    
+    # System dynamics stats
+    if rt.system_dynamics:
+        try:
+            dynamics_stats = rt.system_dynamics.get_statistics()
+            if dynamics_stats.get("status") != "no_data":
+                stats["system_dynamics"] = dynamics_stats
+        except Exception as e:
+            logger.debug(f"Error getting system dynamics stats: {e}")
+    
+    # System health stats
+    if rt.system_health_monitor:
+        try:
+            health_report = rt.system_health_monitor.assess_health()
+            stats["system_health"] = {
+                "overall_health": health_report.overall_health,
+                "status": health_report.status.value,
+                "stability_score": health_report.stability_score,
+                "issues_count": len(health_report.issues)
+            }
+        except Exception as e:
+            logger.debug(f"Error getting system health stats: {e}")
+    
+    # MPC controller stats
+    if rt.mpc_controller:
+        try:
+            mpc_stats = rt.mpc_controller.get_statistics()
+            if mpc_stats.get("status") != "no_data":
+                stats["mpc_control"] = mpc_stats
+        except Exception as e:
+            logger.debug(f"Error getting MPC controller stats: {e}")
+    
+    # Distributed control stats
+    if rt.distributed_control:
+        try:
+            dist_stats = rt.distributed_control.get_statistics()
+            stats["distributed_control"] = dist_stats
+        except Exception as e:
+            logger.debug(f"Error getting distributed control stats: {e}")
+    
+    # Recursive improvement stats
+    if rt.recursive_improvement:
+        try:
+            improvement_stats = rt.recursive_improvement.get_statistics()
+            stats["recursive_improvement"] = improvement_stats
+        except Exception as e:
+            logger.debug(f"Error getting recursive improvement stats: {e}")
+    
+    return {
+        "components": stats,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@app.post("/api/cognitive-architecture/reconfigure")
+async def trigger_reconfiguration():
+    """Trigger system reconfiguration (if authorized)."""
+    rt = get_runtime()
+    if not rt.reconfiguration_manager:
+        raise HTTPException(status_code=503, detail="Reconfiguration not enabled")
+    
+    try:
+        result = rt.reconfiguration_manager.reconfigure()
+        return {
+            "success": result.success,
+            "changes": result.changes if result.success else [],
+            "message": result.message,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error triggering reconfiguration: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/conversations", response_model=NewConversationResponse)
 async def create_conversation(req: NewConversationRequest) -> NewConversationResponse:
     storage = get_storage()
@@ -504,7 +639,7 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                                     tool_usage=tool_usage if tool_usage else None
                                 )
                             except Exception as e:
-                                logger.debug(f"Error measuring cognitive dissonance in web_api: {e}", exc_info=True)
+                                logger.warning(f"Error measuring cognitive dissonance in web_api: {e}", exc_info=True)
                 
                 break
         
