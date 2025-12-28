@@ -165,9 +165,9 @@ class TestConversationLogging:
         # Should have logged turn_after event
         assert logs.has_event("turn_after")
     
-    def test_turn_after_logged_after_critic_enforcement(self, mock_llm_client: Mock):
+    def test_turn_after_logged_with_critic_tool(self, mock_llm_client: Mock):
         """
-        Test that turn_after is logged even after critic enforcement.
+        Test that turn_after is logged when critic tool is used.
         
         Rationale: Ensures logging works correctly with critic tool.
         """

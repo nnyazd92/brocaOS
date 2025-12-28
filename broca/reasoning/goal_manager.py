@@ -197,6 +197,20 @@ class GoalManager:
         # Thread safety for state synchronization
         self._state_lock = threading.RLock()
         
+        # Initialize Z3 validator for goal dependency validation
+        self.z3_validator = None
+        try:
+            from .z3_validator import Z3LogicalValidator
+            from ..config import config
+            self.z3_validator = Z3LogicalValidator(
+                enable_z3=config.reasoning.z3_validation_enabled,
+                timeout=config.reasoning.z3_validation_timeout,
+                max_constraints=config.reasoning.z3_max_constraints
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize Z3 validator for goal manager: {e}")
+            self.z3_validator = None
+        
         # Default goals
         self._add_default_goals()
     
@@ -268,6 +282,34 @@ class GoalManager:
             if goal.name in self.goals:
                 logger.warning(f"Goal '{goal.name}' already exists")
                 return False
+            
+            # Validate goal dependencies with Z3 before adding
+            if self.z3_validator and self.z3_validator.enabled:
+                try:
+                    all_goals = list(self.goals.values()) + [goal]
+                    is_valid, error, warnings = self.z3_validator.validate_goal_dependencies(all_goals)
+                    
+                    if not is_valid:
+                        logger.error(f"Cannot add goal {goal.name}: {error}")
+                        # Update validation stats
+                        self.z3_validator.update_validation_stats(
+                            goal_dependencies_valid=False,
+                            warnings_count=len(warnings)
+                        )
+                        return False
+                    
+                    # Update validation stats
+                    self.z3_validator.update_validation_stats(
+                        goal_dependencies_valid=True,
+                        warnings_count=len(warnings)
+                    )
+                    
+                    for warning in warnings:
+                        logger.warning(f"Goal dependency warning: {warning}")
+                        
+                except Exception as e:
+                    logger.error(f"Error in Z3 goal dependency validation: {e}", exc_info=True)
+                    # Continue with goal addition even if validation fails
             
             self.goals[goal.name] = goal
         

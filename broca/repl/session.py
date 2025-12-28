@@ -1253,34 +1253,7 @@ When you need to use tools to complete a task:
                 # The LLM will automatically receive tool results and should continue without waiting for user input
                 continue
             else:
-                # No tool calls - check if we have a pending critic rejection
-                if self._has_pending_critic_rejection():
-                    logger.warning(
-                        "LLM attempted final response while critic rejection is pending, forcing iteration",
-                        extra={
-                            "event": "critic_rejection_blocked_final_response",
-                            "iteration": iterations,
-                        },
-                    )
-                    # Inject reminder as user message to avoid accumulating system messages
-                    # This is a directive from the system (critic) but represented as user message
-                    # to prevent system message accumulation bugs
-                    self.messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "[SYSTEM DIRECTIVE] The critic has rejected your response. You may use tools "
-                                "(terminal, web_search, etc.) to gather information, execute code, or improve "
-                                "your response. However, you MUST call the critic tool again with your revised "
-                                "response before providing a final response to the user. The critic must accept "
-                                "your response before you can respond to the user."
-                            ),
-                        }
-                    )
-                    # Force another iteration
-                    continue
-
-                # No tool calls and no pending critic rejection - extract final response
+                # No tool calls - extract final response
                 logger.info(f"NO TOOL CALLS: Reached final response path (iteration {iterations}), will run post-processing")
                 if iterations > 1:
                     logger.info(
@@ -1290,31 +1263,6 @@ When you need to use tools to complete a task:
                             "iterations": iterations,
                         },
                     )
-
-                # Log if critic was involved and accepted
-                if self.tool_registry and self.tool_registry.get_tool("critic"):
-                    # Check if there was a recent critic acceptance
-                    for message in reversed(
-                        self.messages[-10:]
-                    ):  # Check last 10 messages
-                        if (
-                            message.get("role") == "tool"
-                            and message.get("name") == "critic"
-                        ):
-                            raw_result = message.get("_raw_result")
-                            if (
-                                raw_result
-                                and isinstance(raw_result, dict)
-                                and raw_result.get("accepted", False)
-                            ):
-                                logger.info(
-                                    "Critic acceptance allows final response",
-                                    extra={
-                                        "event": "critic_acceptance_allows_final_response",
-                                        "iteration": iterations,
-                                    },
-                                )
-                            break
 
                 # Extract assistant text - if we used streaming, it's already in assistant_text
                 # But make sure we have it even if streaming was used (fallback)
@@ -1370,6 +1318,33 @@ When you need to use tools to complete a task:
                     assistant_message["event_ids"] = [assistant_event_id]
                 self.messages.append(assistant_message)
                 self.updated_at = datetime.now(timezone.utc).isoformat()
+                
+                # Measure cognitive dissonance if available
+                if self.world_state_aggregator and hasattr(self.world_state_aggregator, 'reasoning_tool'):
+                    reasoning_tool = self.world_state_aggregator.reasoning_tool
+                    if reasoning_tool and hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
+                        cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
+                        if cognitive_dissonance_monitor:
+                            try:
+                                # Extract tool usage from messages
+                                tool_usage = []
+                                for msg in self.messages[-20:]:  # Check last 20 messages
+                                    if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                                        tool_usage.extend(msg.get("tool_calls", []))
+                                
+                                # Measure dissonance
+                                conversation_context = [
+                                    {"role": m.get("role"), "content": m.get("content", "")[:200]}
+                                    for m in self.messages[-5:]
+                                ]
+                                
+                                cognitive_dissonance_monitor.measure_dissonance(
+                                    response=assistant_text,
+                                    conversation_context=conversation_context,
+                                    tool_usage=tool_usage if tool_usage else None
+                                )
+                            except Exception as e:
+                                logger.debug(f"Error measuring cognitive dissonance: {e}", exc_info=True)
                 
                 # Update context graph with new message
                 if self._context_graph:
@@ -4189,76 +4164,6 @@ When you need to use tools to complete a task:
             }
         )
         return False
-
-    # ---------- Critic enforcement helpers ----------
-
-    def _has_pending_critic_rejection(self) -> bool:
-        """
-        Check if there's a pending critic rejection that requires iteration.
-
-        Returns:
-            True if:
-            - Critic tool exists but has never been called in this turn, OR
-            - The last critic tool call resulted in a rejection
-            False if the last critic call was accepted
-        """
-        if not self.tool_registry:
-            return False
-
-        # Check if critic tool is registered
-        critic_tool = self.tool_registry.get_tool("critic")
-        if not critic_tool:
-            return False
-
-        # Find the index of the last user message (start of current turn)
-        last_user_index = -1
-        for i, message in enumerate(self.messages):
-            if message.get("role") == "user":
-                last_user_index = i
-
-        # Look backwards through messages from the last user message
-        # to find critic tool results in the current turn
-        critic_called_in_turn = False
-        last_critic_result = None
-
-        for i in range(len(self.messages) - 1, last_user_index, -1):
-            message = self.messages[i]
-            if message.get("role") == "tool" and message.get("name") == "critic":
-                critic_called_in_turn = True
-                # Check raw result if available
-                raw_result = message.get("_raw_result")
-                if raw_result and isinstance(raw_result, dict):
-                    last_critic_result = raw_result
-                    break
-
-                # Fallback: check formatted content for rejection indicators
-                content = message.get("content", "")
-                if "rejected" in content.lower() or "violat" in content.lower():
-                    # Check if it's actually rejected (not just mentioning rejection)
-                    if (
-                        "accepted" not in content.lower()
-                        or "rejected" in content.lower()
-                    ):
-                        last_critic_result = {"accepted": False}
-                        break
-                # If we find an accepted critic result
-                elif (
-                    "accepted" in content.lower() and "rejected" not in content.lower()
-                ):
-                    last_critic_result = {"accepted": True}
-                    break
-
-        # If critic tool exists but was never called in this turn, block final response
-        if not critic_called_in_turn:
-            return True
-
-        # If critic was called, check if it was accepted
-        if last_critic_result:
-            accepted = last_critic_result.get("accepted", False)
-            return not accepted
-
-        # If we can't determine the result, assume rejection (safer)
-        return True
 
     # ---------- Tool handling helpers ----------
 

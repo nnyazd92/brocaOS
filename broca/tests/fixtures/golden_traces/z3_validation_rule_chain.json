@@ -1,0 +1,28 @@
+{
+  "description": "Golden trace for Z3 rule chain validation",
+  "input": {
+    "rules": [
+      {
+        "name": "rule_1",
+        "conditions": [{"type": "fact", "content": "premise_A"}],
+        "actions": [{"type": "add_to_memory", "content": {"type": "fact", "content": "conclusion_B"}}]
+      },
+      {
+        "name": "rule_2",
+        "conditions": [{"type": "fact", "content": "conclusion_B"}],
+        "actions": [{"type": "add_to_memory", "content": {"type": "fact", "content": "conclusion_C"}}]
+      }
+    ],
+    "working_memory_facts": ["premise_A"]
+  },
+  "expected_output": {
+    "is_valid": true,
+    "error": null,
+    "warnings": []
+  },
+  "metadata": {
+    "z3_available": true,
+    "validation_type": "rule_chain"
+  }
+}
+

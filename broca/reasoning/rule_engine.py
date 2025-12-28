@@ -26,7 +26,8 @@ class RuleEngine:
     def __init__(
         self,
         rule_system: Optional[ProductionRuleSystem] = None,
-        declarative_memory: Optional["DeclarativeMemoryInterface"] = None
+        declarative_memory: Optional["DeclarativeMemoryInterface"] = None,
+        enable_z3_validation: bool = True
     ):
         """
         Initialize rule engine.
@@ -34,9 +35,25 @@ class RuleEngine:
         Args:
             rule_system: Optional ProductionRuleSystem instance
             declarative_memory: Optional DeclarativeMemoryInterface for memory integration
+            enable_z3_validation: Whether to enable Z3 validation (default: True)
         """
         self.rule_system = rule_system or ProductionRuleSystem()
         self.declarative_memory = declarative_memory
+        
+        # Initialize Z3 validator if enabled
+        self.z3_validator = None
+        if enable_z3_validation:
+            try:
+                from .z3_validator import Z3LogicalValidator
+                from ..config import config
+                self.z3_validator = Z3LogicalValidator(
+                    enable_z3=config.reasoning.z3_validation_enabled,
+                    timeout=config.reasoning.z3_validation_timeout,
+                    max_constraints=config.reasoning.z3_max_constraints
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize Z3 validator: {e}")
+                self.z3_validator = None
     
     def match_rules(self, working_memory: WorkingMemory) -> List[ProductionRule]:
         """
@@ -113,6 +130,44 @@ class RuleEngine:
         
         # Limit number of rules to fire
         rules_to_fire = matched_rules[:max_rules]
+        
+        # Validate rule chain with Z3 before execution
+        if self.z3_validator and self.z3_validator.enabled:
+            try:
+                # Extract working memory facts for validation
+                wm_facts = []
+                for item in working_memory.items:
+                    prop_name = self.z3_validator._extract_proposition(item.content)
+                    if prop_name:
+                        wm_facts.append(prop_name)
+                
+                is_valid, error, warnings = self.z3_validator.validate_rule_chain(
+                    rules_to_fire,
+                    wm_facts
+                )
+                
+                if not is_valid:
+                    logger.error(f"Z3 validation failed for rule chain: {error}")
+                    # Update validation stats
+                    self.z3_validator.update_validation_stats(
+                        rule_chain_valid=False,
+                        warnings_count=len(warnings)
+                    )
+                    # Optionally skip execution or fire fewer rules
+                    # For now, we'll log the error but continue
+                else:
+                    # Update validation stats
+                    self.z3_validator.update_validation_stats(
+                        rule_chain_valid=True,
+                        warnings_count=len(warnings)
+                    )
+                    for warning in warnings:
+                        logger.warning(f"Z3 validation warning: {warning}")
+                        
+            except Exception as e:
+                logger.error(f"Error in Z3 rule chain validation: {e}", exc_info=True)
+                # Continue execution even if validation fails
+        
         results = self.execute_rules(rules_to_fire, working_memory)
         
         # Post-cycle: Store inference results to declarative memory

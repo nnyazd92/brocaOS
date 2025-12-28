@@ -1,7 +1,7 @@
 """
 Unit tests for CriticTool.
 
-Tests the critic tool that validates LLM responses against constraints.
+Tests the critic tool that provides devils advocate feedback on content.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ class TestCriticToolProperties:
         tool = CriticTool()
         assert isinstance(tool.description, str)
         assert len(tool.description) > 0
-        assert "critic" in tool.description.lower() or "validate" in tool.description.lower()
+        assert "critic" in tool.description.lower() or "devils advocate" in tool.description.lower() or "feedback" in tool.description.lower()
     
     def test_parameters_property(self):
         """
@@ -112,6 +112,9 @@ class TestCriticToolProperties:
         assert "properties" in world_state_props
         assert "constraints" in world_state_props["properties"]
         assert "metadata" in world_state_props["properties"]
+        # Constraints should be optional now
+        assert "required" in world_state_props
+        assert "constraints" not in world_state_props.get("required", [])
 
 
 class TestCriticToolExecute:
@@ -228,7 +231,7 @@ class TestCriticToolExecute:
         call_args = mock_llm.chat.call_args[0][0]
         system_prompt = call_args[0]["content"]
         
-        assert "critical" in system_prompt.lower() or "validator" in system_prompt.lower()
+        assert "devils advocate" in system_prompt.lower() or "critical" in system_prompt.lower() or "critic" in system_prompt.lower()
         assert "no_assumptions" in system_prompt or "unstated assumptions" in system_prompt
         assert "rigor" in system_prompt or "mathematically rigorous" in system_prompt
     
@@ -285,6 +288,28 @@ class TestCriticToolExecute:
         result = tool.execute(world_state=world_state, content=content)
         
         assert result["accepted"] is True
+    
+    def test_execute_without_constraints(self):
+        """
+        Test execution works without constraints (devils advocate mode).
+        
+        Rationale: Ensures constraints are optional for general critical analysis.
+        """
+        mock_llm = Mock(spec=DeepSeekClient)
+        mock_llm.chat.return_value = build_llm_response(
+            content=json.dumps({"accepted": True, "feedback": "General analysis", "violations": []})
+        )
+        mock_llm.extract_assistant_content = DeepSeekClient.extract_assistant_content
+        
+        tool = CriticTool(llm_client=mock_llm)
+        
+        world_state = {}
+        content = "Test content for general analysis"
+        
+        result = tool.execute(world_state=world_state, content=content)
+        
+        assert result["accepted"] is True
+        assert "feedback" in result
     
     def test_execute_malformed_json_response(self):
         """
@@ -351,7 +376,7 @@ class TestCriticToolFormatResult:
         formatted = tool.format_result(result)
         
         assert isinstance(formatted, str)
-        assert "accepted" in formatted.lower() or "pass" in formatted.lower()
+        assert "acceptable" in formatted.lower() or "accepted" in formatted.lower()
         assert "feedback" in formatted.lower() or result["feedback"] in formatted
     
     def test_format_result_rejected(self):
@@ -376,7 +401,7 @@ class TestCriticToolFormatResult:
         formatted = tool.format_result(result)
         
         assert isinstance(formatted, str)
-        assert "rejected" in formatted.lower() or "violat" in formatted.lower()
+        assert "concerns" in formatted.lower() or "rejected" in formatted.lower() or "violat" in formatted.lower()
         assert "rigor" in formatted or "justification" in formatted
     
     def test_format_result_with_multiple_violations(self):
@@ -433,18 +458,18 @@ class TestCriticToolErrorHandling:
         mock_llm = Mock(spec=DeepSeekClient)
         tool = CriticTool(llm_client=mock_llm)
         
-        # Missing constraints
+        # Missing constraints (now optional, so should work)
         world_state = {"metadata": {"context": "test"}}
         content = "Test"
         
-        # Should handle gracefully - either raise error or use defaults
-        try:
-            result = tool.execute(world_state=world_state, content=content)
-            # If it doesn't raise, should handle gracefully
-            assert isinstance(result, dict)
-        except (ValueError, KeyError):
-            # Expected if validation is strict
-            pass
+        # Should handle gracefully - constraints are optional now
+        mock_llm.chat.return_value = build_llm_response(
+            content=json.dumps({"accepted": True, "feedback": "OK", "violations": []})
+        )
+        mock_llm.extract_assistant_content = DeepSeekClient.extract_assistant_content
+        
+        result = tool.execute(world_state=world_state, content=content)
+        assert isinstance(result, dict)
     
     def test_execute_empty_content(self):
         """

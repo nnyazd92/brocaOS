@@ -94,6 +94,11 @@ class ReasoningConfig(BaseModel):
     adaptive_control_enabled: bool = os.getenv("BROCA_REASONING_ADAPTIVE_CONTROL_ENABLED", "true").lower() == "true"
     skill_dissonance_threshold: float = float(os.getenv("BROCA_REASONING_SKILL_DISSONANCE_THRESHOLD", "-0.2"))
     
+    # Z3 logical validation
+    z3_validation_enabled: bool = os.getenv("BROCA_REASONING_Z3_VALIDATION_ENABLED", "true").lower() == "true"
+    z3_validation_timeout: float = float(os.getenv("BROCA_REASONING_Z3_VALIDATION_TIMEOUT", "5.0"))
+    z3_max_constraints: int = int(os.getenv("BROCA_REASONING_Z3_MAX_CONSTRAINTS", "1000"))
+    
     # Debugging
     debug_mode: bool = os.getenv("BROCA_REASONING_DEBUG_MODE", "false").lower() == "true"
     log_rule_firings: bool = os.getenv("BROCA_REASONING_LOG_RULE_FIRINGS", "true").lower() == "true"

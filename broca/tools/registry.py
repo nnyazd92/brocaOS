@@ -520,10 +520,6 @@ class ToolRegistry:
             if isinstance(result, dict) and "success" in result:
                 result_dict["_success"] = bool(result.get("success", True))
             
-            # For critic tool, include raw result for enforcement checking
-            if tool_name == "critic" and isinstance(result, dict):
-                result_dict["_raw_result"] = result
-            
             # Include epistemic impact if available
             if epistemic_impact:
                 result_dict["_epistemic_impact"] = {

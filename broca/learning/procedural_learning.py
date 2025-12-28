@@ -239,6 +239,20 @@ class ProceduralLearner:
         self.min_success_rate = 0.7
         self.confidence_threshold = 0.6
         
+        # Initialize Z3 validator for procedure validation
+        self.z3_validator = None
+        try:
+            from ..reasoning.z3_validator import Z3LogicalValidator
+            from ..config import config
+            self.z3_validator = Z3LogicalValidator(
+                enable_z3=config.reasoning.z3_validation_enabled,
+                timeout=config.reasoning.z3_validation_timeout,
+                max_constraints=config.reasoning.z3_max_constraints
+            )
+        except Exception as e:
+            logger.debug(f"Failed to initialize Z3 validator for procedural learning: {e}")
+            self.z3_validator = None
+        
         # Default procedures
         self._add_default_procedures()
         
@@ -427,6 +441,46 @@ class ProceduralLearner:
             total_executions=1,
             confidence=0.6,  # Initial confidence for new procedures
         )
+        
+        # Validate learned procedure with Z3 before returning
+        if self.z3_validator and self.z3_validator.enabled:
+            try:
+                # Extract preconditions and postconditions from context pattern
+                preconditions = []
+                postconditions = []
+                
+                # Extract from memory patterns
+                for pattern in context_pattern.memory_patterns:
+                    if isinstance(pattern, dict):
+                        prop = pattern.get("type") or pattern.get("name")
+                        if prop:
+                            preconditions.append(str(prop))
+                
+                # Extract from goal patterns
+                for pattern in context_pattern.goal_patterns:
+                    if isinstance(pattern, dict):
+                        prop = pattern.get("type") or pattern.get("name")
+                        if prop:
+                            postconditions.append(str(prop))
+                
+                is_valid, error, warnings = self.z3_validator.validate_learned_procedure(
+                    procedure_name=procedure.name,
+                    preconditions=preconditions,
+                    postconditions=postconditions,
+                    tool_sequence=[tc.to_dict() for tc in tool_calls]
+                )
+                
+                if not is_valid:
+                    logger.warning(f"Learned procedure {procedure.name} failed Z3 validation: {error}")
+                    # Still return the procedure but mark it with lower confidence
+                    procedure.confidence = max(0.3, procedure.confidence - 0.2)
+                else:
+                    for warning in warnings:
+                        logger.debug(f"Procedure validation warning: {warning}")
+                        
+            except Exception as e:
+                logger.error(f"Error in Z3 procedure validation: {e}", exc_info=True)
+                # Continue with procedure creation even if validation fails
         
         return procedure
     

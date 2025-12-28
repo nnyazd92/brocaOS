@@ -1205,6 +1205,16 @@ class WorldStateAggregator:
                 except Exception as e:
                     logger.debug(f"Could not get emotional state from daemon: {e}")
             
+            # Add Z3 validation summary if available
+            if hasattr(self.reasoning_tool, 'rule_engine') and self.reasoning_tool.rule_engine:
+                if hasattr(self.reasoning_tool.rule_engine, 'z3_validator') and self.reasoning_tool.rule_engine.z3_validator:
+                    try:
+                        z3_summary = self.reasoning_tool.rule_engine.z3_validator.get_validation_summary(max_size_bytes=200)
+                        if z3_summary:
+                            reasoning_state["z3_validation"] = z3_summary
+                    except Exception as e:
+                        logger.debug(f"Could not get Z3 validation summary: {e}")
+            
             # Limit total size to ~2KB (rough estimate: ~200 chars per goal, ~50 chars for other fields)
             # This is approximate - actual JSON serialization will vary
             total_size_estimate = len(str(reasoning_state))
@@ -1213,6 +1223,9 @@ class WorldStateAggregator:
                 if "active_goals" in reasoning_state:
                     reasoning_state["active_goals"] = reasoning_state["active_goals"][:3]
                     reasoning_state["_truncated"] = True
+                # Remove Z3 validation if still too large (it's optional)
+                if "z3_validation" in reasoning_state and total_size_estimate > 2000:
+                    del reasoning_state["z3_validation"]
             
             return {
                 "available": True,

@@ -97,9 +97,35 @@ class ProductionRule:
                 return False
         return True
     
-    def _pattern_matches(self, pattern: Dict[str, Any], content: Dict[str, Any]) -> bool:
+    def _pattern_matches(self, pattern: Union[Dict[str, Any], str], content: Union[Dict[str, Any], str]) -> bool:
         """Check if pattern matches memory content."""
-        # Simple equality check for now
+        # Handle None values
+        if pattern is None or content is None:
+            return False
+        
+        # Handle string patterns
+        if isinstance(pattern, str):
+            if isinstance(content, str):
+                # String-to-string comparison
+                return pattern == content
+            elif isinstance(content, dict):
+                # String pattern against dict content: convert dict to string for comparison
+                content_str = str(content)
+                return pattern in content_str or pattern == content_str
+            else:
+                # String pattern against other types: convert both to string
+                return str(pattern) == str(content)
+        
+        # Handle string content with dict pattern
+        if isinstance(content, str):
+            # Dict pattern can't match string content
+            return False
+        
+        # Both should be dicts at this point, but check to be safe
+        if not isinstance(pattern, dict) or not isinstance(content, dict):
+            return False
+        
+        # Simple equality check for dict-to-dict matching
         # TODO: Implement pattern matching with variables, wildcards, etc.
         for key, value in pattern.items():
             if key not in content:

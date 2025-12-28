@@ -1,8 +1,9 @@
 """
-Critic tool for validating LLM responses against constraints.
+Critic tool for providing devils advocate feedback on content.
 
-Allows the main LLM to send prompts to a critical LLM instance that validates
-responses against provided constraints and returns structured feedback.
+Allows the main LLM to get critical, alternative perspectives on any content
+by sending it to a critical LLM instance that challenges assumptions, finds
+weaknesses, and provides alternative viewpoints.
 """
 
 from __future__ import annotations
@@ -19,26 +20,32 @@ logger = logging.getLogger(__name__)
 
 class CriticTool:
     """
-    Critic tool for validating LLM responses against constraints.
+    Critic tool for providing devils advocate feedback on content.
     
-    Allows the main LLM to validate its responses by sending them to a critical
-    LLM instance with a highly critical system prompt. The critic evaluates the
-    response against provided constraints and returns structured feedback.
+    Allows the main LLM to get critical analysis and alternative perspectives
+    on any content. The critic acts as a devils advocate, challenging assumptions,
+    finding weaknesses, and providing constructive criticism.
     """
     
-    _DEFAULT_SYSTEM_PROMPT_TEMPLATE = """You are a highly critical validator. Your role is to strictly evaluate responses against the provided constraints.
+    _DEFAULT_SYSTEM_PROMPT_TEMPLATE = """You are a devils advocate critic. Your role is to provide critical, alternative perspectives on content.
 
 {metadata_section}
 
-Constraints to enforce:
 {constraints_section}
 
-You must respond with a JSON object containing:
-- "accepted": boolean indicating if the response passes validation
-- "feedback": string explaining your decision
-- "violations": array of objects with "constraint" and "description" keys for each violation found
+Your task is to:
+- Challenge assumptions and question underlying premises
+- Identify potential weaknesses, flaws, or blind spots
+- Suggest alternative viewpoints or approaches
+- Provide constructive criticism that helps improve the content
+- Consider edge cases, potential failures, or unintended consequences
 
-Be strict and thorough in your evaluation. Reject any response that violates even a single constraint."""
+You must respond with a JSON object containing:
+- "accepted": boolean indicating if you find the content acceptable (true) or have significant concerns (false)
+- "feedback": string providing detailed critical analysis and alternative perspectives
+- "violations": array of objects with "constraint" (or "concern") and "description" keys for each issue found
+
+Be thorough, constructive, and thought-provoking in your analysis. Even if content is generally good, identify areas for improvement or alternative perspectives."""
 
     def __init__(
         self,
@@ -67,12 +74,11 @@ Be strict and thorough in your evaluation. Reject any response that violates eve
     def description(self) -> str:
         """Tool description for the LLM."""
         return (
-            "Validate a response against constraints using a critical validator. "
-            "Provide a world_state object containing metadata and constraints, "
-            "along with the content to validate. The critic will evaluate whether "
-            "the response violates any constraints and provide detailed feedback. "
-            "Use this tool when you need to ensure your response meets specific "
-            "requirements or constraints."
+            "Get devils advocate feedback on any content. Provide a world_state object "
+            "containing optional metadata and constraints, along with the content to analyze. "
+            "The critic will challenge assumptions, find weaknesses, suggest alternatives, "
+            "and provide constructive criticism. Use this tool when you want a critical second "
+            "opinion or need to identify potential issues before finalizing your response."
         )
 
     @property
@@ -90,13 +96,13 @@ Be strict and thorough in your evaluation. Reject any response that violates eve
                             "description": "Optional metadata about the context (e.g., domain, context type)",
                             "additionalProperties": True
                         },
-                        "constraints": {
-                            "type": "object",
-                            "description": "Required. Object containing constraint rules to enforce. Each key is a constraint name and value is the constraint description.",
-                            "additionalProperties": True
-                        }
-                    },
-                    "required": ["constraints"]
+                "constraints": {
+                    "type": "object",
+                    "description": "Optional. Object containing constraints or concerns to consider. Each key is a constraint/concern name and value is the description.",
+                    "additionalProperties": True
+                }
+            },
+            "required": []
                 },
                 "content": {
                     "type": "string",
@@ -132,7 +138,10 @@ Be strict and thorough in your evaluation. Reject any response that violates eve
         constraints_lines = []
         for constraint_name, constraint_desc in constraints.items():
             constraints_lines.append(f"- {constraint_name}: {constraint_desc}")
-        constraints_section = "\n".join(constraints_lines) if constraints_lines else "No specific constraints provided."
+        if constraints_lines:
+            constraints_section = "Considerations to keep in mind:\n" + "\n".join(constraints_lines)
+        else:
+            constraints_section = "No specific constraints or considerations provided. Provide general critical analysis."
         
         # Build prompt
         prompt = self._system_prompt_template.format(
@@ -148,26 +157,26 @@ Be strict and thorough in your evaluation. Reject any response that violates eve
         content: str,
     ) -> Dict[str, Any]:
         """
-        Execute critic validation.
+        Execute critic analysis.
         
         Args:
-            world_state: Dictionary containing metadata and constraints
-            content: The response content to validate
+            world_state: Dictionary containing optional metadata and constraints
+            content: The content to analyze
             
         Returns:
             Dictionary containing:
-                - "accepted": bool indicating if response passes validation
-                - "feedback": str explaining the decision
-                - "violations": list of violation objects with "constraint" and "description"
+                - "accepted": bool indicating if content is acceptable (true) or has significant concerns (false)
+                - "feedback": str providing detailed critical analysis
+                - "violations": list of concern objects with "constraint" (or "concern") and "description"
         """
         try:
             # Validate world_state structure
             if not isinstance(world_state, dict):
                 raise ValueError("world_state must be a dictionary")
             
-            constraints = world_state.get("constraints")
-            if not constraints or not isinstance(constraints, dict):
-                raise ValueError("world_state must contain a 'constraints' dictionary")
+            constraints = world_state.get("constraints", {})
+            if not isinstance(constraints, dict):
+                constraints = {}
             
             # Build system prompt
             system_prompt = self._build_system_prompt(world_state)
@@ -177,11 +186,11 @@ Be strict and thorough in your evaluation. Reject any response that violates eve
                 {"role": "system", "content": system_prompt},
                 {
                     "role": "user",
-                    "content": f"Evaluate the following response against the constraints:\n\n{content}"
+                    "content": f"Provide devils advocate feedback on the following content:\n\n{content}"
                 }
             ]
             
-            logger.debug(f"Calling critic LLM with {len(constraints)} constraints")
+            logger.debug(f"Calling critic LLM with {len(constraints)} constraints/concerns")
             
             # Call LLM
             response = self._llm.chat(messages)
@@ -289,28 +298,28 @@ Be strict and thorough in your evaluation. Reject any response that violates eve
             result: Result dictionary from execute()
             
         Returns:
-            Formatted string describing the validation result
+            Formatted string describing the critical analysis
         """
         accepted = result.get("accepted", False)
         feedback = result.get("feedback", "")
         violations = result.get("violations", [])
         
         if accepted:
-            status = "ACCEPTED"
-            message = f"The response was {status.lower()} by the critic.\n\nFeedback: {feedback}"
+            status = "ACCEPTABLE"
+            message = f"The critic finds the content generally {status.lower()}.\n\nFeedback: {feedback}"
         else:
-            status = "REJECTED"
-            message = f"The response was {status.lower()} by the critic.\n\nFeedback: {feedback}"
+            status = "CONCERNS IDENTIFIED"
+            message = f"The critic has identified concerns: {status.lower()}.\n\nFeedback: {feedback}"
             
             if violations:
-                message += "\n\nViolations found:"
+                message += "\n\nSpecific concerns:"
                 for i, violation in enumerate(violations, 1):
-                    constraint = violation.get("constraint", "unknown")
+                    constraint = violation.get("constraint", violation.get("concern", "unknown"))
                     description = violation.get("description", "")
-                    message += f"\n{i}. Constraint '{constraint}': {description}"
+                    message += f"\n{i}. {constraint}: {description}"
         
         if "error" in result:
-            message += f"\n\nNote: An error occurred during validation: {result['error']}"
+            message += f"\n\nNote: An error occurred during analysis: {result['error']}"
         
         return message
 

@@ -71,7 +71,10 @@ class CognitiveDissonanceMonitor:
         weight_logical: float = 0.3,
         weight_factual: float = 0.3,
         weight_behavioral: float = 0.2,
-        weight_goal: float = 0.2
+        weight_goal: float = 0.2,
+        memory_manager: Optional[Any] = None,
+        z3_validator: Optional[Any] = None,
+        fact_checker: Optional[Any] = None
     ):
         """
         Initialize cognitive dissonance monitor.
@@ -85,11 +88,17 @@ class CognitiveDissonanceMonitor:
             weight_factual: Weight for factual dissonance in overall score
             weight_behavioral: Weight for behavioral dissonance in overall score
             weight_goal: Weight for goal dissonance in overall score
+            memory_manager: Optional MemoryManager for memory conflict detection
+            z3_validator: Optional Z3LogicalValidator for logical validation
+            fact_checker: Optional FactChecker for web search fact-checking
         """
         self.self_model = self_model
         self.consistency_checker = consistency_checker
         self.epistemic_engine = epistemic_engine
         self.history_window = history_window
+        self.memory_manager = memory_manager
+        self.z3_validator = z3_validator
+        self.fact_checker = fact_checker
         
         # Weights for aggregation (must sum to ~1.0)
         total_weight = weight_logical + weight_factual + weight_behavioral + weight_goal
@@ -268,20 +277,128 @@ class CognitiveDissonanceMonitor:
             return 0.0  # Default to no dissonance on error
     
     def _measure_factual_dissonance(self, response: str) -> float:
-        """Measure factual dissonance (claims vs. knowledge boundaries) with epistemic weighting."""
+        """Measure factual dissonance (claims vs. knowledge boundaries) with real analysis."""
         try:
-            # Extract knowledge boundaries from self model
+            dissonance_score = 0.0
+            violations: List[Dict[str, Any]] = []
+            
+            # 1. Extract factual claims from response
+            if self.fact_checker:
+                try:
+                    # Get existing memories for comparison
+                    existing_memories = []
+                    if self.memory_manager:
+                        try:
+                            existing_memories = self.memory_manager.storage.get_all_memories()
+                        except Exception:
+                            pass
+                    
+                    fact_check_result = self.fact_checker.fact_check_response(
+                        response,
+                        existing_memories
+                    )
+                    
+                    # Use contradiction score from fact-checking
+                    contradiction_score = fact_check_result.get("overall_contradiction_score", 0.0)
+                    contradicted_count = fact_check_result.get("contradicted_claims_count", 0)
+                    
+                    if contradiction_score > 0.0:
+                        dissonance_score = max(dissonance_score, contradiction_score)
+                        violations.append({
+                            "type": "web_fact_check",
+                            "severity": contradiction_score,
+                            "contradicted_claims": contradicted_count,
+                            "description": f"Web search fact-checking found {contradicted_count} contradicted claims"
+                        })
+                except Exception as e:
+                    logger.debug(f"Error in fact-checking: {e}")
+            
+            # 2. Check against knowledge boundaries using semantic similarity
             knowledge_boundaries = self.self_model.knowledge_boundaries
+            if knowledge_boundaries and self.memory_manager:
+                try:
+                    from ..memory import MemoryRecord
+                    from ..memory.conflict.detection import ConflictDetector
+                    
+                    # Create temporary memory from response
+                    temp_memory = MemoryRecord(
+                        namespace="temp",
+                        text=response,
+                        importance=0.5
+                    )
+                    
+                    # Get existing memories related to knowledge boundaries
+                    boundary_memories: List[MemoryRecord] = []
+                    for key, value_dict in knowledge_boundaries.items():
+                        value = value_dict.get("value", str(value_dict))
+                        # Search for memories related to this boundary
+                        try:
+                            related = self.memory_manager.retrieve_memories(
+                                query=f"{key} {value}",
+                                limit=5
+                            )
+                            boundary_memories.extend(related)
+                        except Exception:
+                            pass
+                    
+                    if boundary_memories:
+                        conflict_detector = ConflictDetector(
+                            memory_manager=self.memory_manager,
+                            similarity_threshold=0.85,
+                            contradiction_threshold=0.7
+                        )
+                        
+                        conflicts = conflict_detector.detect_conflicts(temp_memory, boundary_memories)
+                        
+                        if conflicts:
+                            # Calculate dissonance from conflicts
+                            max_conflict_confidence = max(c.confidence for c in conflicts)
+                            boundary_dissonance = max_conflict_confidence
+                            dissonance_score = max(dissonance_score, boundary_dissonance)
+                            
+                            violations.append({
+                                "type": "knowledge_boundary",
+                                "severity": boundary_dissonance,
+                                "conflicts_count": len(conflicts),
+                                "description": f"Response conflicts with {len(conflicts)} knowledge boundaries"
+                            })
+                except Exception as e:
+                    logger.debug(f"Error checking knowledge boundaries: {e}")
             
-            # Use historical average of factual errors as base
-            base_dissonance = 0.0
-            if len(self.factual_errors) > 0:
-                base_dissonance = sum(e.get("severity", 0.0) for e in self.factual_errors) / len(self.factual_errors)
+            # 3. Use Z3 to check logical consistency of claims
+            if self.z3_validator and self.z3_validator.enabled:
+                try:
+                    # Get existing memories for Z3 validation
+                    existing_memories = []
+                    if self.memory_manager:
+                        try:
+                            existing_memories = self.memory_manager.storage.get_all_memories()
+                        except Exception:
+                            pass
+                    
+                    z3_result = self.z3_validator.detect_comprehensive_contradictions(
+                        response,
+                        existing_memories,
+                        memory_manager=self.memory_manager,
+                        use_web_search=False,  # Already did web search above
+                        fact_checker=None  # Already did fact-checking above
+                    )
+                    
+                    z3_contradiction_score = z3_result.get("overall_contradiction_score", 0.0)
+                    if z3_contradiction_score > 0.0:
+                        dissonance_score = max(dissonance_score, z3_contradiction_score)
+                        violations.append({
+                            "type": "z3_logical",
+                            "severity": z3_contradiction_score,
+                            "contradictions_count": z3_result.get("total_contradictions", 0),
+                            "description": f"Z3 validation found {z3_result.get('total_contradictions', 0)} logical contradictions"
+                        })
+                except Exception as e:
+                    logger.debug(f"Error in Z3 validation: {e}")
             
-            # Weight by epistemic confidence if available
+            # 4. Weight by epistemic confidence if available
             if self.epistemic_engine and self.self_model.epistemic_layer and knowledge_boundaries:
                 try:
-                    # Get average confidence from knowledge boundaries
                     confidence_scores = []
                     for key, value_dict in knowledge_boundaries.items():
                         try:
@@ -299,45 +416,119 @@ class CognitiveDissonanceMonitor:
                         avg_confidence = sum(confidence_scores) / len(confidence_scores)
                         # Higher confidence knowledge boundaries -> stronger dissonance signal when violated
                         confidence_weight = 0.8 + (avg_confidence * 0.4)  # Range: 0.8-1.2
-                        base_dissonance = min(1.0, base_dissonance * confidence_weight)
+                        dissonance_score = min(1.0, dissonance_score * confidence_weight)
                 except Exception as e:
                     logger.debug(f"Error weighting factual dissonance by epistemic confidence: {e}")
             
-            # If no history, return 0 (no factual dissonance detected)
-            return base_dissonance
+            # Track violations
+            if violations:
+                self.factual_errors.append({
+                    "timestamp": datetime.now(timezone.utc),
+                    "violations": violations,
+                    "severity": dissonance_score
+                })
+            
+            return dissonance_score
             
         except Exception as e:
             logger.error(f"Error measuring factual dissonance: {e}", exc_info=True)
             return 0.0
     
     def _measure_behavioral_dissonance(self, tool_usage: List[Dict[str, Any]]) -> float:
-        """Measure behavioral dissonance (tool usage vs. stated patterns)."""
+        """Measure behavioral dissonance (tool usage vs. stated patterns) with real analysis."""
         try:
-            # Extract capabilities from self model
-            capabilities = [cap.get("text", str(cap)) for cap in self.self_model.capabilities]
-            capability_text = " ".join(capabilities).lower()
+            if not tool_usage:
+                return 0.0
             
-            # Simple heuristic: check if tool usage aligns with stated capabilities
-            # Tools that aren't mentioned in capabilities might indicate behavioral drift
-            
-            # For now, use a simple pattern: if tools are used that don't align with capabilities
-            # This is a simplified version - in practice, could analyze tool usage patterns more deeply
-            
-            # Track behavioral deviations
             deviation_score = 0.0
+            violations: List[Dict[str, Any]] = []
+            
+            # Extract capabilities and constraints from self model
+            capabilities = [cap.get("text", str(cap)) for cap in self.self_model.capabilities]
+            constraints = self.self_model.constraints
             
             # If no capabilities listed, can't measure deviation
             if not capabilities:
                 return 0.0
             
-            # Simple check: if tools are used, assume some alignment (refined later)
-            # For now, return low default value
-            deviation_score = 0.1  # Low default - refined in future iterations
+            capability_text = " ".join(capabilities).lower()
+            constraint_values = [v.get("value", str(v)).lower() for v in constraints.values()]
             
-            if deviation_score > 0.0:
+            # Analyze each tool usage
+            for tool_call in tool_usage:
+                tool_name = tool_call.get("function", {}).get("name", "") if isinstance(tool_call, dict) else str(tool_call)
+                if not tool_name:
+                    continue
+                
+                tool_name_lower = tool_name.lower()
+                
+                # Check if tool is mentioned in capabilities
+                tool_mentioned = any(tool_name_lower in cap.lower() or cap.lower() in tool_name_lower 
+                                    for cap in capabilities)
+                
+                # Check for constraint violations
+                constraint_violation = False
+                violation_type = None
+                
+                # Check for read-only constraint violations
+                if "read" in " ".join(constraint_values) and "read-only" in " ".join(constraint_values).lower():
+                    # Check if tool is a write operation
+                    write_tools = ["write", "create", "update", "delete", "modify", "edit", "save", "store"]
+                    if any(write in tool_name_lower for write in write_tools):
+                        constraint_violation = True
+                        violation_type = "read_only_violation"
+                        deviation_score = max(deviation_score, 0.8)  # High deviation for constraint violation
+                        violations.append({
+                            "type": violation_type,
+                            "tool": tool_name,
+                            "severity": 0.8,
+                            "description": f"Tool {tool_name} violates read-only constraint"
+                        })
+                
+                # Check for capability mismatch
+                if not tool_mentioned and not constraint_violation:
+                    # Tool not mentioned in capabilities - potential deviation
+                    deviation_score = max(deviation_score, 0.3)  # Medium deviation
+                    violations.append({
+                        "type": "capability_mismatch",
+                        "tool": tool_name,
+                        "severity": 0.3,
+                        "description": f"Tool {tool_name} not mentioned in stated capabilities"
+                    })
+            
+            # Use Z3 to validate tool usage chains for logical consistency
+            if self.z3_validator and self.z3_validator.enabled and len(tool_usage) > 1:
+                try:
+                    # Extract tool sequence
+                    tool_sequence = [
+                        {
+                            "tool_name": tc.get("function", {}).get("name", "") if isinstance(tc, dict) else str(tc),
+                            "arguments": tc.get("function", {}).get("arguments", {}) if isinstance(tc, dict) else {}
+                        }
+                        for tc in tool_usage
+                    ]
+                    
+                    # Check for logical inconsistencies in tool sequence
+                    # This is simplified - in practice would have more sophisticated validation
+                    # For now, check if tools conflict with each other
+                    tool_names = [ts["tool_name"] for ts in tool_sequence if ts["tool_name"]]
+                    
+                    # Check for contradictory tool patterns (e.g., read then write same file)
+                    # This is a simplified check
+                    if len(set(tool_names)) < len(tool_names):
+                        # Duplicate tools might indicate inefficiency but not necessarily contradiction
+                        pass
+                    
+                    # Could add more sophisticated Z3 validation here
+                except Exception as e:
+                    logger.debug(f"Error in Z3 tool usage validation: {e}")
+            
+            # Track deviations
+            if violations:
                 self.behavioral_deviations.append({
                     "timestamp": datetime.now(timezone.utc),
                     "tool_usage": tool_usage,
+                    "violations": violations,
                     "deviation_score": deviation_score
                 })
             
@@ -348,36 +539,99 @@ class CognitiveDissonanceMonitor:
             return 0.0
     
     def _measure_goal_dissonance(self, reasoning_goals: List[Dict[str, Any]]) -> float:
-        """Measure goal-based dissonance (reasoning goals vs. self-model objectives)."""
+        """Measure goal-based dissonance (reasoning goals vs. self-model objectives) with real analysis."""
         try:
-            # Extract self-model objectives from capabilities and constraints
-            capabilities = [cap.get("text", str(cap)) for cap in self.self_model.capabilities]
-            
-            # Simple heuristic: check if reasoning goals align with self-model capabilities/constraints
-            # Goals that conflict with constraints indicate goal dissonance
-            
-            # Extract constraints
-            constraints = self.self_model.constraints
-            constraint_values = [v.get("value", str(v)) for v in constraints.values()]
-            
-            # For now, use a simple pattern: check if goals align with capabilities
-            # This is simplified - in practice, could do semantic analysis
-            
-            # Track goal conflicts
-            conflict_score = 0.0
-            
-            # If no goals, no conflict
             if not reasoning_goals:
                 return 0.0
             
-            # Simple check: assume some alignment (refined later)
-            # For now, return low default value
-            conflict_score = 0.05  # Low default - refined in future iterations
+            conflict_score = 0.0
+            violations: List[Dict[str, Any]] = []
             
-            if conflict_score > 0.0:
+            # Extract constraints from self model
+            constraints = self.self_model.constraints
+            constraint_values = [v.get("value", str(v)).lower() for v in constraints.values()]
+            capabilities = [cap.get("text", str(cap)).lower() for cap in self.self_model.capabilities]
+            
+            # Use Z3 to check if goals conflict with constraints
+            if self.z3_validator and self.z3_validator.enabled:
+                try:
+                    from .goal_manager import Goal, GoalType, GoalStatus
+                    
+                    # Convert reasoning goals to Goal objects if needed
+                    goals_to_check: List[Goal] = []
+                    for goal_dict in reasoning_goals:
+                        if isinstance(goal_dict, Goal):
+                            goals_to_check.append(goal_dict)
+                        else:
+                            # Try to create Goal from dict
+                            try:
+                                goal = Goal(
+                                    name=goal_dict.get("name", "unknown"),
+                                    description=goal_dict.get("description", str(goal_dict)),
+                                    goal_type=GoalType(goal_dict.get("goal_type", "achieve")),
+                                    status=GoalStatus(goal_dict.get("status", "active")),
+                                    priority=goal_dict.get("priority", 0.5),
+                                    dependencies=goal_dict.get("dependencies", [])
+                                )
+                                goals_to_check.append(goal)
+                            except Exception:
+                                # Skip invalid goals
+                                continue
+                    
+                    if goals_to_check:
+                        # Validate goal dependencies
+                        is_valid, error, warnings = self.z3_validator.validate_goal_dependencies(goals_to_check)
+                        
+                        if not is_valid:
+                            conflict_score = max(conflict_score, 0.7)  # High conflict for unsatisfiable goals
+                            violations.append({
+                                "type": "goal_dependency_conflict",
+                                "severity": 0.7,
+                                "error": error,
+                                "description": f"Goal dependencies are unsatisfiable: {error}"
+                            })
+                        
+                        # Check each goal against constraints
+                        for goal in goals_to_check:
+                            goal_text = f"{goal.name} {goal.description}".lower()
+                            
+                            # Check for constraint violations
+                            for constraint_value in constraint_values:
+                                # Simple heuristic: check if goal conflicts with constraint
+                                # This is simplified - in practice would use semantic analysis
+                                
+                                # Check for explicit constraint violations
+                                if "read-only" in constraint_value and any(word in goal_text for word in ["write", "modify", "edit", "change"]):
+                                    conflict_score = max(conflict_score, 0.8)
+                                    violations.append({
+                                        "type": "constraint_violation",
+                                        "goal": goal.name,
+                                        "constraint": constraint_value,
+                                        "severity": 0.8,
+                                        "description": f"Goal {goal.name} violates constraint: {constraint_value}"
+                                    })
+                                
+                                # Check for capability mismatches
+                                if capabilities:
+                                    goal_mentions_capability = any(cap in goal_text for cap in capabilities)
+                                    if not goal_mentions_capability and len(goal_text) > 20:
+                                        # Goal doesn't align with stated capabilities
+                                        conflict_score = max(conflict_score, 0.4)
+                                        violations.append({
+                                            "type": "capability_mismatch",
+                                            "goal": goal.name,
+                                            "severity": 0.4,
+                                            "description": f"Goal {goal.name} doesn't align with stated capabilities"
+                                        })
+                except Exception as e:
+                    logger.debug(f"Error in Z3 goal validation: {e}")
+            
+            # Track conflicts
+            if violations:
                 self.goal_conflicts.append({
                     "timestamp": datetime.now(timezone.utc),
                     "goals": reasoning_goals,
+                    "violations": violations,
                     "conflict_score": conflict_score
                 })
             
@@ -410,6 +664,18 @@ class CognitiveDissonanceMonitor:
         if len(self.goal_conflicts) == 0:
             return 0.0
         return sum(c.get("conflict_score", 0.0) for c in self.goal_conflicts) / len(self.goal_conflicts)
+    
+    def set_memory_manager(self, memory_manager: Any) -> None:
+        """Set memory manager for factual dissonance measurement."""
+        self.memory_manager = memory_manager
+    
+    def set_z3_validator(self, z3_validator: Any) -> None:
+        """Set Z3 validator for logical validation."""
+        self.z3_validator = z3_validator
+    
+    def set_fact_checker(self, fact_checker: Any) -> None:
+        """Set fact checker for web search fact-checking."""
+        self.fact_checker = fact_checker
     
     def get_aggregated_dissonance(self) -> Dict[str, Any]:
         """Get aggregated dissonance metrics from history."""

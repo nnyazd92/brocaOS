@@ -1,0 +1,26 @@
+{
+  "description": "Golden trace for Z3 causal chain validation with transitivity",
+  "input": {
+    "chain": [
+      ["action_A", "state_B"],
+      ["state_B", "state_C"],
+      ["state_C", "state_D"]
+    ],
+    "check_transitivity": true
+  },
+  "expected_output": {
+    "is_valid": true,
+    "error": null,
+    "warnings": [
+      "Transitive causal relationship: action_A causes state_C (via chain: ['action_A', 'state_B', 'state_C'])",
+      "Transitive causal relationship: action_A causes state_D (via chain: ['action_A', 'state_B', 'state_C', 'state_D'])",
+      "Transitive causal relationship: state_B causes state_D (via chain: ['state_B', 'state_C', 'state_D'])"
+    ]
+  },
+  "metadata": {
+    "z3_available": true,
+    "validation_type": "causal_chain",
+    "transitive_relationships_detected": 3
+  }
+}
+

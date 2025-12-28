@@ -478,6 +478,34 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                 
                 session.messages.append({"role": "assistant", "content": content})
                 assistant_text = content
+                
+                # Measure cognitive dissonance if available
+                if rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
+                    reasoning_tool = rt.world_state_aggregator.reasoning_tool
+                    if reasoning_tool and hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
+                        cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
+                        if cognitive_dissonance_monitor:
+                            try:
+                                # Extract tool usage from messages
+                                tool_usage = []
+                                for msg in session.messages[-20:]:  # Check last 20 messages
+                                    if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                                        tool_usage.extend(msg.get("tool_calls", []))
+                                
+                                # Measure dissonance
+                                conversation_context = [
+                                    {"role": m.get("role"), "content": m.get("content", "")[:200]}
+                                    for m in session.messages[-5:]
+                                ]
+                                
+                                cognitive_dissonance_monitor.measure_dissonance(
+                                    response=content,
+                                    conversation_context=conversation_context,
+                                    tool_usage=tool_usage if tool_usage else None
+                                )
+                            except Exception as e:
+                                logger.debug(f"Error measuring cognitive dissonance in web_api: {e}", exc_info=True)
+                
                 break
         
         # Handle max iterations reached (same as session.send())

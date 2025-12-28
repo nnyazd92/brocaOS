@@ -593,15 +593,56 @@ def _initialize_reasoning_system(
                 self_model_updater = SelfModelUpdater(llm_client=create_llm_client())
                 logger.info("✓ Self model updater initialized")
             
+            # Get epistemic engine if available
+            epistemic_engine = None
+            if hasattr(self_model, 'epistemic_layer') and self_model.epistemic_layer:
+                try:
+                    from .self_model.epistemic.engine import MetacognitiveEngine
+                    # Try to get epistemic engine from internal sensing if available
+                    if internal_sensing and hasattr(internal_sensing, 'epistemic_engine'):
+                        epistemic_engine = internal_sensing.epistemic_engine
+                except Exception:
+                    pass
+            
+            # Create Z3 validator if enabled
+            z3_validator = None
+            if reasoning_config.z3_enabled:
+                try:
+                    from .reasoning.z3_validator import Z3LogicalValidator
+                    z3_validator = Z3LogicalValidator(
+                        enable_z3=True,
+                        timeout=reasoning_config.z3_timeout_seconds,
+                        max_constraints=reasoning_config.z3_max_constraints
+                    )
+                    logger.info("✓ Z3 validator initialized for cognitive dissonance")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize Z3 validator: {e}")
+            
+            # Create fact checker
+            fact_checker = None
+            try:
+                from .reasoning.fact_checker import FactChecker
+                # Try to get web search tool from tool registry if available
+                web_search_tool = None
+                # Fact checker will create its own web search tool if needed
+                fact_checker = FactChecker(enable_web_search=True)
+                logger.info("✓ Fact checker initialized for cognitive dissonance")
+            except Exception as e:
+                logger.warning(f"Failed to initialize fact checker: {e}")
+            
             # Create cognitive dissonance monitor
             cognitive_dissonance_monitor = CognitiveDissonanceMonitor(
                 self_model=self_model,
                 consistency_checker=consistency_checker,
+                epistemic_engine=epistemic_engine,
                 history_window=reasoning_config.metrics_tracking_window,
                 weight_logical=reasoning_config.dissonance_weight_logical,
                 weight_factual=reasoning_config.dissonance_weight_factual,
                 weight_behavioral=reasoning_config.dissonance_weight_behavioral,
-                weight_goal=reasoning_config.dissonance_weight_goal
+                weight_goal=reasoning_config.dissonance_weight_goal,
+                memory_manager=memory_manager,
+                z3_validator=z3_validator,
+                fact_checker=fact_checker
             )
             logger.info("✓ Cognitive dissonance monitor initialized")
             
