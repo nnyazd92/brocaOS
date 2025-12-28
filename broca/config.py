@@ -241,6 +241,7 @@ class OptimizationConfig(BaseModel):
 
 class SummarizationConfig(BaseModel):
     enabled: bool = os.getenv("BROCA_SUMMARIZATION_ENABLED", "true").lower() == "true"
+    auto_trigger_enabled: bool = os.getenv("BROCA_SUMMARIZATION_AUTO_TRIGGER", "false").lower() == "true"  # Disabled by default, manual only
     event_log_path: str = os.getenv("BROCA_EVENT_LOG_PATH", "conversations/events")
     summary_path: str = os.getenv("BROCA_SUMMARY_PATH", "docs/summaries")
     context_window_size: int = int(os.getenv("BROCA_SUMMARIZATION_CONTEXT_WINDOW_SIZE", "272000"))  # Updated to match API limit
@@ -255,6 +256,16 @@ class SummarizationConfig(BaseModel):
     initial_buffer_turns: int = int(os.getenv("BROCA_INITIAL_BUFFER_TURNS", "10"))  # Number of turns to keep initially after first summarization
     min_buffer_turns: int = int(os.getenv("BROCA_MIN_BUFFER_TURNS", "3"))  # Minimum turns to keep (current behavior)
     buffer_reduction_rate: int = int(os.getenv("BROCA_BUFFER_REDUCTION_RATE", "2"))  # Reduce buffer by this many turns per summarization cycle
+
+
+class ContextConfig(BaseModel):
+    """Configuration for tree-based context management."""
+    enabled: bool = os.getenv("BROCA_CONTEXT_GRAPH_ENABLED", "true").lower() == "true"
+    min_turns_retained: int = int(os.getenv("BROCA_CONTEXT_MIN_TURNS", "3"))
+    orphan_threshold_turns: int = int(os.getenv("BROCA_CONTEXT_ORPHAN_THRESHOLD", "10"))
+    relevance_decay_factor: float = float(os.getenv("BROCA_CONTEXT_RELEVANCE_DECAY", "0.9"))
+    main_thread_boost: float = float(os.getenv("BROCA_CONTEXT_MAIN_THREAD_BOOST", "2.0"))
+    safety_margin: float = float(os.getenv("BROCA_CONTEXT_SAFETY_MARGIN", "0.95"))  # 95% of max tokens
 
 
 class CacheConfig(BaseModel):
@@ -419,6 +430,7 @@ class BrocaConfig(BaseModel):
     environment: EnvironmentConfig = EnvironmentConfig()
     optimization: OptimizationConfig = OptimizationConfig()
     summarization: SummarizationConfig = SummarizationConfig()
+    context: ContextConfig = ContextConfig()
     repl_color: ReplColorConfig = ReplColorConfig()
     browse: BrowseConfig = BrowseConfig()
     reasoning: ReasoningConfig = ReasoningConfig()

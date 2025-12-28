@@ -379,6 +379,7 @@ class LearningTool:
                 return {
                     "success": True,
                     "message": f"Created skill: {skill['name']}",
+                    "skill_name": skill["name"],
                     "skill": skill_obj.to_dict(),
                 }
             else:

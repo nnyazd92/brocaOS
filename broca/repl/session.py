@@ -115,7 +115,7 @@ class ConversationSession:
         self.updated_at = self.created_at
         self._max_tool_iterations = 100
         
-        # Initialize summarization components if enabled
+        # Initialize summarization components if enabled (for manual /summarize command only)
         self._event_logger = None
         self._summarization_manager = None
         from ..config import config
@@ -136,12 +136,26 @@ class ConversationSession:
                     trigger_turns=config.summarization.trigger_turns,
                     trigger_token_threshold=config.summarization.trigger_token_threshold
                 )
-                logger.debug("Summarization enabled for session")
+                logger.debug("Summarization enabled for session (manual /summarize only)")
             except Exception as e:
                 logger.warning(f"Failed to initialize summarization: {e}", exc_info=True)
         
-        # Track turns for summarization triggers
+        # Track turns for summarization triggers (disabled for automatic, kept for manual)
         self._turns_since_last_summary = 0
+        
+        # Initialize context graph for intelligent context management
+        self._context_graph = None
+        if config.context.enabled:
+            try:
+                from ..context import ContextGraph
+                self._context_graph = ContextGraph(
+                    min_turns_retained=config.context.min_turns_retained,
+                    orphan_threshold_turns=config.context.orphan_threshold_turns,
+                    main_thread_boost=config.context.main_thread_boost,
+                )
+                logger.debug("Context graph enabled for session")
+            except Exception as e:
+                logger.warning(f"Failed to initialize context graph: {e}", exc_info=True)
 
         # Initialize formatter for world state
         if world_state_aggregator:
@@ -352,6 +366,25 @@ When you need to use tools to complete a task:
         
         # Final validation after rebuild to ensure clean state
         session._ensure_single_system_message()
+        
+        # Rebuild context graph from loaded messages if enabled
+        if session._context_graph:
+            try:
+                from ..config import config
+                if config.context.enabled:
+                    # Rebuild graph from existing messages
+                    parent_id = None
+                    for msg in session.messages:
+                        if "message_id" not in msg:
+                            msg["message_id"] = str(uuid.uuid4())
+                        session._context_graph.add_message(
+                            msg,
+                            parent_id=parent_id,
+                        )
+                        parent_id = msg.get("message_id")
+                    logger.debug(f"Rebuilt context graph from {len(session.messages)} loaded messages")
+            except Exception as e:
+                logger.warning(f"Failed to rebuild context graph from storage: {e}", exc_info=True)
 
         return session
 
@@ -459,6 +492,26 @@ When you need to use tools to complete a task:
         user_message = {"role": "user", "content": user_text}
         if user_event_id:
             user_message["event_ids"] = [user_event_id]
+        
+        # Add user message to context graph
+        if self._context_graph:
+            try:
+                # Find parent (last message in graph)
+                parent_id = None
+                if self._context_graph._message_order:
+                    parent_id = self._context_graph._message_order[-1]
+                
+                # Add message_id if not present
+                if "message_id" not in user_message:
+                    user_message["message_id"] = user_event_id or str(uuid.uuid4())
+                
+                self._context_graph.add_message(
+                    user_message,
+                    parent_id=parent_id,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to add user message to context graph: {e}", exc_info=True)
+        
         self.messages.append(user_message)
         # Start a new tool-policy turn (for per-turn rate limits)
         if self.tool_registry and hasattr(self.tool_registry, "start_turn"):
@@ -1318,36 +1371,39 @@ When you need to use tools to complete a task:
                 self.messages.append(assistant_message)
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 
-                # Increment turn counter and trigger summarization if needed
-                self._turns_since_last_summary += 1
-                if self._summarization_manager:
+                # Update context graph with new message
+                if self._context_graph:
                     try:
-                        result = self._summarization_manager.maybe_summarize(
-                            self.session_id,
-                            self.messages,
-                            self._turns_since_last_summary
+                        # Add assistant message to graph
+                        # Find parent (last user message or last assistant message)
+                        parent_id = None
+                        if len(self.messages) > 1:
+                            # Look backwards for the most recent message
+                            for i in range(len(self.messages) - 2, -1, -1):
+                                prev_msg = self.messages[i]
+                                if prev_msg.get("role") in ["user", "assistant"]:
+                                    # Try to find message_id in previous message
+                                    parent_id = prev_msg.get("message_id")
+                                    if not parent_id and i < len(self._context_graph._message_order):
+                                        # Use message order as fallback
+                                        parent_id = self._context_graph._message_order[i] if i < len(self._context_graph._message_order) else None
+                                    break
+                        
+                        # Add message with message_id if available
+                        msg_with_id = assistant_message.copy()
+                        if "message_id" not in msg_with_id:
+                            msg_with_id["message_id"] = assistant_event_id or str(uuid.uuid4())
+                        
+                        self._context_graph.add_message(
+                            msg_with_id,
+                            parent_id=parent_id,
                         )
-                        # Reset counter after summarization only if it actually occurred
-                        # This prevents rapid re-triggering
-                        if result is not None:
-                            self._turns_since_last_summary = 0
-                            # Prune messages that were summarized
-                            last_summarized_event_id = result.header.last_summarized_event_id
-                            if last_summarized_event_id:
-                                try:
-                                    removed_count = self._prune_summarized_messages(last_summarized_event_id)
-                                    if removed_count > 0:
-                                        logger.info(
-                                            f"Pruned {removed_count} messages after summarization",
-                                            extra={
-                                                "event": "context_collapsed_after_summarization",
-                                                "removed_messages": removed_count,
-                                            }
-                                        )
-                                except Exception as e:
-                                    logger.warning(f"Failed to prune messages after summarization: {e}", exc_info=True)
                     except Exception as e:
-                        logger.warning(f"Failed to trigger summarization: {e}", exc_info=True)
+                        logger.warning(f"Failed to update context graph: {e}", exc_info=True)
+                
+                # Automatic summarization is disabled - only manual /summarize command works
+                # Increment turn counter for manual summarization tracking only
+                self._turns_since_last_summary += 1
 
                 # Persist immediately so callers (and tests) can observe saved state
                 try:
@@ -2054,18 +2110,18 @@ When you need to use tools to complete a task:
 
     def _get_messages_for_llm(self) -> List[Dict[str, Any]]:
         """
-        Get messages to send to LLM, filtering to last K turns when summarization is enabled.
+        Get messages to send to LLM using intelligent context graph pruning.
         
-        When summarization is enabled and a summary exists, returns only:
-        - System message (at index 0)
-        - Last K turns (user/assistant pairs, where K = config.summarization.last_turns_count)
+        When context graph is enabled, uses tree-based pruning that:
+        - Preserves main conversation thread
+        - Retains relevant branches as long as possible
+        - Automatically removes orphaned branches
+        - Stays within token limits
         
-        When summarization is disabled or no summary exists, returns full message history.
+        When context graph is disabled, falls back to token-aware filtering.
         
-        This function now includes token-aware filtering:
-        - Estimates token count for filtered messages
-        - Truncates tool results if messages exceed token limit
-        - Dynamically reduces turn count if still over limit after truncation
+        Note: This method applies intelligent pruning, but _validate_message_size()
+        is always called afterward as a failsafe to ensure we never exceed token limits.
         
         Returns:
             Filtered message list for LLM calls (with tool results truncated if needed)
@@ -2075,123 +2131,76 @@ When you need to use tools to complete a task:
         # Check if we're using Gemini client (for Gemini-specific ordering fixes)
         is_gemini = self._is_gemini_client()
         
-        # If summarization not enabled, still apply token-aware filtering
-        if not self._summarization_manager:
-            # Apply token-aware filtering even without summarization
-            filtered = self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
-            # Apply Gemini-specific fix if needed
-            if is_gemini:
-                filtered = self._fix_gemini_tool_call_ordering(filtered)
-            return filtered
-        
-        # Check if summary exists for this session
-        try:
-            summary = self._summarization_manager.summary_storage.load_session_summary(self.session_id)
-            if not summary:
-                # No summary exists yet, apply token-aware filtering to full messages
-                filtered = self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
-                # Apply Gemini-specific fix if needed
-                if is_gemini:
-                    filtered = self._fix_gemini_tool_call_ordering(filtered)
-                return filtered
-        except Exception as e:
-            logger.debug(f"Error checking for summary, using full messages: {e}")
-            filtered = self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
-            # Apply Gemini-specific fix if needed
-            if is_gemini:
-                filtered = self._fix_gemini_tool_call_ordering(filtered)
-            return filtered
-        
-        # Summary exists - filter to system message + last K turns with token awareness
-        # Use gradual buffer calculation if enabled
-        last_turns_count = self._calculate_buffer_turns()
+        # Validate system message count before filtering
+        self._ensure_single_system_message()
         
         max_context_tokens = config.llm.max_context_tokens
         if not isinstance(max_context_tokens, int):
             max_context_tokens = 100000  # Default value
         
-        # Validate system message count before filtering to prevent accumulation issues
-        self._ensure_single_system_message()
-        
-        # Get system message (if exists)
-        system_message = None
-        if self.messages and self.messages[0].get("role") == "system":
-            system_message = self.messages[0]
-        
-        # Get last K turns (non-system messages)
-        # Filter out system messages to get conversation turns
-        non_system_messages = [m for m in self.messages if m.get("role") != "system"]
-        
-        # Start with configured turn count and dynamically reduce if needed
-        current_turns = last_turns_count
-        min_turns = 1  # Always keep at least last 1 turn
-        
-        while current_turns >= min_turns:
-            # Each turn = user + assistant (and possibly tool calls/results)
-            # Estimate: each turn is typically 2-4 messages
-            # To be safe, take last current_turns*4 messages as a conservative estimate
-            turns_to_keep = current_turns * 4
-            start_idx = max(0, len(non_system_messages) - turns_to_keep)
-            last_turns = non_system_messages[start_idx:]
-            
-            # Reconstruct message list: system message (if exists) + last turns
-            filtered_messages = []
-            if system_message:
-                filtered_messages.append(system_message)
-            filtered_messages.extend(last_turns)
-            
-            # Estimate tokens
-            estimated_tokens = estimate_messages_tokens(filtered_messages)
-            
-            # If under limit, truncate tool results and return
-            if estimated_tokens <= max_context_tokens:
-                # Truncate tool results in filtered messages as a safety measure
+        # Use context graph if enabled
+        if self._context_graph and config.context.enabled:
+            try:
+                # Ensure all messages are in the graph
+                # (in case graph wasn't updated for some messages)
+                for msg in self.messages:
+                    if "message_id" not in msg:
+                        msg["message_id"] = str(uuid.uuid4())
+                    # Check if message is already in graph
+                    msg_id = msg.get("message_id")
+                    if msg_id not in self._context_graph.nodes:
+                        # Find parent (previous message)
+                        parent_id = None
+                        if self._context_graph._message_order:
+                            parent_id = self._context_graph._message_order[-1]
+                        self._context_graph.add_message(msg, parent_id=parent_id)
+                
+                # Get messages from context graph with intelligent pruning
+                filtered_messages = self._context_graph.get_messages_for_llm(
+                    max_tokens=max_context_tokens,
+                    safety_margin=config.context.safety_margin,
+                )
+                
+                # Ensure system message is first if it exists
+                system_message = None
+                non_system_messages = []
+                for msg in filtered_messages:
+                    if msg.get("role") == "system":
+                        system_message = msg
+                    else:
+                        non_system_messages.append(msg)
+                
+                # Reconstruct with system message first
+                if system_message:
+                    filtered_messages = [system_message] + non_system_messages
+                else:
+                    filtered_messages = non_system_messages
+                
+                # Truncate tool results as safety measure
                 filtered_messages = self._truncate_tool_results_in_messages(
                     filtered_messages, config.summarization.max_tool_result_size
                 )
+                
                 # Apply Gemini-specific fix if needed
                 if is_gemini:
                     filtered_messages = self._fix_gemini_tool_call_ordering(filtered_messages)
+                
                 logger.debug(
-                    f"Filtered messages for LLM: {len(filtered_messages)} messages, "
-                    f"~{estimated_tokens} tokens (keeping last {current_turns} turns)"
+                    f"Context graph filtered messages: {len(filtered_messages)} messages "
+                    f"(from {len(self.messages)} total)"
                 )
                 return filtered_messages
-            
-            # Over limit - try reducing turn count
-            if current_turns > min_turns:
-                current_turns -= 1
-                logger.debug(
-                    f"Messages exceed token limit ({estimated_tokens} > {max_context_tokens}), "
-                    f"reducing to {current_turns} turns"
-                )
-            else:
-                # At minimum, truncate tool results and return anyway
-                filtered_messages = self._truncate_tool_results_in_messages(
-                    filtered_messages, config.summarization.max_tool_result_size
-                )
-                # Apply Gemini-specific fix if needed
-                if is_gemini:
-                    filtered_messages = self._fix_gemini_tool_call_ordering(filtered_messages)
-                logger.warning(
-                    f"Messages still exceed token limit after truncation "
-                    f"({estimated_tokens} > {max_context_tokens}), returning minimum turns"
-                )
-                return filtered_messages
+                
+            except Exception as e:
+                logger.warning(f"Error using context graph, falling back to token filtering: {e}", exc_info=True)
+                # Fall through to token-aware filtering
         
-        # Fallback: return at least system message + last message
-        filtered_messages = []
-        if system_message:
-            filtered_messages.append(system_message)
-        if non_system_messages:
-            filtered_messages.append(non_system_messages[-1])
-        filtered_messages = self._truncate_tool_results_in_messages(
-            filtered_messages, config.summarization.max_tool_result_size
-        )
+        # Fallback: token-aware filtering (no context graph or error occurred)
+        filtered = self._apply_token_aware_filtering(self.messages, max_context_tokens)
         # Apply Gemini-specific fix if needed
         if is_gemini:
-            filtered_messages = self._fix_gemini_tool_call_ordering(filtered_messages)
-        return filtered_messages
+            filtered = self._fix_gemini_tool_call_ordering(filtered)
+        return filtered
     
     def _apply_token_aware_filtering(
         self, messages: List[Dict[str, Any]], max_tokens: int
@@ -3059,9 +3068,17 @@ When you need to use tools to complete a task:
         estimated_after = estimate_messages_tokens(truncated)
         
         if estimated_after > max_tokens:
-            logger.error(
+            logger.warning(
                 f"Messages still exceed token limit after truncation "
-                f"({estimated_after} > {max_tokens}). Consider reducing conversation history."
+                f"({estimated_after} > {max_tokens}). Applying aggressive token filtering as failsafe."
+            )
+            # Apply aggressive token-aware filtering as failsafe
+            # This will remove messages if needed to stay under limit
+            truncated = self._apply_token_aware_filtering(truncated, max_tokens)
+            final_estimated = estimate_messages_tokens(truncated)
+            logger.info(
+                f"Failsafe filtering complete: {estimated_tokens} -> {final_estimated} tokens "
+                f"(limit: {max_tokens})"
             )
         else:
             logger.info(
@@ -4495,6 +4512,41 @@ When you need to use tools to complete a task:
                 
                 self.messages.append(tool_result)
                 
+                # Add tool result to context graph
+                if self._context_graph:
+                    try:
+                        # Find parent (the assistant message with tool_calls)
+                        parent_id = None
+                        for msg in reversed(self.messages[:-1]):  # All messages except the one we just added
+                            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                                # Check if this assistant message has the matching tool_call
+                                for tc in msg.get("tool_calls", []):
+                                    if tc.get("id") == tool_call_id:
+                                        parent_id = msg.get("message_id")
+                                        if not parent_id and self._context_graph._message_order:
+                                            # Find by position
+                                            msg_idx = len(self.messages) - 2
+                                            if msg_idx < len(self._context_graph._message_order):
+                                                parent_id = self._context_graph._message_order[msg_idx]
+                                        break
+                                if parent_id:
+                                    break
+                        
+                        # Fallback: use last message in graph
+                        if not parent_id and self._context_graph._message_order:
+                            parent_id = self._context_graph._message_order[-1]
+                        
+                        # Add message_id if not present
+                        if "message_id" not in tool_result:
+                            tool_result["message_id"] = tool_result_event_id or str(uuid.uuid4())
+                        
+                        self._context_graph.add_message(
+                            tool_result,
+                            parent_id=parent_id,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to add tool result to context graph: {e}", exc_info=True)
+                
                 # Verify tool result was properly added to messages
                 # This ensures the next LLM iteration will receive the tool result
                 logger.debug(
@@ -4594,14 +4646,44 @@ When you need to use tools to complete a task:
                     },
                 )
                 # Add error message
-                self.messages.append(
-                    {
-                        "tool_call_id": tool_call_id,
-                        "role": "tool",
-                        "name": tool_name,
-                        "content": f"Error: {str(e)}",
-                    }
-                )
+                error_tool_result = {
+                    "tool_call_id": tool_call_id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": f"Error: {str(e)}",
+                }
+                self.messages.append(error_tool_result)
+                
+                # Add error tool result to context graph
+                if self._context_graph:
+                    try:
+                        # Find parent (the assistant message with tool_calls)
+                        parent_id = None
+                        for msg in reversed(self.messages[:-1]):
+                            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                                for tc in msg.get("tool_calls", []):
+                                    if tc.get("id") == tool_call_id:
+                                        parent_id = msg.get("message_id")
+                                        if not parent_id and self._context_graph._message_order:
+                                            msg_idx = len(self.messages) - 2
+                                            if msg_idx < len(self._context_graph._message_order):
+                                                parent_id = self._context_graph._message_order[msg_idx]
+                                        break
+                                if parent_id:
+                                    break
+                        
+                        if not parent_id and self._context_graph._message_order:
+                            parent_id = self._context_graph._message_order[-1]
+                        
+                        if "message_id" not in error_tool_result:
+                            error_tool_result["message_id"] = str(uuid.uuid4())
+                        
+                        self._context_graph.add_message(
+                            error_tool_result,
+                            parent_id=parent_id,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to add error tool result to context graph: {e}", exc_info=True)
 
     # ---------- Storage helpers ----------
 

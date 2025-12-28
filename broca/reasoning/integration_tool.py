@@ -350,6 +350,7 @@ class ReasoningTool:
                     return {
                         "success": True,
                         "message": f"Set goal: {goal['name']}",
+                        "goal_name": goal["name"],
                         "goal": goal_obj.to_dict()
                     }
                 else:
