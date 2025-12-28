@@ -11,7 +11,7 @@ from .self_model.model import SelfModel
 from .internal_sensing.framework import InternalSensingFramework
 from .world_state.aggregator import WorldStateAggregator
 from .tools.registry import ToolRegistry
-from .tools.self_model_tool import QuerySelfModelTool
+from .reasoning.integration_tool import ReasoningTool
 from .config import config
 
 from .main_repl import (
@@ -20,6 +20,7 @@ from .main_repl import (
     _initialize_self_model,
     _initialize_internal_sensing,
     _initialize_environment_system,
+    _initialize_reasoning_system,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,15 +107,6 @@ def initialize_runtime() -> BrocaRuntime:
         logger.warning(f"Failed to initialize tool registry: {e}", exc_info=True)
         tool_registry = None
 
-    # Self-model tool
-    if self_model and self_model_storage and tool_registry:
-        try:
-            query_tool = QuerySelfModelTool(self_model, self_model_storage)
-            tool_registry.register_tool(query_tool)
-            logger.info("Registered self-model query tool")
-        except Exception as e:
-            logger.warning(f"Failed to register self-model query tool: {e}", exc_info=True)
-    
     # Register environment access tool if environment system is enabled
     if environment_system and tool_registry:
         try:
@@ -154,6 +146,45 @@ def initialize_runtime() -> BrocaRuntime:
         f"Reduction level: {config.self_model.self_model_reduction_level}"
     )
 
+    # Initialize reasoning system with cognitive dissonance integration
+    reasoning_tool = None
+    if config.reasoning.enabled:
+        try:
+            reasoning_tool = _initialize_reasoning_system(
+                memory_manager=memory_manager,
+                self_model=self_model,
+                self_model_storage=self_model_storage,
+                internal_sensing=internal_sensing
+            )
+            if reasoning_tool:
+                logger.info("✓ Reasoning system initialized successfully")
+            else:
+                logger.warning("✗ Reasoning system initialization failed or disabled")
+        except Exception as e:
+            logger.warning(f"Failed to initialize reasoning system: {e}", exc_info=True)
+            reasoning_tool = None
+    
+    # Initialize self-model size manager if enabled
+    size_manager = None
+    if self_model and config.self_model.size_management_enabled:
+        try:
+            from .self_model.size_manager import SelfModelSizeManager, SizeLimits
+            limits = SizeLimits(
+                max_capabilities=config.self_model.max_capabilities,
+                max_knowledge_boundaries=config.self_model.max_knowledge_boundaries,
+                max_constraints=config.self_model.max_constraints,
+                soft_capabilities=config.self_model.soft_capabilities,
+                soft_knowledge_boundaries=config.self_model.soft_knowledge_boundaries,
+                soft_constraints=config.self_model.soft_constraints
+            )
+            size_manager = SelfModelSizeManager(
+                limits=limits,
+                epistemic_engine=epistemic_engine
+            )
+            logger.info("✓ Self-model size manager initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize self-model size manager: {e}", exc_info=True)
+    
     world_state_aggregator = WorldStateAggregator(
         internal_sensing=internal_sensing,
         self_model=self_model,
@@ -161,6 +192,9 @@ def initialize_runtime() -> BrocaRuntime:
         memory_manager=memory_manager,
         directory_structure_generator=directory_structure_generator,
         self_model_reduction_level=config.self_model.self_model_reduction_level,
+        reasoning_tool=reasoning_tool,
+        size_manager=size_manager,
+        config=config,
     )
 
     # Initialize color manager

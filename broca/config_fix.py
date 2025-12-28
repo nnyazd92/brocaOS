@@ -1,7 +1,6 @@
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
-from typing import Optional
 
 load_dotenv()
 from .reasoning.config import ReasoningConfig
@@ -188,16 +187,6 @@ class SelfModelConfig(BaseModel):
     enable_epistemic: bool = os.getenv("BROCA_SELF_MODEL_ENABLE_EPISTEMIC", "true").lower() == "true"
     epistemic_auto_verify: bool = os.getenv("BROCA_SELF_MODEL_EPISTEMIC_AUTO_VERIFY", "false").lower() == "true"
     self_model_reduction_level: str = os.getenv("BROCA_SELF_MODEL_REDUCTION_LEVEL", "mild")  # "none", "mild", "moderate", "heavy"
-    
-    # Size management configuration
-    max_capabilities: int = int(os.getenv("BROCA_SELF_MODEL_MAX_CAPABILITIES", "50"))
-    max_knowledge_boundaries: int = int(os.getenv("BROCA_SELF_MODEL_MAX_KNOWLEDGE_BOUNDARIES", "30"))
-    max_constraints: int = int(os.getenv("BROCA_SELF_MODEL_MAX_CONSTRAINTS", "30"))
-    soft_capabilities: int = int(os.getenv("BROCA_SELF_MODEL_SOFT_CAPABILITIES", "40"))
-    soft_knowledge_boundaries: int = int(os.getenv("BROCA_SELF_MODEL_SOFT_KNOWLEDGE_BOUNDARIES", "25"))
-    soft_constraints: int = int(os.getenv("BROCA_SELF_MODEL_SOFT_CONSTRAINTS", "25"))
-    size_management_enabled: bool = os.getenv("BROCA_SELF_MODEL_SIZE_MANAGEMENT_ENABLED", "true").lower() == "true"
-    metadata_only_mode: bool = os.getenv("BROCA_SELF_MODEL_METADATA_ONLY_MODE", "true").lower() == "true"
 
 
 class InternalSensingConfig(BaseModel):
@@ -210,19 +199,6 @@ class InternalSensingConfig(BaseModel):
     enable_predictive: bool = os.getenv("BROCA_INTERNAL_SENSING_ENABLE_PREDICTIVE", "true").lower() == "true"
     storage_path: str = os.getenv("BROCA_INTERNAL_SENSING_STORAGE_PATH", "internal_sensing_history.json")
     state_path: str = os.getenv("BROCA_INTERNAL_SENSING_STATE_PATH", "runtime/internal_sensing_state.json")
-    
-    # Emotional regulation integration
-    emotional_regulation_enabled: bool = os.getenv("BROCA_EMOTIONAL_REGULATION_ENABLED", "true").lower() == "true"
-    target_valence: float = float(os.getenv("BROCA_EMOTIONAL_TARGET_VALENCE", "0.1"))
-    target_arousal: float = float(os.getenv("BROCA_EMOTIONAL_TARGET_AROUSAL", "0.5"))
-    target_curiosity: float = float(os.getenv("BROCA_EMOTIONAL_TARGET_CURIOSITY", "0.5"))
-    pid_kp_valence: float = float(os.getenv("BROCA_EMOTIONAL_PID_KP_VALENCE", "0.5"))
-    pid_ki_valence: float = float(os.getenv("BROCA_EMOTIONAL_PID_KI_VALENCE", "0.1"))
-    pid_kd_valence: float = float(os.getenv("BROCA_EMOTIONAL_PID_KD_VALENCE", "0.2"))
-    pid_kp_arousal: float = float(os.getenv("BROCA_EMOTIONAL_PID_KP_AROUSAL", "0.4"))
-    pid_ki_arousal: float = float(os.getenv("BROCA_EMOTIONAL_PID_KI_AROUSAL", "0.08"))
-    pid_kd_arousal: float = float(os.getenv("BROCA_EMOTIONAL_PID_KD_AROUSAL", "0.15"))
-    dissonance_emotion_sensitivity: float = float(os.getenv("BROCA_DISSONANCE_EMOTION_SENSITIVITY", "1.0"))
 
 
 class EnvironmentConfig(BaseModel):
@@ -305,18 +281,7 @@ class BrowseSafetyConfig(BaseModel):
 
 class BrowseConfig(BaseModel):
     pass
-
-
-class DampingConfig(BaseModel):
-    """Configuration for signal damping system."""
-    enabled: bool = os.getenv("BROCA_DAMPING_ENABLED", "true").lower() == "true"
-    signal_profiles_path: Optional[str] = os.getenv("BROCA_DAMPING_PROFILES_PATH", None)
-    default_profile: str = os.getenv("BROCA_DAMPING_DEFAULT_PROFILE", "MED")
-    enable_observability: bool = os.getenv("BROCA_DAMPING_OBSERVABILITY_ENABLED", "true").lower() == "true"
-    enable_oscillation_detection: bool = os.getenv("BROCA_DAMPING_OSCILLATION_DETECTION_ENABLED", "true").lower() == "true"
-    history_size: int = int(os.getenv("BROCA_DAMPING_HISTORY_SIZE", "1000"))
-
-
+class LearningConfig(BaseModel):
 class LearningConfig(BaseModel):
     """Configuration for learning system."""
     
@@ -415,7 +380,6 @@ class BrocaConfig(BaseModel):
     browse: BrowseConfig = BrowseConfig()
     reasoning: ReasoningConfig = ReasoningConfig()
     learning: LearningConfig = LearningConfig()
-    damping: DampingConfig = DampingConfig()
 
 
 config = BrocaConfig()

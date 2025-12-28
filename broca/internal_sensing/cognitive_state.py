@@ -126,6 +126,16 @@ class CognitiveStateMonitor:
         self._epistemic_bridge = epistemic_bridge
         logger.info("Set epistemic bridge for CognitiveStateMonitor")
     
+    def set_signal_manager(self, signal_manager: Optional[Any]) -> None:
+        """
+        Set signal manager for damping uncertainty signals.
+        
+        Args:
+            signal_manager: SignalManager instance
+        """
+        self._signal_manager = signal_manager
+        logger.info("Set signal manager for CognitiveStateMonitor")
+    
     def record_confidence(self, response_id: str, confidence: float) -> None:
         """
         Record confidence level for a response.
@@ -783,6 +793,12 @@ class CognitiveStateMonitor:
         if len(self._uncertainty_history) > 0:
             avg = sum(entry["uncertainty"] for entry in self._uncertainty_history) / len(self._uncertainty_history)
             old_value = self.states["uncertainty_tracking"]
+            # Update through SignalManager if available (hybrid approach)
+            if self._signal_manager:
+                try:
+                    avg = self._signal_manager.update("self_model.uncertainty", avg)
+                except Exception as e:
+                    logger.debug(f"Error updating uncertainty signal through SignalManager: {e}")
             self.states["uncertainty_tracking"] = avg
             logger.debug(f"Updated uncertainty_tracking: {old_value:.3f} -> {avg:.3f} (from {len(self._uncertainty_history)} samples, moving_avg)")
         else:

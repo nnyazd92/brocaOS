@@ -12,6 +12,7 @@ import logging
 import math
 from collections import deque
 from typing import Dict, Any, List, Optional, TYPE_CHECKING, Union
+from datetime import datetime, timezone
 
 # Import data quality utilities
 try:
@@ -113,6 +114,16 @@ class ComputationalAffectMonitor:
         # Epistemic bridge for second-order metacognition (optional)
         self._epistemic_bridge: Optional[Any] = None
         
+        # Emotional appraisal and regulation (optional, for dissonance/learning integration)
+        self._emotional_appraisal_engine: Optional[Any] = None
+        self._emotional_regulator: Optional[Any] = None
+        
+        # Emotional regulation history
+        self._regulation_history: deque = deque(maxlen=100)
+        
+        # Signal manager for damping (optional)
+        self._signal_manager: Optional[Any] = None
+        
         logger.info("Initialized ComputationalAffectMonitor")
     
     def set_embedding_service(self, embedding_service: Optional[Any]) -> None:
@@ -133,6 +144,26 @@ class ComputationalAffectMonitor:
         """
         self._epistemic_bridge = epistemic_bridge
         logger.info("Set epistemic bridge for ComputationalAffectMonitor")
+    
+    def set_emotional_appraisal_engine(self, appraisal_engine: Optional[Any]) -> None:
+        """
+        Set emotional appraisal engine for cognitive dissonance integration.
+        
+        Args:
+            appraisal_engine: CognitiveAppraisalEngine instance
+        """
+        self._emotional_appraisal_engine = appraisal_engine
+        logger.info("Set emotional appraisal engine for ComputationalAffectMonitor")
+    
+    def set_emotional_regulator(self, regulator: Optional[Any]) -> None:
+        """
+        Set emotional regulator for homeostatic regulation.
+        
+        Args:
+            regulator: HomeostaticEmotionalRegulator instance
+        """
+        self._emotional_regulator = regulator
+        logger.info("Set emotional regulator for ComputationalAffectMonitor")
     
     def _compute_exponential_weighted_average(self, history: deque, timestamps: Optional[deque] = None, decay_rate: float = 0.1) -> float:
         """
@@ -350,11 +381,13 @@ class ComputationalAffectMonitor:
         
         if len(self._valence_history) > 0:
             # Use exponential weighted average instead of simple moving average
-            self.affective_states["valence"] = self._compute_exponential_weighted_average(
+            raw_valence = self._compute_exponential_weighted_average(
                 self._valence_history, 
                 self._valence_timestamps,
                 decay_rate=0.15  # Higher decay = more weight on recent
             )
+            # Update through SignalManager if available (hybrid approach)
+            self.affective_states["valence"] = self._update_damped_signal("affect.valence", raw_valence)
     
     
     def compute_valence_from_text(self, text: str, use_semantic: bool = True) -> None:
@@ -415,8 +448,10 @@ class ComputationalAffectMonitor:
                 self._valence_timestamps,
                 decay_rate=0.15
             )
-            self.affective_states["valence"] = new_valence
-            logger.debug(f"Updated valence: {old_valence:.3f} -> {new_valence:.3f} (computed={final_valence:.3f}, semantic={semantic_valence}, context_adj={context_adj:.3f}, history_len={len(self._valence_history)})")
+            # Update through SignalManager if available (hybrid approach)
+            damped_valence = self._update_damped_signal("affect.valence", new_valence)
+            self.affective_states["valence"] = damped_valence
+            logger.debug(f"Updated valence: {old_valence:.3f} -> {new_valence:.3f} -> {damped_valence:.3f} (computed={final_valence:.3f}, semantic={semantic_valence}, context_adj={context_adj:.3f}, history_len={len(self._valence_history)})")
 
     
     def compute_valence_from_conversation_history(self, messages: List[Dict[str, Any]], 
@@ -533,7 +568,9 @@ class ComputationalAffectMonitor:
                 self._valence_timestamps,
                 decay_rate=0.15
             )
-            self.affective_states["valence"] = new_valence
+            # Update through SignalManager if available (hybrid approach)
+            damped_valence = self._update_damped_signal("affect.valence", new_valence)
+            self.affective_states["valence"] = damped_valence
             
             # Update dimension states
             for dim in ["achievement", "social", "epistemic"]:
@@ -608,8 +645,10 @@ class ComputationalAffectMonitor:
         self._arousal_history.append(arousal)
         if len(self._arousal_history) > 0:
             new_arousal = sum(self._arousal_history) / len(self._arousal_history)
-            self.affective_states["arousal"] = new_arousal
-            logger.debug(f"Updated arousal: {old_arousal:.3f} -> {new_arousal:.3f} (computed={arousal:.3f}, history_len={len(self._arousal_history)})")
+            # Update through SignalManager if available (hybrid approach)
+            damped_arousal = self._update_damped_signal("affect.arousal", new_arousal)
+            self.affective_states["arousal"] = damped_arousal
+            logger.debug(f"Updated arousal: {old_arousal:.3f} -> {new_arousal:.3f} -> {damped_arousal:.3f} (computed={arousal:.3f}, history_len={len(self._arousal_history)})")
     
     def update_certainty_affect(self, confidence: float, 
                                 calibration_error: Optional[float] = None,
@@ -1022,9 +1061,11 @@ class ComputationalAffectMonitor:
         # Update states from temporal dynamics when history exists
         # This ensures we return weighted average values when available, defaults otherwise
         if len(self._valence_history) > 0:
-            self.affective_states["valence"] = self._compute_exponential_weighted_average(
+            raw_valence = self._compute_exponential_weighted_average(
                 self._valence_history, self._valence_timestamps, decay_rate=0.15
             )
+            # Update through SignalManager if available (hybrid approach)
+            self.affective_states["valence"] = self._update_damped_signal("affect.valence", raw_valence)
             # Update dimensions
             for dim in ["achievement", "social", "epistemic"]:
                 if len(self._valence_dimensions_history[dim]) > 0:
@@ -1032,7 +1073,9 @@ class ComputationalAffectMonitor:
                         self._valence_dimensions_history[dim], None, decay_rate=0.15
                     )
         if len(self._arousal_history) > 0:
-            self.affective_states["arousal"] = sum(self._arousal_history) / len(self._arousal_history)
+            raw_arousal = sum(self._arousal_history) / len(self._arousal_history)
+            # Update through SignalManager if available (hybrid approach)
+            self.affective_states["arousal"] = self._update_damped_signal("affect.arousal", raw_arousal)
         if len(self._certainty_affect_history) > 0:
             self.affective_states["certainty_affect"] = sum(self._certainty_affect_history) / len(self._certainty_affect_history)
         if len(self._curiosity_drive_history) > 0:
@@ -1180,11 +1223,13 @@ class ComputationalAffectMonitor:
                     self._valence_timestamps.clear()
                     for ts in histories["valence_timestamps"]:
                         self._valence_timestamps.append(ts)
-                    self.affective_states["valence"] = self._compute_exponential_weighted_average(
+                    raw_valence = self._compute_exponential_weighted_average(
                         self._valence_history, self._valence_timestamps, decay_rate=0.15
                     )
                 else:
-                    self.affective_states["valence"] = sum(self._valence_history) / len(self._valence_history)
+                    raw_valence = sum(self._valence_history) / len(self._valence_history)
+                # Update through SignalManager if available (hybrid approach)
+                self.affective_states["valence"] = self._update_damped_signal("affect.valence", raw_valence)
             logger.debug(f"Restored {len(self._valence_history)} valence history entries")
         
         # Restore valence dimensions history
@@ -1263,4 +1308,243 @@ class ComputationalAffectMonitor:
             if len(self._surprise_long_term_history) > 0:
                 self.affective_states["surprise_long_term"] = sum(self._surprise_long_term_history) / len(self._surprise_long_term_history)
             logger.debug(f"Restored {len(self._surprise_long_term_history)} surprise_long_term history entries")
+    
+    def get_current_state(self) -> Dict[str, float]:
+        """
+        Get current emotional state.
+        
+        Returns:
+            Dictionary with current emotional state values
+        """
+        return {
+            "valence": self.affective_states["valence"],
+            "arousal": self.affective_states["arousal"],
+            "certainty_affect": self.affective_states["certainty_affect"],
+            "curiosity_drive": self.affective_states["curiosity_drive"],
+            "coherence_pleasure": self.affective_states["coherence_pleasure"],
+            "surprise": self.affective_states["surprise"],
+        }
+    
+    def update_from_dissonance(
+        self,
+        dissonance_metrics: Dict[str, Any],
+        current_goals: Optional[List[Dict[str, Any]]] = None,
+        coping_resources: Optional[Dict[str, float]] = None
+    ) -> None:
+        """
+        Update emotional state based on cognitive dissonance metrics.
+        
+        Args:
+            dissonance_metrics: Dissonance metrics dictionary or DissonanceMetrics object
+            current_goals: Optional list of current goals for appraisal
+            coping_resources: Optional coping resources dictionary
+        """
+        if not self._emotional_appraisal_engine:
+            logger.debug("No emotional appraisal engine set, skipping dissonance update")
+            return
+        
+        try:
+            from .emotional_appraisal import DissonanceEmotionalMapper
+            
+            # Convert to DissonanceMetrics if needed
+            if isinstance(dissonance_metrics, dict):
+                from ..reasoning.cognitive_dissonance import DissonanceMetrics
+                metrics = DissonanceMetrics(
+                    timestamp=dissonance_metrics.get("timestamp", datetime.now(timezone.utc)),
+                    logical_dissonance=dissonance_metrics.get("logical_dissonance", 0.0),
+                    factual_dissonance=dissonance_metrics.get("factual_dissonance", 0.0),
+                    behavioral_dissonance=dissonance_metrics.get("behavioral_dissonance", 0.0),
+                    goal_dissonance=dissonance_metrics.get("goal_dissonance", 0.0),
+                    overall_dissonance=dissonance_metrics.get("overall_dissonance", 0.0)
+                )
+                metrics.compute_overall()
+            else:
+                metrics = dissonance_metrics
+            
+            # Appraise the dissonance
+            appraisal = self._emotional_appraisal_engine.appraise_dissonance(
+                dissonance_metrics=metrics,
+                current_goals=current_goals or [],
+                coping_resources=coping_resources or {}
+            )
+            
+            # Map to emotional changes
+            mapper = DissonanceEmotionalMapper()
+            emotion_mapping = mapper.map_to_emotion(metrics, appraisal)
+            
+            # Apply emotional changes
+            old_valence = self.affective_states["valence"]
+            old_arousal = self.affective_states["arousal"]
+            old_curiosity = self.affective_states["curiosity_drive"]
+            
+            # Update valence
+            new_valence = max(-1.0, min(1.0, old_valence + emotion_mapping.valence_delta))
+            self.compute_valence(
+                positive_score=max(0.0, new_valence) if new_valence > 0 else 0.0,
+                negative_score=max(0.0, -new_valence) if new_valence < 0 else 0.0
+            )
+            
+            # Update arousal
+            new_arousal = max(0.0, min(1.0, old_arousal + emotion_mapping.arousal_delta))
+            self.affective_states["arousal"] = new_arousal
+            self._arousal_history.append(new_arousal)
+            if len(self._arousal_history) > 0:
+                self.affective_states["arousal"] = sum(self._arousal_history) / len(self._arousal_history)
+            
+            # Update curiosity
+            new_curiosity = max(0.0, min(1.0, old_curiosity + emotion_mapping.curiosity_delta))
+            self.affective_states["curiosity_drive"] = new_curiosity
+            self._curiosity_drive_history.append(new_curiosity)
+            if len(self._curiosity_drive_history) > 0:
+                self.affective_states["curiosity_drive"] = sum(self._curiosity_drive_history) / len(self._curiosity_drive_history)
+            
+            # Update surprise
+            if emotion_mapping.surprise_delta > 0.0:
+                self.affective_states["surprise"] = min(1.0, self.affective_states["surprise"] + emotion_mapping.surprise_delta)
+                self._surprise_history.append(self.affective_states["surprise"])
+            
+            logger.debug(
+                f"Updated affect from dissonance: valence {old_valence:.3f}→{self.affective_states['valence']:.3f}, "
+                f"arousal {old_arousal:.3f}→{self.affective_states['arousal']:.3f}, "
+                f"curiosity {old_curiosity:.3f}→{self.affective_states['curiosity_drive']:.3f}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error updating affect from dissonance: {e}", exc_info=True)
+    
+    def update_from_learning_outcome(
+        self,
+        outcome: Dict[str, Any],
+        expected_outcome: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Update emotional state based on learning outcome.
+        
+        Args:
+            outcome: Learning outcome dictionary with success, effectiveness, dissonance_reduction, etc.
+            expected_outcome: Optional expected outcome for comparison
+        """
+        if not self._emotional_appraisal_engine:
+            logger.debug("No emotional appraisal engine set, skipping learning outcome update")
+            return
+        
+        try:
+            from .emotional_appraisal import LearningOutcomeAppraiser
+            
+            appraiser = LearningOutcomeAppraiser()
+            emotion_mapping = appraiser.appraise_and_map(outcome, expected_outcome)
+            
+            # Apply emotional changes
+            old_valence = self.affective_states["valence"]
+            old_arousal = self.affective_states["arousal"]
+            old_curiosity = self.affective_states["curiosity_drive"]
+            
+            # Update valence
+            new_valence = max(-1.0, min(1.0, old_valence + emotion_mapping.valence_delta))
+            self.compute_valence(
+                positive_score=max(0.0, new_valence) if new_valence > 0 else 0.0,
+                negative_score=max(0.0, -new_valence) if new_valence < 0 else 0.0
+            )
+            
+            # Update arousal
+            new_arousal = max(0.0, min(1.0, old_arousal + emotion_mapping.arousal_delta))
+            self.affective_states["arousal"] = new_arousal
+            self._arousal_history.append(new_arousal)
+            if len(self._arousal_history) > 0:
+                self.affective_states["arousal"] = sum(self._arousal_history) / len(self._arousal_history)
+            
+            # Update curiosity
+            new_curiosity = max(0.0, min(1.0, old_curiosity + emotion_mapping.curiosity_delta))
+            self.affective_states["curiosity_drive"] = new_curiosity
+            self._curiosity_drive_history.append(new_curiosity)
+            if len(self._curiosity_drive_history) > 0:
+                self.affective_states["curiosity_drive"] = sum(self._curiosity_drive_history) / len(self._curiosity_drive_history)
+            
+            logger.debug(
+                f"Updated affect from learning outcome: valence {old_valence:.3f}→{self.affective_states['valence']:.3f}, "
+                f"arousal {old_arousal:.3f}→{self.affective_states['arousal']:.3f}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error updating affect from learning outcome: {e}", exc_info=True)
+    
+    def get_emotional_regulation_needs(self) -> Dict[str, Any]:
+        """
+        Get current emotional regulation needs based on homeostatic regulator.
+        
+        Returns:
+            Dictionary with regulation needs (priority, strategy, adjustments)
+        """
+        if not self._emotional_regulator:
+            return {
+                "needs_regulation": False,
+                "priority": 0.0
+            }
+        
+        try:
+            current_state = self.get_current_state()
+            regulation_signal = self._emotional_regulator.compute_regulation_signal(current_state)
+            
+            # Record in history (convert RegulationSignal to dict for storage)
+            from .emotional_regulation import RegulationSignal
+            signal_dict = {
+                "valence_adjustment": regulation_signal.valence_adjustment,
+                "arousal_adjustment": regulation_signal.arousal_adjustment,
+                "curiosity_adjustment": regulation_signal.curiosity_adjustment,
+                "strategy": regulation_signal.strategy,
+                "priority": regulation_signal.priority
+            }
+            self._regulation_history.append({
+                "timestamp": time.time(),
+                "signal": signal_dict,
+                "current_state": current_state.copy()
+            })
+            
+            return {
+                "needs_regulation": regulation_signal.priority > 0.2,
+                "priority": regulation_signal.priority,
+                "strategy": regulation_signal.strategy,
+                "valence_adjustment": regulation_signal.valence_adjustment,
+                "arousal_adjustment": regulation_signal.arousal_adjustment,
+                "curiosity_adjustment": regulation_signal.curiosity_adjustment
+            }
+        except Exception as e:
+            logger.error(f"Error computing emotional regulation needs: {e}", exc_info=True)
+            return {
+                "needs_regulation": False,
+                "priority": 0.0
+            }
+    
+    def record_emotional_response(
+        self,
+        dissonance_before: float,
+        dissonance_after: float,
+        emotion_state: Optional[Dict[str, float]] = None
+    ) -> None:
+        """
+        Record emotional response to dissonance change.
+        
+        Args:
+            dissonance_before: Dissonance before event
+            dissonance_after: Dissonance after event
+            emotion_state: Optional emotional state at time of response
+        """
+        if emotion_state is None:
+            emotion_state = self.get_current_state()
+        
+        response_record = {
+            "timestamp": time.time(),
+            "dissonance_before": dissonance_before,
+            "dissonance_after": dissonance_after,
+            "dissonance_change": dissonance_before - dissonance_after,
+            "emotion_state": emotion_state.copy()
+        }
+        
+        # Store in regulation history (reuse the same deque)
+        self._regulation_history.append(response_record)
+        
+        logger.debug(
+            f"Recorded emotional response: dissonance {dissonance_before:.3f}→{dissonance_after:.3f}, "
+            f"valence={emotion_state.get('valence', 0.0):.3f}"
+        )
 

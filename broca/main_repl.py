@@ -23,6 +23,7 @@ from .memory.embeddings import EmbeddingService
 from .memory.manager import MemoryManager
 from .self_model.model import SelfModel
 from .tools.self_model_tool import QuerySelfModelTool
+from .tools.self_model_crud_tool import SelfModelCRUDTool
 from .internal_sensing.framework import InternalSensingFramework
 from .world_state.aggregator import WorldStateAggregator
 
@@ -222,6 +223,29 @@ def _initialize_tool_registry(
                 logger.info("Registered browser navigation tool")
             except Exception as e:
                 logger.warning(f"Failed to register browser navigation tool: {e}", exc_info=True)
+        
+        # Register self-model tools if self-model is available
+        if self_model and storage:
+            try:
+                query_tool = QuerySelfModelTool(self_model, storage)
+                registry.register_tool(query_tool)
+                logger.info("Registered self-model query tool")
+                
+                from .tools.self_model_tool import UpdateSelfModelTool
+                update_tool = UpdateSelfModelTool(self_model, storage)
+                registry.register_tool(update_tool)
+                logger.info("Registered self-model update tool")
+                
+                # Register CRUD tool (comprehensive self-model management)
+                crud_tool = SelfModelCRUDTool(
+                    self_model=self_model,
+                    storage=storage,
+                    epistemic_engine=epistemic_engine
+                )
+                registry.register_tool(crud_tool)
+                logger.info("Registered self-model CRUD tool")
+            except Exception as e:
+                logger.warning(f"Failed to register self-model tools: {e}", exc_info=True)
         
         if len(registry.list_tools()) == 0:
             logger.debug("No tools registered")
@@ -498,6 +522,223 @@ def _initialize_internal_sensing(embedding_service: Optional[EmbeddingService] =
         return None
 
 
+def _initialize_reasoning_system(
+    memory_manager: Optional[MemoryManager] = None,
+    self_model: Optional[SelfModel] = None,
+    self_model_storage: Optional[Any] = None,
+    internal_sensing: Optional[InternalSensingFramework] = None
+) -> Optional["ReasoningTool"]:
+    """
+    Initialize the complete reasoning system with cognitive dissonance integration.
+    
+    Creates and wires together:
+    - Declarative memory and spreading activation
+    - Reasoning tool (rule system, goal manager, working memory)
+    - Cognitive dissonance monitor
+    - Self model updater and feedback loop
+    - Feedback loop manager
+    - State manager (if persistence enabled)
+    - Reasoning daemon (if autonomous enabled)
+    
+    Args:
+        memory_manager: Optional MemoryManager for declarative memory
+        self_model: Optional SelfModel for cognitive dissonance monitoring
+        self_model_storage: Optional storage for self model updates
+        
+    Returns:
+        ReasoningTool instance if successfully initialized, None otherwise
+    """
+    try:
+        from .reasoning.config import ReasoningConfig
+        from .reasoning.declarative_memory import DeclarativeMemoryInterface
+        from .reasoning.spreading_activation import SpreadingActivation
+        from .reasoning.integration_tool import ReasoningTool
+        from .reasoning.cognitive_dissonance import CognitiveDissonanceMonitor
+        from .reasoning.self_model_feedback import SelfModelFeedbackLoop
+        from .reasoning.feedback_loop import FeedbackLoopManager
+        from .reasoning.daemon import ReasoningDaemon
+        from .reasoning.state_manager import ReasoningStateManager
+        from .self_model.consistency import ConsistencyChecker
+        from .self_model.updater import SelfModelUpdater
+        from ..llm import create_llm_client
+        
+        reasoning_config = ReasoningConfig()
+        
+        # Initialize declarative memory if memory manager is available
+        declarative_memory = None
+        spreading_activation = None
+        if memory_manager and reasoning_config.declarative_memory_enabled:
+            declarative_memory = DeclarativeMemoryInterface(
+                memory_manager=memory_manager,
+                reasoning_namespace=reasoning_config.reasoning_memory_namespace
+            )
+            logger.info("✓ Declarative memory interface initialized")
+            
+            spreading_activation = SpreadingActivation(
+                declarative_memory=declarative_memory,
+                activation_threshold=reasoning_config.spreading_activation_threshold,
+                damping_factor=0.5,
+                max_activations_per_cycle=3
+            )
+            logger.info("✓ Spreading activation initialized")
+        
+        # Initialize cognitive dissonance monitor if self model is available
+        cognitive_dissonance_monitor = None
+        consistency_checker = None
+        self_model_updater = None
+        self_model_feedback_loop = None
+        
+        if self_model and reasoning_config.cognitive_dissonance_enabled:
+            # Create consistency checker
+            consistency_checker = ConsistencyChecker(llm_client=create_llm_client())
+            logger.info("✓ Consistency checker initialized")
+            
+            # Create self model updater
+            if self_model_storage:
+                self_model_updater = SelfModelUpdater(llm_client=create_llm_client())
+                logger.info("✓ Self model updater initialized")
+            
+            # Create cognitive dissonance monitor
+            cognitive_dissonance_monitor = CognitiveDissonanceMonitor(
+                self_model=self_model,
+                consistency_checker=consistency_checker,
+                history_window=reasoning_config.metrics_tracking_window,
+                weight_logical=reasoning_config.dissonance_weight_logical,
+                weight_factual=reasoning_config.dissonance_weight_factual,
+                weight_behavioral=reasoning_config.dissonance_weight_behavioral,
+                weight_goal=reasoning_config.dissonance_weight_goal
+            )
+            logger.info("✓ Cognitive dissonance monitor initialized")
+            
+            # Create self model feedback loop if updater is available
+            if self_model_updater and reasoning_config.self_model_update_enabled:
+                self_model_feedback_loop = SelfModelFeedbackLoop(
+                    self_model=self_model,
+                    cognitive_dissonance_monitor=cognitive_dissonance_monitor,
+                    self_model_updater=self_model_updater,
+                    update_cooldown_seconds=reasoning_config.self_model_update_cooldown_seconds,
+                    periodic_update_interval_cycles=reasoning_config.periodic_update_interval_cycles,
+                    dissonance_threshold=reasoning_config.dissonance_threshold,
+                    critical_dissonance_threshold=reasoning_config.critical_dissonance_threshold,
+                    effectiveness_window=reasoning_config.update_effectiveness_tracking_window
+                )
+                logger.info("✓ Self model feedback loop initialized")
+        
+        # Initialize learning tool if enabled and integration enabled
+        learning_tool = None
+        if config.learning.enabled and reasoning_config.learning_integration_enabled:
+            try:
+                from ..learning.integration_tool import LearningTool
+                learning_tool = LearningTool()
+                logger.info("✓ Learning tool initialized for reasoning integration")
+            except Exception as e:
+                logger.warning(f"Failed to initialize learning tool: {e}", exc_info=True)
+        
+        # Create feedback loop manager
+        feedback_loop_manager = None
+        if reasoning_config.feedback_loops_enabled:
+            feedback_loop_manager = FeedbackLoopManager(
+                reinforcing_enabled=reasoning_config.reinforcing_enabled,
+                balancing_enabled=reasoning_config.balancing_enabled,
+                metrics_window_size=reasoning_config.metrics_tracking_window,
+                success_rate_threshold=reasoning_config.success_rate_threshold,
+                error_rate_threshold=reasoning_config.error_rate_threshold,
+                cognitive_dissonance_monitor=cognitive_dissonance_monitor,
+                dissonance_threshold=reasoning_config.dissonance_threshold,
+                learning_system=learning_tool
+            )
+            logger.info("✓ Feedback loop manager initialized")
+        
+        # Create reasoning tool
+        reasoning_tool = ReasoningTool(
+            declarative_memory=declarative_memory,
+            spreading_activation=spreading_activation
+        )
+        
+        # Create state manager if persistence is enabled
+        state_manager = None
+        if reasoning_config.state_persistence_enabled:
+            try:
+                state_manager = ReasoningStateManager(
+                    state_file_path=reasoning_config.state_file_path
+                )
+                logger.info("✓ Reasoning state manager initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize state manager: {e}", exc_info=True)
+        
+        # Initialize emotional regulation components if internal sensing is available
+        affect_monitor = None
+        if internal_sensing and config.internal_sensing.emotional_regulation_enabled:
+            try:
+                from ..internal_sensing.emotional_appraisal import CognitiveAppraisalEngine
+                from ..internal_sensing.emotional_regulation import HomeostaticEmotionalRegulator
+                
+                # Get affect monitor from internal sensing framework
+                affect_monitor = internal_sensing.interoception.affect
+                
+                # Create emotional appraisal engine
+                emotional_appraisal_engine = CognitiveAppraisalEngine()
+                affect_monitor.set_emotional_appraisal_engine(emotional_appraisal_engine)
+                
+                # Create emotional regulator
+                emotional_regulator = HomeostaticEmotionalRegulator(
+                    target_valence=config.internal_sensing.target_valence,
+                    target_arousal=config.internal_sensing.target_arousal,
+                    target_curiosity=config.internal_sensing.target_curiosity,
+                    kp_valence=config.internal_sensing.pid_kp_valence,
+                    ki_valence=config.internal_sensing.pid_ki_valence,
+                    kd_valence=config.internal_sensing.pid_kd_valence,
+                    kp_arousal=config.internal_sensing.pid_kp_arousal,
+                    ki_arousal=config.internal_sensing.pid_ki_arousal,
+                    kd_arousal=config.internal_sensing.pid_kd_arousal
+                )
+                affect_monitor.set_emotional_regulator(emotional_regulator)
+                
+                logger.info("✓ Emotional regulation components initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize emotional regulation: {e}", exc_info=True)
+        
+        # Wire feedback loop and cognitive dissonance components to reasoning tool
+        # Store as attributes for access by daemon/world state aggregator
+        if feedback_loop_manager:
+            reasoning_tool.feedback_loop_manager = feedback_loop_manager
+        if cognitive_dissonance_monitor:
+            reasoning_tool.cognitive_dissonance_monitor = cognitive_dissonance_monitor
+        if self_model_feedback_loop:
+            reasoning_tool.self_model_feedback_loop = self_model_feedback_loop
+        if affect_monitor:
+            reasoning_tool.affect_monitor = affect_monitor
+        
+        # Create reasoning daemon if autonomous mode is enabled
+        if reasoning_config.autonomous_enabled:
+            try:
+                daemon = ReasoningDaemon(
+                    reasoning_tool=reasoning_tool,
+                    state_manager=state_manager,
+                    feedback_loop_manager=feedback_loop_manager,
+                    self_model_feedback_loop=self_model_feedback_loop,
+                    learning_tool=learning_tool,
+                    affect_monitor=affect_monitor,
+                    cycle_delay_seconds=reasoning_config.cycle_delay_seconds,
+                    event_acceleration_enabled=reasoning_config.event_acceleration_enabled,
+                    max_cycles_per_minute=reasoning_config.max_cycles_per_minute
+                )
+                reasoning_tool.daemon = daemon  # Wire daemon back into reasoning tool
+                logger.info("✓ Reasoning daemon initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize reasoning daemon: {e}", exc_info=True)
+        
+        # Wire learning tool to reasoning tool if available
+        if learning_tool:
+            reasoning_tool.learning_tool = learning_tool
+        
+        return reasoning_tool
+        
+    except Exception as e:
+        logger.error(f"Error initializing reasoning system: {e}", exc_info=True)
+        return None
+
+
 def main() -> None:
     setup_logging()
 
@@ -557,14 +798,9 @@ def main() -> None:
         else:
             logger.warning("✗ Tool registry initialization failed or disabled")
         
-        # Register self-model tools if self-model system is enabled
-        if self_model and self_model_storage and tool_registry:
-            try:
-                query_tool = QuerySelfModelTool(self_model, self_model_storage)
-                tool_registry.register_tool(query_tool)
-                logger.info("Registered self-model query tool")
-            except Exception as e:
-                logger.warning(f"Failed to register self-model query tool: {e}", exc_info=True)
+        # Register self-model tools if self-model system is enabled (CRUD tool already registered in _initialize_tool_registry)
+        # Additional tools can be registered here if needed
+        pass
         
         # Internal sensing tools are NOT registered as tools since internal sensing data
         # is already included in the LLM's mutable system prompt via WorldStateAggregator.
@@ -606,6 +842,46 @@ def main() -> None:
             f"Reduction level: {config.self_model.self_model_reduction_level}"
         )
         
+        # Initialize reasoning system with cognitive dissonance integration
+        reasoning_tool = None
+        if config.reasoning.enabled:
+            try:
+                reasoning_tool = _initialize_reasoning_system(
+                    memory_manager=memory_manager,
+                    self_model=self_model,
+                    self_model_storage=self_model_storage,
+                    internal_sensing=internal_sensing
+                )
+                if reasoning_tool:
+                    logger.info("✓ Reasoning system initialized successfully")
+                else:
+                    logger.warning("✗ Reasoning system initialization failed or disabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize reasoning system: {e}", exc_info=True)
+                reasoning_tool = None
+        
+        # Initialize self-model size manager if enabled
+        size_manager = None
+        if self_model and config.self_model.size_management_enabled:
+            try:
+                from .self_model.size_manager import SelfModelSizeManager, SizeLimits
+                limits = SizeLimits(
+                    max_capabilities=config.self_model.max_capabilities,
+                    max_knowledge_boundaries=config.self_model.max_knowledge_boundaries,
+                    max_constraints=config.self_model.max_constraints,
+                    soft_capabilities=config.self_model.soft_capabilities,
+                    soft_knowledge_boundaries=config.self_model.soft_knowledge_boundaries,
+                    soft_constraints=config.self_model.soft_constraints
+                )
+                epistemic_engine_for_size = epistemic_engine if hasattr(self, 'epistemic_engine') else None
+                size_manager = SelfModelSizeManager(
+                    limits=limits,
+                    epistemic_engine=epistemic_engine
+                )
+                logger.info("✓ Self-model size manager initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize self-model size manager: {e}", exc_info=True)
+        
         # Create world state aggregator
         world_state_aggregator = WorldStateAggregator(
             internal_sensing=internal_sensing,
@@ -614,6 +890,9 @@ def main() -> None:
             memory_manager=memory_manager,
             directory_structure_generator=directory_structure_generator,
             self_model_reduction_level=config.self_model.self_model_reduction_level,
+            reasoning_tool=reasoning_tool,
+            size_manager=size_manager,
+            config=config,
         )
         
         # Initialize color manager
