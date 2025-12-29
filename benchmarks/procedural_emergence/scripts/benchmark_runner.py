@@ -25,7 +25,7 @@ import os
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 # Ensure repository root is importable so 'import broca' and local adapters work
@@ -102,7 +102,7 @@ class Runner:
         }
         """
         task_id = task.get('id') or str(uuid.uuid4())
-        start_ts = datetime.utcnow().isoformat() + 'Z'
+        start_ts = datetime.now(timezone.utc).isoformat()
 
         # If simulate, use expected_output and simple simulated tool call trace
         if self.simulate:
