@@ -1,20 +1,40 @@
 """
 Web search tool implementation.
 
-Uses browser-based search (via Browse Orchestrator) with Tavily API fallback.
-Provides web search capabilities to the LLM.
+Uses Tavily API as primary search provider with browser-based search (ddgs) as fallback.
+Provides comprehensive web search capabilities including page download and content extraction.
 """
 
 from __future__ import annotations
 
 import os
+import re
+import hashlib
 import logging
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, List, Optional
+from urllib.parse import urlparse
 
 try:
     from tavily import TavilyClient
 except ImportError:
     TavilyClient = None  # type: ignore
+
+try:
+    import httpx
+except ImportError:
+    httpx = None  # type: ignore
+
+try:
+    import trafilatura
+except ImportError:
+    trafilatura = None  # type: ignore
+
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None  # type: ignore
 
 from . import Tool
 from ..config import config
@@ -24,13 +44,13 @@ logger = logging.getLogger(__name__)
 
 class WebSearchTool:
     """
-    Web search tool using browser-based search engines.
+    Web search tool using Tavily API as primary provider.
     
-    Primary search method: Browser-based search (DuckDuckGo, Bing, Google)
-    Emergency fallback: Tavily API (only if explicitly enabled)
+    Primary search method: Tavily API (requires TAVILY_API_KEY)
+    Fallback: Browser-based search (DuckDuckGo via BrowseOrchestrator)
     
-    Allows the LLM to search the web for current information, facts, and data.
-    Results are formatted for easy consumption by the LLM with citations and provenance.
+    Allows the LLM to search the web with comprehensive filtering options,
+    download pages for full content processing, and extract text from HTML.
     """
     
     def __init__(
@@ -41,47 +61,49 @@ class WebSearchTool:
         """
         Initialize the web search tool.
         
-        Browser-based search is the primary method. Tavily is only used as
-        emergency fallback if explicitly enabled via configuration.
+        Tavily is the primary search method. Browser-based search is used
+        as fallback when Tavily fails or is unavailable.
         
         Args:
-            api_key: Tavily API key (optional, only for emergency fallback)
-            browse_orchestrator: BrowseOrchestrator instance (creates if None)
+            api_key: Tavily API key (required for primary search)
+            browse_orchestrator: BrowseOrchestrator instance (creates if None, for fallback)
             
         Raises:
-            ValueError: If browser search is not available
+            ValueError: If Tavily API key is missing (browser fallback can still work)
         """
         self._api_key = api_key or os.getenv("TAVILY_API_KEY", "")
         self._tavily_client = None
         self._browse_orchestrator = browse_orchestrator
         
-        # Initialize browse orchestrator (primary method)
+        # Initialize Tavily client (primary method)
+        if TavilyClient and self._api_key:
+            try:
+                self._tavily_client = TavilyClient(api_key=self._api_key)
+                logger.info("Initialized Tavily client (primary search provider)")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Tavily client: {e}")
+        elif not self._api_key:
+            logger.warning(
+                "TAVILY_API_KEY not provided. Tavily search will not be available. "
+                "Browser-based search will be used as fallback."
+            )
+        
+        # Initialize browse orchestrator (fallback method)
         try:
             if self._browse_orchestrator is None:
                 from .browse_orchestrator import BrowseOrchestrator
                 self._browse_orchestrator = BrowseOrchestrator()
-                logger.debug("Initialized Browse Orchestrator")
+                logger.debug("Initialized Browse Orchestrator (fallback)")
         except Exception as e:
-            logger.error(f"Failed to initialize Browse Orchestrator: {e}", exc_info=True)
+            logger.warning(f"Failed to initialize Browse Orchestrator (fallback): {e}")
             self._browse_orchestrator = None
         
-        # Initialize Tavily client only if explicitly enabled as fallback
-        if config.browse.enable_tavily_fallback and TavilyClient and self._api_key:
-            try:
-                self._tavily_client = TavilyClient(api_key=self._api_key)
-                logger.debug("Initialized Tavily client (emergency fallback)")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Tavily client: {e}")
-        
-        # Browser search is required
-        if not self._browse_orchestrator:
-            raise ValueError(
-                "Browser-based search is required but not available. "
-                "Ensure browser navigation is enabled and Playwright is installed: "
-                "pip install playwright && playwright install chromium"
+        # At least one search method should be available
+        if not self._tavily_client and not self._browse_orchestrator:
+            logger.warning(
+                "Neither Tavily nor browser search is available. "
+                "Web search functionality will be limited."
             )
-        
-        logger.info("Initialized WebSearchTool (browser-based search primary)")
     
     @property
     def name(self) -> str:
@@ -92,47 +114,58 @@ class WebSearchTool:
     def description(self) -> str:
         """Tool description for the LLM with comprehensive usage guide."""
         return (
-            "Search the web for current information, facts, news, and data using browser-based search engines.\n\n"
-            "SEARCH ENGINES:\n"
-            "- DuckDuckGo (default): No API key needed, privacy-focused, excellent for general queries\n"
-            "- Bing: Good for recent news and Microsoft ecosystem content\n"
-            "- Google: Comprehensive results, respects rate limits\n\n"
-            "USAGE:\n"
-            '  {"query": "python async programming best practices", "max_results": 5}\n'
-            '  {"query": "latest news about AI safety 2024", "max_results": 10}\n'
-            '  {"query": "python asyncio documentation", "max_results": 3}\n\n'
+            "Search the web for current information, facts, news, and data using Tavily API.\n\n"
+            "PRIMARY PROVIDER:\n"
+            "- Tavily API: Advanced search with comprehensive filtering options, AI-generated answers, "
+            "and rich content extraction. Requires TAVILY_API_KEY environment variable.\n\n"
+            "FALLBACK PROVIDER:\n"
+            "- Browser-based search (DuckDuckGo): Used automatically if Tavily is unavailable.\n\n"
+            "SEARCH PARAMETERS:\n"
+            "- query (required): The search query string\n"
+            "- max_results: Number of results (1-50, default: 5)\n"
+            "- search_depth: 'basic' (faster) or 'advanced' (more comprehensive, default: 'basic')\n"
+            "- include_domains: List of domains to restrict search (e.g., ['example.com'])\n"
+            "- exclude_domains: List of domains to exclude from results\n"
+            "- include_answer: Include AI-generated answer in results (boolean, default: false)\n"
+            "- include_raw_content: Include raw HTML content (boolean, default: false)\n"
+            "- include_images: Include image URLs in results (boolean, default: false)\n"
+            "- topic: Restrict search to specific topic category (optional)\n"
+            "- days: Restrict to results from last N days (integer, optional)\n\n"
+            "PAGE DOWNLOAD:\n"
+            "- auto_download_top_n: Automatically download top N results (0 = disabled, default: 0)\n"
+            "- download_urls: Explicit list of URLs to download and process\n"
+            "- Downloaded pages are saved to /tmp with processed content included in response\n"
+            "- Use downloads to get full page content when snippets are insufficient\n\n"
+            "USAGE EXAMPLES:\n"
+            "# Basic search\n"
+            '  {"query": "python async programming best practices", "max_results": 5}\n\n'
+            '# Search with domain restriction\n'
+            '  {"query": "python documentation", "include_domains": ["python.org"], "max_results": 10}\n\n'
+            '# Search with advanced depth and answer\n'
+            '  {"query": "how does quantum computing work", "search_depth": "advanced", "include_answer": true}\n\n'
+            '# Search recent news\n'
+            '  {"query": "latest AI safety news", "days": 7, "max_results": 10}\n\n'
+            '# Search with automatic page downloads\n'
+            '  {"query": "react hooks tutorial", "max_results": 5, "auto_download_top_n": 3}\n\n'
+            '# Search with explicit URL downloads\n'
+            '  {"query": "machine learning basics", "max_results": 5, "download_urls": ["https://example.com/ml-guide"]}\n\n'
             "QUERY BEST PRACTICES:\n"
-            "- Be specific and descriptive with your search terms\n"
+            "- Be specific and descriptive with search terms\n"
             "- Include relevant keywords and context\n"
             "- Use natural language (not boolean operators)\n"
-            "- For recent information, include time context (e.g., '2024', 'latest', 'recent')\n"
-            "- For technical topics, include technology names and versions\n\n"
-            "RESULT INTERPRETATION:\n"
-            "- Each result includes: title, URL, content snippet, and reliability score\n"
-            "- Results are sorted by relevance and source quality\n"
-            "- URLs are verified and accessible\n"
-            "- Content snippets are extracted from actual pages\n"
-            "- Domain reliability scores (0.0-1.0) help assess source quality\n\n"
-            "CITATIONS AND PROVENANCE:\n"
-            "- All results include trace information for auditability\n"
-            "- Content hashes ensure verifiability\n"
-            "- Timestamps indicate when information was accessed\n"
-            "- Results can be traced back to browse trace artifacts\n\n"
+            "- For recent information, use 'days' parameter or include time context\n"
+            "- For technical topics, include technology names and versions\n"
+            "- Use domain filters to focus on trusted sources\n\n"
+            "RESULT FORMAT:\n"
+            "- Each result includes: title, URL, content snippet, score, and metadata\n"
+            "- Results are sorted by relevance\n"
+            "- Downloaded files include file path, processed content, and content length\n"
+            "- Provider used (tavily or browser_fallback) is indicated in response\n\n"
             "ERROR HANDLING:\n"
-            "- If search fails, verify browser navigation is enabled\n"
-            "- Check Playwright installation: pip install playwright && playwright install chromium\n"
-            "- Verify network connectivity\n"
-            "- Some sites may block automated access (this is normal and expected)\n"
-            "- Empty results may indicate the query needs refinement\n\n"
-            "EXAMPLES:\n"
-            "# General information search\n"
-            '  {"query": "how does quantum computing work", "max_results": 5}\n\n'
-            "# Recent news search\n"
-            '  {"query": "breaking news technology December 2024", "max_results": 10}\n\n'
-            "# Technical documentation\n"
-            '  {"query": "python asyncio documentation examples", "max_results": 3}\n\n'
-            "# Scientific/academic topics\n"
-            '  {"query": "machine learning transformer architecture paper", "max_results": 5}'
+            "- If Tavily fails, browser-based search is automatically used as fallback\n"
+            "- Check TAVILY_API_KEY is set for optimal performance\n"
+            "- Some sites may block automated access (normal for web scraping)\n"
+            "- Empty results may indicate query needs refinement"
         )
     
     @property
@@ -154,129 +187,244 @@ class WebSearchTool:
                     "type": "integer",
                     "description": (
                         "Maximum number of results to return. "
-                        "Default: 5. Maximum: 10. "
+                        "Default: 5. Maximum: 50. "
                         "Use fewer results (3-5) for focused queries, "
-                        "more results (8-10) for broad topics or news searches."
+                        "more results (10-50) for comprehensive research."
                     ),
                     "default": 5,
                     "minimum": 1,
-                    "maximum": 10
+                    "maximum": 50
+                },
+                "search_depth": {
+                    "type": "string",
+                    "enum": ["basic", "advanced"],
+                    "description": (
+                        "Search depth: 'basic' for faster results (default), "
+                        "'advanced' for more comprehensive search with deeper analysis."
+                    ),
+                    "default": "basic"
+                },
+                "include_domains": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Restrict search to specific domains. "
+                        "Example: ['python.org', 'github.com'] to only search these domains."
+                    )
+                },
+                "exclude_domains": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Exclude specific domains from search results. "
+                        "Example: ['spam.com'] to exclude this domain."
+                    )
+                },
+                "include_answer": {
+                    "type": "boolean",
+                    "description": (
+                        "Include AI-generated answer in results. "
+                        "Useful for getting a synthesized answer to your query."
+                    ),
+                    "default": False
+                },
+                "include_raw_content": {
+                    "type": "boolean",
+                    "description": (
+                        "Include raw HTML content in results. "
+                        "Useful for extracting full page content but increases response size."
+                    ),
+                    "default": False
+                },
+                "include_images": {
+                    "type": "boolean",
+                    "description": (
+                        "Include image URLs in search results. "
+                        "Useful when searching for visual content."
+                    ),
+                    "default": False
+                },
+                "topic": {
+                    "type": "string",
+                    "description": (
+                        "Restrict search to specific topic category. "
+                        "Use to focus on particular domains of knowledge."
+                    )
+                },
+                "days": {
+                    "type": "integer",
+                    "description": (
+                        "Restrict search results to content from the last N days. "
+                        "Useful for finding recent news or updates. "
+                        "Example: 7 for last week, 30 for last month."
+                    ),
+                    "minimum": 1
+                },
+                "auto_download_top_n": {
+                    "type": "integer",
+                    "description": (
+                        "Automatically download and process the top N search results. "
+                        "0 = disabled (default). Downloaded pages are saved to /tmp "
+                        "and processed content is included in the response."
+                    ),
+                    "default": 0,
+                    "minimum": 0
+                },
+                "download_urls": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Explicit list of URLs to download and process. "
+                        "Downloaded pages are saved to /tmp and processed content "
+                        "is included in the response. Use this to get full content "
+                        "from specific pages found in search results."
+                    )
                 }
             },
             "required": ["query"]
         }
     
-    def execute(self, query: str, max_results: int = 5) -> Dict[str, Any]:
+    def execute(
+        self,
+        query: str,
+        max_results: int = 5,
+        search_depth: str = "basic",
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        include_answer: bool = False,
+        include_raw_content: bool = False,
+        include_images: bool = False,
+        topic: Optional[str] = None,
+        days: Optional[int] = None,
+        auto_download_top_n: int = 0,
+        download_urls: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
-        Execute a web search using browser-based search engines.
-        
-        Primary method: Browser-based search (DuckDuckGo, Bing, or Google)
-        Fallback: Tavily API (only if explicitly enabled in config)
+        Execute a web search using Tavily API (primary) or browser-based search (fallback).
         
         Args:
-            query: Search query string (use natural language with specific keywords)
-            max_results: Maximum number of results to return (default: 5, max: 10)
+            query: Search query string
+            max_results: Maximum number of results (1-50, default: 5)
+            search_depth: "basic" or "advanced" (default: "basic")
+            include_domains: List of domains to restrict search
+            exclude_domains: List of domains to exclude
+            include_answer: Include AI-generated answer
+            include_raw_content: Include raw HTML content
+            include_images: Include image URLs
+            topic: Topic category to restrict search
+            days: Restrict to results from last N days
+            auto_download_top_n: Automatically download top N results (0 = disabled)
+            download_urls: Explicit list of URLs to download
             
         Returns:
             Dictionary containing:
-                - "results": List of search results with title, URL, content, score
+                - "results": List of search results
                 - "query": Original search query
-                - "count": Number of results returned
-                - "trace_id": Task ID for browse trace (if available)
+                - "count": Number of results
+                - "provider_used": "tavily" | "browser_fallback"
+                - "downloaded_files": List of downloaded file info (if any)
                 - "error": Error message (if search failed)
         """
         try:
             # Clamp max_results to valid range
-            max_results = max(1, min(10, max_results))
+            max_results = max(1, min(50, max_results))
             
-            logger.debug(f"Executing web search: query='{query}', max_results={max_results}")
+            logger.debug(
+                f"Executing web search: query='{query}', max_results={max_results}, "
+                f"search_depth={search_depth}, provider=tavily"
+            )
             
-            # Browser-based search is primary (unless Tavily-only emergency mode)
-            if config.browse.tavily_fallback_only:
-                # Emergency mode: Use Tavily only
-                if self._tavily_client:
-                    logger.info("Using Tavily (emergency fallback mode)")
-                    return self._execute_tavily_search(query, max_results)
-                else:
-                    return {
-                        "results": [],
-                        "query": query,
-                        "count": 0,
-                        "error": "Tavily fallback mode enabled but Tavily client not available"
-                    }
+            # Try Tavily first (primary method)
+            if self._tavily_client:
+                try:
+                    result = self._execute_tavily_search(
+                        query=query,
+                        max_results=max_results,
+                        search_depth=search_depth,
+                        include_domains=include_domains,
+                        exclude_domains=exclude_domains,
+                        include_answer=include_answer,
+                        include_raw_content=include_raw_content,
+                        include_images=include_images,
+                        topic=topic,
+                        days=days
+                    )
+                    result["provider_used"] = "tavily"
+                    
+                    # Handle downloads
+                    downloaded_files = []
+                    
+                    # Auto-download top N results
+                    if auto_download_top_n > 0 and result.get("results"):
+                        urls_to_download = [
+                            r["url"] for r in result["results"][:auto_download_top_n]
+                            if r.get("url")
+                        ]
+                        downloaded_files.extend(self._download_pages(urls_to_download))
+                    
+                    # Download explicit URLs
+                    if download_urls:
+                        downloaded_files.extend(self._download_pages(download_urls))
+                    
+                    if downloaded_files:
+                        result["downloaded_files"] = downloaded_files
+                    
+                    return result
+                    
+                except Exception as e:
+                    logger.warning(f"Tavily search failed: {e}, falling back to browser search")
+                    # Fall through to browser fallback
             
-            # Primary: Browser-based search
+            # Fallback to browser-based search
             if not self._browse_orchestrator:
                 return {
                     "results": [],
                     "query": query,
                     "count": 0,
-                    "error": "Browser search not available. Install Playwright: pip install playwright && playwright install chromium"
+                    "provider_used": "none",
+                    "error": (
+                        "Neither Tavily nor browser search is available. "
+                        "Set TAVILY_API_KEY for primary search, or ensure "
+                        "browser navigation is enabled for fallback."
+                    )
                 }
             
             try:
+                # Browser search doesn't support all Tavily parameters, use basic search
+                logger.info("Using browser-based search (fallback)")
                 result = self._browse_orchestrator.search(
                     query=query,
                     max_results=max_results,
                     engine=config.browse.default_search_engine
                 )
+                result["provider_used"] = "browser_fallback"
                 
-                # Return browser search results (even if empty - may be valid)
-                logger.debug(f"Browser search returned {result.get('count', 0)} results")
+                # Handle downloads for browser fallback too
+                downloaded_files = []
+                
+                if auto_download_top_n > 0 and result.get("results"):
+                    urls_to_download = [
+                        r["url"] for r in result["results"][:auto_download_top_n]
+                        if r.get("url")
+                    ]
+                    downloaded_files.extend(self._download_pages(urls_to_download))
+                
+                if download_urls:
+                    downloaded_files.extend(self._download_pages(download_urls))
+                
+                if downloaded_files:
+                    result["downloaded_files"] = downloaded_files
+                
                 return result
                 
             except Exception as e:
-                error_str = str(e)
-                is_threading_error = "cannot switch to a different thread" in error_str.lower() or "thread" in error_str.lower()
-                
-                if is_threading_error:
-                    logger.error(
-                        f"Browser search failed due to threading error: {e}",
-                        exc_info=True,
-                        extra={
-                            "event": "browser_threading_error",
-                            "error_type": "threading",
-                            "query": query
-                        }
-                    )
-                    # Threading errors indicate the session was created in a different thread
-                    # Try to create a new session and retry once
-                    try:
-                        logger.info("Attempting to recover from threading error by creating new session")
-                        # Force creation of new session by clearing task session mapping
-                        if hasattr(self._browse_orchestrator, '_task_sessions'):
-                            # Clear the task session to force new session creation
-                            task_id = getattr(self._browse_orchestrator, '_current_task_id', None)
-                            if task_id and task_id in self._browse_orchestrator._task_sessions:
-                                old_session = self._browse_orchestrator._task_sessions.pop(task_id)
-                                logger.debug(f"Cleared old session {old_session} for task {task_id} due to threading error")
-                        
-                        # Retry with new session
-                        result = self._browse_orchestrator.search(
-                            query=query,
-                            max_results=max_results,
-                            engine=config.browse.default_search_engine
-                        )
-                        logger.info("Successfully recovered from threading error with new session")
-                        return result
-                    except Exception as retry_error:
-                        logger.error(f"Retry after threading error also failed: {retry_error}", exc_info=True)
-                        # Fall through to Tavily fallback or error return
-                else:
-                    logger.error(f"Browser search failed: {e}", exc_info=True)
-                
-                # Try Tavily fallback only if explicitly enabled
-                if config.browse.enable_tavily_fallback and self._tavily_client:
-                    logger.warning("Browser search failed, trying Tavily emergency fallback")
-                    return self._execute_tavily_search(query, max_results)
-                
-                # Return error if no fallback
+                logger.error(f"Browser search also failed: {e}", exc_info=True)
                 return {
                     "results": [],
                     "query": query,
                     "count": 0,
-                    "error": f"Browser search failed: {str(e)}. "
-                            f"Install Playwright: pip install playwright && playwright install chromium"
+                    "provider_used": "none",
+                    "error": f"Both Tavily and browser search failed. Last error: {str(e)}"
                 }
             
         except Exception as e:
@@ -285,49 +433,262 @@ class WebSearchTool:
                 "results": [],
                 "query": query,
                 "count": 0,
+                "provider_used": "none",
                 "error": str(e)
             }
     
-    def _execute_tavily_search(self, query: str, max_results: int) -> Dict[str, Any]:
-        """Execute search using Tavily API."""
+    def _execute_tavily_search(
+        self,
+        query: str,
+        max_results: int,
+        search_depth: str = "basic",
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        include_answer: bool = False,
+        include_raw_content: bool = False,
+        include_images: bool = False,
+        topic: Optional[str] = None,
+        days: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Execute search using Tavily API with all parameters."""
         if not self._tavily_client:
-            return {
-                "results": [],
-                "query": query,
-                "count": 0,
-                "error": "Tavily client not available"
-            }
+            raise ValueError("Tavily client not available")
         
         try:
-            response = self._tavily_client.search(
-                query=query,
-                max_results=max_results,
-                search_depth="basic"
-            )
+            # Build search parameters
+            search_params: Dict[str, Any] = {
+                "query": query,
+                "max_results": max_results,
+                "search_depth": search_depth
+            }
+            
+            # Add optional parameters
+            if include_domains:
+                search_params["include_domains"] = include_domains
+            if exclude_domains:
+                search_params["exclude_domains"] = exclude_domains
+            if include_answer:
+                search_params["include_answer"] = True
+            if include_raw_content:
+                search_params["include_raw_content"] = True
+            if include_images:
+                search_params["include_images"] = True
+            if topic:
+                search_params["topic"] = topic
+            if days:
+                search_params["days"] = days
+            
+            response = self._tavily_client.search(**search_params)
             
             results: List[Dict[str, Any]] = []
+            
+            # Extract answer if present
+            answer = response.get("answer", "")
+            
+            # Process results
             for item in response.get("results", []):
-                results.append({
+                result_item: Dict[str, Any] = {
                     "title": item.get("title", ""),
                     "url": item.get("url", ""),
                     "content": item.get("content", ""),
                     "score": item.get("score", 0.0)
-                })
+                }
+                
+                # Add raw content if requested
+                if include_raw_content and "raw_content" in item:
+                    result_item["raw_content"] = item.get("raw_content")
+                
+                # Add images if requested
+                if include_images and "images" in item:
+                    result_item["images"] = item.get("images", [])
+                
+                results.append(result_item)
             
-            logger.debug(f"Tavily search returned {len(results)} results")
-            return {
+            result_dict: Dict[str, Any] = {
                 "results": results,
                 "query": query,
                 "count": len(results)
             }
+            
+            # Include answer if present
+            if answer:
+                result_dict["answer"] = answer
+            
+            logger.debug(f"Tavily search returned {len(results)} results")
+            return result_dict
+            
         except Exception as e:
             logger.error(f"Tavily search error: {e}", exc_info=True)
+            raise
+    
+    def _download_pages(self, urls: List[str]) -> List[Dict[str, Any]]:
+        """
+        Download and process web pages.
+        
+        Args:
+            urls: List of URLs to download
+            
+        Returns:
+            List of dictionaries with download information
+        """
+        if not httpx:
+            logger.warning("httpx not available, cannot download pages")
+            return []
+        
+        downloaded_files = []
+        
+        for url in urls:
+            try:
+                download_info = self._download_page(url)
+                if download_info:
+                    downloaded_files.append(download_info)
+            except Exception as e:
+                logger.warning(f"Failed to download {url}: {e}")
+                downloaded_files.append({
+                    "url": url,
+                    "success": False,
+                    "error": str(e)
+                })
+        
+        return downloaded_files
+    
+    def _download_page(self, url: str) -> Optional[Dict[str, Any]]:
+        """
+        Download a single web page and extract its content.
+        
+        Args:
+            url: URL to download
+            
+        Returns:
+            Dictionary with download information or None if failed
+        """
+        if not httpx:
+            return None
+        
+        try:
+            # Download the page
+            with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+                response = client.get(url)
+                response.raise_for_status()
+                html_content = response.text
+                content_type = response.headers.get("content-type", "")
+            
+            # Sanitize filename
+            filename = self._sanitize_filename(url)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_filename = f"web_search_{filename}_{timestamp}.html"
+            file_path = Path("/tmp") / safe_filename
+            
+            # Save HTML file
+            file_path.write_text(html_content, encoding="utf-8")
+            
+            # Extract text content
+            extracted_text = self._extract_text_from_html(html_content, url)
+            
+            # Build result
+            result = {
+                "url": url,
+                "file_path": str(file_path),
+                "success": True,
+                "content_length": len(html_content),
+                "extracted_text_length": len(extracted_text),
+                "content_preview": extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text
+            }
+            
+            # Include full extracted text if not too large (limit to 100KB)
+            if len(extracted_text) <= 100000:
+                result["extracted_text"] = extracted_text
+            
+            logger.debug(f"Downloaded and processed {url} -> {file_path}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error downloading page {url}: {e}")
             return {
-                "results": [],
-                "query": query,
-                "count": 0,
+                "url": url,
+                "success": False,
                 "error": str(e)
             }
+    
+    def _sanitize_filename(self, url: str) -> str:
+        """
+        Create a safe filename from URL.
+        
+        Args:
+            url: URL to convert to filename
+            
+        Returns:
+            Sanitized filename string
+        """
+        try:
+            parsed = urlparse(url)
+            # Use domain + path, remove query/fragment
+            domain = parsed.netloc.replace("www.", "").replace(".", "_")
+            path = parsed.path.strip("/").replace("/", "_")[:50]  # Limit path length
+            
+            # Combine and sanitize
+            base_name = f"{domain}_{path}" if path else domain
+            
+            # Remove unsafe characters
+            safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', base_name)
+            safe_name = safe_name[:100]  # Limit total length
+            
+            # If empty, use hash
+            if not safe_name:
+                safe_name = hashlib.md5(url.encode()).hexdigest()[:16]
+            
+            return safe_name
+        except Exception:
+            # Fallback to hash
+            return hashlib.md5(url.encode()).hexdigest()[:16]
+    
+    def _extract_text_from_html(self, html_content: str, url: str) -> str:
+        """
+        Extract text content from HTML using available extractors.
+        
+        Args:
+            html_content: HTML content to extract from
+            url: URL (for context/logging)
+            
+        Returns:
+            Extracted text content
+        """
+        # Try trafilatura first (best for articles)
+        if trafilatura:
+            try:
+                extracted = trafilatura.extract(html_content, url=url)
+                if extracted and len(extracted.strip()) > 100:
+                    logger.debug(f"Extracted text using trafilatura for {url}")
+                    return extracted.strip()
+            except Exception as e:
+                logger.debug(f"Trafilatura extraction failed for {url}: {e}")
+        
+        # Fallback to BeautifulSoup
+        if BeautifulSoup:
+            try:
+                soup = BeautifulSoup(html_content, "html.parser")
+                
+                # Remove script and style elements
+                for script in soup(["script", "style"]):
+                    script.decompose()
+                
+                # Get text
+                text = soup.get_text()
+                
+                # Clean up whitespace
+                lines = (line.strip() for line in text.splitlines())
+                chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                text = " ".join(chunk for chunk in chunks if chunk)
+                
+                if text and len(text.strip()) > 100:
+                    logger.debug(f"Extracted text using BeautifulSoup for {url}")
+                    return text.strip()
+            except Exception as e:
+                logger.debug(f"BeautifulSoup extraction failed for {url}: {e}")
+        
+        # Last resort: return empty string
+        logger.warning(f"Could not extract text content from {url}")
+        return ""
     
     def format_result(self, result: Dict[str, Any]) -> str:
         """
@@ -344,13 +705,15 @@ class WebSearchTool:
         
         results = result.get("results", [])
         query = result.get("query", "unknown query")
+        provider = result.get("provider_used", "unknown")
         
-        if not results:
-            return f"No results found for query: '{query}'"
+        lines = [f"Web search results for '{query}' ({len(results)} results, provider: {provider}):\n"]
         
-        # Format results as readable text
-        lines = [f"Web search results for '{query}' ({len(results)} results):\n"]
+        # Include answer if present
+        if "answer" in result:
+            lines.append(f"AI-Generated Answer:\n{result['answer']}\n")
         
+        # Format results
         for i, item in enumerate(results, 1):
             title = item.get("title", "No title")
             url = item.get("url", "")
@@ -360,10 +723,24 @@ class WebSearchTool:
             if url:
                 lines.append(f"   URL: {url}")
             if content:
-                # Truncate content if too long
                 content_preview = content[:300] + "..." if len(content) > 300 else content
                 lines.append(f"   {content_preview}")
-            lines.append("")  # Empty line between results
+            lines.append("")
+        
+        # Include downloaded files info
+        if "downloaded_files" in result:
+            downloaded = result["downloaded_files"]
+            lines.append(f"\nDownloaded {len(downloaded)} page(s):\n")
+            for file_info in downloaded:
+                if file_info.get("success"):
+                    lines.append(f"- {file_info['url']}")
+                    lines.append(f"  Saved to: {file_info['file_path']}")
+                    lines.append(f"  Content length: {file_info.get('extracted_text_length', 0)} chars")
+                    if "content_preview" in file_info:
+                        preview = file_info["content_preview"]
+                        lines.append(f"  Preview: {preview[:200]}...")
+                else:
+                    lines.append(f"- {file_info['url']} (failed: {file_info.get('error', 'unknown error')})")
+                lines.append("")
         
         return "\n".join(lines)
-

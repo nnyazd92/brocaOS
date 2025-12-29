@@ -7,7 +7,6 @@ pytest-mock
 pytest-asyncio
 httpx
 # tavily-python  # Optional: Only needed for emergency fallback if BROCA_BROWSE_ENABLE_TAVILY_FALLBACK=true
-duckduckgo-search  # Recommended: Primary method for DuckDuckGo search (avoids bot detection, more reliable)
 faiss-cpu
 numpy
 sqlite-database
@@ -29,3 +28,4 @@ beautifulsoup4>=4.12.0
 lxml>=4.9.0
 ddgs
 z3-solver>=4.12.0.0
+tavily-python

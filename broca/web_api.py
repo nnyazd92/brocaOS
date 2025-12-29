@@ -212,10 +212,19 @@ def generate_title(user_message: str) -> str:
     prompt = f"Generate a very short (max 5 words), punchy title for a conversation that starts with: '{user_message}'. Return ONLY the title text, no quotes or punctuation."
     
     # Use direct LLM call to avoid tool access and session overhead
+    # Make system prompt very explicit to prevent PFREA loop behavior
     system_prompt = (
-        "You are a title generator. Your task is to generate very short, punchy titles for conversations. "
-        "DO NOT use any tools. DO NOT search the web. DO NOT make any tool calls. "
-        "Return ONLY the title text, no quotes, no punctuation, no explanations."
+        "You are a simple title generator. Your ONLY task is to generate a short title (3-5 words).\n\n"
+        "CRITICAL RULES:\n"
+        "1. DO NOT create a plan, forecast, or any structured response\n"
+        "2. DO NOT use any tools or make tool calls\n"
+        "3. DO NOT write explanations, steps, assumptions, or any other text\n"
+        "4. Return ONLY the title text itself (3-5 words)\n"
+        "5. No quotes, no punctuation, no markdown, no formatting\n"
+        "6. Just the title words, nothing else\n\n"
+        "Example: If asked for a title about 'Hello world', return: Hello World\n"
+        "NOT: 'Hello World' or ## Hello World or any other format.\n\n"
+        "Remember: ONLY the title text, nothing else."
     )
     
     try:
@@ -225,18 +234,73 @@ def generate_title(user_message: str) -> str:
         ]
         
         # Direct LLM call - no session, no tools, no PFREA loop
+        # Note: Temperature handling (including gpt-5 model compatibility) is handled by the LLM client
         response = rt.session.llm.chat(messages, temperature=0.7)
         title = rt.session.llm.extract_assistant_content(response)
         
         if not title:
             return user_message[:40] + "..."
         
-        # Clean up the title
-        title = title.strip().strip('"').strip("'").strip()
-        # Remove any markdown formatting
+        # Extract title from response - handle cases where LLM returns extra content
+        title = title.strip()
+        
+        # Remove markdown formatting
         title = title.replace("**", "").replace("*", "").replace("#", "").strip()
         
-        return title if title else user_message[:40] + "..."
+        # If response contains structured sections (Plan, Forecast, etc.), extract just the title
+        # Look for the last line that's short and looks like a title
+        lines = [line.strip() for line in title.split('\n') if line.strip()]
+        
+        # Filter out lines that look like structured sections
+        title_candidates = []
+        skip_keywords = ['plan', 'forecast', 'goal', 'steps', 'assumptions', 'expected', 
+                        'feasibility', 'predicted', 'risks', 'issues', 'recommendations',
+                        'assumptions', 'outcomes', 'score']
+        
+        for line in lines:
+            line_lower = line.lower()
+            # Skip lines that start with section headers
+            if any(line_lower.startswith(kw + ':') or line_lower.startswith('## ' + kw) 
+                   for kw in skip_keywords):
+                continue
+            # Skip lines that are just numbers or bullets
+            if line.strip().startswith(('1.', '2.', '3.', '4.', '5.', '-', '*')):
+                continue
+            # Keep short lines that look like titles (3-5 words, no colons after first word)
+            words = line.split()
+            if 2 <= len(words) <= 6:
+                # Check if it's not a structured field (no colons except maybe at very end)
+                if ':' not in line or line.count(':') == 1 and line.endswith(':'):
+                    title_candidates.append(line)
+        
+        # If we found title candidates, use the last one (most likely to be the actual title)
+        if title_candidates:
+            title = title_candidates[-1]
+        else:
+            # Fallback: use the last line that's reasonably short
+            for line in reversed(lines):
+                words = line.split()
+                if 2 <= len(words) <= 8:
+                    # Remove any trailing punctuation/formatting
+                    title = line.rstrip('.,;:!?')
+                    break
+        
+        # Final cleanup
+        title = title.strip().strip('"').strip("'").strip()
+        # Remove any remaining markdown or special characters at start/end
+        title = title.lstrip('#').strip()
+        
+        # If title is still too long or contains structured content, use first few words
+        words = title.split()
+        if len(words) > 6:
+            title = ' '.join(words[:5])
+        
+        # Final validation - if it looks like structured content, fall back to user message
+        if any(kw in title.lower() for kw in ['plan', 'forecast', 'goal:', 'steps:', 'feasibility']):
+            logger.warning(f"Title generation returned structured content, using fallback")
+            return user_message[:40] + "..."
+        
+        return title if title and len(title) > 0 else user_message[:40] + "..."
     except Exception as e:
         logger.warning(f"Failed to generate title: {e}", exc_info=True)
         return user_message[:40] + "..."

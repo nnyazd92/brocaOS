@@ -464,6 +464,99 @@ class ContextGraph:
             minimal_keep = main_thread_ids | minimal_recent
             minimal_messages = [self.nodes[msg_id].message_data for msg_id in minimal_keep if self.nodes[msg_id].message_data]
             minimal_tokens = estimate_messages_tokens(minimal_messages) if minimal_messages else 0
+            
+            # If minimal set still exceeds limit, truncate it
+            if minimal_tokens > effective_max:
+                # Sort messages by priority: system first, then main thread, then by recency
+                def message_priority(msg_id: str) -> tuple:
+                    node = self.nodes.get(msg_id)
+                    if not node:
+                        return (3, 0)  # Lowest priority
+                    # Priority: 0 = system, 1 = main thread, 2 = recent, 3 = other
+                    priority = 3
+                    if node.role == "system":
+                        priority = 0
+                    elif msg_id in main_thread_ids:
+                        priority = 1
+                    elif msg_id in minimal_recent:
+                        priority = 2
+                    # Recency: higher index = more recent
+                    try:
+                        recency = self._message_order.index(msg_id)
+                    except ValueError:
+                        recency = 0
+                    return (priority, -recency)  # Negative for descending order
+                
+                # Sort message IDs by priority
+                sorted_msg_ids = sorted(minimal_keep, key=message_priority)
+                
+                # Build truncated set, keeping highest priority messages
+                truncated_messages = []
+                truncated_tokens = 0
+                truncated_msg_ids = []
+                
+                # Always keep system message if present
+                system_msg_id = None
+                for msg_id in sorted_msg_ids:
+                    node = self.nodes.get(msg_id)
+                    if node and node.role == "system":
+                        system_msg_id = msg_id
+                        break
+                
+                if system_msg_id:
+                    system_msg = self.nodes[system_msg_id].message_data
+                    if system_msg:
+                        system_tokens = estimate_messages_tokens([system_msg])
+                        if system_tokens <= effective_max:
+                            truncated_messages.append(system_msg)
+                            truncated_tokens = system_tokens
+                            truncated_msg_ids.append(system_msg_id)
+                
+                # Add messages in priority order until we hit the limit
+                for msg_id in sorted_msg_ids:
+                    if msg_id in truncated_msg_ids:
+                        continue
+                    
+                    node = self.nodes.get(msg_id)
+                    if not node or not node.message_data:
+                        continue
+                    
+                    msg = node.message_data
+                    msg_tokens = estimate_messages_tokens([msg])
+                    
+                    # Check if adding this message would exceed limit
+                    if truncated_tokens + msg_tokens <= effective_max:
+                        truncated_messages.append(msg)
+                        truncated_tokens += msg_tokens
+                        truncated_msg_ids.append(msg_id)
+                    else:
+                        # Can't fit this message, stop
+                        break
+                
+                # Ensure we have at least one user/assistant pair if possible
+                if not truncated_msg_ids or len(truncated_msg_ids) == 1:
+                    # Try to add at least the most recent user/assistant pair
+                    for msg_id in reversed(self._message_order):
+                        if msg_id in truncated_msg_ids:
+                            continue
+                        node = self.nodes.get(msg_id)
+                        if node and node.message_data and node.role in ("user", "assistant"):
+                            msg = node.message_data
+                            msg_tokens = estimate_messages_tokens([msg])
+                            if truncated_tokens + msg_tokens <= effective_max:
+                                truncated_messages.append(msg)
+                                truncated_tokens += msg_tokens
+                                truncated_msg_ids.append(msg_id)
+                                break
+                
+                final_tokens = estimate_messages_tokens(truncated_messages) if truncated_messages else 0
+                logger.warning(
+                    f"Must-keep messages exceed token limit ({must_keep_tokens} > {effective_max}), "
+                    f"minimal set also exceeded ({minimal_tokens} > {effective_max}), "
+                    f"truncated to {len(truncated_msg_ids)} messages ({final_tokens} tokens)"
+                )
+                return truncated_msg_ids, final_tokens
+            
             logger.warning(
                 f"Must-keep messages exceed token limit ({must_keep_tokens} > {effective_max}), "
                 f"keeping only minimal set ({minimal_tokens} tokens)"

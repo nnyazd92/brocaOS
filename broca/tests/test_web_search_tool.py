@@ -1,7 +1,7 @@
 """
 Tests for WebSearchTool implementation.
 
-Tests web search functionality with browser-based search (primary) and Tavily fallback.
+Tests web search functionality with Tavily API (primary) and browser-based search fallback.
 """
 
 from __future__ import annotations
@@ -17,57 +17,39 @@ class TestWebSearchToolInitialization:
     """Test WebSearchTool initialization."""
     
     @patch('broca.tools.web_search.BrowseOrchestrator')
-    def test_init_with_browser_search(self, mock_orchestrator_class):
-        """
-        Test initialization with browser search (primary method).
-        
-        Rationale: Ensures tool initializes with browser search as primary.
-        """
-        mock_orchestrator = Mock()
-        mock_orchestrator_class.return_value = mock_orchestrator
-        
-        tool = WebSearchTool()
-        
-        assert tool.name == "web_search"
-        assert tool._browse_orchestrator is not None
-    
-    @patch('broca.tools.web_search.BrowseOrchestrator')
     @patch('broca.tools.web_search.TavilyClient')
-    @patch.dict(os.environ, {"BROCA_BROWSE_ENABLE_TAVILY_FALLBACK": "true", "TAVILY_API_KEY": "test-key"})
-    def test_init_with_tavily_fallback(self, mock_tavily_client_class, mock_orchestrator_class):
+    def test_init_with_tavily_primary(self, mock_tavily_client_class, mock_orchestrator_class):
         """
-        Test initialization with Tavily fallback enabled.
+        Test initialization with Tavily as primary search provider.
         
-        Rationale: Ensures tool can initialize Tavily as fallback when enabled.
+        Rationale: Ensures tool initializes with Tavily as primary method.
         """
         mock_orchestrator = Mock()
         mock_orchestrator_class.return_value = mock_orchestrator
         mock_client = Mock()
         mock_tavily_client_class.return_value = mock_client
         
-        # Reload config to pick up env var
-        from broca.config import config
-        original_value = config.browse.enable_tavily_fallback
-        config.browse.enable_tavily_fallback = True
+        tool = WebSearchTool(api_key="test-key")
         
-        try:
-            tool = WebSearchTool(api_key="test-key")
-            assert tool._browse_orchestrator is not None
-            # Tavily client may or may not be initialized depending on config
-        finally:
-            config.browse.enable_tavily_fallback = original_value
+        assert tool.name == "web_search"
+        assert tool._tavily_client is not None
+        assert tool._browse_orchestrator is not None  # Fallback should also be initialized
     
     @patch('broca.tools.web_search.BrowseOrchestrator')
-    def test_init_requires_browser_search(self, mock_orchestrator_class):
+    def test_init_with_browser_fallback_only(self, mock_orchestrator_class):
         """
-        Test that browser search is required.
+        Test initialization with only browser search (no Tavily API key).
         
-        Rationale: Ensures tool requires browser search (primary method).
+        Rationale: Ensures tool can work with browser search as fallback when Tavily unavailable.
         """
-        mock_orchestrator_class.side_effect = Exception("Browser search unavailable")
+        mock_orchestrator = Mock()
+        mock_orchestrator_class.return_value = mock_orchestrator
         
-        with pytest.raises(ValueError, match="Browser-based search is required"):
-            WebSearchTool()
+        tool = WebSearchTool()  # No API key
+        
+        assert tool.name == "web_search"
+        assert tool._tavily_client is None
+        assert tool._browse_orchestrator is not None  # Fallback should be available
 
 
 class TestWebSearchToolProperties:
@@ -98,7 +80,7 @@ class TestWebSearchToolProperties:
         assert isinstance(description, str)
         assert len(description) > 0
         assert "search" in description.lower()
-        assert "browser" in description.lower() or "DuckDuckGo" in description
+        assert "tavily" in description.lower()  # Should mention Tavily as primary
         assert "query" in description.lower()  # Should have usage examples
     
     @patch('broca.tools.web_search.BrowseOrchestrator')
@@ -129,166 +111,212 @@ class TestWebSearchToolExecute:
     """Test WebSearchTool execution."""
     
     @patch('broca.tools.web_search.BrowseOrchestrator')
-    def test_execute_browser_search_success(self, mock_orchestrator_class):
+    @patch('broca.tools.web_search.TavilyClient')
+    def test_execute_tavily_search_success(self, mock_tavily_client_class, mock_orchestrator_class):
         """
-        Test successful browser-based search execution.
+        Test successful Tavily search execution (primary method).
         
-        Rationale: Ensures tool uses browser search as primary method.
+        Rationale: Ensures tool uses Tavily as primary method.
         """
         mock_orchestrator = Mock()
-        mock_orchestrator.search.return_value = {
+        mock_orchestrator_class.return_value = mock_orchestrator
+        mock_client = Mock()
+        mock_client.search.return_value = {
             "results": [
                 {
-                    "title": "Test Result 1",
+                    "title": "Tavily Result 1",
                     "url": "https://example.com/1",
                     "content": "Content 1",
                     "score": 0.9
                 },
                 {
-                    "title": "Test Result 2",
+                    "title": "Tavily Result 2",
                     "url": "https://example.com/2",
                     "content": "Content 2",
                     "score": 0.8
-                }
-            ],
-            "query": "test query",
-            "count": 2
-        }
-        mock_orchestrator_class.return_value = mock_orchestrator
-        
-        tool = WebSearchTool(browse_orchestrator=mock_orchestrator)
-        result = tool.execute(query="test query", max_results=5)
-        
-        assert result["query"] == "test query"
-        assert result["count"] == 2
-        assert len(result["results"]) == 2
-        assert result["results"][0]["title"] == "Test Result 1"
-        mock_orchestrator.search.assert_called_once()
-    
-    @patch('broca.tools.web_search.BrowseOrchestrator')
-    @patch('broca.tools.web_search.TavilyClient')
-    @patch.dict(os.environ, {"BROCA_BROWSE_ENABLE_TAVILY_FALLBACK": "true", "TAVILY_API_KEY": "test-key"})
-    def test_execute_tavily_fallback(self, mock_tavily_client_class, mock_orchestrator_class):
-        """
-        Test Tavily fallback when browser search fails.
-        
-        Rationale: Ensures Tavily is used as fallback when enabled and browser fails.
-        """
-        mock_orchestrator = Mock()
-        mock_orchestrator.search.side_effect = Exception("Browser search failed")
-        mock_orchestrator_class.return_value = mock_orchestrator
-        
-        mock_client = Mock()
-        mock_client.search.return_value = {
-            "results": [
-                {
-                    "title": "Tavily Result",
-                    "url": "https://example.com",
-                    "content": "Content",
-                    "score": 0.9
                 }
             ]
         }
         mock_tavily_client_class.return_value = mock_client
         
-        # Reload config
-        from broca.config import config
-        original_value = config.browse.enable_tavily_fallback
-        config.browse.enable_tavily_fallback = True
+        tool = WebSearchTool(api_key="test-key", browse_orchestrator=mock_orchestrator)
+        tool._tavily_client = mock_client
         
-        try:
-            tool = WebSearchTool(
-                api_key="test-key",
-                browse_orchestrator=mock_orchestrator
-            )
-            tool._tavily_client = mock_client
-            
-            result = tool.execute(query="test query", max_results=5)
-            
-            assert result["count"] == 1
-            assert result["results"][0]["title"] == "Tavily Result"
-            mock_client.search.assert_called_once()
-        finally:
-            config.browse.enable_tavily_fallback = original_value
+        result = tool.execute(query="test query", max_results=5)
+        
+        assert result["query"] == "test query"
+        assert result["count"] == 2
+        assert len(result["results"]) == 2
+        assert result["results"][0]["title"] == "Tavily Result 1"
+        assert result["provider_used"] == "tavily"
+        mock_client.search.assert_called_once()
+        mock_orchestrator.search.assert_not_called()  # Should not use browser
     
     @patch('broca.tools.web_search.BrowseOrchestrator')
-    def test_execute_with_default_max_results(self, mock_orchestrator_class):
+    def test_execute_browser_fallback(self, mock_orchestrator_class):
+        """
+        Test browser search fallback when Tavily is unavailable.
+        
+        Rationale: Ensures tool falls back to browser search when Tavily fails.
+        """
+        mock_orchestrator = Mock()
+        mock_orchestrator.search.return_value = {
+            "results": [
+                {
+                    "title": "Browser Result 1",
+                    "url": "https://example.com/1",
+                    "content": "Content 1",
+                    "score": 0.9
+                }
+            ],
+            "query": "test query",
+            "count": 1
+        }
+        mock_orchestrator_class.return_value = mock_orchestrator
+        
+        tool = WebSearchTool(browse_orchestrator=mock_orchestrator)  # No Tavily
+        result = tool.execute(query="test query", max_results=5)
+        
+        assert result["query"] == "test query"
+        assert result["count"] == 1
+        assert result["provider_used"] == "browser_fallback"
+        assert result["results"][0]["title"] == "Browser Result 1"
+        mock_orchestrator.search.assert_called_once()
+    
+    @patch('broca.tools.web_search.BrowseOrchestrator')
+    @patch('broca.tools.web_search.TavilyClient')
+    def test_execute_tavily_fallback_to_browser(self, mock_tavily_client_class, mock_orchestrator_class):
+        """
+        Test browser fallback when Tavily search fails.
+        
+        Rationale: Ensures browser search is used as fallback when Tavily fails.
+        """
+        mock_orchestrator = Mock()
+        mock_orchestrator.search.return_value = {
+            "results": [
+                {
+                    "title": "Browser Fallback Result",
+                    "url": "https://example.com",
+                    "content": "Content",
+                    "score": 0.9
+                }
+            ],
+            "query": "test query",
+            "count": 1
+        }
+        mock_orchestrator_class.return_value = mock_orchestrator
+        
+        mock_client = Mock()
+        mock_client.search.side_effect = Exception("Tavily search failed")
+        mock_tavily_client_class.return_value = mock_client
+        
+        tool = WebSearchTool(
+            api_key="test-key",
+            browse_orchestrator=mock_orchestrator
+        )
+        tool._tavily_client = mock_client
+        
+        result = tool.execute(query="test query", max_results=5)
+        
+        assert result["count"] == 1
+        assert result["provider_used"] == "browser_fallback"
+        assert result["results"][0]["title"] == "Browser Fallback Result"
+        mock_client.search.assert_called_once()  # Tavily was tried first
+        mock_orchestrator.search.assert_called_once()  # Browser was used as fallback
+    
+    @patch('broca.tools.web_search.BrowseOrchestrator')
+    @patch('broca.tools.web_search.TavilyClient')
+    def test_execute_with_default_max_results(self, mock_tavily_client_class, mock_orchestrator_class):
         """
         Test execution with default max_results.
         
         Rationale: Ensures default parameter works correctly.
         """
         mock_orchestrator = Mock()
-        mock_orchestrator.search.return_value = {"results": [], "query": "test", "count": 0}
         mock_orchestrator_class.return_value = mock_orchestrator
+        mock_client = Mock()
+        mock_client.search.return_value = {"results": []}
+        mock_tavily_client_class.return_value = mock_client
         
-        tool = WebSearchTool(browse_orchestrator=mock_orchestrator)
+        tool = WebSearchTool(api_key="test-key", browse_orchestrator=mock_orchestrator)
+        tool._tavily_client = mock_client
         tool.execute(query="test")
         
-        # Verify browser search was called with default max_results
-        mock_orchestrator.search.assert_called_once()
-        call_args = mock_orchestrator.search.call_args
-        assert call_args[1]["max_results"] == 5  # Default value
+        # Verify Tavily search was called with default max_results
+        mock_client.search.assert_called_once()
+        call_kwargs = mock_client.search.call_args[1]
+        assert call_kwargs["max_results"] == 5  # Default value
     
     @patch('broca.tools.web_search.BrowseOrchestrator')
-    def test_execute_clamps_max_results(self, mock_orchestrator_class):
+    @patch('broca.tools.web_search.TavilyClient')
+    def test_execute_clamps_max_results(self, mock_tavily_client_class, mock_orchestrator_class):
         """
-        Test that max_results is clamped to valid range.
+        Test that max_results is clamped to valid range (1-50).
         
         Rationale: Ensures tool handles out-of-range parameters gracefully.
         """
         mock_orchestrator = Mock()
-        mock_orchestrator.search.return_value = {"results": [], "query": "test", "count": 0}
         mock_orchestrator_class.return_value = mock_orchestrator
+        mock_client = Mock()
+        mock_client.search.return_value = {"results": []}
+        mock_tavily_client_class.return_value = mock_client
         
-        tool = WebSearchTool(browse_orchestrator=mock_orchestrator)
+        tool = WebSearchTool(api_key="test-key", browse_orchestrator=mock_orchestrator)
+        tool._tavily_client = mock_client
         
-        # Test max_results > 10 (should clamp to 10)
-        tool.execute(query="test", max_results=20)
-        call_args = mock_orchestrator.search.call_args
-        assert call_args[1]["max_results"] == 10
+        # Test max_results > 50 (should clamp to 50)
+        tool.execute(query="test", max_results=100)
+        call_kwargs = mock_client.search.call_args[1]
+        assert call_kwargs["max_results"] == 50
         
         # Test max_results < 1 (should clamp to 1)
         tool.execute(query="test", max_results=0)
-        call_args = mock_orchestrator.search.call_args
-        assert call_args[1]["max_results"] == 1
+        call_kwargs = mock_client.search.call_args[1]
+        assert call_kwargs["max_results"] == 1
     
     @patch('broca.tools.web_search.BrowseOrchestrator')
-    def test_execute_handles_empty_results(self, mock_orchestrator_class):
+    @patch('broca.tools.web_search.TavilyClient')
+    def test_execute_handles_empty_results(self, mock_tavily_client_class, mock_orchestrator_class):
         """
         Test execution with empty search results.
         
         Rationale: Ensures tool handles empty results gracefully.
         """
         mock_orchestrator = Mock()
-        mock_orchestrator.search.return_value = {"results": [], "query": "test", "count": 0}
         mock_orchestrator_class.return_value = mock_orchestrator
+        mock_client = Mock()
+        mock_client.search.return_value = {"results": []}
+        mock_tavily_client_class.return_value = mock_client
         
-        tool = WebSearchTool(browse_orchestrator=mock_orchestrator)
+        tool = WebSearchTool(api_key="test-key", browse_orchestrator=mock_orchestrator)
+        tool._tavily_client = mock_client
         result = tool.execute(query="test")
         
         assert result["count"] == 0
         assert result["results"] == []
+        assert result["provider_used"] == "tavily"
     
     @patch('broca.tools.web_search.BrowseOrchestrator')
-    def test_execute_handles_missing_fields(self, mock_orchestrator_class):
+    @patch('broca.tools.web_search.TavilyClient')
+    def test_execute_handles_missing_fields(self, mock_tavily_client_class, mock_orchestrator_class):
         """
         Test execution with results missing some fields.
         
         Rationale: Ensures tool handles incomplete responses gracefully.
         """
         mock_orchestrator = Mock()
-        mock_orchestrator.search.return_value = {
+        mock_orchestrator_class.return_value = mock_orchestrator
+        mock_client = Mock()
+        mock_client.search.return_value = {
             "results": [
                 {"title": "Result 1"},  # Missing url and content
                 {"url": "https://example.com"}  # Missing title and content
-            ],
-            "query": "test",
-            "count": 2
+            ]
         }
-        mock_orchestrator_class.return_value = mock_orchestrator
+        mock_tavily_client_class.return_value = mock_client
         
-        tool = WebSearchTool(browse_orchestrator=mock_orchestrator)
+        tool = WebSearchTool(api_key="test-key", browse_orchestrator=mock_orchestrator)
+        tool._tavily_client = mock_client
         result = tool.execute(query="test")
         
         assert result["count"] == 2
@@ -297,23 +325,24 @@ class TestWebSearchToolExecute:
         assert result["results"][1].get("url") == "https://example.com"
     
     @patch('broca.tools.web_search.BrowseOrchestrator')
-    def test_execute_handles_browser_error(self, mock_orchestrator_class):
+    def test_execute_handles_both_providers_failing(self, mock_orchestrator_class):
         """
-        Test execution when browser search raises an error.
+        Test execution when both Tavily and browser search fail.
         
-        Rationale: Ensures tool handles browser search errors gracefully.
+        Rationale: Ensures tool handles errors gracefully when all providers fail.
         """
         mock_orchestrator = Mock()
         mock_orchestrator.search.side_effect = Exception("Browser search error")
         mock_orchestrator_class.return_value = mock_orchestrator
         
-        tool = WebSearchTool(browse_orchestrator=mock_orchestrator)
+        tool = WebSearchTool(browse_orchestrator=mock_orchestrator)  # No Tavily
         result = tool.execute(query="test")
         
         assert "error" in result
         assert result["count"] == 0
         assert result["results"] == []
-        assert "Browser search" in result["error"] or "error" in result["error"].lower()
+        assert result["provider_used"] == "none"
+        assert "error" in result["error"].lower()
 
 
 class TestWebSearchToolFormatResult:

@@ -768,8 +768,11 @@ class CognitiveDissonanceMonitor:
             if not tool_usage:
                 return None
             
-            deviation_score = 0.0
+            # Track violations and counts for ratio-based calculation
             violations: List[Dict[str, Any]] = []
+            dissonant_actions = 0
+            consonant_actions = 0
+            violation_severities: List[float] = []
             
             # Extract capabilities and constraints from self model
             capabilities = [cap.get("text", str(cap)) for cap in self.self_model.capabilities]
@@ -794,6 +797,10 @@ class CognitiveDissonanceMonitor:
                 
                 tool_name_lower = tool_name.lower()
                 tool_counts[tool_name_lower] = tool_counts.get(tool_name_lower, 0) + 1
+                
+                # Track if this action has any violation
+                action_has_violation = False
+                action_violation_severity = 0.0
                 
                 # Enhanced capability matching - check for semantic similarity
                 # Split tool name into words for better matching
@@ -841,7 +848,8 @@ class CognitiveDissonanceMonitor:
                 
                 # Record constraint violations
                 if constraint_violation:
-                    deviation_score = max(deviation_score, violation_severity)
+                    action_has_violation = True
+                    action_violation_severity = max(action_violation_severity, violation_severity)
                     violations.append({
                         "type": violation_type,
                         "tool": tool_name,
@@ -856,29 +864,87 @@ class CognitiveDissonanceMonitor:
                     common_tools = ["read", "search", "get", "fetch", "list", "find", "query"]
                     is_common = any(common in tool_name_lower for common in common_tools)
                     severity = 0.2 if is_common else 0.4  # Lower for common tools
-                    deviation_score = max(deviation_score, severity)
+                    action_has_violation = True
+                    action_violation_severity = max(action_violation_severity, severity)
                     violations.append({
                         "type": "capability_mismatch",
                         "tool": tool_name,
                         "severity": severity,
                         "description": f"Tool {tool_name} not mentioned in stated capabilities"
                     })
+                
+                # Count as dissonant or consonant
+                if action_has_violation:
+                    dissonant_actions += 1
+                    violation_severities.append(action_violation_severity)
+                else:
+                    consonant_actions += 1
             
             # Analyze tool usage patterns for additional insights
             # Check for excessive use of same tool (might indicate inefficiency)
+            pattern_violation_severity = 0.0
             if len(tool_counts) > 0:
                 max_count = max(tool_counts.values())
                 total_tools = len(tool_usage)
                 if max_count > total_tools * 0.5 and total_tools > 3:
                     # More than 50% of tools are the same - potential inefficiency
                     most_used = [name for name, count in tool_counts.items() if count == max_count][0]
-                    deviation_score = max(deviation_score, 0.2)  # Low severity for pattern issues
+                    pattern_violation_severity = 0.2  # Low severity for pattern issues
                     violations.append({
                         "type": "inefficient_pattern",
                         "tool": most_used,
-                        "severity": 0.2,
+                        "severity": pattern_violation_severity,
                         "description": f"Excessive use of tool {most_used} ({max_count}/{total_tools} calls)"
                     })
+                    # Pattern violations are counted separately (they affect overall pattern, not individual actions)
+                    # Add to severity list but don't double-count actions
+            
+            # Calculate ratio-based dissonance score (Festinger's principle)
+            total_actions = dissonant_actions + consonant_actions
+            if total_actions == 0:
+                return 0.0
+            
+            # Calculate average severity of violations
+            avg_severity = 0.0
+            if violation_severities:
+                avg_severity = sum(violation_severities) / len(violation_severities)
+            
+            # Include pattern violation in average if present
+            if pattern_violation_severity > 0.0:
+                if violation_severities:
+                    avg_severity = (sum(violation_severities) + pattern_violation_severity) / (len(violation_severities) + 1)
+                else:
+                    avg_severity = pattern_violation_severity
+            
+            # Calculate dissonance ratio: proportion of dissonant actions
+            dissonance_ratio = dissonant_actions / total_actions
+            
+            # Apply commitment weighting if available (higher commitment amplifies dissonance)
+            commitment_weight = 1.0
+            if violations and self._commitment_strength:
+                # Check commitment to violated constraints/capabilities
+                avg_commitment = 0.0
+                commitment_count = 0
+                for violation in violations:
+                    if violation.get("type") in ["read_only_violation", "explicit_constraint_violation"]:
+                        commitment_count += 1
+                        avg_commitment += 0.7  # Default moderate commitment to constraints
+                if commitment_count > 0:
+                    avg_commitment /= commitment_count
+                    commitment_weight = 1.0 + (avg_commitment * 0.5)  # Range: 1.0-1.5
+            
+            # Combine base severity average with ratio (Festinger's approach)
+            # 60% weight on severity, 40% weight on ratio
+            base_score = (avg_severity * 0.6) + (dissonance_ratio * 0.4)
+            
+            # Apply commitment weighting
+            deviation_score = min(1.0, base_score * commitment_weight)
+            
+            logger.debug(
+                f"Behavioral dissonance: {dissonant_actions}/{total_actions} actions dissonant (ratio={dissonance_ratio:.3f}), "
+                f"avg_severity={avg_severity:.3f}, commitment_weight={commitment_weight:.3f}, "
+                f"final_score={deviation_score:.3f}"
+            )
             
             # Use Z3 to validate tool usage chains for logical consistency
             if self.z3_validator and self.z3_validator.enabled and len(tool_usage) > 1:
@@ -907,8 +973,8 @@ class CognitiveDissonanceMonitor:
                 except Exception as e:
                     logger.debug(f"Error in Z3 tool usage validation: {e}")
             
-            # Track deviations
-            if violations:
+            # Track deviations (only if there were violations, or if we have a non-zero score)
+            if violations or deviation_score > 0.0:
                 self.behavioral_deviations.append({
                     "timestamp": datetime.now(timezone.utc),
                     "tool_usage": tool_usage,
@@ -943,8 +1009,12 @@ class CognitiveDissonanceMonitor:
             if not reasoning_goals:
                 return None
             
-            conflict_score = 0.0
+            # Track violations and counts for ratio-based calculation
             violations: List[Dict[str, Any]] = []
+            conflicting_goals = 0
+            aligned_goals = 0
+            conflict_severities: List[float] = []
+            goal_priorities: List[float] = []  # For importance weighting
             
             # Extract constraints and capabilities from self model
             constraints = self.self_model.constraints
@@ -986,6 +1056,10 @@ class CognitiveDissonanceMonitor:
                 goals_to_check = [g if isinstance(g, dict) else {"name": str(g), "description": str(g)} 
                                  for g in reasoning_goals]
             
+            # Track if there's a goal dependency conflict (affects all goals)
+            has_goal_dependency_conflict = False
+            dependency_conflict_severity = 0.0
+            
             # Use Z3 to check if goals conflict with constraints (if available)
             if self.z3_validator and self.z3_validator.enabled and goals_to_check:
                 try:
@@ -1012,10 +1086,11 @@ class CognitiveDissonanceMonitor:
                         is_valid, error, warnings = self.z3_validator.validate_goal_dependencies(goal_objects)
                         
                         if not is_valid:
-                            conflict_score = max(conflict_score, 0.7)  # High conflict for unsatisfiable goals
+                            has_goal_dependency_conflict = True
+                            dependency_conflict_severity = 0.7  # High conflict for unsatisfiable goals
                             violations.append({
                                 "type": "goal_dependency_conflict",
-                                "severity": 0.7,
+                                "severity": dependency_conflict_severity,
                                 "error": error,
                                 "description": f"Goal dependencies are unsatisfiable: {error}"
                             })
@@ -1028,6 +1103,11 @@ class CognitiveDissonanceMonitor:
                 goal_description = goal_dict.get("description", str(goal_dict))
                 goal_text = f"{goal_name} {goal_description}".lower()
                 goal_words = set(goal_text.split())
+                goal_priority = goal_dict.get("priority", 0.5)  # Default medium priority
+                
+                # Track if this goal has any conflict
+                goal_has_conflict = False
+                goal_conflict_severity = 0.0
                 
                 # Check for constraint violations with enhanced detection
                 for constraint_value in constraint_values:
@@ -1038,7 +1118,8 @@ class CognitiveDissonanceMonitor:
                     if "read-only" in constraint_lower or "read only" in constraint_lower:
                         write_keywords = ["write", "modify", "edit", "change", "update", "delete", "create"]
                         if any(keyword in goal_text for keyword in write_keywords):
-                            conflict_score = max(conflict_score, 0.8)
+                            goal_has_conflict = True
+                            goal_conflict_severity = max(goal_conflict_severity, 0.8)
                             violations.append({
                                 "type": "constraint_violation",
                                 "goal": goal_name,
@@ -1053,7 +1134,8 @@ class CognitiveDissonanceMonitor:
                         # Check if goal mentions something that's restricted
                         constraint_words = set(constraint_lower.split())
                         if goal_words & constraint_words:  # Word overlap
-                            conflict_score = max(conflict_score, 0.9)  # Very high for explicit restrictions
+                            goal_has_conflict = True
+                            goal_conflict_severity = max(goal_conflict_severity, 0.9)  # Very high for explicit restrictions
                             violations.append({
                                 "type": "explicit_constraint_violation",
                                 "goal": goal_name,
@@ -1082,7 +1164,8 @@ class CognitiveDissonanceMonitor:
                         common_goal_patterns = ["help", "assist", "provide", "answer", "find", "search", "get", "retrieve"]
                         is_common = any(pattern in goal_text for pattern in common_goal_patterns)
                         severity = 0.3 if is_common else 0.5  # Lower for common patterns
-                        conflict_score = max(conflict_score, severity)
+                        goal_has_conflict = True
+                        goal_conflict_severity = max(goal_conflict_severity, severity)
                         violations.append({
                             "type": "capability_mismatch",
                             "goal": goal_name,
@@ -1097,16 +1180,83 @@ class CognitiveDissonanceMonitor:
                     goal_objective_overlap = goal_words & objective_words
                     if len(goal_objective_overlap) == 0 and len(goal_text) > 20:
                         # Goal doesn't align with stated objectives
-                        conflict_score = max(conflict_score, 0.4)
+                        goal_has_conflict = True
+                        goal_conflict_severity = max(goal_conflict_severity, 0.4)
                         violations.append({
                             "type": "objective_mismatch",
                             "goal": goal_name,
                             "severity": 0.4,
                             "description": f"Goal {goal_name} doesn't align with stated objectives"
                         })
+                
+                # Count goal as conflicting or aligned
+                if goal_has_conflict:
+                    conflicting_goals += 1
+                    conflict_severities.append(goal_conflict_severity)
+                    goal_priorities.append(goal_priority)
+                else:
+                    aligned_goals += 1
             
-            # Track conflicts
-            if violations:
+            # Calculate ratio-based dissonance score (Festinger's principle)
+            total_goals = conflicting_goals + aligned_goals
+            if total_goals == 0:
+                return 0.0
+            
+            # Handle dependency conflicts (affect all goals)
+            if has_goal_dependency_conflict:
+                # Dependency conflicts mean all goals are in conflict
+                conflicting_goals = total_goals
+                aligned_goals = 0
+            
+            # Calculate weighted average severity of conflicts (weighted by goal priority)
+            avg_severity = 0.0
+            
+            # Collect all severities including dependency conflict
+            all_severities = list(conflict_severities) if conflict_severities else []
+            if has_goal_dependency_conflict:
+                all_severities.append(dependency_conflict_severity)
+            
+            if all_severities:
+                if goal_priorities and len(goal_priorities) == len(conflict_severities):
+                    # Weight severities by goal priority (higher priority = more weight)
+                    # Include dependency conflict with average priority weight
+                    weighted_sum = sum(sev * (1.0 + priority) for sev, priority in zip(conflict_severities, goal_priorities))
+                    if has_goal_dependency_conflict:
+                        avg_priority = sum(goal_priorities) / len(goal_priorities) if goal_priorities else 0.5
+                        weighted_sum += dependency_conflict_severity * (1.0 + avg_priority)
+                        weight_sum = sum(1.0 + priority for priority in goal_priorities) + (1.0 + avg_priority)
+                    else:
+                        weight_sum = sum(1.0 + priority for priority in goal_priorities)
+                    avg_severity = weighted_sum / weight_sum
+                else:
+                    # Fallback to simple average if no priorities available
+                    avg_severity = sum(all_severities) / len(all_severities)
+            
+            # Calculate dissonance ratio: proportion of conflicting goals
+            dissonance_ratio = conflicting_goals / total_goals
+            
+            # Apply importance weighting (high-priority goal conflicts weigh more)
+            importance_weight = 1.0
+            if goal_priorities:
+                avg_priority = sum(goal_priorities) / len(goal_priorities)
+                # Higher priority amplifies dissonance: 1.0 + (priority * 0.5), range 1.0-1.5
+                importance_weight = 1.0 + (avg_priority * 0.5)
+            
+            # Combine base severity average with ratio (Festinger's approach)
+            # 60% weight on severity, 40% weight on ratio
+            base_score = (avg_severity * 0.6) + (dissonance_ratio * 0.4)
+            
+            # Apply importance weighting
+            conflict_score = min(1.0, base_score * importance_weight)
+            
+            logger.debug(
+                f"Goal dissonance: {conflicting_goals}/{total_goals} goals conflicting (ratio={dissonance_ratio:.3f}), "
+                f"avg_severity={avg_severity:.3f}, importance_weight={importance_weight:.3f}, "
+                f"final_score={conflict_score:.3f}"
+            )
+            
+            # Track conflicts (only if there were violations, or if we have a non-zero score)
+            if violations or conflict_score > 0.0:
                 self.goal_conflicts.append({
                     "timestamp": datetime.now(timezone.utc),
                     "goals": reasoning_goals,

@@ -87,12 +87,13 @@ class TestOpenAITemperatureHandling:
             assert "temperature" in call_kwargs
             assert call_kwargs["temperature"] == 0.0
     
-    def test_temperature_0_3_works_for_all_models(self):
+    def test_temperature_non_1_0_omitted_for_models_requiring_default(self):
         """
-        Test that non-zero temperatures work for all models.
+        Test that non-1.0 temperatures are omitted for models requiring default temp.
         
-        Rationale: Non-zero temperatures should always be included.
+        Rationale: Models like o1 and gpt-5 only support temperature=1.0, so any other value should be omitted.
         """
+        # Test with o1 model and temperature=0.3
         mock_openai_client = MagicMock()
         mock_response = MagicMock()
         mock_response.model_dump.return_value = build_llm_response()
@@ -108,10 +109,79 @@ class TestOpenAITemperatureHandling:
             messages = create_message_list(user_messages=["Hello"])
             client.chat(messages)
             
+            # Verify temperature was omitted (not in call kwargs)
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert "temperature" not in call_kwargs
+        
+        # Test with gpt-5-mini and temperature=0.7 (the actual error case)
+        mock_openai_client = MagicMock()
+        mock_openai_client.chat.completions.create.return_value = mock_response
+        
+        with patch('broca.llm.openai_client.OpenAI', return_value=mock_openai_client):
+            client = OpenAIClient(
+                api_key="test-key",
+                model="gpt-5-mini",
+                temperature=0.7
+            )
+            
+            messages = create_message_list(user_messages=["Hello"])
+            client.chat(messages)
+            
+            # Verify temperature was omitted (not in call kwargs)
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert "temperature" not in call_kwargs
+    
+    def test_temperature_1_0_included_for_models_requiring_default(self):
+        """
+        Test that temperature=1.0 is included for models requiring default temp.
+        
+        Rationale: When explicitly set to 1.0, it should be included in the request.
+        """
+        mock_openai_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = build_llm_response()
+        mock_openai_client.chat.completions.create.return_value = mock_response
+        
+        with patch('broca.llm.openai_client.OpenAI', return_value=mock_openai_client):
+            client = OpenAIClient(
+                api_key="test-key",
+                model="gpt-5-mini",
+                temperature=1.0
+            )
+            
+            messages = create_message_list(user_messages=["Hello"])
+            client.chat(messages)
+            
             # Verify temperature was included
             call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
             assert "temperature" in call_kwargs
-            assert call_kwargs["temperature"] == 0.3
+            assert call_kwargs["temperature"] == 1.0
+    
+    def test_temperature_non_1_0_works_for_models_that_support_it(self):
+        """
+        Test that non-1.0 temperatures work for models that support them.
+        
+        Rationale: Models like gpt-4 should accept any temperature value.
+        """
+        mock_openai_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = build_llm_response()
+        mock_openai_client.chat.completions.create.return_value = mock_response
+        
+        with patch('broca.llm.openai_client.OpenAI', return_value=mock_openai_client):
+            client = OpenAIClient(
+                api_key="test-key",
+                model="gpt-4",
+                temperature=0.7
+            )
+            
+            messages = create_message_list(user_messages=["Hello"])
+            client.chat(messages)
+            
+            # Verify temperature was included
+            call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+            assert "temperature" in call_kwargs
+            assert call_kwargs["temperature"] == 0.7
     
     def test_temperature_override_in_chat_method(self):
         """

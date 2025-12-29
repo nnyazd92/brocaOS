@@ -220,6 +220,18 @@ class LearningTool:
     
     def _observe_tool_call(self, tool_call: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
         """Observe a tool call and its result for learning."""
+        # Validate required parameters
+        if tool_call is None:
+            return {
+                "success": False,
+                "error": "tool_call parameter is required but was None"
+            }
+        if result is None:
+            return {
+                "success": False,
+                "error": "result parameter is required but was None"
+            }
+        
         self.procedural_learner.observe_tool_call(tool_call, result)
         
         # Also log as experience

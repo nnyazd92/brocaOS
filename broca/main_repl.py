@@ -201,14 +201,14 @@ def _initialize_tool_registry(
         )
         
         # Register web search tool if enabled
-        # Browser-based search is now primary (no Tavily API key required)
+        # Tavily API is primary search provider (requires TAVILY_API_KEY)
+        # Browser-based search is used as fallback when Tavily is unavailable
         if app_config.tools.enable_web_search:
             try:
-                # WebSearchTool uses browser-based search by default
-                # Tavily is only used as emergency fallback if explicitly enabled
+                # WebSearchTool uses Tavily API as primary, browser search as fallback
                 web_search_tool = WebSearchTool(api_key=app_config.tools.tavily_api_key or None)
                 registry.register_tool(web_search_tool)
-                logger.info("Registered web search tool (browser-based search)")
+                logger.info("Registered web search tool (Tavily primary, browser fallback)")
             except Exception as e:
                 logger.warning(
                     f"Failed to register web search tool: {e}. "
@@ -865,7 +865,7 @@ def _initialize_reasoning_system(
         mpc_controller = None
         if app_config and app_config.control.mpc_enabled:
             try:
-                from ..control.mpc_controller import MPCController
+                from .control.mpc_controller import MPCController
                 mpc_controller = MPCController(
                     goal_manager=None,  # Will be set after goal manager is created
                     config=None  # Uses defaults
@@ -878,7 +878,7 @@ def _initialize_reasoning_system(
         distributed_control = None
         if app_config and app_config.control.distributed_control_enabled:
             try:
-                from ..control.distributed_control import DistributedControlSystem
+                from .control.distributed_control import DistributedControlSystem
                 distributed_control = DistributedControlSystem(
                     goal_manager=None  # Will be set after goal manager is created
                 )
