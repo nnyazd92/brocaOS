@@ -1,0 +1,69 @@
+BrocaOS Personal Use License (BPUL) v1.0
+
+Copyright (c) 2025 Nick Navid Yazdani
+
+Preamble
+This license grants you permission to use, reproduce, and modify the BrocaOS software for personal, non-commercial, academic and research purposes provided you comply with the conditions below. Commercial use is not permitted under this license; contact the copyright owner for a commercial license.
+
+1. Definitions
+- "Software" means the source code, object code, binaries, documentation and other materials distributed under this License.
+- "Licensor" means the copyright owner of the Software.
+- "You" (or "Your") means any individual or entity exercising rights under this License.
+- "Personal Use" means private use, study, evaluation, academic research, and other uses that are not commercial as defined below.
+- "Commercial Use" means any use that is intended for or directed toward commercial advantage, monetary compensation, sale, distribution for a fee, use by for-profit entities to provide paid services, incorporation into a product or service offered for sale, or any use primarily intended for commercial gain.
+- "Derivative Work" means any work based upon the Software that, in whole or in part, is derived from or incorporates the Software, whether in source or binary form.
+
+2. Grant of Rights (Non-Commercial / Personal Use)
+Subject to the terms and conditions of this License, Licensor hereby grants You a worldwide, non-exclusive, non-transferable, royalty-free license to:
+- use, copy, run, and modify the Software for Personal Use;
+- reproduce and distribute verbatim copies of the Software and Derivative Works, provided redistribution is only for Personal Use and complies with this License.
+
+3. Attribution
+Any distribution (source or compiled) of the Software or Derivative Works under this License must:
+- include a clear attribution to the Licensor (copyright owner), e.g. "Copyright (c) 2025 Nick Navid Yazdani";
+- include a copy of this License or a clear link to it;
+- include a brief statement noting whether you modified the Software and the date of the modification.
+
+4. Share-Alike for Non-Commercial Redistribution
+If you distribute Derivative Works under this License (or make the Software available to others), you must license such Derivative Works on the same terms as this License (i.e., permit only Personal Use, require attribution, and include this License). Redistribution for Commercial Use is expressly forbidden without a separate commercial license from the Licensor.
+
+5. Commercial Use Prohibited (Without Separate License)
+You may not use, reproduce, distribute, sublicense, or make Derivative Works of the Software for Commercial Use except under a separate written license from the Licensor. If You wish to use the Software commercially, contact the Licensor to obtain a commercial license.
+
+6. No Patent License
+Unless a separate written agreement states otherwise, this License does not grant you any patent rights, patent licenses, or patent claims of any contributor beyond rights inherently granted to the Licensor under applicable law for the non-commercial uses expressly permitted here.
+
+7. No Trademark License
+This License does not grant any rights to use the trademarks, service marks, trade names, logos or product names of the Licensor or its contributors. Do not present derivative works in a way that implies endorsement by the Licensor without written permission.
+
+8. Redistribution Requirements
+Redistributions of the Software or Derivative Works (source or binary) must:
+- include the attribution notice and this License;
+- reproduce any NOTICE file provided with the Software;
+- be distributed only for Personal Use, and not for Commercial Use.
+
+9. Termination
+This License and the rights granted hereunder will terminate automatically if You fail to comply with any term of this License. Upon termination, You must cease all use of the Software and destroy all copies of the Software in your possession or control.
+
+10. Export Controls
+You agree to comply with all applicable export and import control laws and regulations. The Licensor makes no representation that the Software may be exported or used outside any particular jurisdiction.
+
+11. Disclaimer of Warranty
+THE SOFTWARE IS PROVIDED "AS IS" AND THE LICENSOR DISCLAIMS ALL WARRANTIES, WHETHER EXPRESS, IMPLIED, STATUTORY OR OTHERWISE, INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. TO THE EXTENT PERMITTED BY LAW, THE LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL MEET YOUR REQUIREMENTS OR THAT OPERATION OF THE SOFTWARE WILL BE UNINTERRUPTED OR ERROR-FREE.
+
+12. Limitation of Liability
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, PUNITIVE, OR CONSEQUENTIAL DAMAGES, OR ANY LOSS OF PROFITS, REVENUE, DATA, OR BUSINESS INTERRUPTION, ARISING FROM OR RELATING TO THIS LICENSE OR THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+13. Governing Law and Venue
+This License is governed by the laws of State of California, United States, excluding conflicts-of-law rules. Any litigation arising in connection with this License shall be in courts located in San Francisco County, California, and the parties hereby consent to jurisdiction and venue there.
+
+14. Commercial Licensing and Contact
+For permission to use the Software for Commercial Use, or for inquiries about commercial licensing, contact:
+Nick Navid Yazdani
+licensing@brocaos.ai
+
+15. Miscellaneous
+- If any provision of this License is held to be unenforceable, it shall be reformed only to the extent necessary to make it enforceable, and the remaining provisions shall remain in full force.
+- No waiver by the Licensor of any right under this License shall be deemed a waiver of any other right.
+
+BrocaOS-Personal-Use-1.0
