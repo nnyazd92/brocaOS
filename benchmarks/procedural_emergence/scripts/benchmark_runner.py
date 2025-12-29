@@ -53,12 +53,14 @@ class Runner:
         # e.g., self.broca_client = BrocaClient(api_url=config.get('broca_api'))
 
     def run(self, tasks: List[Dict[str, Any]], run_id: str):
+        # Use a single conversation/session id for the whole run so the agent keeps context
+        conversation_id = self.config.get('runtime', {}).get('conversation_prefix', run_id)
         out_path = os.path.join(RESULTS_DIR, f"{run_id}.jsonl")
         with open(out_path, 'w', encoding='utf-8') as out_file:
             for task in tasks:
                 start = time.time()
                 try:
-                    result = self.run_task(task)
+                    result = self.run_task(task, conversation_id=conversation_id)
                 except Exception as e:
                     result = {
                         'task_id': task.get('id'),
@@ -80,7 +82,7 @@ class Runner:
         print(f"Wrote results to: {out_path}")
         return out_path
 
-    def run_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+    def run_task(self, task: Dict[str, Any], conversation_id: str | None = None) -> Dict[str, Any]:
         """
         Run a single task. Replace or extend this method to integrate with BrocaOS runtime.
 
@@ -174,13 +176,19 @@ class Runner:
             result = None
             # 1) preferred: broca.process_single_task
             if hasattr(broca, 'process_single_task'):
-                result = broca.process_single_task(task)
+                try:
+                    result = broca.process_single_task(task, conversation_id=conversation_id)
+                except TypeError:
+                    result = broca.process_single_task(task)
             else:
                 # 2) try adapter installed under benchmarks.procedural_emergence
                 try:
                     from benchmarks.procedural_emergence import broca_adapter
                     if hasattr(broca_adapter, 'process_single_task'):
-                        result = broca_adapter.process_single_task(task)
+                        try:
+                            result = broca_adapter.process_single_task(task, conversation_id=conversation_id)
+                        except TypeError:
+                            result = broca_adapter.process_single_task(task)
                 except Exception:
                     result = None
                 if result is None:
