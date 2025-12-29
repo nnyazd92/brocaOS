@@ -96,6 +96,7 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
                     )
                     old_base = getattr(session, '_base_system_prompt_internal', None)
                     if old_base:
+                        # preserve existing base prompt and append benchmark instructions
                         session._base_system_prompt_internal = f"{old_base}
 
 {benchmark_prompt}"
@@ -145,6 +146,7 @@ procedures_before = {}
                     )
                     old_base = getattr(session, '_base_system_prompt_internal', None)
                     if old_base:
+                        # preserve existing base prompt and append benchmark instructions
                         session._base_system_prompt_internal = f"{old_base}
 
 {benchmark_prompt}"
