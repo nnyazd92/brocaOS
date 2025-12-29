@@ -178,6 +178,42 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
             except Exception:
                 success = False
 
+        # Validator: detect clarifying questions and explicit assumptions
+        def is_clarifying_question(text: str) -> bool:
+            if not text:
+                return False
+            t = text.strip()
+            # Simple heuristics: ends with question mark or contains common interrogatives at start
+            if t.endswith('?'):
+                # Treat as clarifying question
+                return True
+            import re
+            patterns = [r"\bdo you mean\b", r"\bcould you\b", r"\bwould you\b", r"\bcan you\b", r"\bplease clarify\b", r"\bwhat do you mean\b"]
+            for p in patterns:
+                if re.search(p, t, flags=re.IGNORECASE):
+                    return True
+            return False
+
+        def contains_assumption(text: str) -> bool:
+            if not text:
+                return False
+            import re
+            assumption_patterns = [r"\bassum(e|ption)\b", r"\bi assume\b", r"\bassuming that\b", r"\bfor the purpose of this answer\b", r"\bI'll assume\b", r"\bI will assume\b"]
+            for p in assumption_patterns:
+                if re.search(p, text, flags=re.IGNORECASE):
+                    return True
+            return False
+
+        # Enforce benchmark rule: clarifying questions without explicit assumption => failure
+        try:
+            if is_clarifying_question(reply) and not contains_assumption(reply):
+                success = False
+                violation_reason = 'clarifying_question_without_assumption'
+            else:
+                violation_reason = None
+        except Exception:
+            violation_reason = None
+
         # Collect tool call traces if session exposes them (best-effort)
         tool_calls = []
         try:
