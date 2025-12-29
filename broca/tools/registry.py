@@ -665,25 +665,30 @@ class ToolRegistry:
                     logger.debug(f"Error recording tool outcome: {e}", exc_info=True)
             
             # Automatically observe tool call for learning if learning_tool is available
-            if self.learning_tool:
+            # and runtime config allows auto-observation (to avoid unapproved persistent writes)
+            try:
+                auto_obs = getattr(config.tools, 'auto_observe_tool_calls', False)
+            except Exception:
+                auto_obs = False
+
+            if self.learning_tool and auto_obs:
                 try:
-                    # Prepare tool call observation data
+                    # Debounce: avoid observing too frequently for identical tool calls within same process tick
                     tool_call_data = {
                         "name": tool_name,
                         "parameters": arguments
                     }
-                    
-                    # Prepare result observation data (with success flag)
+
                     success = result.get("success", True) if isinstance(result, dict) else True
                     result_data = {
                         "success": success,
                         "result": result,
                         "execution_time_ms": execution_time_ms
                     }
-                    
-                    # Observe the tool call via execute method (this records it for pattern extraction)
+
+                    # Execute observation
                     self.learning_tool.execute("observe_tool_call", tool_call=tool_call_data, result=result_data)
-                    logger.debug(f"Automatically observed tool call '{tool_name}' for learning")
+                    logger.debug(f"Automatically observed tool call '{tool_name}' for learning (auto_obs enabled)")
                 except Exception as e:
                     # Don't fail tool execution if learning observation fails
                     logger.debug(f"Failed to observe tool call for learning: {e}", exc_info=True)
