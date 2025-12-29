@@ -16,7 +16,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
+def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Execute a single benchmark task using the local BrocaOS runtime.
 
@@ -46,7 +46,7 @@ def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     start_ts = datetime.utcnow().isoformat() + 'Z'
-    conv_id = f"bench-{uuid4()}"
+    conv_id = conversation_id or f"bench-{uuid4()}"
 
     try:
         session = create_session(conv_id)
