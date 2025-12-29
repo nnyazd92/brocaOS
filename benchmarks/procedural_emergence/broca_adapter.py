@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Dict, Any, Optional
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -41,11 +41,11 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
             'dissonance_before': None,
             'dissonance_after': None,
             'start_time': datetime.utcnow().isoformat() + 'Z',
-            'end_time': datetime.utcnow().isoformat() + 'Z',
+            'end_time': datetime.now(timezone.utc).isoformat(),
             'duration': 0.0
         }
 
-    start_ts = datetime.utcnow().isoformat() + 'Z'
+    start_ts = datetime.now(timezone.utc).isoformat()
     conv_id = conversation_id or f"bench-{uuid4()}"
 
     try:
@@ -62,7 +62,7 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
             'dissonance_before': None,
             'dissonance_after': None,
             'start_time': start_ts,
-            'end_time': datetime.utcnow().isoformat() + 'Z',
+            'end_time': datetime.now(timezone.utc).isoformat(),
             'duration': 0.0
         }
 
@@ -80,7 +80,38 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
         start_t = _time.time()
 
         # Record procedures last_applied timestamps before running the turn (if available)
-        procedures_before = {}
+        
+        # Inject benchmark-only system prompt for benchmark sessions (non-persistent)
+        try:
+            if str(conv_id).startswith('bench-'):
+                try:
+                    # Compose benchmark system prompt (concise, instructive)
+                    benchmark_prompt = (
+                        "You are participating in an automated benchmark evaluating your ability "
+                        "to solve tasks, use tools, and produce concise final answers. "
+                        "When possible, provide a direct final answer rather than asking follow-up questions. "
+                        "Only ask a single concise clarifying question if the task cannot be completed without it. "
+                        "If you call tools, ensure tool-call actions and outcomes are recorded in structured traces so the evaluator can judge correctness. "
+                        "This message is for benchmark context only and must NOT be persisted as part of the public conversation."
+                    )
+                    old_base = getattr(session, '_base_system_prompt_internal', None)
+                    if old_base:
+                        session._base_system_prompt_internal = f"{old_base}
+
+{benchmark_prompt}"
+                    else:
+                        session._base_system_prompt_internal = benchmark_prompt
+                    # mark injection (non-persistent)
+                    injected_benchmark_prompt = True
+                except Exception:
+                    injected_benchmark_prompt = False
+            else:
+                injected_benchmark_prompt = False
+        except Exception:
+            injected_benchmark_prompt = False
+
+        # Record procedures last_applied timestamps before running the turn (if available)
+procedures_before = {}
         try:
             rt = get_runtime()
             reasoning_tool = getattr(rt, 'reasoning_tool', None)
@@ -98,7 +129,38 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
                         except Exception:
                             procedures_before[name] = None
         except Exception:
-            procedures_before = {}
+            
+        # Inject benchmark-only system prompt for benchmark sessions (non-persistent)
+        try:
+            if str(conv_id).startswith('bench-'):
+                try:
+                    # Compose benchmark system prompt (concise, instructive)
+                    benchmark_prompt = (
+                        "You are participating in an automated benchmark evaluating your ability "
+                        "to solve tasks, use tools, and produce concise final answers. "
+                        "When possible, provide a direct final answer rather than asking follow-up questions. "
+                        "Only ask a single concise clarifying question if the task cannot be completed without it. "
+                        "If you call tools, ensure tool-call actions and outcomes are recorded in structured traces so the evaluator can judge correctness. "
+                        "This message is for benchmark context only and must NOT be persisted as part of the public conversation."
+                    )
+                    old_base = getattr(session, '_base_system_prompt_internal', None)
+                    if old_base:
+                        session._base_system_prompt_internal = f"{old_base}
+
+{benchmark_prompt}"
+                    else:
+                        session._base_system_prompt_internal = benchmark_prompt
+                    # mark injection (non-persistent)
+                    injected_benchmark_prompt = True
+                except Exception:
+                    injected_benchmark_prompt = False
+            else:
+                injected_benchmark_prompt = False
+        except Exception:
+            injected_benchmark_prompt = False
+
+        # Record procedures last_applied timestamps before running the turn (if available)
+procedures_before = {}
 
         reply = session.send(input_text, stream=False)
 
@@ -249,7 +311,7 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
                 try:
                     data = storage.load_conversation(conv_id) or {}
                     metadata = data.get('metadata', {}) if isinstance(data, dict) else {}
-                    metadata['last_bench_update'] = datetime.utcnow().isoformat() + 'Z'
+                    metadata['last_bench_update'] = datetime.now(timezone.utc).isoformat()
                     storage.save_conversation(conv_id, session.messages, metadata)
                 except Exception:
                     pass
@@ -286,10 +348,11 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
             'procedures_applied': procedures_applied,
             'learning_snapshot': learning_snapshot,
             'rl_signals': rl_signals or {},
+            'benchmark_prompt_injected': injected_benchmark_prompt,
             'dissonance_before': None,
             'dissonance_after': None,
             'start_time': start_ts,
-            'end_time': datetime.utcnow().isoformat() + 'Z',
+            'end_time': datetime.now(timezone.utc).isoformat(),
             'duration': duration_secs
         }
         return result
@@ -306,6 +369,6 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
             'dissonance_before': None,
             'dissonance_after': None,
             'start_time': start_ts,
-            'end_time': datetime.utcnow().isoformat() + 'Z',
+            'end_time': datetime.now(timezone.utc).isoformat(),
             'duration': 0.0
         }
