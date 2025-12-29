@@ -120,6 +120,7 @@ class Runner:
             success = bool(task.get('expected_output'))
             final_output = task.get('expected_output') if success else ''
 
+            duration = round(time.time() - start, 3)
             result = {
                 'task_id': task_id,
                 'success': success,
@@ -131,7 +132,7 @@ class Runner:
                 'dissonance_after': 0.3 if success else 0.7,
                 'start_time': start_ts,
                 'end_time': datetime.utcnow().isoformat() + 'Z',
-                'duration': round(time.time() - time.time(), 3)
+                'duration': duration
             }
             return result
 
