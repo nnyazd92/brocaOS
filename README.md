@@ -59,11 +59,13 @@ See `docs/protocols/PROTOCOL.BOOT_UP.v0.3.md` for full protocol details.
 
 ## Development & tests
 
-Run the test suite:
+Run the test suite with coverage and branch reporting:
 
 ```
-pytest -q
+pytest --cov=broca --cov-branch --cov-report=term-missing
 ```
+
+Memory modules should maintain at least 85% coverage (including branch coverage); use `scripts/run_mutation_tests.sh` to execute the coverage-aware mutation suite for `broca/memory`.
 
 Key tests: `broca/tests/test_repl_integration.py`, `broca/tests/test_self_model_sqlite_storage.py`.
 
@@ -89,4 +91,3 @@ Key tests: `broca/tests/test_repl_integration.py`, `broca/tests/test_self_model_
 ## License & credits
 
 - Add your license here (MIT/Apache/etc).
-

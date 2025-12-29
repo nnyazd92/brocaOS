@@ -28,11 +28,7 @@ if TYPE_CHECKING:
     from ..summarization.event_logger import EventLogger
     from ..summarization.manager import SummarizationManager
 
-# Import LoopPhase for PEA loop integration
-try:
-    from ..reasoning.plan_exec_assess_loop import LoopPhase
-except ImportError:
-    LoopPhase = None  # type: ignore
+# PEA/PFREA removed - planning is now handled via planning tool
 
 # Import response analyzer for instrumentation
 try:
@@ -190,43 +186,7 @@ class ConversationSession:
         self._color_manager = color_manager
 
         # Initialize PFREA loop (always enabled - mandatory)
-        self.pea_loop = None  # Keep name for backward compatibility
-        self.pfrea_loop = None
-        self._forecast_directive_count = 0  # Track forecast directive injections to prevent infinite loops
-        try:
-            from ..reasoning.plan_exec_assess_loop import PlanForecastReplanExecuteAssessLoop, PlanExecuteAssessLoop
-            self.pfrea_loop = PlanForecastReplanExecuteAssessLoop(
-                goal_manager=goal_manager,
-                skill_manager=skill_manager,
-                experience_logger=experience_logger,
-                require_planning=True,  # Always require planning
-                max_replan_attempts=config.reasoning.pea_loop_max_replans,
-                success_threshold=config.reasoning.pea_loop_success_threshold,
-                track_failed_patterns=config.reasoning.pea_loop_track_failed_patterns,
-                max_failed_patterns=config.reasoning.pea_loop_max_failed_patterns,
-            )
-            # Backward compatibility alias
-            self.pea_loop = self.pfrea_loop
-            if goal_manager or skill_manager or experience_logger:
-                logger.debug(f"PFREA loop initialized for session with managers: goal_manager={goal_manager is not None}, skill_manager={skill_manager is not None}, experience_logger={experience_logger is not None}")
-            else:
-                logger.debug("PFREA loop initialized for session (managers will be wired later)")
-        except Exception as e:
-            logger.error(f"Failed to initialize PFREA loop (mandatory): {e}", exc_info=True)
-            raise  # PFREA is mandatory, so fail if initialization fails
-        
-        # Log PFREA initialization status
-        if self.pfrea_loop:
-            logger.info(
-                "PFREA loop initialized and active (MANDATORY GLOBAL POLICY)",
-                extra={
-                    "event": "pfrea_initialized_session",
-                    "session_id": self.session_id,
-                    "pfrea_enabled": True,
-                    "forecast_enabled": config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True,
-                    "z3_enabled": self.pfrea_loop.z3_validator is not None and (self.pfrea_loop.z3_validator.enabled if hasattr(self.pfrea_loop.z3_validator, 'enabled') else False) if self.pfrea_loop.z3_validator else False,
-                }
-            )
+        # PEA/PFREA removed - planning is now handled via planning tool
         
         # Store managers for later wiring if PEA loop is created later
         self._goal_manager = goal_manager
@@ -519,24 +479,14 @@ When you need to use tools to complete a task:
         
         Backward compatibility: method name kept as wire_pea_loop_managers.
         """
-        loop = self.pfrea_loop or self.pea_loop
-        if loop:
-            if goal_manager is not None:
-                loop.goal_manager = goal_manager
-                self._goal_manager = goal_manager
-            if skill_manager is not None:
-                loop.skill_manager = skill_manager
-                self._skill_manager = skill_manager
-            if experience_logger is not None:
-                loop.experience_logger = experience_logger
-                self._experience_logger = experience_logger
-            
-            if goal_manager or skill_manager or experience_logger:
-                logger.debug(
-                    f"Wired PFREA loop managers: goal_manager={goal_manager is not None}, "
-                    f"skill_manager={skill_manager is not None}, "
-                    f"experience_logger={experience_logger is not None}"
-                )
+        # PEA/PFREA removed - no-op for backward compatibility
+        # Store managers for potential future use
+        if goal_manager is not None:
+            self._goal_manager = goal_manager
+        if skill_manager is not None:
+            self._skill_manager = skill_manager
+        if experience_logger is not None:
+            self._experience_logger = experience_logger
 
     # ---------- Public API ----------
 
@@ -612,6 +562,9 @@ When you need to use tools to complete a task:
                 logger.warning(f"Failed to add user message to context graph: {e}", exc_info=True)
         
         self.messages.append(user_message)
+        
+        # PEA/PFREA removed - planning is now handled via planning tool
+        
         # Start a new tool-policy turn (for per-turn rate limits)
         if self.tool_registry and hasattr(self.tool_registry, "start_turn"):
             try:
@@ -704,30 +657,7 @@ When you need to use tools to complete a task:
         # Handle tool calls iteratively (may require multiple LLM calls)
         iterations = 0
         
-        # PFREA Loop: Check if planning is required before tool execution
-        loop = self.pfrea_loop or self.pea_loop
-        if loop:
-            # Reset for new goal if this is a new user message
-            if loop.current_phase is None or (LoopPhase and loop.current_phase == LoopPhase.COMPLETE):
-                loop.reset_for_new_goal(user_text)
-                self._forecast_directive_count = 0  # Reset forecast directive counter for new goal
-            
-            # Check if planning should be enforced
-            if loop.should_require_plan(user_text, has_tool_calls=False):
-                user_text = loop.enforce_planning_phase(user_text)
-                # Update user message in messages list
-                if self.messages and self.messages[-1].get("role") == "user":
-                    self.messages[-1]["content"] = user_text
-                
-                logger.info(
-                    "PFREA: Planning phase enforced at conversation start",
-                    extra={
-                        "event": "pfrea_planning_enforced_start",
-                        "session_id": self.session_id,
-                        "current_phase": loop.current_phase.value if loop.current_phase else None,
-                        "has_plan": loop.current_plan is not None,
-                    }
-                )
+        # PEA/PFREA removed - planning is now handled via planning tool
         response = None
         # Track last warning iteration to prevent duplicate warnings at the same threshold
         last_warning_iteration = 0
@@ -1337,188 +1267,10 @@ When you need to use tools to complete a task:
                 if assistant_text:
                     assistant_text = repair_ansi_codes(assistant_text)
             
-            # PFREA Loop: Extract plan from response if we don't have one yet
-            loop = self.pfrea_loop or self.pea_loop
-            forecast_enabled = config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True
-            if loop and assistant_text and loop.current_plan is None:
-                plan = loop.extract_plan_from_response(assistant_text)
-                if plan:
-                    loop.current_plan = plan
-                    loop.current_phase = LoopPhase.PLAN
-                    logger.info(
-                        f"PFREA: Extracted plan from response: {plan.plan_id}",
-                        extra={
-                            "event": "pfrea_plan_extracted_session",
-                            "session_id": self.session_id,
-                            "plan_id": plan.plan_id,
-                            "goal": plan.goal,
-                            "steps_count": len(plan.steps),
-                            "iteration": iterations,
-                            "z3_verified": plan.z3_verification.get("is_logically_sound", True) if plan.z3_verification else None,
-                        }
-                    )
-                    self._forecast_directive_count = 0  # Reset counter when plan is extracted
-                    # If forecast is enabled, transition to FORECAST phase
-                    if forecast_enabled and not tool_calls:
-                        loop.current_phase = LoopPhase.FORECAST
-                        forecast_directive = loop.enforce_forecast_phase(plan)
-                        self.messages.append({"role": "user", "content": forecast_directive})
-                        self._forecast_directive_count = 1  # First forecast directive injection
-                        logger.info(
-                            "PFREA: Plan extracted, requesting forecast",
-                            extra={
-                                "event": "pfrea_forecast_requested",
-                                "session_id": self.session_id,
-                                "plan_id": plan.plan_id,
-                                "iteration": iterations,
-                            }
-                        )
-                        continue
-                    elif not forecast_enabled:
-                        # Forecast disabled, go straight to EXECUTE
-                        loop.current_phase = LoopPhase.EXECUTE
-                        logger.info(
-                            "PFREA: Forecast disabled, proceeding to execution",
-                            extra={
-                                "event": "pfrea_forecast_skipped_disabled",
-                                "session_id": self.session_id,
-                                "plan_id": plan.plan_id,
-                            }
-                        )
+            # PEA/PFREA removed - planning is now handled via planning tool
 
             if tool_calls and self.tool_registry:
-                # PFREA Loop: Try to extract forecast even when tool_calls are present (fallback)
-                loop = self.pfrea_loop or self.pea_loop
-                forecast_enabled = config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True
-                
-                if loop and loop.current_phase == LoopPhase.FORECAST and loop.current_plan and assistant_text:
-                    # Try to extract forecast from the text response even if tool calls are present
-                        forecast = loop.extract_forecast_from_response(assistant_text)
-                        if forecast:
-                            loop.current_forecast = forecast
-                            loop.forecast_history.append(forecast)
-                            logger.info(
-                                f"PFREA: Extracted forecast from response with tool calls (feasibility={forecast.feasibility_score:.2f})",
-                                extra={
-                                    "event": "pfrea_forecast_extracted_session",
-                                    "session_id": self.session_id,
-                                    "plan_id": forecast.plan_id,
-                                    "feasibility_score": forecast.feasibility_score,
-                                    "should_replan": forecast.should_replan,
-                                    "iteration": iterations,
-                                }
-                            )
-                            self._forecast_directive_count = 0  # Reset counter
-                            
-                            # Check if re-planning is needed
-                            if loop.should_replan_after_forecast(forecast):
-                                loop.current_phase = LoopPhase.RE_PLAN
-                                replan_directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
-                                self.messages.append({"role": "user", "content": replan_directive})
-                                logger.info(
-                                    "PFREA: Forecast indicates re-planning needed",
-                                    extra={
-                                        "event": "pfrea_replan_triggered",
-                                        "session_id": self.session_id,
-                                        "plan_id": forecast.plan_id,
-                                        "feasibility_score": forecast.feasibility_score,
-                                        "iteration": iterations,
-                                    }
-                                )
-                                continue
-                            else:
-                                # Forecast approved, transition to EXECUTE
-                                loop.current_phase = LoopPhase.EXECUTE
-                                logger.info(
-                                    "PFREA: Forecast approved, proceeding to execution",
-                                    extra={
-                                        "event": "pfrea_execution_approved",
-                                        "session_id": self.session_id,
-                                        "plan_id": forecast.plan_id,
-                                        "feasibility_score": forecast.feasibility_score,
-                                        "iteration": iterations,
-                                    }
-                                )
-                                # Continue to allow tool execution
-                
-                # PFREA Loop: Check if we can execute actions (mandatory enforcement)
-                if loop:
-                    # Block tool execution if required phases are not complete
-                    if not loop.can_execute_actions(forecast_enabled=forecast_enabled):
-                        # Inject appropriate phase directive
-                        if loop.should_require_plan(user_text, has_tool_calls=True):
-                            directive = loop.enforce_planning_phase(user_text)
-                            self.messages.append({"role": "user", "content": directive})
-                            logger.warning(
-                                "PFREA: Blocked tool execution - planning required",
-                                extra={
-                                    "event": "pfrea_execution_blocked",
-                                    "reason": "planning_required",
-                                    "session_id": self.session_id,
-                                    "iteration": iterations,
-                                    "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
-                                    "current_phase": loop.current_phase.value if loop.current_phase else None,
-                                }
-                            )
-                            continue
-                        elif loop.should_require_forecast():
-                            # Loop protection: prevent infinite loops
-                            if self._forecast_directive_count >= 3:
-                                logger.error(
-                                    "PFREA: Forecast directive injected 3 times, skipping forecast to prevent infinite loop",
-                                    extra={
-                                        "event": "pfrea_forecast_loop_protection",
-                                        "session_id": self.session_id,
-                                        "iteration": iterations,
-                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
-                                    }
-                                )
-                                # Skip forecast and proceed to EXECUTE (graceful degradation)
-                                loop.current_forecast = None  # Mark as skipped
-                                loop.current_phase = LoopPhase.EXECUTE
-                                logger.warning(
-                                    "PFREA: Skipped forecast phase due to loop protection, proceeding to execution",
-                                    extra={
-                                        "event": "pfrea_forecast_skipped",
-                                        "session_id": self.session_id,
-                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
-                                    }
-                                )
-                                # Continue to allow tool execution
-                            else:
-                                self._forecast_directive_count += 1
-                                directive = loop.enforce_forecast_phase(loop.current_plan)
-                                self.messages.append({"role": "user", "content": directive})
-                                logger.warning(
-                                    f"PFREA: Blocked tool execution - forecast required (attempt {self._forecast_directive_count}/3)",
-                                    extra={
-                                        "event": "pfrea_execution_blocked",
-                                        "reason": "forecast_required",
-                                        "session_id": self.session_id,
-                                        "iteration": iterations,
-                                        "attempt": self._forecast_directive_count,
-                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
-                                    }
-                                )
-                                continue
-                        elif loop.should_require_replan():
-                            # Re-plan based on forecast
-                            forecast = loop.current_forecast
-                            directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
-                            loop.current_phase = LoopPhase.RE_PLAN
-                            self.messages.append({"role": "user", "content": directive})
-                            logger.warning(
-                                "PFREA: Blocked tool execution - re-planning required",
-                                extra={
-                                    "event": "pfrea_execution_blocked",
-                                    "reason": "replanning_required",
-                                    "session_id": self.session_id,
-                                    "iteration": iterations,
-                                    "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
-                                    "forecast_feasibility": forecast.feasibility_score if forecast else None,
-                                }
-                            )
-                            continue
+                # PEA/PFREA removed - tool execution is always allowed
                 
                 # Mark that we've had tool calls
                 had_tool_calls = True
@@ -1540,57 +1292,7 @@ When you need to use tools to complete a task:
                 # Handle tool calls
                 self._handle_tool_calls(response, tool_calls)
                 
-                # PFREA Loop: Record action executions after tool calls complete
-                loop = self.pfrea_loop or self.pea_loop
-                if loop and loop.current_plan:
-                    # Get tool results from the last messages (tool role messages)
-                    tool_result_messages = [msg for msg in self.messages if msg.get("role") == "tool"]
-                    # Match tool calls with their results
-                    for i, tool_call in enumerate(tool_calls):
-                        tool_name = tool_call.get("function", {}).get("name", "unknown")
-                        tool_call_id = tool_call.get("id", "")
-                        # Find corresponding tool result
-                        tool_result = None
-                        for tool_msg in tool_result_messages[-len(tool_calls):]:
-                            if tool_msg.get("tool_call_id") == tool_call_id:
-                                tool_result = tool_msg
-                                break
-                        
-                        # Extract success from tool result
-                        success = True
-                        if tool_result:
-                            # Check for explicit success field
-                            if "_success" in tool_result.get("content", {}):
-                                success = tool_result["content"]["_success"]
-                            else:
-                                # Parse from content string
-                                content = tool_result.get("content", "")
-                                if isinstance(content, str):
-                                    content_lower = content.lower()
-                                    if "error" in content_lower or "failed" in content_lower:
-                                        # More nuanced check - skip common false positives
-                                        if "error output:" not in content_lower:
-                                            success = False
-                        
-                        # Record execution
-                        try:
-                            import json as json_module
-                            arguments_str = tool_call.get("function", {}).get("arguments", "{}")
-                            try:
-                                arguments = json_module.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
-                            except:
-                                arguments = {}
-                            
-                            loop.record_action_execution(
-                                plan_id=loop.current_plan.plan_id,
-                                step_index=i,
-                                tool_name=tool_name,
-                                arguments=arguments,
-                                result=tool_result.get("content", {}) if tool_result else {},
-                                success=success,
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to record action execution: {e}", exc_info=True)
+                # PEA/PFREA removed - no action execution tracking needed
 
                 # Note: We don't enforce critic iteration immediately after tool calls.
                 # This allows the LLM to use other tools (terminal, web_search, etc.) to
@@ -1615,6 +1317,8 @@ When you need to use tools to complete a task:
                         }
                     )
 
+                # PEA/PFREA removed - no auto-transitions needed
+                
                 # Verify tool results were added to messages before continuing
                 # This ensures the next LLM call receives complete context
                 # Count tool results that were just added (should match number of tool calls)
@@ -1635,142 +1339,10 @@ When you need to use tools to complete a task:
                 # The LLM will automatically receive tool results and should continue without waiting for user input
                 continue
             else:
-                # No tool calls - handle PFREA phase transitions
-                loop = self.pfrea_loop or self.pea_loop
-                forecast_enabled = config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True
-                
-                if loop and assistant_text:
-                    # Extract forecast if we're in FORECAST phase
-                    if loop.current_phase == LoopPhase.FORECAST and loop.current_plan:
-                        forecast = loop.extract_forecast_from_response(assistant_text)
-                        if forecast:
-                            loop.current_forecast = forecast
-                            loop.forecast_history.append(forecast)
-                            self._forecast_directive_count = 0  # Reset counter when forecast is successfully extracted
-                            logger.info(
-                                f"PFREA: Extracted forecast for plan {forecast.plan_id} (feasibility={forecast.feasibility_score:.2f})",
-                                extra={
-                                    "event": "pfrea_forecast_extracted_session",
-                                    "session_id": self.session_id,
-                                    "plan_id": forecast.plan_id,
-                                    "feasibility_score": forecast.feasibility_score,
-                                    "should_replan": forecast.should_replan,
-                                    "risks_count": len(forecast.identified_risks),
-                                    "issues_count": len(forecast.validation_issues),
-                                    "iteration": iterations,
-                                }
-                            )
-                            
-                            # Check if re-planning is needed
-                            if loop.should_replan_after_forecast(forecast):
-                                loop.current_phase = LoopPhase.RE_PLAN
-                                replan_directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
-                                self.messages.append({"role": "user", "content": replan_directive})
-                                logger.info(
-                                    "PFREA: Forecast indicates re-planning needed",
-                                    extra={
-                                        "event": "pfrea_replan_triggered",
-                                        "session_id": self.session_id,
-                                        "plan_id": forecast.plan_id,
-                                        "feasibility_score": forecast.feasibility_score,
-                                        "iteration": iterations,
-                                    }
-                                )
-                                continue
-                            else:
-                                # Forecast approved, transition to EXECUTE
-                                loop.current_phase = LoopPhase.EXECUTE
-                                logger.info(
-                                    "PFREA: Forecast approved, proceeding to execution",
-                                    extra={
-                                        "event": "pfrea_execution_approved",
-                                        "session_id": self.session_id,
-                                        "plan_id": forecast.plan_id,
-                                        "feasibility_score": forecast.feasibility_score,
-                                        "iteration": iterations,
-                                    }
-                                )
-                                # Continue loop to allow tool execution
-                                continue
-                    
-                    # Extract plan if we're in RE_PLAN phase
-                    if loop.current_phase == LoopPhase.RE_PLAN and assistant_text:
-                        new_plan = loop.extract_plan_from_response(assistant_text)
-                        if new_plan:
-                            old_plan_id = loop.current_plan.plan_id if loop.current_plan else None
-                            loop.current_plan = new_plan
-                            loop.current_forecast = None  # Reset forecast for new plan
-                            loop.current_phase = LoopPhase.FORECAST
-                            self._forecast_directive_count = 1  # Reset counter for new plan forecast
-                            forecast_directive = loop.enforce_forecast_phase(new_plan)
-                            self.messages.append({"role": "user", "content": forecast_directive})
-                            logger.info(
-                                f"PFREA: Re-plan extracted, requesting forecast for new plan {new_plan.plan_id}",
-                                extra={
-                                    "event": "pfrea_replan_extracted",
-                                    "session_id": self.session_id,
-                                    "old_plan_id": old_plan_id,
-                                    "new_plan_id": new_plan.plan_id,
-                                    "iteration": iterations,
-                                    "z3_verified": new_plan.z3_verification.get("is_logically_sound", True) if new_plan.z3_verification else None,
-                                }
-                            )
-                            continue
-                
-                # Assess execution if we have a plan and were in EXECUTE phase
-                loop = self.pfrea_loop or self.pea_loop
-                if loop and loop.current_plan and LoopPhase and loop.current_phase == LoopPhase.EXECUTE:
-                    # Get executions for current plan
-                    plan_executions = [
-                        e for e in loop.execution_history
-                        if e.plan_id == loop.current_plan.plan_id
-                    ]
-                    
-                    if plan_executions:
-                        # Assess the execution
-                        assessment = loop.assess_execution(
-                            loop.current_plan,
-                            plan_executions
-                        )
-                        
-                        # If replanning is needed, inject assessment directive
-                        if assessment.should_replan:
-                            assessment_msg = loop.enforce_assessment_phase(assessment)
-                            self.messages.append({
-                                "role": "user",
-                                "content": assessment_msg,
-                            })
-                            loop.current_phase = LoopPhase.PLAN  # Start new plan cycle
-                            logger.info(
-                                f"PFREA: Replanning required for plan {assessment.plan_id}",
-                                extra={
-                                    "event": "pfrea_replan_from_assessment",
-                                    "session_id": self.session_id,
-                                    "plan_id": assessment.plan_id,
-                                    "success_rate": assessment.success_rate,
-                                    "goal_achieved": assessment.goal_achieved,
-                                    "failures_count": len(assessment.failures),
-                                    "iteration": iterations,
-                                }
-                            )
-                            # Continue loop to get new plan
-                            continue
-                        else:
-                            # Mark as complete
-                            loop.current_phase = LoopPhase.COMPLETE
-                            logger.info(
-                                f"PFREA: Plan {assessment.plan_id} completed (goal_achieved={assessment.goal_achieved})",
-                                extra={
-                                    "event": "pfrea_plan_completed",
-                                    "session_id": self.session_id,
-                                    "plan_id": assessment.plan_id,
-                                    "goal_achieved": assessment.goal_achieved,
-                                    "success_rate": assessment.success_rate,
-                                    "iteration": iterations,
-                                }
-                            )
-                
+                # No tool calls - PEA/PFREA removed, proceed with final response
+                # PEA/PFREA removed - planning is now handled via planning tool
                 # No tool calls - extract final response
+                # PEA/PFREA removed - planning is now handled via planning tool
                 logger.info(f"NO TOOL CALLS: Reached final response path (iteration {iterations}), will run post-processing")
                 if iterations > 1:
                     logger.info(
@@ -1796,6 +1368,8 @@ When you need to use tools to complete a task:
                         assistant_text = repair_ansi_codes(assistant_text)
                 else:
                     logger.debug(f"Using existing assistant_text (length={len(assistant_text) if assistant_text else 0}, used_streaming={used_streaming})")
+                
+                # PEA/PFREA removed - final responses are always allowed
                 
                 # Ensure response is always printed
                 if used_streaming:
@@ -4047,6 +3621,74 @@ When you need to use tools to complete a task:
         json_str = json.dumps(normalized, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(json_str.encode('utf-8')).hexdigest()
     
+    def _clean_pfrea_references(self, text: str) -> tuple[str, bool]:
+        """
+        Clean PFREA references from response text as a safety net.
+        
+        Removes:
+        - Section headers like "## PLAN", "## FORECAST", "## EXECUTION", "## ASSESS"
+        - Phase labels like "PLAN:", "FORECAST:", "EXECUTION:", "ASSESS:"
+        - References to PFREA, planning phases, etc.
+        
+        Args:
+            text: Response text to clean
+            
+        Returns:
+            Tuple of (cleaned_text, had_pfrea_refs)
+        """
+        import re
+        
+        original_text = text
+        cleaned = text
+        had_refs = False
+        
+        # Remove PFREA section headers (## PLAN, ## FORECAST, etc.)
+        pfrea_headers = [
+            r'##\s*PLAN\s*:?\s*\n',
+            r'##\s*FORECAST\s*:?\s*\n',
+            r'##\s*EXECUTION\s*:?\s*\n',
+            r'##\s*EXECUTE\s*:?\s*\n',
+            r'##\s*ASSESS\s*:?\s*\n',
+            r'##\s*ASSESSMENT\s*:?\s*\n',
+            r'\*\*PLAN\*\*\s*:?\s*\n',
+            r'\*\*FORECAST\*\*\s*:?\s*\n',
+            r'\*\*EXECUTION\*\*\s*:?\s*\n',
+            r'\*\*EXECUTE\*\*\s*:?\s*\n',
+            r'\*\*ASSESS\*\*\s*:?\s*\n',
+            r'\*\*ASSESSMENT\*\*\s*:?\s*\n',
+        ]
+        
+        for pattern in pfrea_headers:
+            if re.search(pattern, cleaned, re.IGNORECASE):
+                had_refs = True
+                cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+        
+        # Remove phase labels at start of lines (PLAN:, FORECAST:, etc.)
+        phase_labels = [
+            r'^PLAN\s*:?\s*\n',
+            r'^FORECAST\s*:?\s*\n',
+            r'^EXECUTION\s*:?\s*\n',
+            r'^EXECUTE\s*:?\s*\n',
+            r'^ASSESS\s*:?\s*\n',
+            r'^ASSESSMENT\s*:?\s*\n',
+        ]
+        
+        for pattern in phase_labels:
+            if re.search(pattern, cleaned, re.IGNORECASE | re.MULTILINE):
+                had_refs = True
+                cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE | re.MULTILINE)
+        
+        # Remove explicit PFREA mentions
+        if re.search(r'\bPFREA\b', cleaned, re.IGNORECASE):
+            had_refs = True
+            cleaned = re.sub(r'\bPFREA\b', '', cleaned, flags=re.IGNORECASE)
+        
+        # Clean up multiple newlines that might result from removals
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        cleaned = cleaned.strip()
+        
+        return cleaned, had_refs
+    
     @staticmethod
     def _clean_base_prompt(contaminated_prompt: str) -> str:
         """
@@ -4266,13 +3908,54 @@ When you need to use tools to complete a task:
             
             parts.append(tool_calling_instructions)
             
-            # 1.5.5. Add PFREA Loop Policy (MANDATORY GLOBAL POLICY)
-            # PFREA is a mandatory global policy that shapes all agent behavior
-            pfrea_policy = """## PFREA LOOP POLICY (MANDATORY - GLOBAL REQUIREMENT)
+            # 1.5.5. Add PFREA Loop Policy (only if enabled)
+            if config.reasoning.pfrea_loop_enabled:
+                # PFREA is a mandatory global policy that shapes all agent behavior
+                pfrea_policy = """## PFREA LOOP POLICY (MANDATORY - GLOBAL REQUIREMENT)
 
-The Plan-Forecast-Replan-Execute-Assess (PFREA) loop is a MANDATORY global policy that you MUST follow for ALL task execution. This is not optional - it is a core requirement that shapes how you operate.
+⚠️⚠️⚠️ **RESPONSE FORMAT - CRITICAL AND MANDATORY - READ THIS FIRST** ⚠️⚠️⚠️
 
-**PFREA Phases (in order):**
+**YOU MUST NEVER REFERENCE PFREA IN YOUR FINAL RESPONSE**
+
+FORBIDDEN - DO NOT include ANY of these in your final response:
+- ❌ "PLAN: ..." or "## Plan" or "**Plan:**"
+- ❌ "FORECAST: ..." or "## Forecast" or "**Forecast:**"
+- ❌ "EXECUTION: ..." or "## Execution" or "**Execution:**"
+- ❌ "ASSESS: ..." or "## Assess" or "**Assess:**"
+- ❌ Any mention of "planning", "forecasting", "PFREA", "plan-execute-assess", "plan-forecast-replan-execute-assess"
+- ❌ Section headers that mirror PFREA phases
+- ❌ Structured responses organized by PFREA phases
+- ❌ Any reference to internal processes or cognitive loops
+
+REQUIRED - Your final response MUST be:
+- ✅ Natural, conversational language
+- ✅ Direct answers to user questions
+- ✅ Flowing narrative as if you naturally thought through the problem
+- ✅ No internal process references whatsoever
+- ✅ As if PFREA happened automatically in the background (which it did)
+
+**EXAMPLES:**
+
+BAD (FORBIDDEN):
+```
+PLAN: I will search for information...
+FORECAST: This should work...
+EXECUTION: [tool calls]
+ASSESS: The results are good...
+```
+
+GOOD (REQUIRED):
+```
+I'll help you with that. Let me search for the information you need...
+[after tool calls]
+Based on what I found, here's the answer...
+```
+
+PFREA is an INTERNAL background process. The user must NEVER see it. Your response should be completely natural and conversational.
+
+---
+
+**PFREA Phases (in order) - INTERNAL PROCESS ONLY:**
 
 1. **PLAN**: Before executing ANY actions or using ANY tools, you MUST create a plan. Your plan must include:
    - A clear goal statement
@@ -4306,18 +3989,11 @@ The Plan-Forecast-Replan-Execute-Assess (PFREA) loop is a MANDATORY global polic
 - Violations are logged and tracked
 - Compliance metrics are monitored
 
-**RESPONSE FORMAT (CRITICAL):**
-- PFREA is an INTERNAL cognitive process that happens in the background
-- Do NOT structure your final response with PLAN/FORECAST/EXECUTION/ASSESS section headers
-- Do NOT explicitly mention "PLAN", "FORECAST", "EXECUTION", or "ASSESS" in your response
-- After completing PFREA cycles internally, respond naturally and conversationally
-- The user should see only the natural result of your reasoning, not the PFREA process itself
-- When the system injects PFREA directives, process them internally but do not echo them in your response
-- Your response should be a natural, flowing answer as if PFREA happened automatically in the background
+**REMEMBER: Process PFREA internally, but respond naturally. The user should never know PFREA exists.**
 
 **This is a GLOBAL POLICY - it applies to ALL conversations and ALL task execution.**"""
-            
-            parts.append(pfrea_policy)
+                
+                parts.append(pfrea_policy)
             
             # 1.6. Add tool selection guidance (if enabled and available)
             if (config.tools.selection_guidance_enabled and 

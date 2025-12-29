@@ -14,7 +14,7 @@ from .tools.registry import ToolRegistry
 from .tools.web_search import WebSearchTool
 from .tools.memory_tool import (
     StoreMemoryTool, RetrieveMemoriesTool, DeleteMemoryTool, UpdateMemoryTool,
-    LinkMemoriesTool, GetRelatedMemoriesTool
+    LinkMemoriesTool, GetRelatedMemoriesTool, MemoryGraphTool
 )
 from .tools.terminal import TerminalTool
 from .memory.storage import MemoryStorage
@@ -231,12 +231,14 @@ def _initialize_tool_registry(
                 update_tool = UpdateMemoryTool(memory_manager)
                 link_tool = LinkMemoriesTool(memory_manager)
                 get_related_tool = GetRelatedMemoriesTool(memory_manager)
+                memory_graph_tool = MemoryGraphTool(memory_manager)
                 registry.register_tool(store_tool)
                 registry.register_tool(retrieve_tool)
                 registry.register_tool(delete_tool)
                 registry.register_tool(update_tool)
                 registry.register_tool(link_tool)
                 registry.register_tool(get_related_tool)
+                registry.register_tool(memory_graph_tool)
                 logger.info("Registered memory tools")
             except Exception as e:
                 logger.warning(f"Failed to register memory tools: {e}", exc_info=True)
@@ -293,6 +295,27 @@ def _initialize_tool_registry(
                 logger.info("Registered self-model CRUD tool")
             except Exception as e:
                 logger.warning(f"Failed to register self-model tools: {e}", exc_info=True)
+        
+        # Register planning tool
+        try:
+            from .tools.planning_tool import PlanningTool
+            planning_tool = PlanningTool()
+            registry.register_tool(planning_tool)
+            logger.info("Registered planning tool")
+        except Exception as e:
+            logger.warning(f"Failed to register planning tool: {e}", exc_info=True)
+        
+        # Register Z3 validator tool if enabled
+        if app_config.reasoning.z3_tool_enabled:
+            try:
+                from .tools.z3_validator_tool import Z3ValidatorTool
+                z3_tool = Z3ValidatorTool(
+                    timeout=app_config.reasoning.z3_validation_timeout
+                )
+                registry.register_tool(z3_tool)
+                logger.info("Registered Z3 validator tool")
+            except Exception as e:
+                logger.warning(f"Failed to register Z3 validator tool: {e}", exc_info=True)
         
         if len(registry.list_tools()) == 0:
             logger.debug("No tools registered")
@@ -1509,35 +1532,7 @@ def main() -> None:
             experience_logger=experience_logger,
         )
         
-        # Verify and log PFREA initialization in REPL
-        if session.pfrea_loop:
-            try:
-                current_phase = session.pfrea_loop.current_phase
-                logger.info(
-                    f"PFREA: REPL session initialized - Current phase: {current_phase}",
-                    extra={
-                        "event": "pfrea_repl_init",
-                        "phase": str(current_phase),
-                    }
-                )
-                if hasattr(session.pfrea_loop, 'pfrea_tracker'):
-                    metrics = session.pfrea_loop.pfrea_tracker.get_current_metrics()
-                    logger.debug(
-                        f"PFREA metrics at REPL init: compliance_score={metrics.compliance_score:.3f}",
-                        extra={
-                            "event": "pfrea_repl_metrics",
-                            "compliance_score": metrics.compliance_score,
-                        }
-                    )
-            except Exception as e:
-                logger.debug(f"Error logging PFREA initialization in REPL: {e}", exc_info=True)
-        else:
-            logger.warning(
-                "PFREA: REPL session - PFREA loop not initialized",
-                extra={
-                    "event": "pfrea_repl_missing",
-                }
-            )
+        # PEA/PFREA removed - planning is now handled via planning tool
 
         provider_name = (app_config.llm.provider if app_config else "deepseek").upper()
         storage_status = "enabled" if conversation_storage else "disabled"
@@ -1545,8 +1540,7 @@ def main() -> None:
         memory_status = "enabled" if memory_manager else "disabled"
         self_model_status = "enabled" if self_model else "disabled"
         sensing_status = "enabled" if internal_sensing else "disabled"
-        pfrea_status = "enabled" if session.pfrea_loop else "disabled"
-        print(f"BrocaOS REPL ({provider_name} backend). Storage: {storage_status}, Tools: {tools_status}, Memory: {memory_status}, Self-Model: {self_model_status}, Internal Sensing: {sensing_status}, PFREA: {pfrea_status}. Type /exit to quit, /reset to clear context.\n")
+        print(f"BrocaOS REPL ({provider_name} backend). Storage: {storage_status}, Tools: {tools_status}, Memory: {memory_status}, Self-Model: {self_model_status}, Internal Sensing: {sensing_status}. Type /exit to quit, /reset to clear context.\n")
 
         while True:
             try:
@@ -1613,39 +1607,14 @@ def main() -> None:
                     experience_logger=experience_logger,
                 )
                 
-                # Log PFREA initialization after reset
-                if session.pfrea_loop:
-                    try:
-                        current_phase = session.pfrea_loop.current_phase
-                        logger.info(
-                            f"PFREA: REPL session reset - New phase: {current_phase}",
-                            extra={
-                                "event": "pfrea_repl_reset",
-                                "phase": str(current_phase),
-                            }
-                        )
-                    except Exception as e:
-                        logger.debug(f"Error logging PFREA after REPL reset: {e}", exc_info=True)
+                # PEA/PFREA removed - planning is now handled via planning tool
                 
                 print("[context reset]")
                 continue
 
             # Normal turn
             try:
-                # Log PFREA state before sending message
-                if session.pfrea_loop:
-                    try:
-                        current_phase = session.pfrea_loop.current_phase
-                        logger.info(
-                            f"PFREA: REPL turn starting - Current phase: {current_phase}",
-                            extra={
-                                "event": "pfrea_repl_turn_start",
-                                "phase": str(current_phase),
-                                "user_input_length": len(user_input),
-                            }
-                        )
-                    except Exception as e:
-                        logger.debug(f"Error logging PFREA state before REPL turn: {e}", exc_info=True)
+                # PEA/PFREA removed - planning is now handled via planning tool
                 
                 # Enable streaming by default (can be disabled via config)
                 # The session.send() method handles all printing:
@@ -1655,24 +1624,7 @@ def main() -> None:
                 stream_enabled = app_config.llm.streaming_enabled if app_config else True
                 reply = session.send(user_input, stream=stream_enabled)
                 
-                # Log PFREA state after sending message
-                if session.pfrea_loop:
-                    try:
-                        current_phase = session.pfrea_loop.current_phase
-                        if hasattr(session.pfrea_loop, 'pfrea_tracker'):
-                            metrics = session.pfrea_loop.pfrea_tracker.get_current_metrics()
-                            logger.info(
-                                f"PFREA: REPL turn completed - Final phase: {current_phase}, "
-                                f"compliance_score={metrics.compliance_score:.3f}",
-                                extra={
-                                    "event": "pfrea_repl_turn_complete",
-                                    "phase": str(current_phase),
-                                    "compliance_score": metrics.compliance_score,
-                                    "reply_length": len(reply) if reply else 0,
-                                }
-                            )
-                    except Exception as e:
-                        logger.debug(f"Error logging PFREA state after REPL turn: {e}", exc_info=True)
+                # PEA/PFREA removed - planning is now handled via planning tool
                 
                 # Response is already printed by session.send(), no need to print again
             except Exception as e:

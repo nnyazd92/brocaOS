@@ -100,6 +100,10 @@ class ReasoningConfig(BaseModel):
     z3_validation_timeout: float = float(os.getenv("BROCA_REASONING_Z3_VALIDATION_TIMEOUT", "5.0"))
     z3_max_constraints: int = int(os.getenv("BROCA_REASONING_Z3_MAX_CONSTRAINTS", "1000"))
     
+    # Z3 tool for LLM-driven validation
+    z3_tool_enabled: bool = os.getenv("BROCA_REASONING_Z3_TOOL_ENABLED", "true").lower() == "true"
+    z3_auto_validation_enabled: bool = os.getenv("BROCA_REASONING_Z3_AUTO_VALIDATION_ENABLED", "false").lower() == "true"
+    
     # Hierarchical control
     hierarchical_control_enabled: bool = os.getenv("BROCA_REASONING_HIERARCHICAL_CONTROL_ENABLED", "true").lower() == "true"
     strategic_threshold: float = float(os.getenv("BROCA_REASONING_STRATEGIC_THRESHOLD", "0.8"))
@@ -121,26 +125,7 @@ class ReasoningConfig(BaseModel):
     rl_curiosity_threshold: float = float(os.getenv("BROCA_REASONING_RL_CURIOSITY_THRESHOLD", "0.5"))
     rl_exploration_ratio: float = float(os.getenv("BROCA_REASONING_RL_EXPLORATION_RATIO", "0.6"))
     
-    # PFREA Loop configuration (Plan-Forecast-Replan-Execute-Assess)
-    # PFREA is ALWAYS enabled (mandatory)
-    pfrea_loop_enabled: bool = True  # Always True - PFREA is mandatory
-    pea_loop_enabled: bool = True  # Backward compatibility alias - always True
-    
-    pfrea_forecast_enabled: bool = os.getenv("BROCA_PFREA_FORECAST_ENABLED", "true").lower() == "true"
-    pfrea_enforce_strict: bool = os.getenv("BROCA_PFREA_ENFORCE_STRICT", "true").lower() == "true"
-    
-    pea_loop_require_planning: bool = True  # Always True - planning is mandatory
-    pea_loop_max_replans: int = int(os.getenv("BROCA_PEA_LOOP_MAX_REPLANS", "3"))
-    pea_loop_success_threshold: float = float(os.getenv("BROCA_PEA_LOOP_SUCCESS_THRESHOLD", "0.8"))
-    pea_loop_track_failed_patterns: bool = os.getenv("BROCA_PEA_LOOP_TRACK_PATTERNS", "true").lower() == "true"
-    pea_loop_max_failed_patterns: int = int(os.getenv("BROCA_PEA_LOOP_MAX_FAILED_PATTERNS", "10"))
-    
-    # PFREA Logging and Compliance
-    pfrea_logging_enabled: bool = os.getenv("BROCA_PFREA_LOGGING_ENABLED", "true").lower() == "true"
-    pfrea_metrics_enabled: bool = os.getenv("BROCA_PFREA_METRICS_ENABLED", "true").lower() == "true"
-    pfrea_audit_trail_enabled: bool = os.getenv("BROCA_PFREA_AUDIT_TRAIL_ENABLED", "true").lower() == "true"
-    pfrea_compliance_threshold: float = float(os.getenv("BROCA_PFREA_COMPLIANCE_THRESHOLD", "0.95"))
-    pfrea_violation_alert_threshold: int = int(os.getenv("BROCA_PFREA_VIOLATION_ALERT_THRESHOLD", "10"))
+    # PEA/PFREA removed - planning is now handled via planning tool
     
     # Debugging
     debug_mode: bool = os.getenv("BROCA_REASONING_DEBUG_MODE", "false").lower() == "true"
