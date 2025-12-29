@@ -212,6 +212,26 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
         except Exception:
             learning_snapshot = {}
 
+        # Persist conversation so subsequent tasks using the same conversation_id
+        # will see prior messages and context.
+        try:
+            rt = get_runtime()
+            storage = None
+            try:
+                storage = rt.conversation_storage
+            except Exception:
+                storage = None
+            if storage:
+                try:
+                    data = storage.load_conversation(conv_id) or {}
+                    metadata = data.get('metadata', {}) if isinstance(data, dict) else {}
+                    metadata['last_bench_update'] = datetime.utcnow().isoformat() + 'Z'
+                    storage.save_conversation(conv_id, session.messages, metadata)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         result = {
             'task_id': task.get('id'),
             'success': bool(success),
