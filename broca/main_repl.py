@@ -14,7 +14,7 @@ from .tools.registry import ToolRegistry
 from .tools.web_search import WebSearchTool
 from .tools.memory_tool import (
     StoreMemoryTool, RetrieveMemoriesTool, DeleteMemoryTool, UpdateMemoryTool,
-    LinkMemoriesTool, GetRelatedMemoriesTool
+    LinkMemoriesTool, GetRelatedMemoriesTool, MemoryGraphTool
 )
 from .tools.terminal import TerminalTool
 from .memory.storage import MemoryStorage
@@ -231,12 +231,14 @@ def _initialize_tool_registry(
                 update_tool = UpdateMemoryTool(memory_manager)
                 link_tool = LinkMemoriesTool(memory_manager)
                 get_related_tool = GetRelatedMemoriesTool(memory_manager)
+                memory_graph_tool = MemoryGraphTool(memory_manager)
                 registry.register_tool(store_tool)
                 registry.register_tool(retrieve_tool)
                 registry.register_tool(delete_tool)
                 registry.register_tool(update_tool)
                 registry.register_tool(link_tool)
                 registry.register_tool(get_related_tool)
+                registry.register_tool(memory_graph_tool)
                 logger.info("Registered memory tools")
             except Exception as e:
                 logger.warning(f"Failed to register memory tools: {e}", exc_info=True)

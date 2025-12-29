@@ -10,7 +10,11 @@ from datetime import timedelta
 from unittest.mock import Mock
 import pytest
 
-from broca.tools.memory_tool import StoreMemoryTool, RetrieveMemoriesTool
+from broca.tools.memory_tool import (
+    StoreMemoryTool,
+    RetrieveMemoriesTool,
+    MemoryGraphTool,
+)
 from broca.memory import MemoryRecord, SourceType, SourceMetadata
 
 
@@ -514,6 +518,93 @@ class TestStoreMemoryToolSource:
         assert result["success"] is False
         assert "Invalid source_type" in result.get("error", "")
         mock_manager.store_memory.assert_not_called()
+
+
+class TestMemoryGraphTool:
+    """Tests for MemoryGraphTool."""
+
+    def test_tool_properties(self):
+        """
+        Test tool properties and schema.
+
+        Rationale: Ensures tool metadata is exposed correctly.
+        """
+        mock_manager = Mock()
+        tool = MemoryGraphTool(mock_manager)
+
+        assert tool.name == "memory_graph"
+        assert "graph" in tool.description.lower()
+        params = tool.parameters
+        assert "memory_ids" in params["properties"]
+        assert params["properties"]["depth"]["default"] == 2
+
+    def test_execute_validates_memory_ids(self):
+        """
+        Test validation of memory_ids input.
+
+        Rationale: Prevents invalid traversal requests.
+        """
+        mock_manager = Mock()
+        tool = MemoryGraphTool(mock_manager)
+
+        result = tool.execute(memory_ids=[], depth=2)
+        assert result["success"] is False
+
+        result = tool.execute(memory_ids=[-1, 0], depth=2)
+        assert result["success"] is False
+        mock_manager.get_relationship_graph.assert_not_called()
+
+    def test_execute_builds_graph_and_clamps_depth(self):
+        """
+        Test successful graph retrieval and depth clamping.
+
+        Rationale: Ensures traversal constraints and formatting.
+        """
+        mock_manager = Mock()
+        mock_manager.get_relationship_graph.return_value = {
+            "nodes": [
+                {"id": 1, "namespace": "ns", "text": "root node", "importance": 0.8},
+                {"id": 2, "namespace": "ns", "text": "child node", "importance": 0.6},
+            ],
+            "edges": [
+                {"source": 1, "target": 2, "type": "supports", "strength": 0.9},
+            ],
+        }
+
+        tool = MemoryGraphTool(mock_manager)
+        result = tool.execute(memory_ids=[1, 2], depth=10)
+
+        mock_manager.get_relationship_graph.assert_called_once_with([1, 2], depth=5)
+        assert result["success"] is True
+        assert result["depth"] == 5
+        assert result["node_count"] == 2
+        assert result["edge_count"] == 1
+        assert result["edges"][0]["direction"] == "1 -> 2"
+        assert result["edges"][0]["type"] == "supports"
+
+    def test_format_result_displays_graph(self):
+        """
+        Test result formatting for readability.
+
+        Rationale: Provides navigable graph output to LLM.
+        """
+        tool = MemoryGraphTool(Mock())
+        formatted = tool.format_result({
+            "success": True,
+            "memory_ids": [1],
+            "depth": 2,
+            "nodes": [
+                {"id": 1, "namespace": "ns", "text": "root", "importance": 0.7},
+                {"id": 2, "namespace": "ns", "text": "child", "importance": 0.6},
+            ],
+            "edges": [{"source": 1, "target": 2, "type": "supports", "strength": 0.9, "direction": "1 -> 2"}],
+        })
+
+        assert "Graph traversal" in formatted
+        assert "1 -> 2" in formatted
+        assert "supports" in formatted
+        assert "Nodes: 2" in formatted
+        assert "Edges: 1" in formatted
 
 
 if __name__ == "__main__":

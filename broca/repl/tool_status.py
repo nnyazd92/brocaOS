@@ -218,6 +218,13 @@ class ToolDescriptionFormatter:
                 return f"Getting related memories: {memory_id}"
             return "Getting related memories"
         
+        elif tool_name == "memory_graph":
+            ids = arguments.get("memory_ids", [])
+            depth = arguments.get("depth", 2)
+            if ids:
+                return f"Building memory graph from IDs {ids} (depth={depth})"
+            return f"Building memory graph (depth={depth})"
+        
         elif tool_name == "critic":
             return "Running critic check"
         
@@ -647,4 +654,3 @@ class ToolStatusDisplay:
         except (IOError, OSError, AttributeError):
             # Handle write errors gracefully (including when stdout doesn't have isatty)
             pass
-
