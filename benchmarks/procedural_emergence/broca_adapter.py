@@ -79,40 +79,32 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
         import time as _time
         start_t = _time.time()
 
-        # Record procedures last_applied timestamps before running the turn (if available)
-        
         # Inject benchmark-only system prompt for benchmark sessions (non-persistent)
+        injected_benchmark_prompt = False
         try:
             if str(conv_id).startswith('bench-'):
-                try:
-                    # Compose benchmark system prompt (concise, instructive)
-                    benchmark_prompt = (
-                        "You are participating in an automated benchmark evaluating your ability "
-                        "to solve tasks, use tools, and produce concise final answers. "
-                        "When possible, provide a direct final answer rather than asking follow-up questions. "
-                        "Only ask a single concise clarifying question if the task cannot be completed without it. "
-                        "If you call tools, ensure tool-call actions and outcomes are recorded in structured traces so the evaluator can judge correctness. "
-                        "This message is for benchmark context only and must NOT be persisted as part of the public conversation."
-                    )
-                    old_base = getattr(session, '_base_system_prompt_internal', None)
-                    if old_base:
-                        # preserve existing base prompt and append benchmark instructions
-                        session._base_system_prompt_internal = f"{old_base}
+                # Compose benchmark system prompt (concise, instructive)
+                benchmark_prompt = (
+                    "You are participating in an automated benchmark evaluating your ability "
+                    "to solve tasks, use tools, and produce concise final answers. "
+                    "When possible, provide a direct final answer rather than asking follow-up questions. "
+                    "Only ask a single concise clarifying question if the task cannot be completed without it. "
+                    "If you call tools, ensure tool-call actions and outcomes are recorded in structured traces so the evaluator can judge correctness. "
+                    "This message is for benchmark context only and must NOT be persisted as part of the public conversation."
+                )
+                old_base = getattr(session, '_base_system_prompt_internal', None)
+                if old_base:
+                    session._base_system_prompt_internal = f"{old_base}
 
 {benchmark_prompt}"
-                    else:
-                        session._base_system_prompt_internal = benchmark_prompt
-                    # mark injection (non-persistent)
-                    injected_benchmark_prompt = True
-                except Exception:
-                    injected_benchmark_prompt = False
-            else:
-                injected_benchmark_prompt = False
+                else:
+                    session._base_system_prompt_internal = benchmark_prompt
+                injected_benchmark_prompt = True
         except Exception:
             injected_benchmark_prompt = False
 
         # Record procedures last_applied timestamps before running the turn (if available)
-procedures_before = {}
+        procedures_before = {}
         try:
             rt = get_runtime()
             reasoning_tool = getattr(rt, 'reasoning_tool', None)
@@ -130,39 +122,7 @@ procedures_before = {}
                         except Exception:
                             procedures_before[name] = None
         except Exception:
-            
-        # Inject benchmark-only system prompt for benchmark sessions (non-persistent)
-        try:
-            if str(conv_id).startswith('bench-'):
-                try:
-                    # Compose benchmark system prompt (concise, instructive)
-                    benchmark_prompt = (
-                        "You are participating in an automated benchmark evaluating your ability "
-                        "to solve tasks, use tools, and produce concise final answers. "
-                        "When possible, provide a direct final answer rather than asking follow-up questions. "
-                        "Only ask a single concise clarifying question if the task cannot be completed without it. "
-                        "If you call tools, ensure tool-call actions and outcomes are recorded in structured traces so the evaluator can judge correctness. "
-                        "This message is for benchmark context only and must NOT be persisted as part of the public conversation."
-                    )
-                    old_base = getattr(session, '_base_system_prompt_internal', None)
-                    if old_base:
-                        # preserve existing base prompt and append benchmark instructions
-                        session._base_system_prompt_internal = f"{old_base}
-
-{benchmark_prompt}"
-                    else:
-                        session._base_system_prompt_internal = benchmark_prompt
-                    # mark injection (non-persistent)
-                    injected_benchmark_prompt = True
-                except Exception:
-                    injected_benchmark_prompt = False
-            else:
-                injected_benchmark_prompt = False
-        except Exception:
-            injected_benchmark_prompt = False
-
-        # Record procedures last_applied timestamps before running the turn (if available)
-procedures_before = {}
+            procedures_before = {}
 
         reply = session.send(input_text, stream=False)
 
