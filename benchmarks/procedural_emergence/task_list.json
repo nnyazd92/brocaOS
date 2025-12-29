@@ -1,0 +1,34 @@
+[
+  {
+    "id": "pe_task_001",
+    "description": "Search for user note 'project-x' in memory, list matching files, return first match",
+    "input": {
+      "query": "project-x"
+    },
+    "expected_output": "file://notes/project-x.md",
+    "simulated_steps": [
+      {"tool": "retrieve_memories", "parameters": {"query": "project-x", "limit": 5}, "simulated_output": "found note: project-x"},
+      {"tool": "terminal", "parameters": {"command": "ls notes | grep project-x"}, "simulated_output": "project-x.md"},
+      {"tool": "compose_response", "parameters": {}, "simulated_output": "file://notes/project-x.md"}
+    ]
+  },
+  {
+    "id": "pe_task_002",
+    "description": "Find recent conversation about 'deployment' and summarize the action items",
+    "input": {"query": "deployment action items"},
+    "expected_output": "- update CI\n- restart service",
+    "simulated_steps": [
+      {"tool": "retrieve_memories", "parameters": {"query": "deployment", "limit": 5}, "simulated_output": "found convo"},
+      {"tool": "summarizer", "parameters": {"limit": 3}, "simulated_output": "- update CI\n- restart service"}
+    ]
+  },
+  {
+    "id": "pe_task_003",
+    "description": "Given a task 'run tests', locate test runner and execute, returning pass count",
+    "input": {"query": "run tests"},
+    "expected_output": "All tests passed (12/12)",
+    "simulated_steps": [
+      {"tool": "terminal", "parameters": {"command": "pytest -q"}, "simulated_output": "All tests passed (12/12)"}
+    ]
+  }
+]
