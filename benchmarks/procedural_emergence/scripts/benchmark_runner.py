@@ -28,6 +28,14 @@ import uuid
 from datetime import datetime
 from typing import Dict, Any, List
 
+# Ensure repository root is importable so 'import broca' and local adapters work
+# Script path: .../benchmarks/procedural_emergence/scripts
+# Repository root assumed to be three levels up
+SCRIPT_DIR = os.path.dirname(__file__)
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', '..'))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 BENCH_DIR = os.path.join(BASE_DIR, 'runtime', 'benchmarks', 'procedural_emergence')
 RESULTS_DIR = os.path.join(BENCH_DIR, 'results')
