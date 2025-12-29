@@ -164,16 +164,25 @@ class Runner:
             import broca
             # Try common entrypoints (best-effort): main_repl_runtime.process_single_task or a similarly named helper
             result = None
+            # 1) preferred: broca.process_single_task
             if hasattr(broca, 'process_single_task'):
                 result = broca.process_single_task(task)
             else:
-                # Try deeper modules
+                # 2) try adapter installed under benchmarks.procedural_emergence
                 try:
-                    from broca import main_repl_runtime as mrr
-                    if hasattr(mrr, 'process_single_task'):
-                        result = mrr.process_single_task(task)
+                    from benchmarks.procedural_emergence import broca_adapter
+                    if hasattr(broca_adapter, 'process_single_task'):
+                        result = broca_adapter.process_single_task(task)
                 except Exception:
                     result = None
+                if result is None:
+                    # Try deeper modules
+                    try:
+                        from broca import main_repl_runtime as mrr
+                        if hasattr(mrr, 'process_single_task'):
+                            result = mrr.process_single_task(task)
+                    except Exception:
+                        result = None
 
             if result:
                 result.setdefault('task_id', task_id)
