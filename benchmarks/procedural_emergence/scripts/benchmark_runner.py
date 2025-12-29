@@ -125,16 +125,72 @@ class Runner:
             }
             return result
 
-        # TODO: Integrate with BrocaOS runtime here. Example pseudo-code:
-        # 1. Send input to BrocaOS (via API, REPL, or function call)
-        # 2. Collect streaming outputs, tool calls, and internal signals
-        # 3. Derive success by comparing to expected_output (if provided) or by human label
+        # Integration examples (choose one that matches your BrocaOS setup):
+        # 1) HTTP API integration: if config.runtime.broca_api is set, POST the task and await JSON response
+        broca_api = None
+        try:
+            broca_api = self.config.get('runtime', {}).get('broca_api')
+        except Exception:
+            broca_api = None
 
-        # Placeholder failure until integrated
+        if broca_api:
+            try:
+                import requests
+                payload = {
+                    'task_id': task_id,
+                    'input': task.get('input'),
+                    'metadata': task.get('metadata', {})
+                }
+                resp = requests.post(broca_api, json=payload, timeout=self.config.get('runtime', {}).get('script_timeout_seconds', 30))
+                resp.raise_for_status()
+                data = resp.json()
+
+                # Expect the BrocaOS API to return an object compatible with our result schema
+                data.setdefault('task_id', task_id)
+                data.setdefault('start_time', start_ts)
+                data.setdefault('end_time', datetime.utcnow().isoformat() + 'Z')
+                data.setdefault('duration', None)
+                return data
+            except Exception as e:
+                # Fall through to other integration attempts or return error
+                err_msg = f"HTTP broca_api call failed: {e}"
+                print(err_msg, file=sys.stderr)
+
+        # 2) Direct import integration: if this script runs in the same environment as BrocaOS
+        try:
+            # Example pattern: attempt to import a helper function that accepts a task dict
+            # and returns a result compatible with the result schema. Adapt the function name
+            # to your runtime (this is a safe guarded call).
+            import broca
+            # Try common entrypoints (best-effort): main_repl_runtime.process_single_task or a similarly named helper
+            result = None
+            if hasattr(broca, 'process_single_task'):
+                result = broca.process_single_task(task)
+            else:
+                # Try deeper modules
+                try:
+                    from broca import main_repl_runtime as mrr
+                    if hasattr(mrr, 'process_single_task'):
+                        result = mrr.process_single_task(task)
+                except Exception:
+                    result = None
+
+            if result:
+                result.setdefault('task_id', task_id)
+                result.setdefault('start_time', start_ts)
+                result.setdefault('end_time', datetime.utcnow().isoformat() + 'Z')
+                result.setdefault('duration', None)
+                return result
+        except Exception as e:
+            # Not running in BrocaOS environment or import failed
+            print(f"Direct import integration not available: {e}", file=sys.stderr)
+
+        # 3) Fallback: structured error result indicating integration missing
         return {
             'task_id': task_id,
             'success': False,
             'final_output': None,
+            'error': 'No BrocaOS integration available (set runtime.broca_api or run in same env and implement process_single_task)',
             'tool_calls': [],
             'procedures_applied': [],
             'rl_signals': {},
