@@ -145,12 +145,80 @@ def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             tool_calls = []
 
+        # Collect learning system snapshots (procedures, skills, recent experiences) if available
+        learning_snapshot = {}
+        try:
+            rt = get_runtime()
+            # reasoning_tool may expose learning_tool
+            reasoning_tool = getattr(rt, 'reasoning_tool', None)
+            learning_tool = None
+            if reasoning_tool and hasattr(reasoning_tool, 'learning_tool'):
+                learning_tool = reasoning_tool.learning_tool
+            # fallback: standalone learning tool registered on runtime
+            if not learning_tool and hasattr(rt, 'learning_tool'):
+                learning_tool = getattr(rt, 'learning_tool')
+
+            if learning_tool:
+                try:
+                    # Procedural learner snapshot
+                    pl = getattr(learning_tool, 'procedural_learner', None)
+                    if pl:
+                        procedures = []
+                        for name, proc in list(pl.procedures.items())[:10]:
+                            procedures.append({
+                                'name': proc.name,
+                                'confidence': getattr(proc, 'confidence', None),
+                                'success_count': getattr(proc, 'success_count', None),
+                                'total_executions': getattr(proc, 'total_executions', None),
+                                'dissonance_reduction_score': getattr(proc, 'dissonance_reduction_score', None),
+                                'last_applied': getattr(proc, 'last_applied', None).isoformat() if getattr(proc, 'last_applied', None) else None,
+                            })
+                        learning_snapshot['procedures'] = procedures
+                except Exception:
+                    pass
+
+                try:
+                    # Skill manager snapshot
+                    sm = getattr(learning_tool, 'skill_manager', None)
+                    if sm:
+                        skills = []
+                        for name, skill in list(sm.skills.items())[:10]:
+                            skills.append({
+                                'name': skill.name,
+                                'proficiency_level': getattr(skill, 'proficiency_level', None),
+                                'confidence': getattr(skill, 'confidence', None),
+                                'total_applications': getattr(skill, 'total_applications', None),
+                                'average_dissonance_impact': getattr(skill, 'average_dissonance_impact', None),
+                            })
+                        learning_snapshot['skills'] = skills
+                except Exception:
+                    pass
+
+                try:
+                    # Experience logger recent experiences
+                    el = getattr(learning_tool, 'experience_logger', None)
+                    if el and hasattr(el, 'get_recent_experiences'):
+                        recent = el.get_recent_experiences(limit=10)
+                        # convert to dicts
+                        recent_list = []
+                        for exp in recent:
+                            try:
+                                recent_list.append({'type': exp.experience_type, 'outcome': exp.outcome, 'reward': exp.reward, 'timestamp': exp.timestamp.isoformat()})
+                            except Exception:
+                                pass
+                        learning_snapshot['recent_experiences'] = recent_list
+                except Exception:
+                    pass
+        except Exception:
+            learning_snapshot = {}
+
         result = {
             'task_id': task.get('id'),
             'success': bool(success),
             'final_output': reply,
             'tool_calls': tool_calls,
             'procedures_applied': [],
+            'learning_snapshot': learning_snapshot,
             'rl_signals': rl_signals or {},
             'dissonance_before': None,
             'dissonance_after': None,
