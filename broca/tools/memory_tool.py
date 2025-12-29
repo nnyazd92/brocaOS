@@ -7,13 +7,12 @@ Provides tools for the LLM to store and retrieve memories from the memory system
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from datetime import datetime
 
 from . import Tool
 from ..memory.manager import MemoryManager
 from ..memory import RelationType, SourceType, SourceMetadata, MemoryRecord
-from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..self_model.model import SelfModel
@@ -1514,5 +1513,186 @@ class GetRelatedMemoriesTool:
             lines.append(
                 f"{i}. Memory {mem_id} ({rel_type}, strength={strength:.2f}): {text_preview}"
             )
+        
+        return "\n".join(lines)
+
+
+class MemoryGraphTool:
+    """
+    Tool for exploring the memory relationship graph.
+    
+    Wraps MemoryManager.get_relationship_graph to fetch a subgraph around
+    specific memory IDs. Designed for graph traversal workflows: start from
+    retrieved memories (e.g., via retrieve_memories), follow linked nodes,
+    and inspect relationship directions and types. Complements link_memories
+    for creating edges and retrieve_memories/get_related_memories for
+    navigating the graph.
+    """
+    
+    def __init__(self, memory_manager: MemoryManager) -> None:
+        """
+        Initialize the memory graph tool.
+        
+        Args:
+            memory_manager: MemoryManager instance
+        """
+        self.memory_manager = memory_manager
+        logger.info("Initialized MemoryGraphTool")
+    
+    @property
+    def name(self) -> str:
+        """Tool identifier."""
+        return "memory_graph"
+    
+    @property
+    def description(self) -> str:
+        """Tool description for the LLM."""
+        return (
+            "Build a relationship subgraph for the given memory IDs. "
+            "Use this after retrieve_memories or get_related_memories when you want "
+            "to traverse the memory graph, inspect relationship directions and types, "
+            "and decide which linked memories to follow next. Accepts memory_ids and "
+            "an optional traversal depth."
+        )
+    
+    @property
+    def parameters(self) -> Dict[str, Any]:
+        """JSON schema for tool parameters."""
+        return {
+            "type": "object",
+            "properties": {
+                "memory_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "List of starting memory IDs for graph traversal"
+                },
+                "depth": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 2,
+                    "description": "Maximum traversal depth (default: 2, max: 5)"
+                }
+            },
+            "required": ["memory_ids"]
+        }
+    
+    def execute(
+        self,
+        memory_ids: List[int],
+        depth: int = 2
+    ) -> Dict[str, Any]:
+        """
+        Execute the memory graph tool.
+        
+        Args:
+            memory_ids: Starting memory IDs for the graph
+            depth: Maximum traversal depth
+            
+        Returns:
+            Dictionary containing nodes and edges for the subgraph
+        """
+        try:
+            if not isinstance(memory_ids, list) or not memory_ids:
+                return {
+                    "success": False,
+                    "error": "memory_ids must be a non-empty list of positive integers"
+                }
+            
+            validated_ids = []
+            for mem_id in memory_ids:
+                if isinstance(mem_id, int) and mem_id > 0:
+                    validated_ids.append(mem_id)
+            if not validated_ids:
+                return {
+                    "success": False,
+                    "error": "memory_ids must contain positive integers"
+                }
+            
+            # Clamp depth to safe bounds
+            depth = max(1, min(5, depth))
+            
+            graph = self.memory_manager.get_relationship_graph(validated_ids, depth=depth)
+            
+            nodes = graph.get("nodes", [])
+            edges = graph.get("edges", [])
+            
+            # Annotate edges with human-readable direction strings
+            formatted_edges = []
+            for edge in edges:
+                source = edge.get("source")
+                target = edge.get("target")
+                relation_type = edge.get("type", "unknown")
+                strength = edge.get("strength", 1.0)
+                formatted_edges.append({
+                    "source": source,
+                    "target": target,
+                    "type": relation_type,
+                    "strength": strength,
+                    "direction": f"{source} -> {target}"
+                })
+            
+            return {
+                "success": True,
+                "memory_ids": validated_ids,
+                "depth": depth,
+                "nodes": nodes,
+                "edges": formatted_edges,
+                "node_count": len(nodes),
+                "edge_count": len(formatted_edges),
+                "message": f"Retrieved graph with {len(nodes)} node(s) and {len(formatted_edges)} edge(s)"
+            }
+        except Exception as e:
+            logger.error(f"Error building memory graph: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to build memory graph: {e}"
+            }
+    
+    def format_result(self, result: Dict[str, Any]) -> str:
+        """
+        Format graph results for LLM consumption.
+        
+        Args:
+            result: Tool execution result dictionary
+            
+        Returns:
+            Formatted string representation of graph nodes and edges
+        """
+        if not result.get("success"):
+            return f"Error building memory graph: {result.get('error', 'Unknown error')}"
+        
+        nodes = result.get("nodes", [])
+        edges = result.get("edges", [])
+        depth = result.get("depth", 0)
+        memory_ids = result.get("memory_ids", [])
+        
+        lines = [
+            f"Graph traversal from IDs {memory_ids} (depth={depth}):",
+            f"- Nodes: {len(nodes)}",
+            f"- Edges: {len(edges)}"
+        ]
+        
+        if nodes:
+            lines.append("\nNodes:")
+            for node in nodes[:10]:  # limit to first 10 nodes for readability
+                node_id = node.get("id")
+                namespace = node.get("namespace", "unknown")
+                text = node.get("text", "")
+                importance = node.get("importance", 0.0)
+                lines.append(f"  • {node_id} [{namespace}] (importance={importance:.2f}): {text}")
+            if len(nodes) > 10:
+                lines.append(f"  ... and {len(nodes) - 10} more node(s)")
+        
+        if edges:
+            lines.append("\nEdges:")
+            for edge in edges[:15]:  # limit to first 15 edges
+                direction = edge.get("direction", "")
+                relation_type = edge.get("type", "unknown")
+                strength = edge.get("strength", 1.0)
+                lines.append(f"  • {direction} ({relation_type}, strength={strength:.2f})")
+            if len(edges) > 15:
+                lines.append(f"  ... and {len(edges) - 15} more edge(s)")
         
         return "\n".join(lines)
