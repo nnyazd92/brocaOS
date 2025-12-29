@@ -88,15 +88,14 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
                     "You are participating in an automated benchmark evaluating your ability "
                     "to solve tasks, use tools, and produce concise final answers. "
                     "When possible, provide a direct final answer rather than asking follow-up questions. "
-                    "Only ask a single concise clarifying question if the task cannot be completed without it. "
-                    "If you call tools, ensure tool-call actions and outcomes are recorded in structured traces so the evaluator can judge correctness. "
+                    "IMPORTANT BENCHMARK RULE: Any clarifying question you ask instead of providing a direct answer "
+                    "will be treated as a failure for this benchmark. If the prompt appears to lack information, you MUST make a reasonable assumption, state that assumption explicitly, and then provide a final answer based on that assumption. "
+                    "If you do need to call tools, ensure tool-call actions and outcomes are recorded in structured traces so the evaluator can judge correctness. "
                     "This message is for benchmark context only and must NOT be persisted as part of the public conversation."
                 )
                 old_base = getattr(session, '_base_system_prompt_internal', None)
                 if old_base:
-                    session._base_system_prompt_internal = f"{old_base}
-
-{benchmark_prompt}"
+                    session._base_system_prompt_internal = f"{old_base}\n\n{benchmark_prompt}"
                 else:
                     session._base_system_prompt_internal = benchmark_prompt
                 injected_benchmark_prompt = True
