@@ -167,48 +167,48 @@ class Runner:
                 err_msg = f"HTTP broca_api call failed: {e}"
                 print(err_msg, file=sys.stderr)
 
-        # 2) Direct import integration: if this script runs in the same environment as BrocaOS
+        # 2) Direct import integration: try the benchmark adapter first (preferred), then package-level broca hooks
         try:
-            # Example pattern: attempt to import a helper function that accepts a task dict
-            # and returns a result compatible with the result schema. Adapt the function name
-            # to your runtime (this is a safe guarded call).
-            import broca
-            # Try common entrypoints (best-effort): main_repl_runtime.process_single_task or a similarly named helper
             result = None
-            # 1) preferred: broca.process_single_task
-            if hasattr(broca, 'process_single_task'):
+            # Preferred: direct adapter in benchmarks/procedural_emergence
+            try:
+                from benchmarks.procedural_emergence import broca_adapter
+                if hasattr(broca_adapter, 'process_single_task'):
+                    try:
+                        result = broca_adapter.process_single_task(task, conversation_id=conversation_id)
+                    except TypeError:
+                        result = broca_adapter.process_single_task(task)
+            except Exception:
+                result = None
+
+            # Next: package-level broca.process_single_task
+            if result is None:
                 try:
-                    result = broca.process_single_task(task, conversation_id=conversation_id)
-                except TypeError:
-                    result = broca.process_single_task(task)
-            else:
-                # 2) try adapter installed under benchmarks.procedural_emergence
-                try:
-                    from benchmarks.procedural_emergence import broca_adapter
-                    if hasattr(broca_adapter, 'process_single_task'):
+                    import broca
+                    if hasattr(broca, 'process_single_task'):
                         try:
-                            result = broca_adapter.process_single_task(task, conversation_id=conversation_id)
+                            result = broca.process_single_task(task, conversation_id=conversation_id)
                         except TypeError:
-                            result = broca_adapter.process_single_task(task)
+                            result = broca.process_single_task(task)
                 except Exception:
                     result = None
-                if result is None:
-                    # Try deeper modules
-                    try:
-                        from broca import main_repl_runtime as mrr
-                        if hasattr(mrr, 'process_single_task'):
-                            result = mrr.process_single_task(task)
-                    except Exception:
-                        result = None
+
+            # Fallback: broca.main_repl_runtime.process_single_task
+            if result is None:
+                try:
+                    from broca import main_repl_runtime as mrr
+                    if hasattr(mrr, 'process_single_task'):
+                        result = mrr.process_single_task(task)
+                except Exception:
+                    result = None
 
             if result:
                 result.setdefault('task_id', task_id)
                 result.setdefault('start_time', start_ts)
-                result.setdefault('end_time', datetime.utcnow().isoformat() + 'Z')
+                result.setdefault('end_time', datetime.now(timezone.utc).isoformat())
                 result.setdefault('duration', None)
                 return result
         except Exception as e:
-            # Not running in BrocaOS environment or import failed
             print(f"Direct import integration not available: {e}", file=sys.stderr)
 
         # 3) Fallback: structured error result indicating integration missing
