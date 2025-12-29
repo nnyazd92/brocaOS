@@ -172,6 +172,8 @@ class ToolsConfig(BaseModel):
     metrics_window_size: int = int(os.getenv("BROCA_TOOLS_METRICS_WINDOW_SIZE", "1000"))
     exploration_factor: float = float(os.getenv("BROCA_TOOLS_EXPLORATION_FACTOR", "0.1"))  # For multi-armed bandit
 
+    # Auto-observe tool calls for the learning system (runtime toggle)
+    auto_observe_tool_calls: bool = os.getenv("BROCA_AUTO_OBSERVE_TOOL_CALLS", "false").lower() == "true"
 
 class EmbeddingConfig(BaseModel):
     """Configuration for embedding service API (separate from chat LLM API)."""
