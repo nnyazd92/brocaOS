@@ -818,8 +818,8 @@ class GeminiClient:
                 })
         return sdk_tools
 
-    @staticmethod
     def _ensure_thought_signature_in_tool_calls(
+        self,
         messages: List[Dict[str, Any]], 
         thought_signature: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -829,6 +829,12 @@ class GeminiClient:
         messages must include its thought_signature. This method validates and
         ensures this requirement is met by adding thought_signature to tool_calls
         that are missing it.
+        
+        Resolution order:
+        1. Use thought_signature from the tool_call itself (if stored)
+        2. Use the thought_signature parameter passed to this function
+        3. Use self._thought_signature as fallback
+        4. Log warning only if all three sources are unavailable
         
         Args:
             messages: List of message dictionaries
@@ -846,13 +852,38 @@ class GeminiClient:
             if msg_copy.get("role") == "assistant":
                 tool_calls = msg_copy.get("tool_calls")
                 if tool_calls and isinstance(tool_calls, list):
+                    # Make a copy of tool_calls list to avoid modifying original
+                    tool_calls = [dict(tc) if isinstance(tc, dict) else tc for tc in tool_calls]
+                    
                     # Check each tool_call for thought_signature
                     tool_calls_updated = False
                     for tool_call in tool_calls:
-                        if isinstance(tool_call, dict) and "thought_signature" not in tool_call:
-                            # Missing thought_signature - try to add it
-                            if thought_signature:
-                                tool_call["thought_signature"] = thought_signature
+                        if isinstance(tool_call, dict):
+                            # Check if thought_signature is already present
+                            if "thought_signature" in tool_call and tool_call["thought_signature"]:
+                                # Already has thought_signature, skip
+                                continue
+                            
+                            # Try to resolve thought_signature from multiple sources
+                            resolved_sig = None
+                            
+                            # Source 1: Check if tool_call itself has it (might be stored but empty/None)
+                            if "thought_signature" in tool_call:
+                                sig_value = tool_call.get("thought_signature")
+                                if sig_value and isinstance(sig_value, str) and sig_value.strip():
+                                    resolved_sig = sig_value
+                            
+                            # Source 2: Use parameter passed to function
+                            if not resolved_sig and thought_signature:
+                                resolved_sig = thought_signature
+                            
+                            # Source 3: Use instance's stored thought_signature
+                            if not resolved_sig and hasattr(self, '_thought_signature') and self._thought_signature:
+                                resolved_sig = self._thought_signature
+                            
+                            # Add thought_signature if we found one
+                            if resolved_sig:
+                                tool_call["thought_signature"] = resolved_sig
                                 tool_calls_updated = True
                                 logger.debug(
                                     "Added thought_signature to tool_call",
@@ -860,12 +891,13 @@ class GeminiClient:
                                         "event": "thought_signature_added_to_tool_call",
                                         "tool_call_id": tool_call.get("id", "unknown"),
                                         "function_name": tool_call.get("function", {}).get("name", "unknown"),
+                                        "source": "parameter" if thought_signature == resolved_sig else "instance"
                                     }
                                 )
                             else:
-                                # No thought_signature available - log warning
+                                # No thought_signature available from any source - log warning
                                 logger.warning(
-                                    "Tool call missing thought_signature for Gemini API",
+                                    "Tool call missing thought_signature for Gemini API (no source available)",
                                     extra={
                                         "event": "missing_thought_signature_in_tool_call",
                                         "tool_call_id": tool_call.get("id", "unknown"),

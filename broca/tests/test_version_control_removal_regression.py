@@ -224,8 +224,6 @@ class TestMainReplWithoutVersionControl:
         mock_config.tools.terminal_working_directory = None
         mock_config.tools.critic_system_prompt_template = None
         mock_config.tools.tools_mode = "normal"
-        mock_config.tools.web_search_max_queries = 3
-        mock_config.tools.web_search_cooldown_turns = 3
         
         mock_config.storage.storage_type = "json"
         mock_config.storage.storage_path = "conversations"

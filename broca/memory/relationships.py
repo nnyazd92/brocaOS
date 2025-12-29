@@ -34,6 +34,16 @@ class RelationshipManager:
             storage: MemoryStorage instance
         """
         self.storage = storage
+        
+        # Initialize causal chain validator for CAUSES/CAUSED_BY relationships
+        self.causal_validator = None
+        try:
+            from .causal_validator import CausalChainValidator
+            self.causal_validator = CausalChainValidator(enable_z3=True)
+        except Exception as e:
+            logger.debug(f"Failed to initialize causal validator: {e}")
+            self.causal_validator = None
+        
         logger.info("Initialized RelationshipManager")
     
     def link(
@@ -83,6 +93,32 @@ class RelationshipManager:
                 f"Relationship already exists {source_id} -> {target_id} ({relation_type.value}), skipping insert"
             )
             return existing[0].id
+
+        # Validate causal relationships with Z3 before creating
+        if relation_type in (RelationType.CAUSES, RelationType.CAUSED_BY) and self.causal_validator:
+            try:
+                # Get existing relationships for validation
+                all_relationships = self.storage.get_relationships()
+                existing_rels = [(r.source_id, r.target_id, r.relation_type) for r in all_relationships]
+                
+                # Get existing memories
+                existing_memories = [source_memory, target_memory]
+                
+                is_valid, error = self.causal_validator.validate_single_causal_relationship(
+                    source_id=source_id,
+                    target_id=target_id,
+                    existing_relationships=existing_rels,
+                    existing_memories=existing_memories
+                )
+                
+                if not is_valid:
+                    logger.warning(f"Causal relationship validation failed: {error}")
+                    # Still create the relationship but log the warning
+                    # (non-blocking to allow manual override if needed)
+                    
+            except Exception as e:
+                logger.error(f"Error in causal relationship validation: {e}", exc_info=True)
+                # Continue with relationship creation even if validation fails
 
         # Create relationship record
         relationship = RelationshipRecord(

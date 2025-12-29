@@ -1,0 +1,33 @@
+{
+  "scenario": "replan_success",
+  "description": "First plan fails, second succeeds",
+  "inputs": {
+    "user_message": "Fix the bug",
+    "plan1": {
+      "goal": "Fix the bug",
+      "steps": [{"description": "Try approach A"}]
+    },
+    "executions1": [
+      {"tool_name": "terminal", "success": false}
+    ],
+    "plan2": {
+      "goal": "Fix the bug",
+      "steps": [{"description": "Try approach B"}]
+    },
+    "executions2": [
+      {"tool_name": "terminal", "success": true}
+    ]
+  },
+  "expected_outputs": {
+    "assessment1": {
+      "goal_achieved": false,
+      "should_replan": true
+    },
+    "assessment2": {
+      "goal_achieved": true,
+      "should_replan": false
+    },
+    "final_replan_count": 1
+  }
+}
+

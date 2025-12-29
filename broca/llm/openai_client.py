@@ -63,14 +63,14 @@ class OpenAIClient:
         }
         
         # Some OpenAI models (like o1, o1-preview, o1-mini, gpt-5, gpt-5.2, etc.) only support temperature=1.0 (the default)
-        # They reject temperature=0.0 and other values, so we omit the parameter when temp=0.0 for those models
+        # They reject temperature=0.0 and other values, so we omit the parameter for any value != 1.0 for those models
         # This allows the API to use its default (1.0)
         models_requiring_default_temp = ["o1", "gpt-5"]
         requires_default_temp = any(self.model.startswith(prefix) for prefix in models_requiring_default_temp)
         
-        # For models that only support default temperature, omit temperature parameter when temp=0.0
+        # For models that only support default temperature, omit temperature parameter if temp != 1.0
         # For other models, always include temperature
-        if not (requires_default_temp and temp == 0.0):
+        if not requires_default_temp or temp == 1.0:
             request_params["temperature"] = temp
         
         if tools:
@@ -163,14 +163,14 @@ class OpenAIClient:
         }
         
         # Some OpenAI models (like o1, o1-preview, o1-mini, gpt-5, gpt-5.2, etc.) only support temperature=1.0 (the default)
-        # They reject temperature=0.0 and other values, so we omit the parameter when temp=0.0 for those models
+        # They reject temperature=0.0 and other values, so we omit the parameter for any value != 1.0 for those models
         # This allows the API to use its default (1.0)
         models_requiring_default_temp = ["o1", "gpt-5"]
         requires_default_temp = any(self.model.startswith(prefix) for prefix in models_requiring_default_temp)
         
-        # For models that only support default temperature, omit temperature parameter when temp=0.0
+        # For models that only support default temperature, omit temperature parameter if temp != 1.0
         # For other models, always include temperature
-        if not (requires_default_temp and temp == 0.0):
+        if not requires_default_temp or temp == 1.0:
             request_params["temperature"] = temp
         
         if tools:

@@ -24,6 +24,9 @@ from .json_repair import attempt_json_repair
 
 logger = logging.getLogger(__name__)
 
+# Lazy import to avoid circular dependency
+ToolSelectionGuidance = None
+
 
 class ToolRegistry:
     """
@@ -35,37 +38,50 @@ class ToolRegistry:
     - Execute tool calls from the LLM
     """
     
-    def __init__(self, epistemic_engine: Optional[Any] = None, internal_sensing_framework: Optional["InternalSensingFramework"] = None) -> None:
+    def __init__(
+        self,
+        epistemic_engine: Optional[Any] = None,
+        internal_sensing_framework: Optional["InternalSensingFramework"] = None,
+        tool_selection_guidance: Optional[Any] = None,
+        learning_tool: Optional[Any] = None
+    ) -> None:
         """
         Initialize an empty tool registry.
         
         Args:
             epistemic_engine: Optional MetacognitiveEngine for epistemic tracking
+            internal_sensing_framework: Optional InternalSensingFramework for tool usage tracking
+            tool_selection_guidance: Optional ToolSelectionGuidance for intelligent tool selection
+            learning_tool: Optional LearningTool for automatic learning observation
         """
         self._tools: Dict[str, Tool] = {}
         self.epistemic_engine = epistemic_engine
         self.internal_sensing_framework = internal_sensing_framework
-                # Policy / rate-limits (read-only + web search)
+        self.tool_selection_guidance = tool_selection_guidance
+        self.learning_tool = learning_tool
+        # Policy mode (read-only)
         # Read from env first (to support tests patching os.environ), fallback to config
         self._policy_mode = os.getenv("BROCA_TOOLS_MODE", getattr(config.tools, "tools_mode", "normal"))
-        try:
-            self._max_search_queries = int(os.getenv("BROCA_WEB_SEARCH_MAX_QUERIES", str(getattr(config.tools, "web_search_max_queries", 3))))
-        except Exception:
-            self._max_search_queries = 3
-        try:
-            self._search_cooldown_turns = int(os.getenv("BROCA_WEB_SEARCH_COOLDOWN_TURNS", str(getattr(config.tools, "web_search_cooldown_turns", 3))))
-        except Exception:
-            self._search_cooldown_turns = 3
-        self._turn_index: int = 0
-        self._search_burst_count: int = 0
-        self._burst_exhausted_turn: Optional[int] = None
 
         logger.debug("Initialized ToolRegistry")
 
     def start_turn(self, turn_no: int) -> None:
         """Reset per-turn counters at start of a new user turn."""
-        self._turn_index = turn_no
-        self._search_burst_count = 0
+        # No-op: kept for API compatibility, but no counters to reset
+        pass
+    
+    def set_learning_tool(self, learning_tool: Optional[Any]) -> None:
+        """
+        Set the learning tool for automatic observation.
+        
+        Args:
+            learning_tool: LearningTool instance or None to disable
+        """
+        self.learning_tool = learning_tool
+        if learning_tool:
+            logger.debug("Learning tool set on ToolRegistry for automatic observation")
+        else:
+            logger.debug("Learning tool removed from ToolRegistry")
     
     def _validate_tool_arguments(self, tool: Tool, arguments: Dict[str, Any]) -> Optional[str]:
         """
@@ -241,19 +257,48 @@ class ToolRegistry:
         hash_str = self.get_registry_hash()
         return f"v{hash_str[:8]}"
     
-    def to_openai_format(self) -> List[Dict[str, Any]]:
+    def to_openai_format(self, context: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Convert registered tools to OpenAI function calling format.
-        
-        Returns a list of tool definitions in the format expected by
-        OpenAI-compatible APIs (DeepSeek, etc.).
-        
+
+        Optionally filters and ranks tools based on context if tool selection
+        guidance is enabled and available.
+
+        Args:
+            context: Optional context dictionary for tool filtering/ranking
+
         Returns:
             List of tool definitions in OpenAI format
         """
+        # Get all tools
+        all_tools = list(self._tools.values())
+        
+        # Apply filtering/ranking if enabled and guidance is available
+        # Use module-level config (imported at top of file)
+        if (config.tools.pre_filtering_enabled and
+            self.tool_selection_guidance is not None):
+            try:
+                all_tools = self.tool_selection_guidance.filter_and_rank_tools(
+                    all_tools, context=context
+                )
+                logger.debug(
+                    f"Applied tool filtering/ranking: {len(all_tools)} tools",
+                    extra={
+                        "event": "tool_filtering_applied",
+                        "tool_count": len(all_tools),
+                    }
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Error applying tool filtering/ranking: {e}",
+                    exc_info=True,
+                    extra={"event": "tool_filtering_error"}
+                )
+                # Continue with unfiltered tools on error
+        
         tools = []
         tool_names = []
-        for tool in self._tools.values():
+        for tool in all_tools:
             tools.append({
                 "type": "function",
                 "function": {
@@ -274,7 +319,7 @@ class ToolRegistry:
         )
         
         # Log full tool schemas at DEBUG level or if configured
-        from ..config import config
+        # Use module-level config (imported at top of file)
         if config.logging.level == "DEBUG" or config.logging.log_tool_schemas:
             logger.debug(
                 "Tool schemas",
@@ -349,6 +394,78 @@ class ToolRegistry:
             if arguments is None:
                 arguments = {}
 
+            # Post-selection validation (if enabled)
+            if (config.tools.post_validation_enabled and 
+                self.tool_selection_guidance is not None):
+                try:
+                    # Gather context for validation
+                    context = self.tool_selection_guidance.guidance_aggregator.gather_context()
+                    
+                    validation_result = self.tool_selection_guidance.validate_tool_selection(
+                        tool_name, arguments, context=context
+                    )
+                    
+                    # Check if tool should be blocked
+                    if validation_result.blocked:
+                        logger.warning(
+                            f"Tool '{tool_name}' blocked by validation: {validation_result.severity}",
+                            extra={
+                                "event": "tool_validation_blocked",
+                                "tool_name": tool_name,
+                                "warnings": validation_result.warnings,
+                                "alternatives": validation_result.alternatives,
+                                "confidence": validation_result.confidence,
+                                "severity": validation_result.severity,
+                            }
+                        )
+                        
+                        # Return blocking message with alternatives
+                        alternatives_text = ""
+                        if validation_result.alternatives:
+                            alternatives_text = f"\n\nSuggested alternatives: {', '.join(validation_result.alternatives)}"
+                        
+                        warnings_text = "\n".join(f"- {w}" for w in validation_result.warnings)
+                        
+                        return {
+                            "tool_call_id": tool_call_id,
+                            "role": "tool",
+                            "name": tool_name,
+                            "content": (
+                                f"Tool execution blocked by validation ({validation_result.severity}):\n"
+                                f"{warnings_text}"
+                                f"{alternatives_text}"
+                            )
+                        }
+                    
+                    # Log warnings if validation found issues but didn't block
+                    if validation_result.warnings:
+                        logger.warning(
+                            f"Tool selection validation issues for '{tool_name}': "
+                            f"{', '.join(validation_result.warnings)}",
+                            extra={
+                                "event": "tool_validation_warning",
+                                "tool_name": tool_name,
+                                "warnings": validation_result.warnings,
+                                "suggestions": validation_result.suggestions,
+                                "confidence": validation_result.confidence,
+                                "severity": validation_result.severity,
+                            }
+                        )
+                        
+                        # Log suggestions if available
+                        if validation_result.suggestions:
+                            logger.info(
+                                f"Tool selection suggestions for '{tool_name}': "
+                                f"{', '.join(validation_result.suggestions)}"
+                            )
+                except Exception as e:
+                    logger.debug(
+                        f"Error in tool selection validation: {e}",
+                        exc_info=True,
+                        extra={"event": "tool_validation_error"}
+                    )
+                    # Continue with execution on validation error
+
             # Enforce read-only policy and web search limits
             if self._policy_mode == "read_only":
                 readonly_blocked = {"store_memory", "update_memory", "delete_memory", "link_memories"}
@@ -366,31 +483,6 @@ class ToolRegistry:
                         "name": tool_name,
                         "content": "Blocked by read-only policy: terminal is disabled."
                     }
-                if tool_name == "web_search":
-                    if (self._burst_exhausted_turn is not None) and ((self._turn_index - self._burst_exhausted_turn) < self._search_cooldown_turns):
-                        remaining = self._search_cooldown_turns - (self._turn_index - self._burst_exhausted_turn)
-                        return {
-                            "tool_call_id": tool_call_id,
-                            "role": "tool",
-                            "name": tool_name,
-                            "content": f"Web search cooldown active. Try again in {remaining} turn(s)."
-                        }
-                    if self._search_burst_count >= max(1, int(self._max_search_queries)):
-                        self._burst_exhausted_turn = self._turn_index
-                        return {
-                            "tool_call_id": tool_call_id,
-                            "role": "tool",
-                            "name": tool_name,
-                            "content": f"Web search limit reached ({self._max_search_queries}/turn)."
-                        }
-                    if isinstance(arguments, dict):
-                        req_max = arguments.get("max_results")
-                        try:
-                            if req_max is None or int(req_max) > int(self._max_search_queries):
-                                arguments["max_results"] = int(self._max_search_queries)
-                        except Exception:
-                            arguments["max_results"] = int(self._max_search_queries)
-                    self._search_burst_count += 1
             
             # Validate required parameters
             validation_error = self._validate_tool_arguments(tool, arguments)
@@ -556,16 +648,50 @@ class ToolRegistry:
             if isinstance(result, dict) and "success" in result:
                 result_dict["_success"] = bool(result.get("success", True))
             
-            # For critic tool, include raw result for enforcement checking
-            if tool_name == "critic" and isinstance(result, dict):
-                result_dict["_raw_result"] = result
-            
             # Include epistemic impact if available
             if epistemic_impact:
                 result_dict["_epistemic_impact"] = {
                     "confidence_metrics": epistemic_impact["confidence_metrics"],
                     "suggested_verification": epistemic_impact["suggested_verification"]
                 }
+            
+            # Record tool outcome for feedback loop
+            if self.tool_selection_guidance is not None:
+                try:
+                    # Determine success from result
+                    success = result.get("success", True) if isinstance(result, dict) else True
+                    self.tool_selection_guidance.record_tool_outcome(tool_name, success)
+                except Exception as e:
+                    logger.debug(f"Error recording tool outcome: {e}", exc_info=True)
+            
+            # Automatically observe tool call for learning if learning_tool is available
+            # and runtime config allows auto-observation (to avoid unapproved persistent writes)
+            try:
+                auto_obs = getattr(config.tools, 'auto_observe_tool_calls', False)
+            except Exception:
+                auto_obs = False
+
+            if self.learning_tool and auto_obs:
+                try:
+                    # Debounce: avoid observing too frequently for identical tool calls within same process tick
+                    tool_call_data = {
+                        "name": tool_name,
+                        "parameters": arguments
+                    }
+
+                    success = result.get("success", True) if isinstance(result, dict) else True
+                    result_data = {
+                        "success": success,
+                        "result": result,
+                        "execution_time_ms": execution_time_ms
+                    }
+
+                    # Execute observation
+                    self.learning_tool.execute("observe_tool_call", tool_call=tool_call_data, result=result_data)
+                    logger.debug(f"Automatically observed tool call '{tool_name}' for learning (auto_obs enabled)")
+                except Exception as e:
+                    # Don't fail tool execution if learning observation fails
+                    logger.debug(f"Failed to observe tool call for learning: {e}", exc_info=True)
             
             return result_dict
             

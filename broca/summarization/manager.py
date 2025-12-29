@@ -92,6 +92,11 @@ class SummarizationManager:
         Returns:
             True if summarization should be triggered
         """
+        # Check if auto-trigger is enabled (disabled by default)
+        from ..config import config
+        if not config.summarization.auto_trigger_enabled:
+            return False  # Manual summarization only
+        
         # Check turn-based trigger
         if turns_since_last_summary >= self.trigger_turns:
             logger.debug(f"Trigger: turn count ({turns_since_last_summary} >= {self.trigger_turns})")

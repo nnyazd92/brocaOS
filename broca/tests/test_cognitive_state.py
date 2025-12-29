@@ -30,11 +30,11 @@ class TestCognitiveStateInitialization:
         assert "processing_depth" in monitor.states
         assert "uncertainty_tracking" in monitor.states
         
-        # Check default values are None (unknown until first measurement)
-        assert monitor.states["confidence_level"] is None
-        assert monitor.states["conceptual_coherence"] is None
-        assert monitor.states["processing_depth"] is None
-        assert monitor.states["uncertainty_tracking"] is None
+        # Check default values (should never be None)
+        assert monitor.states["confidence_level"] == 0.5  # Moderate default
+        assert monitor.states["conceptual_coherence"] == 0.5  # Moderate default
+        assert monitor.states["processing_depth"] == 1.0  # Minimal depth default
+        assert monitor.states["uncertainty_tracking"] == 0.0  # No uncertainty default
 
 
 class TestConfidenceTracking:
@@ -178,23 +178,23 @@ class TestConceptualCoherence:
         # Should be lower for inconsistent reasoning
         assert coherence < 0.8
     
-    def test_coherence_none_when_insufficient_steps(self):
+    def test_coherence_default_when_insufficient_steps(self):
         """
-        Test that coherence returns None when insufficient reasoning steps.
+        Test that coherence returns default when insufficient reasoning steps.
         
-        Rationale: Ensures unavailable data is properly indicated.
+        Rationale: Ensures unavailable data uses default value.
         """
         monitor = CognitiveStateMonitor()
         
         coherence = monitor._calculate_coherence()
         
-        assert coherence is None
+        assert coherence == 0.5  # Default value
         
         # One step is not enough
         monitor.record_reasoning_step("step1", {"premise": "A", "conclusion": "B"})
         coherence = monitor._calculate_coherence()
         
-        assert coherence is None
+        assert coherence == 0.5  # Default value (needs at least 2 steps)
 
 
 class TestAttentionAllocation:

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from ..tools.registry import ToolRegistry
     from ..memory.manager import MemoryManager
     from .directory_structure import DirectoryStructureGenerator
+    from ..reasoning.integration_tool import ReasoningTool
 
 
 class WorldStateAggregator:
@@ -44,6 +45,9 @@ class WorldStateAggregator:
         memory_manager: Optional["MemoryManager"] = None,
         directory_structure_generator: Optional["DirectoryStructureGenerator"] = None,
         self_model_reduction_level: Optional[str] = None,
+        reasoning_tool: Optional["ReasoningTool"] = None,
+        size_manager: Optional[Any] = None,
+        config: Optional[Any] = None,
     ) -> None:
         """
         Initialize world state aggregator.
@@ -56,6 +60,7 @@ class WorldStateAggregator:
             directory_structure_generator: Optional DirectoryStructureGenerator instance for Broca house structure
             self_model_reduction_level: Optional reduction level for self-model data ("none", "mild", "moderate", "heavy").
                                         Defaults to "mild" if not specified.
+            reasoning_tool: Optional ReasoningTool instance for reasoning state
         """
         self.internal_sensing = internal_sensing
         self.self_model = self_model
@@ -63,9 +68,42 @@ class WorldStateAggregator:
         self.memory_manager = memory_manager
         self.directory_structure_generator = directory_structure_generator
         self.self_model_reduction_level = self_model_reduction_level or "mild"
+        self.reasoning_tool = reasoning_tool
+        self.size_manager = size_manager
+        self.config = config
         self._last_tool_registry_hash: Optional[str] = None
         
         logger.info("Initialized WorldStateAggregator")
+    
+    def _validate_metric_quality(self, state_dict: Dict[str, Any], component_name: str) -> bool:
+        """
+        Validate that metrics have sufficient data quality.
+        
+        Args:
+            state_dict: State dictionary to validate
+            component_name: Name of component for logging
+            
+        Returns:
+            True if metrics should be included, False if quality is too low
+        """
+        data_quality = state_dict.get("data_quality", {})
+        
+        # If no data quality indicators, assume it's okay (backward compatibility)
+        if not data_quality:
+            return True
+        
+        # Check if any critical metrics are missing or insufficient
+        missing_count = sum(1 for q in data_quality.values() if q in ("missing", "insufficient"))
+        total_metrics = len(data_quality)
+        
+        # If more than half the metrics are missing/insufficient, warn
+        if total_metrics > 0 and missing_count > total_metrics * 0.5:
+            logger.debug(
+                f"Low data quality for {component_name}: {missing_count}/{total_metrics} metrics missing/insufficient"
+            )
+            # Still include it, but with warning
+        
+        return True  # Include anyway, but caller can check data_quality
     
     def aggregate(self) -> Dict[str, Any]:
         """
@@ -97,22 +135,55 @@ class WorldStateAggregator:
                 "working_directory": system_info.get("working_directory"),
             }
         
-        # Self-model - only include if available
+        # Self-model - use metadata-only mode if size management enabled
         self_model_state = self.get_self_model_state()
         if self_model_state.get("available"):
-            # Build self_model dict with only fields that are present (respects reduction level)
-            self_model_dict = {
-                "summary": self_model_state.get("summary"),
-            }
-            # Only include these fields if they exist in the state (not present in "heavy" reduction)
-            if "capabilities" in self_model_state:
-                self_model_dict["capabilities"] = self_model_state.get("capabilities", [])
-            if "knowledge_boundaries" in self_model_state:
-                self_model_dict["knowledge_boundaries"] = self_model_state.get("knowledge_boundaries", {})
-            if "constraints" in self_model_state:
-                self_model_dict["constraints"] = self_model_state.get("constraints", {})
-            if "metadata" in self_model_state:
-                self_model_dict["metadata"] = self_model_state.get("metadata", {})
+            # Use metadata-only representation if size management enabled
+            if (hasattr(self, 'size_manager') and self.size_manager and 
+                hasattr(self, 'config') and self.config and 
+                hasattr(self.config, 'self_model') and 
+                self.config.self_model.metadata_only_mode):
+                try:
+                    # Get the actual SelfModel instance from state
+                    self_model_instance = self_model_state.get("self_model")
+                    if self_model_instance is None and self.self_model:
+                        self_model_instance = self.self_model
+                    if self_model_instance:
+                        metadata_only = self.size_manager.get_metadata_only_representation(
+                            self_model_instance
+                        )
+                        self_model_dict = metadata_only
+                    else:
+                        # No self model instance, use state dict
+                        self_model_dict = {"summary": self_model_state.get("summary")}
+                except Exception as e:
+                    logger.warning(f"Error getting metadata-only self-model representation: {e}")
+                    # Fall back to normal representation
+                    self_model_dict = {
+                        "summary": self_model_state.get("summary"),
+                    }
+                    if "capabilities" in self_model_state:
+                        self_model_dict["capabilities"] = self_model_state.get("capabilities", [])
+                    if "knowledge_boundaries" in self_model_state:
+                        self_model_dict["knowledge_boundaries"] = self_model_state.get("knowledge_boundaries", {})
+                    if "constraints" in self_model_state:
+                        self_model_dict["constraints"] = self_model_state.get("constraints", {})
+                    if "metadata" in self_model_state:
+                        self_model_dict["metadata"] = self_model_state.get("metadata", {})
+            else:
+                # Build self_model dict with only fields that are present (respects reduction level)
+                self_model_dict = {
+                    "summary": self_model_state.get("summary"),
+                }
+                # Only include these fields if they exist in the state (not present in "heavy" reduction)
+                if "capabilities" in self_model_state:
+                    self_model_dict["capabilities"] = self_model_state.get("capabilities", [])
+                if "knowledge_boundaries" in self_model_state:
+                    self_model_dict["knowledge_boundaries"] = self_model_state.get("knowledge_boundaries", {})
+                if "constraints" in self_model_state:
+                    self_model_dict["constraints"] = self_model_state.get("constraints", {})
+                if "metadata" in self_model_state:
+                    self_model_dict["metadata"] = self_model_state.get("metadata", {})
             world_state["self_model"] = self_model_dict
         
         # Internal sensing - only include if available
@@ -126,10 +197,30 @@ class WorldStateAggregator:
             if current_state:
                 if "computational" in current_state:
                     world_state["internal_state"]["physiology"] = self._aggregate_physiology_health(current_state["computational"])
-                if "cognition" in current_state:
-                    world_state["internal_state"]["cognition"] = current_state["cognition"]
+                if "cognitive" in current_state:
+                    # Preserve cognitive state including data_quality indicators
+                    cognitive_state = current_state["cognitive"]
+                    # Ensure data_quality is preserved if present
+                    if "data_quality" not in cognitive_state and hasattr(self.internal_sensing.interoception.cognition, 'states'):
+                        # Try to extract data_quality from cognitive monitor if not in state
+                        cog_states = self.internal_sensing.interoception.cognition.states
+                        if "data_quality" in cog_states:
+                            cognitive_state["data_quality"] = cog_states["data_quality"]
+                    # Validate and include
+                    if self._validate_metric_quality(cognitive_state, "cognition"):
+                        world_state["internal_state"]["cognition"] = cognitive_state
                 if "affective" in current_state:
-                    world_state["internal_state"]["affect"] = current_state["affective"]
+                    # Preserve affective state including data_quality indicators
+                    affective_state = current_state["affective"]
+                    # Ensure data_quality is preserved if present
+                    if "data_quality" not in affective_state and hasattr(self.internal_sensing.interoception.affect, 'affective_states'):
+                        # Try to extract data_quality from affective monitor if not in state
+                        aff_states = self.internal_sensing.interoception.affect.affective_states
+                        if "data_quality" in aff_states:
+                            affective_state["data_quality"] = aff_states["data_quality"]
+                    # Validate and include
+                    if self._validate_metric_quality(affective_state, "affect"):
+                        world_state["internal_state"]["affect"] = affective_state
             
             # Add predictive data if available
             if "predictive" in internal_sensing_state:
@@ -156,6 +247,13 @@ class WorldStateAggregator:
                 motivational_state = internal_sensing_state["motivational_state"]
                 if motivational_state:
                     world_state["internal_state"]["motivational_state"] = motivational_state
+            
+            # Add epistemic metrics if available
+            if "epistemic" in internal_sensing_state:
+                epistemic_data = internal_sensing_state["epistemic"]
+                if epistemic_data:
+                    # Create compact epistemic summary
+                    world_state["internal_state"]["epistemic"] = self._aggregate_epistemic_summary(epistemic_data)
         
         # Tools - only include if available
         tools_info = self.get_tools_info()
@@ -179,6 +277,16 @@ class WorldStateAggregator:
             if "note" in broca_house_info:
                 world_state["repo_note"] = broca_house_info["note"]
         
+        # Reasoning state - only include if available
+        reasoning_state = self.get_reasoning_state()
+        if reasoning_state.get("available"):
+            world_state["reasoning"] = reasoning_state.get("reasoning", {})
+        
+        # Cognitive architecture components - only include if available
+        cognitive_arch_state = self.get_cognitive_architecture_state()
+        if cognitive_arch_state.get("available"):
+            world_state["cognitive_architecture"] = cognitive_arch_state.get("components", {})
+        
         return world_state
     
     def get_internal_sensing_state(self) -> Dict[str, Any]:
@@ -193,8 +301,8 @@ class WorldStateAggregator:
             return {"available": False}
         
         try:
-            # Sample current internal state
-            current_state = self.internal_sensing.sample_internal_state()
+            # Sample current internal state (force fresh sample to get latest moving averages)
+            current_state = self.internal_sensing.sample_internal_state(force=True)
             
             # Get interoceptive report
             interoceptive_report = self.internal_sensing.generate_interoceptive_report()
@@ -211,15 +319,14 @@ class WorldStateAggregator:
             # Detect anomalies
             anomalies = self.internal_sensing.interoception.detect_anomalies()
             
-            # Get quality metrics
+            # Get quality metrics (always include since measure_self_awareness_quality() always returns a value)
             self_awareness_quality = self.internal_sensing.interoception.measure_self_awareness_quality()
             interoceptive_accuracy = self.internal_sensing.interoception.track_interoceptive_accuracy()
             
-            quality_metrics = {}
-            if self_awareness_quality is not None:
-                quality_metrics["self_awareness_quality"] = self_awareness_quality
-            if interoceptive_accuracy:
-                quality_metrics["interoceptive_accuracy"] = interoceptive_accuracy
+            quality_metrics = {
+                "self_awareness_quality": self_awareness_quality,
+                "interoceptive_accuracy": interoceptive_accuracy,
+            }
             
             # Extract motivational state
             motivational_drives = self.internal_sensing.interoception.affect.get_motivational_drives()
@@ -236,6 +343,31 @@ class WorldStateAggregator:
             
             # Extract reasoning patterns from cognitive state
             reasoning_patterns = self.internal_sensing.interoception.cognition._get_reasoning_patterns()
+            
+            # Extract epistemic metrics from epistemic bridge if available
+            epistemic_data = None
+            if hasattr(self.internal_sensing.interoception, 'epistemic_bridge') and self.internal_sensing.interoception.epistemic_bridge:
+                try:
+                    epistemic_bridge = self.internal_sensing.interoception.epistemic_bridge
+                    
+                    # Get aggregated uncertainty
+                    epistemic_uncertainty = epistemic_bridge.get_aggregated_uncertainty()
+                    
+                    # Get aggregated confidence
+                    epistemic_confidence = epistemic_bridge.get_aggregated_confidence()
+                    
+                    # Get source reliability summary
+                    source_reliability = epistemic_bridge.get_source_reliability()
+                    
+                    # Create compact epistemic summary
+                    epistemic_data = {
+                        "uncertainty": epistemic_uncertainty,
+                        "confidence": epistemic_confidence,
+                        "source_reliability": self._aggregate_source_reliability(source_reliability),
+                    }
+                except Exception as e:
+                    logger.warning(f"Error extracting epistemic metrics: {e}", exc_info=True)
+                    epistemic_data = None
             
             result = {
                 "available": True,
@@ -257,6 +389,8 @@ class WorldStateAggregator:
                 result["motivational_state"] = motivational_state
             if reasoning_patterns:
                 result["reasoning_patterns"] = reasoning_patterns
+            if epistemic_data:
+                result["epistemic"] = epistemic_data
             
             return result
         except Exception as e:
@@ -265,24 +399,33 @@ class WorldStateAggregator:
     
     def _summarize_with_model(self, text: str, max_length: int = 100) -> str:
         """
-        Stub for future sentence-summarization model integration.
+        Summarize text with simple truncation fallback.
         
-        This method is a placeholder for when a sentence-summarization model
-        (e.g., BART, T5, or LLM-based) is integrated to generate intelligent
-        summaries that preserve semantic meaning and key information.
+        Note: This is a simple implementation. Future versions may integrate
+        sentence-summarization models (e.g., BART, T5, or LLM-based) for
+        intelligent summaries that preserve semantic meaning.
         
         Args:
             text: Text to summarize
             max_length: Maximum length of summary
             
         Returns:
-            Summarized text (currently returns input as stub)
+            Summarized text (truncated if longer than max_length)
         """
-        # TODO: Integrate sentence-summarization model here
-        # For now, this is a stub that returns the input
-        # Future implementation might use:
-        # - BART/T5 models via transformers library
-        # - LLM-based summarization via API
+        if not text:
+            return ""
+        
+        # Simple truncation with ellipsis if needed
+        if len(text) <= max_length:
+            return text
+        
+        # Try to truncate at word boundary
+        truncated = text[:max_length - 3]
+        last_space = truncated.rfind(' ')
+        if last_space > max_length * 0.7:  # Only use word boundary if not too short
+            return truncated[:last_space] + "..."
+        
+        return truncated + "..."
         # - Custom fine-tuned model for self-model summarization
         return text[:max_length] if len(text) > max_length else text
     
@@ -590,22 +733,26 @@ class WorldStateAggregator:
             # Always use minimal summary (same for all levels)
             summary = self.self_model.get_minimal_summary()
             
+            # Store self_model instance in result for size manager
+            result = {
+                "available": True,
+                "summary": summary,
+                "self_model": self.self_model,  # Include instance for size manager
+            }
+            
             # Apply reduction based on level
             if reduction_level == "none":
                 # Full data with all source metadata (backward compatible)
-                return {
-                    "available": True,
-                    "summary": summary,
+                result.update({
                     "capabilities": self.self_model.capabilities,
                     "knowledge_boundaries": self.self_model.knowledge_boundaries,
                     "constraints": self.self_model.constraints,
                     "metadata": self.self_model.metadata,
-                }
+                })
+                return result
             elif reduction_level == "mild":
                 # Remove source metadata, keep all fields
-                return {
-                    "available": True,
-                    "summary": summary,
+                result.update({
                     "capabilities": [
                         cap.get("text", str(cap)) if isinstance(cap, dict) else str(cap)
                         for cap in self.self_model.capabilities
@@ -621,12 +768,11 @@ class WorldStateAggregator:
                         for key, value_dict in self.self_model.constraints.items()
                     },
                     "metadata": self.self_model.metadata,
-                }
+                })
+                return result
             elif reduction_level == "moderate":
                 # Replace each category with a brief sentence
-                return {
-                    "available": True,
-                    "summary": summary,
+                result.update({
                     "capabilities": self._summarize_capabilities_moderate(self.self_model.capabilities),
                     "knowledge_boundaries": self._summarize_knowledge_boundaries_moderate(self.self_model.knowledge_boundaries),
                     "constraints": self._summarize_constraints_moderate(self.self_model.constraints),
@@ -634,16 +780,16 @@ class WorldStateAggregator:
                         "version": self.self_model.metadata.get("version"),
                         "last_updated": self.self_model.metadata.get("last_updated"),
                     },
-                }
+                })
+                return result
             elif reduction_level == "heavy":
                 # Single sentence summary per field
-                return {
-                    "available": True,
-                    "summary": summary,
+                result.update({
                     "capabilities": self._summarize_capabilities_heavy(self.self_model.capabilities),
                     "knowledge_boundaries": self._summarize_knowledge_boundaries_heavy(self.self_model.knowledge_boundaries),
                     "constraints": self._summarize_constraints_heavy(self.self_model.constraints),
-                }
+                })
+                return result
             else:
                 # Invalid reduction level, default to mild
                 logger.warning(f"Invalid reduction level '{reduction_level}', defaulting to 'mild'")
@@ -859,4 +1005,476 @@ class WorldStateAggregator:
             aggregated["recent"] = recent_patterns
         
         return aggregated
+    
+    def _aggregate_source_reliability(self, source_reliability: Dict[str, float]) -> Dict[str, Any]:
+        """
+        Aggregate source reliability scores into compact summary.
+        
+        Args:
+            source_reliability: Dictionary mapping source identifiers to reliability scores
+            
+        Returns:
+            Compact summary with tool and memory reliability averages
+        """
+        if not source_reliability:
+            return {}
+        
+        tool_reliabilities = []
+        memory_reliabilities = []
+        
+        for source_key, reliability in source_reliability.items():
+            if source_key.startswith("tool:"):
+                tool_reliabilities.append(reliability)
+            elif source_key.startswith("memory:"):
+                memory_reliabilities.append(reliability)
+        
+        summary = {}
+        
+        if tool_reliabilities:
+            avg_tool_reliability = sum(tool_reliabilities) / len(tool_reliabilities)
+            summary["tool_reliability_avg"] = avg_tool_reliability
+            summary["tool_count"] = len(tool_reliabilities)
+        
+        if memory_reliabilities:
+            avg_memory_reliability = sum(memory_reliabilities) / len(memory_reliabilities)
+            summary["memory_consistency_avg"] = avg_memory_reliability
+            summary["memory_count"] = len(memory_reliabilities)
+        
+        return summary
+    
+    def _aggregate_epistemic_summary(self, epistemic_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Aggregate epistemic data into compact summary for world state.
+        
+        Similar to _aggregate_physiology_health(), extracts only essential metrics
+        to prevent size bloat while preserving key epistemic signals.
+        
+        Args:
+            epistemic_data: Full epistemic data dictionary with uncertainty, confidence, source_reliability
+            
+        Returns:
+            Compact epistemic summary with essential metrics only
+        """
+        summary = {}
+        
+        # Extract uncertainty summary
+        uncertainty = epistemic_data.get("uncertainty", {})
+        if uncertainty:
+            # Include only essential uncertainty metrics
+            uncertainty_summary = {
+                "epistemic": uncertainty.get("epistemic"),
+                "aleatoric": uncertainty.get("aleatoric"),
+                "total": uncertainty.get("total"),
+            }
+            # Include data quality if available
+            if "data_quality" in uncertainty:
+                uncertainty_summary["data_quality"] = uncertainty.get("data_quality")
+            if "sample_size" in uncertainty:
+                uncertainty_summary["sample_size"] = uncertainty.get("sample_size")
+            if "has_data" in uncertainty:
+                uncertainty_summary["has_data"] = uncertainty.get("has_data")
+            
+            summary["uncertainty"] = uncertainty_summary
+        
+        # Extract confidence summary
+        confidence = epistemic_data.get("confidence", {})
+        if confidence:
+            # Include only essential confidence metrics
+            confidence_summary = {
+                "overall_confidence": confidence.get("overall_confidence"),
+            }
+            # Include confidence interval if available
+            if "confidence_interval" in confidence:
+                confidence_summary["confidence_interval"] = confidence.get("confidence_interval")
+            # Include calibration error if available
+            if "calibration_error" in confidence and confidence.get("calibration_error") is not None:
+                confidence_summary["calibration_error"] = confidence.get("calibration_error")
+            # Include data quality if available
+            if "data_quality" in confidence:
+                confidence_summary["data_quality"] = confidence.get("data_quality")
+            if "sample_size" in confidence:
+                confidence_summary["sample_size"] = confidence.get("sample_size")
+            if "has_data" in confidence:
+                confidence_summary["has_data"] = confidence.get("has_data")
+            if "uncertainty" in confidence:
+                confidence_summary["uncertainty"] = confidence.get("uncertainty")
+            
+            summary["confidence"] = confidence_summary
+        
+        # Include source reliability summary (already aggregated)
+        source_reliability = epistemic_data.get("source_reliability", {})
+        if source_reliability:
+            summary["source_reliability"] = source_reliability
+        
+        return summary
+    
+    def get_reasoning_state(self) -> Dict[str, Any]:
+        """
+        Get reasoning system state.
+        
+        Returns:
+            Dictionary with reasoning state information (goals, active rules count, recent inferences)
+            Size-limited to prevent unbounded growth (target: ~2KB)
+        """
+        if not self.reasoning_tool:
+            return {"available": False}
+        
+        try:
+            # Get state from reasoning tool
+            state_result = self.reasoning_tool.execute("get_state")
+            if not state_result.get("success"):
+                return {"available": False}
+            
+            state = state_result.get("state", {})
+            goal_manager_dict = state.get("goal_manager", {})
+            rule_system_dict = state.get("rule_system", {})
+            
+            # Extract key information (size-limited)
+            reasoning_state = {}
+            
+            # Active goals (limited count and description length)
+            # Only include progress if it's been computed (not None/0.0 default)
+            goals = goal_manager_dict.get("goals", {})
+            active_goals = []
+            for goal in goals.values():
+                if goal.get("status") == "active":
+                    goal_dict = {
+                        "name": goal.get("name", ""),
+                        "description": goal.get("description", "")[:100],  # Limit description
+                        "priority": goal.get("priority", 0.0),
+                    }
+                    # Only include progress if it's been computed (not None or default 0.0)
+                    progress = goal.get("progress")
+                    if progress is not None:
+                        goal_dict["progress"] = progress
+                    active_goals.append(goal_dict)
+                    if len(active_goals) >= 5:  # Limit to top 5 active goals
+                        break
+            
+            if active_goals:
+                reasoning_state["active_goals"] = active_goals
+                reasoning_state["active_goals_count"] = len(active_goals)
+            
+            # Ready goals count
+            ready_goals_count = goal_manager_dict.get("ready_goals_count", 0)
+            if ready_goals_count > 0:
+                reasoning_state["ready_goals_count"] = ready_goals_count
+            
+            # Rule system summary
+            rules = rule_system_dict.get("rules", [])
+            reasoning_state["total_rules"] = len(rules)
+            
+            # Working memory size
+            working_memory_size = state.get("working_memory_size", 0)
+            if working_memory_size > 0:
+                reasoning_state["working_memory_size"] = working_memory_size
+            
+            # Daemon status (if available)
+            if hasattr(self.reasoning_tool, 'daemon') and self.reasoning_tool.daemon:
+                try:
+                    daemon_status = self.reasoning_tool.daemon.get_status()
+                    reasoning_state["daemon"] = {
+                        "status": daemon_status.get("status"),
+                        "cycle_count": daemon_status.get("cycle_count", 0),
+                        "paused": daemon_status.get("paused", False)
+                    }
+                except Exception as e:
+                    logger.debug(f"Could not get daemon status: {e}")
+            
+            # Feedback loop metrics (if available)
+            if hasattr(self.reasoning_tool, 'daemon') and self.reasoning_tool.daemon:
+                if hasattr(self.reasoning_tool.daemon, 'feedback_loop_manager') and self.reasoning_tool.daemon.feedback_loop_manager:
+                    try:
+                        metrics_summary = self.reasoning_tool.daemon.feedback_loop_manager.get_metrics_summary()
+                        if metrics_summary.get("status") != "no_data":
+                            reasoning_state["feedback_metrics"] = {
+                                "success_rate": round(metrics_summary.get("success_rate", 0.0), 2),
+                                "error_rate": round(metrics_summary.get("error_rate", 0.0), 2),
+                                "avg_cycle_duration": round(metrics_summary.get("avg_cycle_duration", 0.0), 2)
+                            }
+                            
+                            # Add cognitive dissonance metrics if available
+                            # Check both paths: daemon.feedback_loop_manager and direct attachment
+                            dissonance_monitor = None
+                            
+                            # First, try daemon path
+                            if (hasattr(self.reasoning_tool, 'daemon') and 
+                                self.reasoning_tool.daemon and
+                                hasattr(self.reasoning_tool.daemon, 'feedback_loop_manager') and
+                                hasattr(self.reasoning_tool.daemon.feedback_loop_manager, 'cognitive_dissonance_monitor')):
+                                dissonance_monitor = self.reasoning_tool.daemon.feedback_loop_manager.cognitive_dissonance_monitor
+                            
+                            # Fallback to direct attachment path
+                            if not dissonance_monitor and hasattr(self.reasoning_tool, 'cognitive_dissonance_monitor'):
+                                dissonance_monitor = self.reasoning_tool.cognitive_dissonance_monitor
+                            
+                            if dissonance_monitor:
+                                try:
+                                    dissonance_data = dissonance_monitor.get_aggregated_dissonance()
+                                    has_sufficient_data = dissonance_data.get("has_sufficient_data", False)
+                                    has_data = dissonance_data.get("has_data", False)
+                                    
+                                    # Only include values if we have sufficient data
+                                    if has_sufficient_data and has_data:
+                                        reasoning_state["cognitive_dissonance"] = {
+                                            "overall": round(dissonance_data.get("overall_dissonance", 0.0), 3),
+                                            "logical": round(dissonance_data.get("logical_dissonance", 0.0), 3),
+                                            "factual": round(dissonance_data.get("factual_dissonance", 0.0), 3),
+                                            "behavioral": round(dissonance_data.get("behavioral_dissonance", 0.0), 3),
+                                            "goal": round(dissonance_data.get("goal_dissonance", 0.0), 3),
+                                            "trend": dissonance_data.get("trend", 0.0),  # Positive = increasing
+                                            "measurement_quality": dissonance_data.get("measurement_quality", "unknown"),
+                                            "samples": dissonance_data.get("samples", 0)
+                                        }
+                                    else:
+                                        # Include diagnostic information when data is insufficient
+                                        diagnostics = dissonance_monitor.get_measurement_diagnostics()
+                                        reasoning_state["cognitive_dissonance"] = {
+                                            "overall": 0.0,
+                                            "logical": 0.0,
+                                            "factual": 0.0,
+                                            "behavioral": 0.0,
+                                            "goal": 0.0,
+                                            "trend": 0.0,
+                                            "measurement_quality": dissonance_data.get("measurement_quality", "unavailable"),
+                                            "has_sufficient_data": False,
+                                            "has_data": has_data,
+                                            "samples": dissonance_data.get("samples", 0),
+                                            "diagnostics": {
+                                                "total_measurements": diagnostics.get("total_measurements", 0),
+                                                "success_rate_percent": diagnostics.get("success_rate_percent", 0.0),
+                                                "dependencies": diagnostics.get("dependencies", {})
+                                            }
+                                        }
+                                        if not has_data:
+                                            logger.debug("Cognitive dissonance data unavailable - no measurements recorded yet")
+                                        elif not has_sufficient_data:
+                                            logger.debug("Cognitive dissonance data insufficient - measurements may have failed")
+                                except Exception as e:
+                                    logger.warning(f"Error getting cognitive dissonance data: {e}", exc_info=True)
+                                    reasoning_state["cognitive_dissonance"] = {
+                                        "error": "measurement_unavailable",
+                                        "message": str(e)
+                                    }
+                            
+                            # Include learning system state if available (check daemon for learning_tool)
+                            learning_tool = None
+                            if hasattr(self.reasoning_tool, 'daemon') and self.reasoning_tool.daemon:
+                                learning_tool = getattr(self.reasoning_tool.daemon, 'learning_tool', None)
+                            if not learning_tool and hasattr(self.reasoning_tool, 'learning_tool'):
+                                learning_tool = self.reasoning_tool.learning_tool
+                            
+                            if learning_tool:
+                                try:
+                                    learning_state = learning_tool.execute("get_learning_state")
+                                    if learning_state.get("success"):
+                                        reasoning_state["learning"] = {
+                                            "procedures_count": learning_state.get("state", {}).get("procedural_learner", {}).get("total_procedures", 0),
+                                            "skills_count": learning_state.get("state", {}).get("skill_manager", {}).get("total_skills", 0),
+                                            "top_skills": learning_state.get("state", {}).get("skill_manager", {}).get("top_skills", [])[:3]  # Top 3
+                                        }
+                                except Exception as e:
+                                    logger.debug(f"Could not get learning state: {e}")
+                    except Exception as e:
+                        logger.debug(f"Could not get feedback metrics: {e}")
+            
+            # Include emotional state if available from affect monitor
+            if hasattr(self.reasoning_tool, 'affect_monitor') and self.reasoning_tool.affect_monitor:
+                try:
+                    emotional_state = self.reasoning_tool.affect_monitor.get_current_state()
+                    regulation_needs = self.reasoning_tool.affect_monitor.get_emotional_regulation_needs()
+                    
+                    reasoning_state["emotion"] = {
+                        "valence": round(emotional_state.get("valence", 0.0), 3),
+                        "arousal": round(emotional_state.get("arousal", 0.5), 3),
+                        "curiosity": round(emotional_state.get("curiosity_drive", 0.5), 3),
+                        "needs_regulation": regulation_needs.get("needs_regulation", False),
+                        "regulation_priority": round(regulation_needs.get("priority", 0.0), 2) if regulation_needs.get("needs_regulation") else None
+                    }
+                except Exception as e:
+                    logger.debug(f"Could not get emotional state: {e}")
+            # Also check daemon for affect monitor
+            elif hasattr(self.reasoning_tool, 'daemon') and self.reasoning_tool.daemon and hasattr(self.reasoning_tool.daemon, 'affect_monitor') and self.reasoning_tool.daemon.affect_monitor:
+                try:
+                    emotional_state = self.reasoning_tool.daemon.affect_monitor.get_current_state()
+                    regulation_needs = self.reasoning_tool.daemon.affect_monitor.get_emotional_regulation_needs()
+                    
+                    reasoning_state["emotion"] = {
+                        "valence": round(emotional_state.get("valence", 0.0), 3),
+                        "arousal": round(emotional_state.get("arousal", 0.5), 3),
+                        "curiosity": round(emotional_state.get("curiosity_drive", 0.5), 3),
+                        "needs_regulation": regulation_needs.get("needs_regulation", False),
+                        "regulation_priority": round(regulation_needs.get("priority", 0.0), 2) if regulation_needs.get("needs_regulation") else None
+                    }
+                except Exception as e:
+                    logger.debug(f"Could not get emotional state from daemon: {e}")
+            
+            # Add Z3 validation summary if available
+            if hasattr(self.reasoning_tool, 'rule_engine') and self.reasoning_tool.rule_engine:
+                if hasattr(self.reasoning_tool.rule_engine, 'z3_validator') and self.reasoning_tool.rule_engine.z3_validator:
+                    try:
+                        z3_summary = self.reasoning_tool.rule_engine.z3_validator.get_validation_summary(max_size_bytes=200)
+                        if z3_summary:
+                            reasoning_state["z3_validation"] = z3_summary
+                    except Exception as e:
+                        logger.debug(f"Could not get Z3 validation summary: {e}")
+            
+            # Limit total size to ~2KB (rough estimate: ~200 chars per goal, ~50 chars for other fields)
+            # This is approximate - actual JSON serialization will vary
+            total_size_estimate = len(str(reasoning_state))
+            if total_size_estimate > 2000:
+                # Truncate goals if too large
+                if "active_goals" in reasoning_state:
+                    reasoning_state["active_goals"] = reasoning_state["active_goals"][:3]
+                    reasoning_state["_truncated"] = True
+                # Remove Z3 validation if still too large (it's optional)
+                if "z3_validation" in reasoning_state and total_size_estimate > 2000:
+                    del reasoning_state["z3_validation"]
+            
+            return {
+                "available": True,
+                "reasoning": reasoning_state
+            }
+            
+        except Exception as e:
+            logger.warning(f"Error getting reasoning state: {e}", exc_info=True)
+            return {"available": False, "error": str(e)}
+    
+    def get_cognitive_architecture_state(self) -> Dict[str, Any]:
+        """
+        Get cognitive architecture components state.
+        
+        Returns:
+            Dictionary with statistics from new cognitive architecture components
+        """
+        components = {}
+        
+        # Hierarchical control statistics
+        if hasattr(self, 'hierarchical_controller') and self.hierarchical_controller:
+            try:
+                stats = self.hierarchical_controller.get_control_statistics()
+                if stats.get("status") != "no_data":
+                    components["hierarchical_control"] = {
+                        "total_decisions": stats.get("total_decisions", 0),
+                        "decisions_by_level": stats.get("decisions_by_level", {}),
+                        "avg_confidence_by_level": stats.get("avg_confidence_by_level", {})
+                    }
+            except Exception as e:
+                logger.debug(f"Error getting hierarchical control stats: {e}")
+        
+        # Recursive reasoning statistics
+        if hasattr(self, 'recursive_reasoning_engine') and self.recursive_reasoning_engine:
+            try:
+                stats = self.recursive_reasoning_engine.get_statistics()
+                if stats.get("status") != "no_data":
+                    components["recursive_reasoning"] = {
+                        "total_tasks": stats.get("total_tasks", 0),
+                        "success_rate": round(stats.get("success_rate", 0.0), 2),
+                        "avg_depth": round(stats.get("avg_depth", 0.0), 2),
+                        "max_observed_depth": stats.get("max_observed_depth", 0)
+                    }
+            except Exception as e:
+                logger.debug(f"Error getting recursive reasoning stats: {e}")
+        
+        # Metacognitive loops statistics
+        if hasattr(self, 'metacognitive_loop') and self.metacognitive_loop:
+            try:
+                stats = self.metacognitive_loop.get_statistics()
+                if stats.get("status") != "no_data":
+                    components["metacognitive"] = {
+                        "total_cycles": stats.get("total_cycles", 0),
+                        "first_order_cycles": stats.get("first_order_cycles", 0),
+                        "second_order_cycles": stats.get("second_order_cycles", 0),
+                        "avg_awareness": round(stats.get("avg_awareness", 0.0), 2)
+                    }
+            except Exception as e:
+                logger.debug(f"Error getting metacognitive stats: {e}")
+        
+        # Nested feedback statistics
+        if hasattr(self, 'nested_feedback_system') and self.nested_feedback_system:
+            try:
+                stats = self.nested_feedback_system.get_statistics()
+                components["nested_feedback"] = {
+                    "total_loops": stats.get("total_loops", 0),
+                    "fast_loops": stats.get("fast_loops", 0),
+                    "medium_loops": stats.get("medium_loops", 0),
+                    "slow_loops": stats.get("slow_loops", 0),
+                    "total_updates": stats.get("total_updates", 0)
+                }
+            except Exception as e:
+                logger.debug(f"Error getting nested feedback stats: {e}")
+        
+        # System dynamics statistics
+        if hasattr(self, 'system_dynamics') and self.system_dynamics:
+            try:
+                stats = self.system_dynamics.get_statistics()
+                if stats.get("status") != "no_data":
+                    components["system_dynamics"] = {
+                        "current_stability": round(stats.get("current_stability", 0.5), 2),
+                        "current_health": round(stats.get("current_health", 0.5), 2),
+                        "emergent_properties": stats.get("emergent_properties", [])
+                    }
+            except Exception as e:
+                logger.debug(f"Error getting system dynamics stats: {e}")
+        
+        # System health statistics
+        if hasattr(self, 'system_health_monitor') and self.system_health_monitor:
+            try:
+                health_report = self.system_health_monitor.assess_health()
+                components["system_health"] = {
+                    "overall_health": round(health_report.overall_health, 2),
+                    "status": health_report.status.value,
+                    "stability_score": round(health_report.stability_score, 2),
+                    "issues_count": len(health_report.issues)
+                }
+            except Exception as e:
+                logger.debug(f"Error getting system health stats: {e}")
+        
+        # MPC controller statistics
+        if hasattr(self, 'mpc_controller') and self.mpc_controller:
+            try:
+                stats = self.mpc_controller.get_statistics()
+                if stats.get("status") != "no_data":
+                    components["mpc_control"] = {
+                        "total_control_actions": stats.get("total_control_actions", 0),
+                        "avg_control": round(stats.get("avg_control", 0.0), 2)
+                    }
+            except Exception as e:
+                logger.debug(f"Error getting MPC controller stats: {e}")
+        
+        # Distributed control statistics
+        if hasattr(self, 'distributed_control') and self.distributed_control:
+            try:
+                stats = self.distributed_control.get_statistics()
+                components["distributed_control"] = {
+                    "total_components": stats.get("total_components", 0),
+                    "coordination_events": stats.get("coordination_events", 0)
+                }
+            except Exception as e:
+                logger.debug(f"Error getting distributed control stats: {e}")
+        
+        # LLM ensemble statistics (if available)
+        if hasattr(self, 'llm_ensemble') and self.llm_ensemble:
+            # Ensemble stats would be available if needed
+            pass
+        
+        # Recursive improvement statistics
+        if hasattr(self, 'recursive_improvement') and self.recursive_improvement:
+            try:
+                stats = self.recursive_improvement.get_statistics()
+                components["recursive_improvement"] = {
+                    "total_improvements": stats.get("total_improvements", 0),
+                    "applied_improvements": stats.get("applied_improvements", 0),
+                    "avg_effectiveness": round(stats.get("avg_effectiveness", 0.0), 2)
+                }
+            except Exception as e:
+                logger.debug(f"Error getting recursive improvement stats: {e}")
+        
+        if components:
+            return {
+                "available": True,
+                "components": components
+            }
+        else:
+            return {"available": False}
 

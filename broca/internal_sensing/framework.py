@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional
 from collections import deque, defaultdict
 
 from .integrated_interoception import IntegratedInteroception
+from .storage import InternalSensingStorage
 from ..config import config
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class InternalSensingFramework:
         sampling_rate: Optional[float] = None,
         history_window: Optional[int] = None,
         embedding_service: Optional[Any] = None,
+        epistemic_engine: Optional[Any] = None,
     ) -> None:
         """
         Initialize internal sensing framework.
@@ -37,12 +39,21 @@ class InternalSensingFramework:
         Args:
             sampling_rate: Sampling rate in Hz (defaults to config)
             history_window: History window in seconds (defaults to config)
+            embedding_service: Optional embedding service for semantic analysis
+            epistemic_engine: Optional MetacognitiveEngine for second-order metacognition
         """
         self.sampling_rate = sampling_rate or config.internal_sensing.sampling_rate
         self.history_window = history_window or config.internal_sensing.history_window
         
-        # Initialize integrated interoception
-        self.interoception = IntegratedInteroception(history_window=self.history_window, embedding_service=embedding_service)
+        # Initialize storage for persistence
+        self.storage = InternalSensingStorage(config.internal_sensing.state_path)
+        
+        # Initialize integrated interoception with epistemic engine
+        self.interoception = IntegratedInteroception(
+            history_window=self.history_window,
+            embedding_service=embedding_service,
+            epistemic_engine=epistemic_engine,
+        )
         
         # Internal state log
         self.internal_state_log: deque = deque(maxlen=int(self.history_window * self.sampling_rate))
@@ -53,25 +64,41 @@ class InternalSensingFramework:
         # Last sample time for rate control
         self._last_sample_time: float = 0.0
         
+        # Load persisted state if available
+        self._load_state()
+        
+        # Seed initial baseline sample to ensure moving averages have data immediately
+        # This ensures moving averages work from the first sample
+        try:
+            initial_state = self.interoception.sample_internal_state()
+            self.internal_state_log.append(initial_state)
+            logger.debug("Seeded initial baseline sample for moving averages")
+        except Exception as e:
+            logger.warning(f"Failed to seed initial baseline sample: {e}", exc_info=True)
+        
         logger.info(
             f"Initialized InternalSensingFramework "
             f"(sampling_rate={self.sampling_rate}Hz, history_window={self.history_window}s)"
         )
     
-    def sample_internal_state(self) -> Dict[str, Any]:
+    def sample_internal_state(self, force: bool = False) -> Dict[str, Any]:
         """
         Sample internal state at configured rate.
+        
+        Args:
+            force: If True, force a fresh sample even if rate limit hasn't been reached
         
         Returns:
             Dictionary containing complete internal state
         """
         current_time = time.time()
         
-        # Check if we should sample based on rate
+        # Check if we should sample based on rate (unless forced)
         time_since_last = current_time - self._last_sample_time
         min_interval = 1.0 / self.sampling_rate if self.sampling_rate > 0 else 0.0
         
-        if time_since_last >= min_interval:
+        if force or time_since_last >= min_interval:
+            # Always get fresh state from interoception (which uses moving averages)
             state = self.interoception.sample_internal_state()
             self.internal_state_log.append(state)
             self._last_sample_time = current_time
@@ -214,4 +241,66 @@ class InternalSensingFramework:
             Natural language description
         """
         return self.generate_interoceptive_report()
+    
+    def save_state(self) -> None:
+        """
+        Save moving average histories to disk.
+        
+        Called after significant updates and on shutdown.
+        """
+        try:
+            # Collect histories from all monitors
+            cognitive_histories = {}
+            affective_histories = {}
+            physiology_histories = {}
+            
+            if self.interoception.cognition:
+                cognitive_histories = self.interoception.cognition.serialize_histories()
+            
+            if self.interoception.affect:
+                affective_histories = self.interoception.affect.serialize_histories()
+            
+            if self.interoception.physiology:
+                physiology_histories = self.interoception.physiology.serialize_histories()
+            
+            # Save to disk
+            self.storage.save_state(
+                cognitive_histories=cognitive_histories,
+                affective_histories=affective_histories,
+                physiology_histories=physiology_histories,
+            )
+            
+            logger.debug("Saved internal sensing state to disk")
+            
+        except Exception as e:
+            logger.warning(f"Failed to save internal sensing state: {e}", exc_info=True)
+    
+    def _load_state(self) -> None:
+        """
+        Load moving average histories from disk.
+        
+        Called during initialization.
+        """
+        try:
+            state_data = self.storage.load_state()
+            if state_data is None:
+                logger.debug("No persisted state found, starting fresh")
+                return
+            
+            # Restore cognitive histories
+            if self.interoception.cognition and "cognitive" in state_data:
+                self.interoception.cognition.deserialize_histories(state_data["cognitive"])
+            
+            # Restore affective histories
+            if self.interoception.affect and "affective" in state_data:
+                self.interoception.affect.deserialize_histories(state_data["affective"])
+            
+            # Restore physiology histories
+            if self.interoception.physiology and "physiology" in state_data:
+                self.interoception.physiology.deserialize_histories(state_data["physiology"])
+            
+            logger.info("Loaded persisted internal sensing state from disk")
+            
+        except Exception as e:
+            logger.warning(f"Failed to load internal sensing state: {e}", exc_info=True)
 

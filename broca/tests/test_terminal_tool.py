@@ -494,3 +494,257 @@ class TestTerminalToolFormatResult:
         # Return code should be included
         assert "2" in formatted or "Return code" in formatted
 
+
+class TestTerminalToolErrorHandling:
+    """Test error handling improvements."""
+    
+    @patch('broca.tools.terminal.subprocess.run')
+    def test_execute_failure_with_stderr_populates_error(self, mock_subprocess):
+        """
+        Test that failed commands with stderr populate error field with stderr content.
+        
+        Rationale: Ensures error field contains meaningful stderr content instead of defaulting to "Unknown error".
+        """
+        mock_result = Mock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+        mock_result.stderr = "grep: No such file or directory"
+        mock_subprocess.return_value = mock_result
+        
+        tool = TerminalTool()
+        result = tool.execute(command="grep pattern nonexistent.txt")
+        
+        assert result["success"] is False
+        assert result["returncode"] == 1
+        assert "error" in result
+        assert result["error"] == "grep: No such file or directory"
+        assert result["stderr"] == "grep: No such file or directory"
+    
+    @patch('broca.tools.terminal.subprocess.run')
+    def test_execute_failure_without_stderr_populates_error_with_returncode(self, mock_subprocess):
+        """
+        Test that failed commands without stderr populate error field with returncode message.
+        
+        Rationale: Ensures error field has meaningful content even when stderr is empty.
+        """
+        mock_result = Mock()
+        mock_result.returncode = 2
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        mock_subprocess.return_value = mock_result
+        
+        tool = TerminalTool()
+        result = tool.execute(command="false")
+        
+        assert result["success"] is False
+        assert result["returncode"] == 2
+        assert "error" in result
+        assert "return code 2" in result["error"].lower()
+    
+    @patch('broca.tools.terminal.subprocess.run')
+    def test_execute_failure_with_empty_stderr_uses_returncode(self, mock_subprocess):
+        """
+        Test that failed commands with empty/whitespace stderr use returncode-based error.
+        
+        Rationale: Ensures whitespace-only stderr doesn't become the error message.
+        """
+        mock_result = Mock()
+        mock_result.returncode = 127
+        mock_result.stdout = ""
+        mock_result.stderr = "   \n\t  "
+        mock_subprocess.return_value = mock_result
+        
+        tool = TerminalTool()
+        result = tool.execute(command="nonexistent_command")
+        
+        assert result["success"] is False
+        assert result["returncode"] == 127
+        assert "error" in result
+        assert "return code 127" in result["error"].lower()
+    
+    def test_format_result_error_with_stderr_in_error_field(self):
+        """
+        Test formatting error result when error field contains stderr content.
+        
+        Rationale: Ensures format_result properly displays error field containing stderr.
+        """
+        tool = TerminalTool()
+        result = {
+            "success": False,
+            "returncode": 1,
+            "stdout": "",
+            "stderr": "grep: No such file or directory",
+            "error": "grep: No such file or directory",
+            "command": "grep pattern file.txt"
+        }
+        
+        formatted = tool.format_result(result)
+        
+        assert "Error executing" in formatted
+        assert "grep: No such file or directory" in formatted
+        assert "Return code: 1" in formatted or "return code" in formatted.lower()
+    
+    def test_format_result_error_without_error_field_constructs_from_stderr(self):
+        """
+        Test formatting error result when no error field exists, constructs from stderr.
+        
+        Rationale: Ensures format_result handles legacy results without error field by using stderr.
+        """
+        tool = TerminalTool()
+        result = {
+            "success": False,
+            "returncode": 2,
+            "stdout": "",
+            "stderr": "Command not found",
+            "command": "bad_command"
+        }
+        
+        formatted = tool.format_result(result)
+        
+        assert "Error executing" in formatted
+        assert "Command not found" in formatted
+        assert "Return code: 2" in formatted or "return code" in formatted.lower()
+    
+    def test_format_result_error_without_error_or_stderr_uses_returncode(self):
+        """
+        Test formatting error result when neither error field nor stderr exists.
+        
+        Rationale: Ensures format_result handles edge case with only returncode.
+        """
+        tool = TerminalTool()
+        result = {
+            "success": False,
+            "returncode": 3,
+            "stdout": "",
+            "stderr": "",
+            "command": "some_command"
+        }
+        
+        formatted = tool.format_result(result)
+        
+        assert "Error executing" in formatted
+        assert "return code 3" in formatted.lower()
+        assert "Return code: 3" in formatted or "return code" in formatted.lower()
+
+
+class TestTerminalToolOutputDisplay:
+    """Test output display improvements."""
+    
+    def test_format_result_success_with_output_displays_stdout(self):
+        """
+        Test that successful commands with output display stdout clearly.
+        
+        Rationale: Ensures stdout is always visible for successful commands.
+        """
+        tool = TerminalTool()
+        result = {
+            "success": True,
+            "returncode": 0,
+            "stdout": "file1.txt\nfile2.txt\nfile3.txt",
+            "stderr": "",
+            "command": "find . -name '*.txt'"
+        }
+        
+        formatted = tool.format_result(result)
+        
+        assert "Command:" in formatted
+        assert "Return code: 0" in formatted
+        assert "Output:" in formatted
+        assert "file1.txt" in formatted
+        assert "file2.txt" in formatted
+        assert "file3.txt" in formatted
+    
+    def test_format_result_success_with_empty_output_shows_empty_indicator(self):
+        """
+        Test that successful commands with empty output show explicit empty indicator.
+        
+        Rationale: Ensures LLM knows command ran successfully but produced no output.
+        """
+        tool = TerminalTool()
+        result = {
+            "success": True,
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+            "command": "find . -name 'nonexistent*'"
+        }
+        
+        formatted = tool.format_result(result)
+        
+        assert "Command:" in formatted
+        assert "Return code: 0" in formatted
+        assert "Output:" in formatted
+        assert "(empty)" in formatted
+    
+    def test_format_result_success_find_command_output_surfaced(self):
+        """
+        Test that find command output is properly surfaced in formatted result.
+        
+        Rationale: Ensures find commands show their results clearly to the LLM.
+        """
+        tool = TerminalTool()
+        result = {
+            "success": True,
+            "returncode": 0,
+            "stdout": "./src/components/Logo.tsx\n./src/components/logo.tsx",
+            "stderr": "",
+            "command": "find ./src -type f -name '*.tsx' -exec grep -l 'Logo\\|logo' {} \\;"
+        }
+        
+        formatted = tool.format_result(result)
+        
+        assert "Command:" in formatted
+        assert "Return code: 0" in formatted
+        assert "Output:" in formatted
+        assert "./src/components/Logo.tsx" in formatted
+        assert "./src/components/logo.tsx" in formatted
+    
+    @patch('broca.tools.terminal.subprocess.run')
+    def test_execute_find_command_surfaces_results(self, mock_subprocess):
+        """
+        Test that executing a find command surfaces the results properly.
+        
+        Rationale: End-to-end test ensuring find commands work and output is accessible.
+        """
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "file1.tsx\nfile2.tsx"
+        mock_result.stderr = ""
+        mock_subprocess.return_value = mock_result
+        
+        tool = TerminalTool()
+        result = tool.execute(command="find ./src -name '*.tsx'")
+        
+        assert result["success"] is True
+        assert result["returncode"] == 0
+        assert "file1.tsx" in result["stdout"]
+        assert "file2.tsx" in result["stdout"]
+        
+        # Verify format_result displays it
+        formatted = tool.format_result(result)
+        assert "file1.tsx" in formatted
+        assert "file2.tsx" in formatted
+    
+    def test_format_result_error_includes_stdout_for_context(self):
+        """
+        Test that error formatting includes stdout for additional context.
+        
+        Rationale: Ensures stdout is included in error cases as it may contain useful diagnostic info.
+        """
+        tool = TerminalTool()
+        result = {
+            "success": False,
+            "returncode": 1,
+            "stdout": "Some partial output before error",
+            "stderr": "Error occurred",
+            "error": "Error occurred",
+            "command": "some_command"
+        }
+        
+        formatted = tool.format_result(result)
+        
+        assert "Error executing" in formatted
+        assert "Error occurred" in formatted
+        assert "Some partial output before error" in formatted
+        assert "Stdout output" in formatted or "stdout" in formatted.lower()
+

@@ -27,24 +27,45 @@ class IntegratedInteroception:
     Combines all internal sensing components into unified awareness.
     """
     
-    def __init__(self, history_window: int = 60, embedding_service: Optional[Any] = None) -> None:
+    def __init__(self, history_window: int = 60, embedding_service: Optional[Any] = None, epistemic_engine: Optional[Any] = None) -> None:
         """
         Initialize integrated interoception.
         
         Args:
             history_window: Number of samples to keep in history
+            embedding_service: Optional embedding service for semantic analysis
+            epistemic_engine: Optional MetacognitiveEngine for second-order metacognition
         """
         self.physiology = ComputationalPhysiologyMonitor()
         self.cognition = CognitiveStateMonitor()
         self.affect = ComputationalAffectMonitor()
         self.prediction = PredictiveInteroception()
         self.embedding_service = embedding_service
+        self.epistemic_engine = epistemic_engine
+        
+        # Create epistemic bridge if epistemic engine is available
+        self.epistemic_bridge = None
+        if epistemic_engine:
+            from .epistemic_bridge import EpistemicBridge
+            self.epistemic_bridge = EpistemicBridge(epistemic_engine)
+            logger.info("Created epistemic bridge for IntegratedInteroception")
+        
+        # Pass embedding service to monitors that need it
+        if embedding_service:
+            self.affect.set_embedding_service(embedding_service)
+            self.cognition.set_embedding_service(embedding_service)
+        
+        # Pass epistemic bridge to monitors
+        if self.epistemic_bridge:
+            self.affect.set_epistemic_bridge(self.epistemic_bridge)
+            self.cognition.set_epistemic_bridge(self.epistemic_bridge)
+            logger.info("Set epistemic bridge for cognitive and affective monitors")
         
         self.interoceptive_map: Dict[str, Any] = {}
         self.history_window = history_window
         self._history: deque = deque(maxlen=history_window)
         
-        logger.info("Initialized IntegratedInteroception")
+        logger.info("Initialized IntegratedInteroception" + (" with epistemic engine" if epistemic_engine else ""))
     
     def generate_interoceptive_awareness(self) -> Dict[str, Any]:
         """
@@ -66,6 +87,11 @@ class IntegratedInteroception:
         computational = self.physiology.sample_resources()
         cognitive = self.cognition.sample_cognitive_state()
         
+        # Update from epistemic engine if available
+        if self.epistemic_bridge:
+            self.cognition.update_from_epistemic()
+            self.affect.update_from_epistemic()
+        
         # Update affective states from cognitive states automatically
         # This ensures certainty_affect, coherence_pleasure, and curiosity_drive are computed
         # when cognitive data is available
@@ -84,6 +110,13 @@ class IntegratedInteroception:
         if hasattr(self, '_last_prediction') and self._last_prediction:
             error = self.prediction.compute_prediction_error(self._last_prediction, computational)
             self.affect.update_surprise(error)
+            # Record prediction for accuracy tracking
+            self.prediction.record_prediction(
+                f"pred_{int(time.time())}",
+                self._last_prediction,
+                computational
+            )
+            logger.debug(f"Recorded prediction for accuracy tracking (error: {error:.3f})")
 
         affective = self.affect.sample_affective_state()
         
@@ -288,14 +321,26 @@ class IntegratedInteroception:
         Track interoceptive accuracy.
         
         Returns:
-            Dictionary with accuracy metrics (may contain None values)
+            Dictionary with accuracy metrics and data quality indicators
         """
-        # Get prediction accuracy (may be None)
+        # Get prediction accuracy
         pred_accuracy = self.prediction.get_prediction_accuracy()
+        has_data = pred_accuracy is not None
+        
+        if not has_data:
+            # Return with missing data indicator
+            return {
+                "prediction_accuracy": None,
+                "overall_accuracy": None,
+                "has_data": False,
+                "data_quality": "missing"
+            }
         
         return {
             "prediction_accuracy": pred_accuracy,
             "overall_accuracy": pred_accuracy,  # Simplified for now
+            "has_data": True,
+            "data_quality": "high"  # If we have prediction accuracy, it's based on actual data
         }
     
     def measure_self_awareness_quality(self) -> Optional[float]:
@@ -303,7 +348,7 @@ class IntegratedInteroception:
         Measure self-awareness quality.
         
         Returns:
-            Quality score (0.0-1.0), or None if required metrics unavailable
+            Quality score (0.0-1.0) if sufficient data, None if insufficient
         """
         # Quality based on:
         # - Prediction accuracy
@@ -311,18 +356,34 @@ class IntegratedInteroception:
         # - Historical consistency
         
         accuracy = self.prediction.get_prediction_accuracy()
-        coherence = self.cognition.states.get("conceptual_coherence")
+        coherence = self.cognition.states.get("conceptual_coherence", 0.5)
         
-        # Need at least one metric to calculate quality
-        if accuracy is None and coherence is None:
+        # Check if we have sufficient data
+        has_accuracy = accuracy is not None
+        # Check coherence data quality
+        cog_data_quality = self.cognition.states.get("data_quality", {}).get("conceptual_coherence")
+        has_coherence_data = cog_data_quality not in (None, "missing", "insufficient")
+        
+        # Need at least one metric with data
+        if not has_accuracy and not has_coherence_data:
+            logger.debug("Insufficient data for self_awareness_quality measurement")
             return None
         
-        # Use available metrics, default missing ones to neutral (0.5)
-        acc_value = accuracy if accuracy is not None else 0.5
-        coh_value = coherence if coherence is not None else 0.5
+        # Use available metrics, use None for missing ones
+        acc_value = accuracy if has_accuracy else None
+        coh_value = coherence if has_coherence_data else None
         
-        # Combine factors
-        quality = (acc_value * 0.5 + coh_value * 0.5)
+        # Combine factors (weight by availability)
+        if acc_value is not None and coh_value is not None:
+            quality = (acc_value * 0.5 + coh_value * 0.5)
+        elif acc_value is not None:
+            quality = acc_value  # Use accuracy alone
+        elif coh_value is not None:
+            quality = coh_value  # Use coherence alone
+        else:
+            return None
+        
+        logger.debug(f"Computed self_awareness_quality: {quality:.3f} (accuracy: {acc_value}, coherence: {coh_value})")
         
         return quality
 

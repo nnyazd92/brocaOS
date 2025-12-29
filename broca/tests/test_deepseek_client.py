@@ -574,6 +574,38 @@ class TestDeepSeekClientReasonerSupport:
         assert cleaned_final[0]["content"] == "Response"
         assert "reasoning_content" not in cleaned_final[0]  # Should be REMOVED from final response
     
+    def test_clean_messages_for_reasoner_adds_reasoning_content_when_missing(self):
+        """
+        Test that clean_messages_for_reasoner adds reasoning_content to assistant messages with tool_calls when missing.
+        
+        Rationale: API requires reasoning_content field to be present in assistant messages with tool_calls,
+        even if empty. This test ensures edge cases (e.g., legacy messages, saved conversations) are handled.
+        """
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "test", "arguments": "{}"}}]
+                # Missing reasoning_content field - should be added
+            },
+            {"role": "tool", "name": "test", "content": "Result"},
+            {"role": "assistant", "content": "Final answer"}
+        ]
+        
+        cleaned = DeepSeekClient.clean_messages_for_reasoner(messages)
+        
+        assert len(cleaned) == 4
+        # Assistant with tool_calls should HAVE reasoning_content field (added as empty string)
+        assert cleaned[1]["role"] == "assistant"
+        assert "tool_calls" in cleaned[1]
+        assert "reasoning_content" in cleaned[1], "reasoning_content field should be added when missing"
+        assert cleaned[1]["reasoning_content"] == "", "reasoning_content should be empty string when added"
+        
+        # Final assistant response should NOT have reasoning_content
+        assert cleaned[3]["role"] == "assistant"
+        assert "reasoning_content" not in cleaned[3]
+    
     def test_chat_with_reasoning_content_for_reasoner(self, mock_httpx_client: Mock):
         """
         Test that chat() includes reasoning_content in payload for reasoner model.

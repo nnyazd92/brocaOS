@@ -6,7 +6,7 @@ pytest-cov
 pytest-mock
 pytest-asyncio
 httpx
-tavily-python
+# tavily-python  # Optional: Only needed for emergency fallback if BROCA_BROWSE_ENABLE_TAVILY_FALLBACK=true
 faiss-cpu
 numpy
 sqlite-database
@@ -15,6 +15,17 @@ nltk
 textblob
 mutmut
 hypothesis
+pexpect
 google-genai>=1.0.0
 fastapi
 uvicorn
+watchfiles
+playwright>=1.40.0
+readability-lxml>=0.8.1
+trafilatura>=1.6.0
+PyPDF2>=3.0.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+ddgs
+z3-solver>=4.12.0.0
+tavily-python

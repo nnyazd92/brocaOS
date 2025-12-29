@@ -28,6 +28,12 @@ if TYPE_CHECKING:
     from ..summarization.event_logger import EventLogger
     from ..summarization.manager import SummarizationManager
 
+# Import LoopPhase for PEA loop integration
+try:
+    from ..reasoning.plan_exec_assess_loop import LoopPhase
+except ImportError:
+    LoopPhase = None  # type: ignore
+
 # Import response analyzer for instrumentation
 try:
     from ..internal_sensing.response_analyzer import ResponseAnalyzer
@@ -61,7 +67,13 @@ class ConversationSession:
         world_state_aggregator: Optional["WorldStateAggregator"] = None,
         base_system_prompt: Optional[str] = None,
         color_manager: Optional[Any] = None,
+        goal_manager: Optional[Any] = None,
+        skill_manager: Optional[Any] = None,
+        experience_logger: Optional[Any] = None,
     ) -> None:
+        # Import config early for use throughout initialization
+        from ..config import config
+        
         # If an LLM client is provided, use it directly.
         # Otherwise, if a world_state_aggregator is available, wrap the
         # underlying client with a world-state-aware caching layer.
@@ -88,6 +100,10 @@ class ConversationSession:
         # World-state hash tracking for system prompt / caching
         self._last_world_state_hash: Optional[str] = None
         self._last_world_state_raw: Optional[dict] = None
+        
+        # System prompt growth monitoring
+        self._system_prompt_size_history: List[tuple[float, int]] = []  # (timestamp, size)
+        self._max_history_size = 100  # Keep last 100 size measurements
 
         # Get base system prompt from parameter, system_prompt, or config
         # Track whether base_system_prompt was explicitly provided
@@ -102,8 +118,6 @@ class ConversationSession:
             self._base_system_prompt_explicit = True
         else:
             # Fall back to config if not provided
-            from ..config import config
-
             self._base_system_prompt_internal = config.storage.base_system_prompt
             self._base_system_prompt_explicit = False
         
@@ -115,10 +129,9 @@ class ConversationSession:
         self.updated_at = self.created_at
         self._max_tool_iterations = 100
         
-        # Initialize summarization components if enabled
+        # Initialize summarization components if enabled (for manual /summarize command only)
         self._event_logger = None
         self._summarization_manager = None
-        from ..config import config
         if config.summarization.enabled:
             try:
                 from ..summarization.event_logger import EventLogger
@@ -136,12 +149,26 @@ class ConversationSession:
                     trigger_turns=config.summarization.trigger_turns,
                     trigger_token_threshold=config.summarization.trigger_token_threshold
                 )
-                logger.debug("Summarization enabled for session")
+                logger.debug("Summarization enabled for session (manual /summarize only)")
             except Exception as e:
                 logger.warning(f"Failed to initialize summarization: {e}", exc_info=True)
         
-        # Track turns for summarization triggers
+        # Track turns for summarization triggers (disabled for automatic, kept for manual)
         self._turns_since_last_summary = 0
+        
+        # Initialize context graph for intelligent context management
+        self._context_graph = None
+        if config.context.enabled:
+            try:
+                from ..context import ContextGraph
+                self._context_graph = ContextGraph(
+                    min_turns_retained=config.context.min_turns_retained,
+                    orphan_threshold_turns=config.context.orphan_threshold_turns,
+                    main_thread_boost=config.context.main_thread_boost,
+                )
+                logger.debug("Context graph enabled for session")
+            except Exception as e:
+                logger.warning(f"Failed to initialize context graph: {e}", exc_info=True)
 
         # Initialize formatter for world state
         if world_state_aggregator:
@@ -162,6 +189,50 @@ class ConversationSession:
         # Store color manager for colorizing output
         self._color_manager = color_manager
 
+        # Initialize PFREA loop (always enabled - mandatory)
+        self.pea_loop = None  # Keep name for backward compatibility
+        self.pfrea_loop = None
+        self._forecast_directive_count = 0  # Track forecast directive injections to prevent infinite loops
+        try:
+            from ..reasoning.plan_exec_assess_loop import PlanForecastReplanExecuteAssessLoop, PlanExecuteAssessLoop
+            self.pfrea_loop = PlanForecastReplanExecuteAssessLoop(
+                goal_manager=goal_manager,
+                skill_manager=skill_manager,
+                experience_logger=experience_logger,
+                require_planning=True,  # Always require planning
+                max_replan_attempts=config.reasoning.pea_loop_max_replans,
+                success_threshold=config.reasoning.pea_loop_success_threshold,
+                track_failed_patterns=config.reasoning.pea_loop_track_failed_patterns,
+                max_failed_patterns=config.reasoning.pea_loop_max_failed_patterns,
+            )
+            # Backward compatibility alias
+            self.pea_loop = self.pfrea_loop
+            if goal_manager or skill_manager or experience_logger:
+                logger.debug(f"PFREA loop initialized for session with managers: goal_manager={goal_manager is not None}, skill_manager={skill_manager is not None}, experience_logger={experience_logger is not None}")
+            else:
+                logger.debug("PFREA loop initialized for session (managers will be wired later)")
+        except Exception as e:
+            logger.error(f"Failed to initialize PFREA loop (mandatory): {e}", exc_info=True)
+            raise  # PFREA is mandatory, so fail if initialization fails
+        
+        # Log PFREA initialization status
+        if self.pfrea_loop:
+            logger.info(
+                "PFREA loop initialized and active (MANDATORY GLOBAL POLICY)",
+                extra={
+                    "event": "pfrea_initialized_session",
+                    "session_id": self.session_id,
+                    "pfrea_enabled": True,
+                    "forecast_enabled": config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True,
+                    "z3_enabled": self.pfrea_loop.z3_validator is not None and (self.pfrea_loop.z3_validator.enabled if hasattr(self.pfrea_loop.z3_validator, 'enabled') else False) if self.pfrea_loop.z3_validator else False,
+                }
+            )
+        
+        # Store managers for later wiring if PEA loop is created later
+        self._goal_manager = goal_manager
+        self._skill_manager = skill_manager
+        self._experience_logger = experience_logger
+
         # Update system prompt with world state immediately if aggregator is available
         # This ensures world state is populated even before first user message
         # Note: We don't manually add system_prompt here because _update_system_prompt() will
@@ -172,13 +243,34 @@ class ConversationSession:
         elif system_prompt and not self.world_state_aggregator:
             # Only add system_prompt directly if world_state_aggregator is not available
             # (in which case _update_system_prompt() won't run)
-            self.messages.append({"role": "system", "content": system_prompt})
+            # Add tool calling instructions to ensure automatic continuation behavior
+            tool_calling_instructions = """## TOOL CALLING BEHAVIOR
+
+When you need to use tools to complete a task:
+- You can provide brief commentary alongside tool calls (e.g., "Let me check that file..." or "I'll examine the code...")
+- After tool calls complete and results are returned, AUTOMATICALLY continue - do not wait for user input
+- Review tool results and either:
+  * Make additional tool calls if more information is needed
+  * Provide your final comprehensive response to the user
+- Continue this loop automatically until you have a complete answer to provide
+- Only provide a final text response (with no tool calls) when you're ready to answer the user's question
+- The system will automatically continue after tool results are returned - you don't need to wait for explicit "proceed" or "continue" prompts"""
+            
+            combined_prompt = system_prompt
+            if tool_calling_instructions not in system_prompt:
+                combined_prompt = f"{system_prompt}\n\n{tool_calling_instructions}"
+            self.messages.append({"role": "system", "content": combined_prompt})
+
+        # Check if a system message actually exists in messages after initialization
+        # This correctly reflects whether a system prompt is present regardless of
+        # how it was created (via parameter or via _update_system_prompt)
+        system_prompt_present = any(msg.get("role") == "system" for msg in self.messages)
 
         logger.info(
             "Conversation session started",
             extra={
                 "event": "session_start",
-                "system_prompt_present": bool(system_prompt),
+                "system_prompt_present": system_prompt_present,
                 "session_id": self.session_id,
                 "storage_enabled": storage is not None,
                 "tools_enabled": tool_registry is not None,
@@ -197,6 +289,9 @@ class ConversationSession:
         world_state_aggregator: Optional["WorldStateAggregator"] = None,
         base_system_prompt: Optional[str] = None,
         color_manager: Optional[Any] = None,
+        goal_manager: Optional[Any] = None,
+        skill_manager: Optional[Any] = None,
+        experience_logger: Optional[Any] = None,
     ) -> "ConversationSession":
         """Rehydrate a ConversationSession from stored conversation data.
 
@@ -206,6 +301,7 @@ class ConversationSession:
         If no stored conversation exists, this behaves like creating a fresh
         session with the provided session_id.
         """
+        from ..config import config
         data = storage.load_conversation(session_id)
 
         # Create a bare session with explicit session_id and dependencies
@@ -219,6 +315,9 @@ class ConversationSession:
             world_state_aggregator=world_state_aggregator,
             base_system_prompt=base_system_prompt,
             color_manager=color_manager,
+            goal_manager=goal_manager,
+            skill_manager=skill_manager,
+            experience_logger=experience_logger,
         )
 
         if not data:
@@ -331,6 +430,24 @@ class ConversationSession:
         
         # Final validation after rebuild to ensure clean state
         session._ensure_single_system_message()
+        
+        # Rebuild context graph from loaded messages if enabled
+        if session._context_graph:
+            try:
+                if config.context.enabled:
+                    # Rebuild graph from existing messages
+                    parent_id = None
+                    for msg in session.messages:
+                        if "message_id" not in msg:
+                            msg["message_id"] = str(uuid.uuid4())
+                        session._context_graph.add_message(
+                            msg,
+                            parent_id=parent_id,
+                        )
+                        parent_id = msg.get("message_id")
+                    logger.debug(f"Rebuilt context graph from {len(session.messages)} loaded messages")
+            except Exception as e:
+                logger.warning(f"Failed to rebuild context graph from storage: {e}", exc_info=True)
 
         return session
 
@@ -385,6 +502,41 @@ class ConversationSession:
             ToolStatusDisplay instance or None if not available
         """
         return self._tool_status_display
+    
+    def wire_pea_loop_managers(
+        self,
+        goal_manager: Optional[Any] = None,
+        skill_manager: Optional[Any] = None,
+        experience_logger: Optional[Any] = None,
+    ) -> None:
+        """
+        Wire PFREA loop managers after session initialization.
+        
+        Args:
+            goal_manager: Optional goal manager
+            skill_manager: Optional skill manager
+            experience_logger: Optional experience logger
+        
+        Backward compatibility: method name kept as wire_pea_loop_managers.
+        """
+        loop = self.pfrea_loop or self.pea_loop
+        if loop:
+            if goal_manager is not None:
+                loop.goal_manager = goal_manager
+                self._goal_manager = goal_manager
+            if skill_manager is not None:
+                loop.skill_manager = skill_manager
+                self._skill_manager = skill_manager
+            if experience_logger is not None:
+                loop.experience_logger = experience_logger
+                self._experience_logger = experience_logger
+            
+            if goal_manager or skill_manager or experience_logger:
+                logger.debug(
+                    f"Wired PFREA loop managers: goal_manager={goal_manager is not None}, "
+                    f"skill_manager={skill_manager is not None}, "
+                    f"experience_logger={experience_logger is not None}"
+                )
 
     # ---------- Public API ----------
 
@@ -414,6 +566,7 @@ class ConversationSession:
 
         Returns the assistant's final reply text after all tool calls are resolved.
         """
+        from ..config import config
         self._log_context_before_turn(user_text=user_text)
 
         # Clear reasoning_content when starting a new user turn (prevents 400 errors)
@@ -438,6 +591,26 @@ class ConversationSession:
         user_message = {"role": "user", "content": user_text}
         if user_event_id:
             user_message["event_ids"] = [user_event_id]
+        
+        # Add user message to context graph
+        if self._context_graph:
+            try:
+                # Find parent (last message in graph)
+                parent_id = None
+                if self._context_graph._message_order:
+                    parent_id = self._context_graph._message_order[-1]
+                
+                # Add message_id if not present
+                if "message_id" not in user_message:
+                    user_message["message_id"] = user_event_id or str(uuid.uuid4())
+                
+                self._context_graph.add_message(
+                    user_message,
+                    parent_id=parent_id,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to add user message to context graph: {e}", exc_info=True)
+        
         self.messages.append(user_message)
         # Start a new tool-policy turn (for per-turn rate limits)
         if self.tool_registry and hasattr(self.tool_registry, "start_turn"):
@@ -489,7 +662,17 @@ class ConversationSession:
         # Prepare tools for LLM if registry is available
         tools = None
         if self.tool_registry:
-            tools = self.tool_registry.to_openai_format()
+            # Gather context for tool filtering/ranking if guidance is enabled
+            context = None
+            if (config.tools.pre_filtering_enabled and 
+                hasattr(self.tool_registry, 'tool_selection_guidance') and
+                self.tool_registry.tool_selection_guidance is not None):
+                try:
+                    context = self.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+                except Exception as e:
+                    logger.debug(f"Error gathering context for tool filtering: {e}", exc_info=True)
+            
+            tools = self.tool_registry.to_openai_format(context=context)
             tool_names = [tool["function"]["name"] for tool in tools]
             logger.info(
                 f"Prepared {len(tools)} tools for LLM",
@@ -502,7 +685,6 @@ class ConversationSession:
 
         # Determine if streaming should be used (default from config if not specified)
         if stream is None:
-            from ..config import config
             stream = config.llm.streaming_enabled
         
         # Track if we've had tool calls in this turn (affects streaming decision)
@@ -521,12 +703,127 @@ class ConversationSession:
         
         # Handle tool calls iteratively (may require multiple LLM calls)
         iterations = 0
+        
+        # PFREA Loop: Check if planning is required before tool execution
+        loop = self.pfrea_loop or self.pea_loop
+        if loop:
+            # Reset for new goal if this is a new user message
+            if loop.current_phase is None or (LoopPhase and loop.current_phase == LoopPhase.COMPLETE):
+                loop.reset_for_new_goal(user_text)
+                self._forecast_directive_count = 0  # Reset forecast directive counter for new goal
+            
+            # Check if planning should be enforced
+            if loop.should_require_plan(user_text, has_tool_calls=False):
+                user_text = loop.enforce_planning_phase(user_text)
+                # Update user message in messages list
+                if self.messages and self.messages[-1].get("role") == "user":
+                    self.messages[-1]["content"] = user_text
+                
+                logger.info(
+                    "PFREA: Planning phase enforced at conversation start",
+                    extra={
+                        "event": "pfrea_planning_enforced_start",
+                        "session_id": self.session_id,
+                        "current_phase": loop.current_phase.value if loop.current_phase else None,
+                        "has_plan": loop.current_plan is not None,
+                    }
+                )
         response = None
+        # Track last warning iteration to prevent duplicate warnings at the same threshold
+        last_warning_iteration = 0
         while iterations < self._max_tool_iterations:
             iterations += 1
 
             # Update system prompt with current world state before each LLM call
             self._update_system_prompt()
+            
+            # Check for loop conditions and inject warnings if needed
+            # Do this before getting messages for LLM so warnings are included
+            warning_thresholds = [10, 20, 30, 50, 75, 90]
+            should_warn = False
+            warning_message = None
+            loop_info = None
+            
+            # Check if we've reached a warning threshold (and haven't warned at this threshold yet)
+            for threshold in warning_thresholds:
+                if iterations >= threshold and last_warning_iteration < threshold:
+                    should_warn = True
+                    last_warning_iteration = threshold
+                    
+                    # Detect loops
+                    loop_info = self._detect_tool_call_loop(iterations)
+                    
+                    # Generate warning message based on severity
+                    if iterations >= 75:
+                        severity = "CRITICAL"
+                        urgency = "MUST"
+                    elif iterations >= 50:
+                        severity = "CRITICAL"
+                        urgency = "MUST"
+                    elif iterations >= 30:
+                        severity = "HIGH"
+                        urgency = "should"
+                    else:
+                        severity = "MEDIUM"
+                        urgency = "should"
+                    
+                    if loop_info:
+                        # Loop detected - include loop information in warning
+                        tool_name = loop_info["tool_name"]
+                        repeat_count = loop_info["repeat_count"]
+                        pattern = loop_info["pattern_description"]
+                        warning_message = (
+                            f"[SYSTEM DIRECTIVE - {severity} WARNING] You are on iteration {iterations}. "
+                            f"A loop has been detected: {pattern}. You {urgency} break out of this loop. "
+                            "Review the tool results you've received and either:\n"
+                            "- Make different tool calls if you need different information\n"
+                            "- Provide your final comprehensive response to the user if you have enough information\n"
+                            "Do not continue making the same tool calls repeatedly. The system automatically continues "
+                            "after tool results - you should review results and respond accordingly."
+                        )
+                    else:
+                        # High iteration count but no clear loop pattern detected
+                        if iterations >= 50:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] Very high iteration count ({iterations}). "
+                                f"You {urgency} provide a final response to the user. Review all tool results you've received "
+                                "and provide a comprehensive answer. The system automatically continues after tool results - "
+                                "you should respond with your final answer, not wait for user input."
+                            )
+                        elif iterations >= 30:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] High iteration count ({iterations}). "
+                                "You may be stuck in a loop. Review tool results and either make different tool calls "
+                                "if needed, or provide your final response. The system automatically continues - "
+                                "you should respond based on tool results, not wait for user prompts."
+                            )
+                        else:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] You're on iteration {iterations}. "
+                                "Consider if your current approach is working. If you're making progress with tool calls, continue. "
+                                "If you have enough information from tool results, provide your final response. "
+                                "Remember: the system automatically continues after tool results - review them and respond accordingly."
+                            )
+                    
+                    break  # Only warn at one threshold per iteration
+            
+            # Inject warning if needed
+            if should_warn and warning_message:
+                logger.warning(
+                    f"Injecting iteration warning at iteration {iterations}",
+                    extra={
+                        "event": "iteration_warning_injected",
+                        "iteration": iterations,
+                        "threshold": last_warning_iteration,
+                        "loop_detected": loop_info is not None,
+                    }
+                )
+                # Inject as user message (same pattern as critic rejection handling)
+                # This prevents system message accumulation issues
+                self.messages.append({
+                    "role": "user",
+                    "content": warning_message,
+                })
 
             # Track if we used streaming (for later use)
             used_streaming = False
@@ -558,7 +855,6 @@ class ConversationSession:
                     prompt_printed = False  # Track if we've printed the prompt yet
                     
                     # Get streaming delay from config
-                    from ..config import config
                     streaming_delay = config.llm.streaming_delay
                     
                     # Try to flush any pending input before streaming starts
@@ -584,7 +880,7 @@ class ConversationSession:
                         if not is_valid:
                             logger.warning(
                                 f"Invalid message ordering detected before streaming LLM call: {error}. "
-                                "Attempting to fix by removing orphaned tool messages."
+                                "Attempting to fix by removing orphaned tool messages and incomplete tool call sequences."
                             )
                             messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
                             # Apply Gemini-specific fix if needed
@@ -596,6 +892,16 @@ class ConversationSession:
                                 logger.error(
                                     f"Message ordering still invalid after fix: {error_after}. "
                                     "Proceeding anyway, but API call may fail."
+                                )
+                        else:
+                            # Even if validation passes, apply fix as safety measure
+                            # This ensures orphaned tool messages are removed even if validation misses them
+                            original_count = len(messages_for_llm)
+                            messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
+                            if len(messages_for_llm) < original_count:
+                                logger.info(
+                                    f"Fix removed {original_count - len(messages_for_llm)} orphaned tool message(s) "
+                                    "even though validation passed (safety measure)"
                                 )
                         
                         # Log message structure before API call (for debugging)
@@ -707,7 +1013,7 @@ class ConversationSession:
                             if not is_valid:
                                 logger.warning(
                                     f"Invalid message ordering detected before tool_calls check: {error}. "
-                                    "Attempting to fix by removing orphaned tool messages."
+                                    "Attempting to fix by removing orphaned tool messages and incomplete tool call sequences."
                                 )
                                 messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
                                 # Apply Gemini-specific fix if needed
@@ -774,7 +1080,7 @@ class ConversationSession:
                         if not is_valid:
                             logger.warning(
                                 f"Invalid message ordering detected before LLM call: {error}. "
-                                "Attempting to fix by removing orphaned tool messages."
+                                "Attempting to fix by removing orphaned tool messages and incomplete tool call sequences."
                             )
                             messages_for_llm = self._fix_tool_message_ordering(messages_for_llm)
                             # Apply Gemini-specific fix if needed
@@ -932,9 +1238,48 @@ class ConversationSession:
                 self._save_conversation()
                 return error_with_trace
 
+            # Extract thought_signature for Gemini 3 FIRST (before processing tool_calls)
+            # Thought signature persists across turns to maintain reasoning context
+            # Must be extracted BEFORE tool_calls so it's available when _handle_tool_calls processes them
+            if is_gemini and hasattr(self.llm, 'extract_thought_signature'):
+                extracted_sig = self.llm.extract_thought_signature(response)
+                if extracted_sig:
+                    self._current_thought_signature = extracted_sig
+                    logger.info(
+                        "Extracted thought_signature from Gemini response",
+                        extra={
+                            "event": "thought_signature_extracted",
+                            "iteration": iterations,
+                        }
+                    )
+                else:
+                    logger.debug(
+                        "No thought_signature in Gemini response",
+                        extra={
+                            "event": "no_thought_signature_in_response",
+                            "iteration": iterations,
+                        }
+                    )
+
             # Extract tool calls if any (needed for logging below)
             extract_tool_calls = getattr(self.llm, 'extract_tool_calls', lambda resp: [])
             tool_calls = extract_tool_calls(response) or []
+
+            # For Gemini, also check if tool_calls themselves contain thought_signature
+            # (they might have been included in the response)
+            if is_gemini and tool_calls and not getattr(self, '_current_thought_signature', None):
+                for tool_call in tool_calls:
+                    if isinstance(tool_call, dict) and "thought_signature" in tool_call:
+                        self._current_thought_signature = tool_call["thought_signature"]
+                        logger.info(
+                            "Extracted thought_signature from tool_call in Gemini response",
+                            extra={
+                                "event": "thought_signature_extracted_from_tool_call",
+                                "iteration": iterations,
+                                "tool_call_id": tool_call.get("id", "unknown"),
+                            }
+                        )
+                        break  # Use first found signature
 
             # Extract reasoning_content for reasoner model (if present)
             # Always try to extract, even if None (for logging purposes)
@@ -971,30 +1316,6 @@ class ConversationSession:
                     # Initialize to empty string if we have tool_calls (field must exist)
                     if tool_calls and not hasattr(self, '_current_reasoning_content'):
                         self._current_reasoning_content = ""
-            
-            # Extract thought_signature for Gemini 3 (if present)
-            # Thought signature persists across turns to maintain reasoning context
-            if is_gemini and hasattr(self.llm, 'extract_thought_signature'):
-                extracted_sig = self.llm.extract_thought_signature(response)
-                if extracted_sig:
-                    self._current_thought_signature = extracted_sig
-                    logger.info(
-                        "Extracted thought_signature from Gemini response",
-                        extra={
-                            "event": "thought_signature_extracted",
-                            "iteration": iterations,
-                            "has_tool_calls": bool(tool_calls),
-                        }
-                    )
-                else:
-                    logger.debug(
-                        "No thought_signature in Gemini response",
-                        extra={
-                            "event": "no_thought_signature_in_response",
-                            "iteration": iterations,
-                            "has_tool_calls": bool(tool_calls),
-                        }
-                    )
 
             # Instrumentation: Track processing depth from tool calls
             if self.internal_sensing_framework and tool_calls:
@@ -1015,10 +1336,193 @@ class ConversationSession:
                 # Repair broken ANSI escape sequences in extracted text
                 if assistant_text:
                     assistant_text = repair_ansi_codes(assistant_text)
+            
+            # PFREA Loop: Extract plan from response if we don't have one yet
+            loop = self.pfrea_loop or self.pea_loop
+            forecast_enabled = config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True
+            if loop and assistant_text and loop.current_plan is None:
+                plan = loop.extract_plan_from_response(assistant_text)
+                if plan:
+                    loop.current_plan = plan
+                    loop.current_phase = LoopPhase.PLAN
+                    logger.info(
+                        f"PFREA: Extracted plan from response: {plan.plan_id}",
+                        extra={
+                            "event": "pfrea_plan_extracted_session",
+                            "session_id": self.session_id,
+                            "plan_id": plan.plan_id,
+                            "goal": plan.goal,
+                            "steps_count": len(plan.steps),
+                            "iteration": iterations,
+                            "z3_verified": plan.z3_verification.get("is_logically_sound", True) if plan.z3_verification else None,
+                        }
+                    )
+                    self._forecast_directive_count = 0  # Reset counter when plan is extracted
+                    # If forecast is enabled, transition to FORECAST phase
+                    if forecast_enabled and not tool_calls:
+                        loop.current_phase = LoopPhase.FORECAST
+                        forecast_directive = loop.enforce_forecast_phase(plan)
+                        self.messages.append({"role": "user", "content": forecast_directive})
+                        self._forecast_directive_count = 1  # First forecast directive injection
+                        logger.info(
+                            "PFREA: Plan extracted, requesting forecast",
+                            extra={
+                                "event": "pfrea_forecast_requested",
+                                "session_id": self.session_id,
+                                "plan_id": plan.plan_id,
+                                "iteration": iterations,
+                            }
+                        )
+                        continue
+                    elif not forecast_enabled:
+                        # Forecast disabled, go straight to EXECUTE
+                        loop.current_phase = LoopPhase.EXECUTE
+                        logger.info(
+                            "PFREA: Forecast disabled, proceeding to execution",
+                            extra={
+                                "event": "pfrea_forecast_skipped_disabled",
+                                "session_id": self.session_id,
+                                "plan_id": plan.plan_id,
+                            }
+                        )
 
             if tool_calls and self.tool_registry:
+                # PFREA Loop: Try to extract forecast even when tool_calls are present (fallback)
+                loop = self.pfrea_loop or self.pea_loop
+                forecast_enabled = config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True
+                
+                if loop and loop.current_phase == LoopPhase.FORECAST and loop.current_plan and assistant_text:
+                    # Try to extract forecast from the text response even if tool calls are present
+                        forecast = loop.extract_forecast_from_response(assistant_text)
+                        if forecast:
+                            loop.current_forecast = forecast
+                            loop.forecast_history.append(forecast)
+                            logger.info(
+                                f"PFREA: Extracted forecast from response with tool calls (feasibility={forecast.feasibility_score:.2f})",
+                                extra={
+                                    "event": "pfrea_forecast_extracted_session",
+                                    "session_id": self.session_id,
+                                    "plan_id": forecast.plan_id,
+                                    "feasibility_score": forecast.feasibility_score,
+                                    "should_replan": forecast.should_replan,
+                                    "iteration": iterations,
+                                }
+                            )
+                            self._forecast_directive_count = 0  # Reset counter
+                            
+                            # Check if re-planning is needed
+                            if loop.should_replan_after_forecast(forecast):
+                                loop.current_phase = LoopPhase.RE_PLAN
+                                replan_directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
+                                self.messages.append({"role": "user", "content": replan_directive})
+                                logger.info(
+                                    "PFREA: Forecast indicates re-planning needed",
+                                    extra={
+                                        "event": "pfrea_replan_triggered",
+                                        "session_id": self.session_id,
+                                        "plan_id": forecast.plan_id,
+                                        "feasibility_score": forecast.feasibility_score,
+                                        "iteration": iterations,
+                                    }
+                                )
+                                continue
+                            else:
+                                # Forecast approved, transition to EXECUTE
+                                loop.current_phase = LoopPhase.EXECUTE
+                                logger.info(
+                                    "PFREA: Forecast approved, proceeding to execution",
+                                    extra={
+                                        "event": "pfrea_execution_approved",
+                                        "session_id": self.session_id,
+                                        "plan_id": forecast.plan_id,
+                                        "feasibility_score": forecast.feasibility_score,
+                                        "iteration": iterations,
+                                    }
+                                )
+                                # Continue to allow tool execution
+                
+                # PFREA Loop: Check if we can execute actions (mandatory enforcement)
+                if loop:
+                    # Block tool execution if required phases are not complete
+                    if not loop.can_execute_actions(forecast_enabled=forecast_enabled):
+                        # Inject appropriate phase directive
+                        if loop.should_require_plan(user_text, has_tool_calls=True):
+                            directive = loop.enforce_planning_phase(user_text)
+                            self.messages.append({"role": "user", "content": directive})
+                            logger.warning(
+                                "PFREA: Blocked tool execution - planning required",
+                                extra={
+                                    "event": "pfrea_execution_blocked",
+                                    "reason": "planning_required",
+                                    "session_id": self.session_id,
+                                    "iteration": iterations,
+                                    "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    "current_phase": loop.current_phase.value if loop.current_phase else None,
+                                }
+                            )
+                            continue
+                        elif loop.should_require_forecast():
+                            # Loop protection: prevent infinite loops
+                            if self._forecast_directive_count >= 3:
+                                logger.error(
+                                    "PFREA: Forecast directive injected 3 times, skipping forecast to prevent infinite loop",
+                                    extra={
+                                        "event": "pfrea_forecast_loop_protection",
+                                        "session_id": self.session_id,
+                                        "iteration": iterations,
+                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    }
+                                )
+                                # Skip forecast and proceed to EXECUTE (graceful degradation)
+                                loop.current_forecast = None  # Mark as skipped
+                                loop.current_phase = LoopPhase.EXECUTE
+                                logger.warning(
+                                    "PFREA: Skipped forecast phase due to loop protection, proceeding to execution",
+                                    extra={
+                                        "event": "pfrea_forecast_skipped",
+                                        "session_id": self.session_id,
+                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    }
+                                )
+                                # Continue to allow tool execution
+                            else:
+                                self._forecast_directive_count += 1
+                                directive = loop.enforce_forecast_phase(loop.current_plan)
+                                self.messages.append({"role": "user", "content": directive})
+                                logger.warning(
+                                    f"PFREA: Blocked tool execution - forecast required (attempt {self._forecast_directive_count}/3)",
+                                    extra={
+                                        "event": "pfrea_execution_blocked",
+                                        "reason": "forecast_required",
+                                        "session_id": self.session_id,
+                                        "iteration": iterations,
+                                        "attempt": self._forecast_directive_count,
+                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    }
+                                )
+                                continue
+                        elif loop.should_require_replan():
+                            # Re-plan based on forecast
+                            forecast = loop.current_forecast
+                            directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
+                            loop.current_phase = LoopPhase.RE_PLAN
+                            self.messages.append({"role": "user", "content": directive})
+                            logger.warning(
+                                "PFREA: Blocked tool execution - re-planning required",
+                                extra={
+                                    "event": "pfrea_execution_blocked",
+                                    "reason": "replanning_required",
+                                    "session_id": self.session_id,
+                                    "iteration": iterations,
+                                    "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    "forecast_feasibility": forecast.feasibility_score if forecast else None,
+                                }
+                            )
+                            continue
+                
                 # Mark that we've had tool calls
                 had_tool_calls = True
+                
                 
                 # Log tool calls detected
                 tool_names = [
@@ -1035,6 +1539,58 @@ class ConversationSession:
                 )
                 # Handle tool calls
                 self._handle_tool_calls(response, tool_calls)
+                
+                # PFREA Loop: Record action executions after tool calls complete
+                loop = self.pfrea_loop or self.pea_loop
+                if loop and loop.current_plan:
+                    # Get tool results from the last messages (tool role messages)
+                    tool_result_messages = [msg for msg in self.messages if msg.get("role") == "tool"]
+                    # Match tool calls with their results
+                    for i, tool_call in enumerate(tool_calls):
+                        tool_name = tool_call.get("function", {}).get("name", "unknown")
+                        tool_call_id = tool_call.get("id", "")
+                        # Find corresponding tool result
+                        tool_result = None
+                        for tool_msg in tool_result_messages[-len(tool_calls):]:
+                            if tool_msg.get("tool_call_id") == tool_call_id:
+                                tool_result = tool_msg
+                                break
+                        
+                        # Extract success from tool result
+                        success = True
+                        if tool_result:
+                            # Check for explicit success field
+                            if "_success" in tool_result.get("content", {}):
+                                success = tool_result["content"]["_success"]
+                            else:
+                                # Parse from content string
+                                content = tool_result.get("content", "")
+                                if isinstance(content, str):
+                                    content_lower = content.lower()
+                                    if "error" in content_lower or "failed" in content_lower:
+                                        # More nuanced check - skip common false positives
+                                        if "error output:" not in content_lower:
+                                            success = False
+                        
+                        # Record execution
+                        try:
+                            import json as json_module
+                            arguments_str = tool_call.get("function", {}).get("arguments", "{}")
+                            try:
+                                arguments = json_module.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
+                            except:
+                                arguments = {}
+                            
+                            loop.record_action_execution(
+                                plan_id=loop.current_plan.plan_id,
+                                step_index=i,
+                                tool_name=tool_name,
+                                arguments=arguments,
+                                result=tool_result.get("content", {}) if tool_result else {},
+                                success=success,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to record action execution: {e}", exc_info=True)
 
                 # Note: We don't enforce critic iteration immediately after tool calls.
                 # This allows the LLM to use other tools (terminal, web_search, etc.) to
@@ -1059,38 +1615,163 @@ class ConversationSession:
                         }
                     )
 
+                # Verify tool results were added to messages before continuing
+                # This ensures the next LLM call receives complete context
+                # Count tool results that were just added (should match number of tool calls)
+                tool_results_count = sum(1 for msg in self.messages if msg.get("role") == "tool")
+                logger.debug(
+                    f"Continuing after tool calls: {len(tool_calls)} tool calls made, {tool_results_count} total tool results in messages",
+                    extra={
+                        "event": "auto_continuation_after_tools",
+                        "iteration": iterations,
+                        "tool_calls_count": len(tool_calls),
+                        "tool_results_count": tool_results_count,
+                        "messages_count": len(self.messages),
+                    }
+                )
+                
                 # Continue loop to get LLM response with tool results
                 # The reasoning_content extracted above will be passed in the next iteration
+                # The LLM will automatically receive tool results and should continue without waiting for user input
                 continue
             else:
-                # No tool calls - check if we have a pending critic rejection
-                if self._has_pending_critic_rejection():
-                    logger.warning(
-                        "LLM attempted final response while critic rejection is pending, forcing iteration",
-                        extra={
-                            "event": "critic_rejection_blocked_final_response",
-                            "iteration": iterations,
-                        },
-                    )
-                    # Inject reminder as user message to avoid accumulating system messages
-                    # This is a directive from the system (critic) but represented as user message
-                    # to prevent system message accumulation bugs
-                    self.messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "[SYSTEM DIRECTIVE] The critic has rejected your response. You may use tools "
-                                "(terminal, web_search, etc.) to gather information, execute code, or improve "
-                                "your response. However, you MUST call the critic tool again with your revised "
-                                "response before providing a final response to the user. The critic must accept "
-                                "your response before you can respond to the user."
-                            ),
-                        }
-                    )
-                    # Force another iteration
-                    continue
-
-                # No tool calls and no pending critic rejection - extract final response
+                # No tool calls - handle PFREA phase transitions
+                loop = self.pfrea_loop or self.pea_loop
+                forecast_enabled = config.reasoning.pfrea_forecast_enabled if hasattr(config.reasoning, 'pfrea_forecast_enabled') else True
+                
+                if loop and assistant_text:
+                    # Extract forecast if we're in FORECAST phase
+                    if loop.current_phase == LoopPhase.FORECAST and loop.current_plan:
+                        forecast = loop.extract_forecast_from_response(assistant_text)
+                        if forecast:
+                            loop.current_forecast = forecast
+                            loop.forecast_history.append(forecast)
+                            self._forecast_directive_count = 0  # Reset counter when forecast is successfully extracted
+                            logger.info(
+                                f"PFREA: Extracted forecast for plan {forecast.plan_id} (feasibility={forecast.feasibility_score:.2f})",
+                                extra={
+                                    "event": "pfrea_forecast_extracted_session",
+                                    "session_id": self.session_id,
+                                    "plan_id": forecast.plan_id,
+                                    "feasibility_score": forecast.feasibility_score,
+                                    "should_replan": forecast.should_replan,
+                                    "risks_count": len(forecast.identified_risks),
+                                    "issues_count": len(forecast.validation_issues),
+                                    "iteration": iterations,
+                                }
+                            )
+                            
+                            # Check if re-planning is needed
+                            if loop.should_replan_after_forecast(forecast):
+                                loop.current_phase = LoopPhase.RE_PLAN
+                                replan_directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
+                                self.messages.append({"role": "user", "content": replan_directive})
+                                logger.info(
+                                    "PFREA: Forecast indicates re-planning needed",
+                                    extra={
+                                        "event": "pfrea_replan_triggered",
+                                        "session_id": self.session_id,
+                                        "plan_id": forecast.plan_id,
+                                        "feasibility_score": forecast.feasibility_score,
+                                        "iteration": iterations,
+                                    }
+                                )
+                                continue
+                            else:
+                                # Forecast approved, transition to EXECUTE
+                                loop.current_phase = LoopPhase.EXECUTE
+                                logger.info(
+                                    "PFREA: Forecast approved, proceeding to execution",
+                                    extra={
+                                        "event": "pfrea_execution_approved",
+                                        "session_id": self.session_id,
+                                        "plan_id": forecast.plan_id,
+                                        "feasibility_score": forecast.feasibility_score,
+                                        "iteration": iterations,
+                                    }
+                                )
+                                # Continue loop to allow tool execution
+                                continue
+                    
+                    # Extract plan if we're in RE_PLAN phase
+                    if loop.current_phase == LoopPhase.RE_PLAN and assistant_text:
+                        new_plan = loop.extract_plan_from_response(assistant_text)
+                        if new_plan:
+                            old_plan_id = loop.current_plan.plan_id if loop.current_plan else None
+                            loop.current_plan = new_plan
+                            loop.current_forecast = None  # Reset forecast for new plan
+                            loop.current_phase = LoopPhase.FORECAST
+                            self._forecast_directive_count = 1  # Reset counter for new plan forecast
+                            forecast_directive = loop.enforce_forecast_phase(new_plan)
+                            self.messages.append({"role": "user", "content": forecast_directive})
+                            logger.info(
+                                f"PFREA: Re-plan extracted, requesting forecast for new plan {new_plan.plan_id}",
+                                extra={
+                                    "event": "pfrea_replan_extracted",
+                                    "session_id": self.session_id,
+                                    "old_plan_id": old_plan_id,
+                                    "new_plan_id": new_plan.plan_id,
+                                    "iteration": iterations,
+                                    "z3_verified": new_plan.z3_verification.get("is_logically_sound", True) if new_plan.z3_verification else None,
+                                }
+                            )
+                            continue
+                
+                # Assess execution if we have a plan and were in EXECUTE phase
+                loop = self.pfrea_loop or self.pea_loop
+                if loop and loop.current_plan and LoopPhase and loop.current_phase == LoopPhase.EXECUTE:
+                    # Get executions for current plan
+                    plan_executions = [
+                        e for e in loop.execution_history
+                        if e.plan_id == loop.current_plan.plan_id
+                    ]
+                    
+                    if plan_executions:
+                        # Assess the execution
+                        assessment = loop.assess_execution(
+                            loop.current_plan,
+                            plan_executions
+                        )
+                        
+                        # If replanning is needed, inject assessment directive
+                        if assessment.should_replan:
+                            assessment_msg = loop.enforce_assessment_phase(assessment)
+                            self.messages.append({
+                                "role": "user",
+                                "content": assessment_msg,
+                            })
+                            loop.current_phase = LoopPhase.PLAN  # Start new plan cycle
+                            logger.info(
+                                f"PFREA: Replanning required for plan {assessment.plan_id}",
+                                extra={
+                                    "event": "pfrea_replan_from_assessment",
+                                    "session_id": self.session_id,
+                                    "plan_id": assessment.plan_id,
+                                    "success_rate": assessment.success_rate,
+                                    "goal_achieved": assessment.goal_achieved,
+                                    "failures_count": len(assessment.failures),
+                                    "iteration": iterations,
+                                }
+                            )
+                            # Continue loop to get new plan
+                            continue
+                        else:
+                            # Mark as complete
+                            loop.current_phase = LoopPhase.COMPLETE
+                            logger.info(
+                                f"PFREA: Plan {assessment.plan_id} completed (goal_achieved={assessment.goal_achieved})",
+                                extra={
+                                    "event": "pfrea_plan_completed",
+                                    "session_id": self.session_id,
+                                    "plan_id": assessment.plan_id,
+                                    "goal_achieved": assessment.goal_achieved,
+                                    "success_rate": assessment.success_rate,
+                                    "iteration": iterations,
+                                }
+                            )
+                
+                # No tool calls - extract final response
+                logger.info(f"NO TOOL CALLS: Reached final response path (iteration {iterations}), will run post-processing")
                 if iterations > 1:
                     logger.info(
                         f"Final LLM response after {iterations} tool iteration(s)",
@@ -1100,41 +1781,21 @@ class ConversationSession:
                         },
                     )
 
-                # Log if critic was involved and accepted
-                if self.tool_registry and self.tool_registry.get_tool("critic"):
-                    # Check if there was a recent critic acceptance
-                    for message in reversed(
-                        self.messages[-10:]
-                    ):  # Check last 10 messages
-                        if (
-                            message.get("role") == "tool"
-                            and message.get("name") == "critic"
-                        ):
-                            raw_result = message.get("_raw_result")
-                            if (
-                                raw_result
-                                and isinstance(raw_result, dict)
-                                and raw_result.get("accepted", False)
-                            ):
-                                logger.info(
-                                    "Critic acceptance allows final response",
-                                    extra={
-                                        "event": "critic_acceptance_allows_final_response",
-                                        "iteration": iterations,
-                                    },
-                                )
-                            break
-
                 # Extract assistant text - if we used streaming, it's already in assistant_text
                 # But make sure we have it even if streaming was used (fallback)
                 if assistant_text is None:
+                    logger.debug(f"Extracting assistant text from response (used_streaming={used_streaming})")
                     assistant_text = self.llm.extract_assistant_content(response) or None
+                    logger.debug(f"Extracted assistant_text length: {len(assistant_text) if assistant_text else 0}")
                     # Normalize empty string to None so guard can catch it
                     if assistant_text == "":
                         assistant_text = None
+                        logger.debug("Normalized empty string to None for assistant_text")
                     # Repair broken ANSI escape sequences in extracted text
                     if assistant_text:
                         assistant_text = repair_ansi_codes(assistant_text)
+                else:
+                    logger.debug(f"Using existing assistant_text (length={len(assistant_text) if assistant_text else 0}, used_streaming={used_streaming})")
                 
                 # Ensure response is always printed
                 if used_streaming:
@@ -1175,36 +1836,63 @@ class ConversationSession:
                 self.messages.append(assistant_message)
                 self.updated_at = datetime.now(timezone.utc).isoformat()
                 
-                # Increment turn counter and trigger summarization if needed
-                self._turns_since_last_summary += 1
-                if self._summarization_manager:
-                    try:
-                        result = self._summarization_manager.maybe_summarize(
-                            self.session_id,
-                            self.messages,
-                            self._turns_since_last_summary
-                        )
-                        # Reset counter after summarization only if it actually occurred
-                        # This prevents rapid re-triggering
-                        if result is not None:
-                            self._turns_since_last_summary = 0
-                            # Prune messages that were summarized
-                            last_summarized_event_id = result.header.last_summarized_event_id
-                            if last_summarized_event_id:
+                # Measure cognitive dissonance if available (NON-BLOCKING - runs in background)
+                if self.world_state_aggregator and hasattr(self.world_state_aggregator, 'reasoning_tool'):
+                    reasoning_tool = self.world_state_aggregator.reasoning_tool
+                    if reasoning_tool and hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
+                        cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
+                        if cognitive_dissonance_monitor and assistant_text:
+                            # Run in background thread to avoid blocking conversation
+                            import threading
+                            
+                            def measure_dissonance_async():
                                 try:
-                                    removed_count = self._prune_summarized_messages(last_summarized_event_id)
-                                    if removed_count > 0:
-                                        logger.info(
-                                            f"Pruned {removed_count} messages after summarization",
-                                            extra={
-                                                "event": "context_collapsed_after_summarization",
-                                                "removed_messages": removed_count,
-                                            }
-                                        )
+                                    logger.debug("Measuring cognitive dissonance from conversation (background thread)")
+                                    cognitive_dissonance_monitor.measure_dissonance_from_conversation(
+                                        response=assistant_text,
+                                        messages=self.messages
+                                    )
+                                    logger.debug("Cognitive dissonance measurement completed")
                                 except Exception as e:
-                                    logger.warning(f"Failed to prune messages after summarization: {e}", exc_info=True)
+                                    logger.warning(f"Error measuring cognitive dissonance in session (background): {e}", exc_info=True)
+                            
+                            # Start background thread (fire-and-forget)
+                            thread = threading.Thread(target=measure_dissonance_async, daemon=True)
+                            thread.start()
+                
+                # Update context graph with new message
+                if self._context_graph:
+                    try:
+                        # Add assistant message to graph
+                        # Find parent (last user message or last assistant message)
+                        parent_id = None
+                        if len(self.messages) > 1:
+                            # Look backwards for the most recent message
+                            for i in range(len(self.messages) - 2, -1, -1):
+                                prev_msg = self.messages[i]
+                                if prev_msg.get("role") in ["user", "assistant"]:
+                                    # Try to find message_id in previous message
+                                    parent_id = prev_msg.get("message_id")
+                                    if not parent_id and i < len(self._context_graph._message_order):
+                                        # Use message order as fallback
+                                        parent_id = self._context_graph._message_order[i] if i < len(self._context_graph._message_order) else None
+                                    break
+                        
+                        # Add message with message_id if available
+                        msg_with_id = assistant_message.copy()
+                        if "message_id" not in msg_with_id:
+                            msg_with_id["message_id"] = assistant_event_id or str(uuid.uuid4())
+                        
+                        self._context_graph.add_message(
+                            msg_with_id,
+                            parent_id=parent_id,
+                        )
                     except Exception as e:
-                        logger.warning(f"Failed to trigger summarization: {e}", exc_info=True)
+                        logger.warning(f"Failed to update context graph: {e}", exc_info=True)
+                
+                # Automatic summarization is disabled - only manual /summarize command works
+                # Increment turn counter for manual summarization tracking only
+                self._turns_since_last_summary += 1
 
                 # Persist immediately so callers (and tests) can observe saved state
                 try:
@@ -1213,78 +1901,134 @@ class ConversationSession:
                     pass
 
                 # Do post-processing (instrumentation and logging)
-                # For streaming: run in background to avoid blocking
-                # For non-streaming: run synchronously to ensure state is updated before return (important for tests)
-                def do_post_processing():
-                    try:
-                        # Instrumentation: Record metrics from response
-                        if (
-                            self.internal_sensing_framework
-                            and ResponseAnalyzer
-                            and assistant_text
-                        ):
-                            try:
-                                # Use the stored response_id instead of recalculating
-                                response_id = getattr(
-                                    self,
-                                    "_current_response_id",
-                                    f"response_{len(self.messages)}",
-                                )
+                # Run synchronously for ALL responses to ensure metrics are recorded before function returns.
+                # This ensures metrics are available when world state is aggregated in the next turn.
+                # Note: Streaming output has already been displayed, so this won't block user-facing output.
+                logger.info(f"POST-PROCESSING: Starting instrumentation (has_framework={self.internal_sensing_framework is not None}, has_analyzer={ResponseAnalyzer is not None}, has_assistant_text={assistant_text is not None and len(str(assistant_text)) if assistant_text else 0})")
+                # CRITICAL: Always record SOMETHING to show system is active, even if values are neutral
+                # This ensures the moving average history is populated and values are not stuck at defaults
+                # CRITICAL: This block MUST run to update the system prompt with latest values
+                try:
+                    # Instrumentation: Record metrics from response
+                    # Record metrics even when assistant_text is empty (e.g., tool-only responses)
+                    # This ensures metrics update from defaults even when only tool calls occur
+                    if not self.internal_sensing_framework:
+                        logger.error("CRITICAL: internal_sensing_framework is None, skipping instrumentation - THIS IS WHY VALUES ARE STUCK AT DEFAULTS")
+                    elif not ResponseAnalyzer:
+                        logger.error("CRITICAL: ResponseAnalyzer is None, skipping instrumentation - THIS IS WHY VALUES ARE STUCK AT DEFAULTS")
+                    else:
+                        # Both are available, proceed with instrumentation
+                        logger.info(f"INSTRUMENTATION: Starting recording (assistant_text length: {len(assistant_text) if assistant_text else 0})")
+                        try:
+                            # Use the stored response_id instead of recalculating
+                            response_id = getattr(
+                                self,
+                                "_current_response_id",
+                                f"response_{len(self.messages)}",
+                            )
 
-                                # Record latency
-                                latency = self.internal_sensing_framework.interoception.physiology._record_operation_end(
-                                    response_id
-                                )
-                                if latency is not None and latency > 0:
-                                    normalized_latency = self.internal_sensing_framework.interoception.physiology._normalize_latency(
-                                        latency
-                                    )
-                                    if normalized_latency is not None:
-                                        self.internal_sensing_framework.interoception.physiology.metrics[
-                                            "processing_latency"
-                                        ] = normalized_latency
+                            logger.info(f"INSTRUMENTATION: Recording metrics for response_id={response_id}, has_assistant_text={bool(assistant_text)}, assistant_text_length={len(assistant_text) if assistant_text else 0}")
 
+                            # Record latency
+                            latency = self.internal_sensing_framework.interoception.physiology._record_operation_end(
+                                response_id
+                            )
+                            if latency is not None and latency > 0:
+                                normalized_latency = self.internal_sensing_framework.interoception.physiology._normalize_latency(
+                                    latency
+                                )
+                                if normalized_latency is not None:
+                                    self.internal_sensing_framework.interoception.physiology.metrics[
+                                        "processing_latency"
+                                    ] = normalized_latency
+
+                            # Only analyze text-based metrics if assistant_text is available
+                            confidence = None
+                            uncertainty = None
+                            if assistant_text:
                                 # Estimate confidence from response
                                 confidence = ResponseAnalyzer.estimate_confidence(
                                     assistant_text
                                 )
                                 if confidence is not None:
+                                    history_len_before = len(self.internal_sensing_framework.interoception.cognition._confidence_history)
+                                    logger.info(f"RECORDING CONFIDENCE: {confidence:.3f} for response_id={response_id} (text_length={len(assistant_text)}, history_len_before={history_len_before})")
                                     self.internal_sensing_framework.interoception.cognition.record_confidence(
                                         response_id, confidence
                                     )
+                                    # Verify it was recorded
+                                    state_after = self.internal_sensing_framework.interoception.cognition.sample_cognitive_state()
+                                    history_len_after = len(self.internal_sensing_framework.interoception.cognition._confidence_history)
+                                    logger.info(f"CONFIDENCE AFTER RECORDING: {state_after['confidence_level']:.3f} (history_len: {history_len_before} -> {history_len_after}, moving_avg)")
+                                    # Save state after recording
+                                    try:
+                                        self.internal_sensing_framework.save_state()
+                                    except Exception as e:
+                                        logger.warning(f"Failed to save state after confidence recording: {e}", exc_info=True)
+                                else:
+                                    # Use neutral confidence for tool-only responses
+                                    logger.warning(f"No confidence computed from text, using neutral 0.5 for response_id={response_id}")
+                                    self.internal_sensing_framework.interoception.cognition.record_confidence(
+                                        response_id, 0.5
+                                    )
+                                    confidence = 0.5
 
                                 # Detect uncertainty
                                 uncertainty = ResponseAnalyzer.detect_uncertainty(
                                     assistant_text
                                 )
                                 if uncertainty is not None:
+                                    history_len_before = len(self.internal_sensing_framework.interoception.cognition._uncertainty_history)
+                                    logger.info(f"RECORDING UNCERTAINTY: {uncertainty:.3f} for response_id={response_id} (history_len_before={history_len_before})")
                                     self.internal_sensing_framework.interoception.cognition.record_uncertainty(
                                         response_id, uncertainty
                                     )
+                                    # Verify it was recorded
+                                    state_after = self.internal_sensing_framework.interoception.cognition.sample_cognitive_state()
+                                    history_len_after = len(self.internal_sensing_framework.interoception.cognition._uncertainty_history)
+                                    logger.info(f"UNCERTAINTY AFTER RECORDING: {state_after['uncertainty_tracking']:.3f} (history_len: {history_len_before} -> {history_len_after}, moving_avg)")
+                                    # Save state after recording
+                                    try:
+                                        self.internal_sensing_framework.save_state()
+                                    except Exception as e:
+                                        logger.warning(f"Failed to save state after uncertainty recording: {e}", exc_info=True)
+                            else:
+                                # Tool-only response: use neutral/default values but still record
+                                logger.info(f"Tool-only response detected (no assistant_text), recording neutral metrics for response_id={response_id}")
+                                self.internal_sensing_framework.interoception.cognition.record_confidence(
+                                    response_id, 0.5  # Neutral confidence for tool-only responses
+                                )
+                                confidence = 0.5
+                                # Still record uncertainty as 0.0 to show system is active
+                                self.internal_sensing_framework.interoception.cognition.record_uncertainty(
+                                    response_id, 0.0
+                                )
+                                uncertainty = 0.0
+                                logger.info(f"Recorded neutral values: confidence=0.5, uncertainty=0.0 for tool-only response")
 
+                            # Analyze internal thoughts if available
+                            reasoning_content = getattr(self, '_current_reasoning_content', None)
+                            if reasoning_content and isinstance(reasoning_content, str):
+                                thought_metrics = ResponseAnalyzer.analyze_thoughts(reasoning_content)
+                                # Update uncertainty with thought-based analysis
+                                if thought_metrics['uncertainty'] > (uncertainty or 0.0):
+                                    uncertainty = thought_metrics['uncertainty']
+                                    self.internal_sensing_framework.interoception.cognition.record_uncertainty(
+                                        f'thought_{response_id}', uncertainty
+                                    )
+                                
+                                # Record processing depth from thoughts
+                                if thought_metrics['depth'] > 0:
+                                    self.internal_sensing_framework.interoception.cognition.record_processing_depth(
+                                        f'thought_{response_id}', int(thought_metrics['depth'] * 10)
+                                    )
 
-                                # Analyze internal thoughts if available
-                                reasoning_content = getattr(self, '_current_reasoning_content', None)
-                                if reasoning_content and isinstance(reasoning_content, str):
-                                    thought_metrics = ResponseAnalyzer.analyze_thoughts(reasoning_content)
-                                    # Update uncertainty with thought-based analysis
-                                    if thought_metrics['uncertainty'] > (uncertainty or 0.0):
-                                        uncertainty = thought_metrics['uncertainty']
-                                        self.internal_sensing_framework.interoception.cognition.record_uncertainty(
-                                            f'thought_{response_id}', uncertainty
-                                        )
-                                    
-                                    # Record processing depth from thoughts
-                                    if thought_metrics['depth'] > 0:
-                                        self.internal_sensing_framework.interoception.cognition.record_processing_depth(
-                                            f'thought_{response_id}', int(thought_metrics['depth'] * 10)
-                                        )
-
+                            # Compute valence and arousal only if assistant_text is available
+                            # For tool-only responses, skip text-based affective analysis
+                            if assistant_text:
                                 # Compute valence and arousal
                                 # Use conversation history for valence (excluding system prompts)
                                 # Include current assistant response in history
-                                # CRITICAL: Validate system message count before accessing self.messages in background thread
-                                # This prevents multiple system messages from propagating to internal sensing
                                 self._ensure_single_system_message()
                                 
                                 conversation_messages = self.messages + [
@@ -1295,10 +2039,10 @@ class ConversationSession:
                                 system_count = sum(1 for m in conversation_messages if m.get("role") == "system")
                                 if system_count > 1:
                                     logger.warning(
-                                        f"Background thread: conversation_messages contains {system_count} system messages. "
+                                        f"conversation_messages contains {system_count} system messages. "
                                         "Filtering to single system message.",
                                         extra={
-                                            "event": "multiple_system_messages_in_background_thread",
+                                            "event": "multiple_system_messages_filtered",
                                             "count": system_count,
                                         }
                                     )
@@ -1310,69 +2054,143 @@ class ConversationSession:
                                     else:
                                         conversation_messages = non_system_msgs
                                 
+                                logger.info(f"Computing valence from {len(conversation_messages)} conversation messages")
+                                valence_before = self.internal_sensing_framework.interoception.affect.affective_states.get("valence", 0.0)
+                                history_len_before = len(self.internal_sensing_framework.interoception.affect._valence_history)
                                 self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
                                     conversation_messages
                                 )
+                                valence_after = self.internal_sensing_framework.interoception.affect.affective_states.get("valence", 0.0)
+                                history_len_after = len(self.internal_sensing_framework.interoception.affect._valence_history)
+                                logger.info(f"VALENCE: {valence_before:.3f} -> {valence_after:.3f} (history_len: {history_len_before} -> {history_len_after}, moving_avg)")
+                                # Save state after recording
+                                try:
+                                    self.internal_sensing_framework.save_state()
+                                except Exception as e:
+                                    logger.warning(f"Failed to save state after valence recording: {e}", exc_info=True)
 
                                 arousal = ResponseAnalyzer.compute_arousal(assistant_text)
                                 if arousal is not None:
+                                    arousal_before = self.internal_sensing_framework.interoception.affect.affective_states.get("arousal", 0.5)
+                                    history_len_before = len(self.internal_sensing_framework.interoception.affect._arousal_history)
+                                    logger.info(f"RECORDING AROUSAL: {arousal:.3f} for response_id={response_id} (history_len_before={history_len_before})")
                                     self.internal_sensing_framework.interoception.affect.compute_arousal(
                                         arousal
                                     )
+                                    arousal_after = self.internal_sensing_framework.interoception.affect.affective_states.get("arousal", 0.5)
+                                    history_len_after = len(self.internal_sensing_framework.interoception.affect._arousal_history)
+                                    logger.info(f"AROUSAL: {arousal_before:.3f} -> {arousal_after:.3f} (history_len: {history_len_before} -> {history_len_after}, moving_avg)")
+                                    # Save state after recording
+                                    try:
+                                        self.internal_sensing_framework.save_state()
+                                    except Exception as e:
+                                        logger.warning(f"Failed to save state after arousal recording: {e}", exc_info=True)
+                            else:
+                                # Tool-only response: compute valence from existing conversation history (without current response)
+                                logger.debug("Tool-only response: computing valence from existing conversation history")
+                                self._ensure_single_system_message()
+                                # Use existing messages (already includes tool results)
+                                conversation_messages = [m for m in self.messages if m.get("role") in ("user", "assistant")]
+                                if conversation_messages:
+                                    self.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
+                                        conversation_messages
+                                    )
+                                # Use neutral arousal for tool-only responses
+                                self.internal_sensing_framework.interoception.affect.compute_arousal(0.5)
 
-                                # Update affective states from cognitive
-                                self.internal_sensing_framework.interoception.affect.update_from_cognitive(
-                                    self.internal_sensing_framework.interoception.cognition
-                                )
-
-                                # Record reasoning step
-                                self.internal_sensing_framework.interoception.cognition.record_reasoning_step(
-                                    f"step_{response_id}",
-                                    {
-                                        "premise": user_text[:100] if self.messages else "",
-                                        "conclusion": assistant_text[:100],
-                                        "confidence": confidence,
-                                    },
-                                )
-
-                                # Sample internal state after recomputing valence
-                                # Force a fresh sample by resetting last sample time to ensure updated valence is included
-                                self.internal_sensing_framework._last_sample_time = 0.0
-                                self.internal_sensing_framework.sample_internal_state()
-
+                            # Update affective states from cognitive
+                            # This must happen AFTER cognitive metrics are updated above
+                            logger.debug("Updating affective states from cognitive metrics")
+                            self.internal_sensing_framework.interoception.affect.update_from_cognitive(
+                                self.internal_sensing_framework.interoception.cognition
+                            )
+                            # Save state after updating affective states from cognitive
+                            try:
+                                self.internal_sensing_framework.save_state()
                             except Exception as e:
-                                logger.warning(
-                                    f"Error in response instrumentation: {e}", exc_info=True
+                                logger.warning(f"Failed to save state after affective update: {e}", exc_info=True)
+
+                            # Record reasoning step
+                            self.internal_sensing_framework.interoception.cognition.record_reasoning_step(
+                                f"step_{response_id}",
+                                {
+                                    "premise": user_text[:100] if self.messages else "",
+                                    "conclusion": assistant_text[:100] if assistant_text else "[tool-only response]",
+                                    "confidence": confidence,
+                                },
+                            )
+
+                            # Sample internal state after ALL recording is complete
+                            # Force a fresh sample to ensure updated metrics are included
+                            logger.debug("Sampling internal state after metrics recording (forced)")
+                            fresh_state = self.internal_sensing_framework.sample_internal_state(force=True)
+                            # Save state after sampling (ensures latest moving averages are persisted)
+                            try:
+                                self.internal_sensing_framework.save_state()
+                            except Exception as e:
+                                logger.warning(f"Failed to save state after sampling: {e}", exc_info=True)
+                            logger.debug(
+                                f"Fresh state sampled: confidence={fresh_state.get('cognitive', {}).get('confidence_level', 'N/A'):.3f}, "
+                                f"uncertainty={fresh_state.get('cognitive', {}).get('uncertainty_tracking', 'N/A'):.3f}, "
+                                f"valence={fresh_state.get('affective', {}).get('valence', 'N/A'):.3f}, "
+                                f"arousal={fresh_state.get('affective', {}).get('arousal', 'N/A'):.3f}"
+                            )
+                            
+                            # CRITICAL: Update system prompt AFTER recording to ensure world state reflects new values
+                            # This ensures the next LLM call sees the updated internal sensing values
+                            # Force update even if hash hasn't changed (values might be same but we want to ensure persistence)
+                            if self.world_state_aggregator and self._world_state_formatter:
+                                logger.info("Updating system prompt after internal sensing update to reflect new values")
+                                # Temporarily reset hash to force update (ensures system message is updated even if values are same)
+                                old_hash = self._last_world_state_hash
+                                self._last_world_state_hash = None
+                                self._update_system_prompt()
+                                # Hash will be set by _update_system_prompt() to new value
+                                
+                                # CRITICAL: Re-save conversation with updated world state
+                                # This ensures saved conversations show the latest internal sensing values, not defaults
+                                try:
+                                    self._save_conversation()
+                                    logger.info("Re-saved conversation with updated world state after recording")
+                                except Exception as save_error:
+                                    logger.warning(f"Failed to re-save conversation after recording: {save_error}", exc_info=True)
+
+                        except Exception as e:
+                                logger.error(
+                                    f"CRITICAL: Error in response instrumentation: {e}", exc_info=True
                                 )
+                                # Even on error, try to record at least neutral values to show system is active
+                                try:
+                                    response_id = getattr(self, "_current_response_id", f"response_{len(self.messages)}")
+                                    logger.info(f"Recording fallback neutral values after instrumentation error")
+                                    self.internal_sensing_framework.interoception.cognition.record_confidence(response_id, 0.5)
+                                    if assistant_text:
+                                        self.internal_sensing_framework.interoception.affect.compute_arousal(0.5)
+                                except Exception as fallback_error:
+                                    logger.error(f"Even fallback recording failed: {fallback_error}", exc_info=True)
 
-                        # Log context after turn
-                        self._log_context_after_turn(
-                            assistant_text=assistant_text, raw_response=response
-                        )
-
-                        # Auto-save skipped here to avoid background writes after test teardown
-                    except Exception as e:
-                        logger.warning(
-                            f"Error in post-processing: {e}", exc_info=True
-                        )
-                
-                try:
-                    if used_streaming:
-                        # For streaming: run in background thread to avoid blocking
-                        import threading
-                        thread = threading.Thread(target=do_post_processing, daemon=True)
-                        thread.start()
-                    else:
-                        # For non-streaming: run synchronously to ensure state is updated before return
-                        # This is important for tests that check state immediately after send()
-                        do_post_processing()
-                except Exception as e:
-                    # Fallback: do it synchronously if threading fails
-                    logger.warning(f"Failed to start background thread, doing post-processing synchronously: {e}", exc_info=True)
+                    # Log context after turn
+                    self._log_context_after_turn(
+                        assistant_text=assistant_text, raw_response=response
+                    )
+                    
+                    # CRITICAL: Re-save conversation AFTER all instrumentation is complete
+                    # This ensures saved conversations include the latest world state with updated internal sensing values
+                    # The initial save at line 1216 happens before instrumentation, so we need to save again here
                     try:
-                        do_post_processing()
-                    except Exception as e2:
-                        logger.warning(f"Error in fallback post-processing: {e2}", exc_info=True)
+                        self._save_conversation()
+                        logger.debug("Re-saved conversation after instrumentation with updated world state")
+                    except Exception as save_error:
+                        logger.warning(f"Failed to re-save conversation after instrumentation: {save_error}", exc_info=True)
+
+                    # Auto-save skipped here to avoid background writes after test teardown
+                except Exception as e:
+                    logger.error(
+                        f"CRITICAL: Error in post-processing block: {e}", exc_info=True
+                    )
+                    logger.warning(
+                        f"Error in post-processing: {e}", exc_info=True
+                    )
 
                 # --- response-guard: ensure the assistant never returns an empty string ---
                 try:
@@ -1437,6 +2255,36 @@ class ConversationSession:
         else:
             # Create a minimal response dict for logging
             self._log_context_after_turn(assistant_text=assistant_text, raw_response={})
+        
+        # CRITICAL: Run post-processing even on max iterations path
+        # This ensures metrics are recorded and system prompt is updated
+        logger.info(f"MAX ITERATIONS PATH: Running post-processing (has_framework={self.internal_sensing_framework is not None}, has_analyzer={ResponseAnalyzer is not None})")
+        try:
+            # Reuse the same post-processing logic from the normal path
+            if self.internal_sensing_framework and ResponseAnalyzer:
+                response_id = getattr(self, "_current_response_id", f"response_{len(self.messages)}")
+                logger.info(f"MAX ITERATIONS: Recording metrics for response_id={response_id}")
+                
+                # Record at least neutral values to show system is active
+                self.internal_sensing_framework.interoception.cognition.record_confidence(response_id, 0.5)
+                self.internal_sensing_framework.interoception.cognition.record_uncertainty(response_id, 0.0)
+                if assistant_text:
+                    self.internal_sensing_framework.interoception.affect.compute_arousal(0.5)
+                
+                # Force fresh sample and update system prompt
+                self.internal_sensing_framework.sample_internal_state(force=True)
+                # Save state after sampling
+                try:
+                    self.internal_sensing_framework.save_state()
+                except Exception as e:
+                    logger.warning(f"Failed to save state after sampling: {e}", exc_info=True)
+                if self.world_state_aggregator and self._world_state_formatter:
+                    logger.info("MAX ITERATIONS: Updating system prompt after recording")
+                    self._last_world_state_hash = None  # Force update
+                    self._update_system_prompt()
+        except Exception as e:
+            logger.error(f"Error in max iterations post-processing: {e}", exc_info=True)
+        
         self._save_conversation()
         return assistant_text
 
@@ -1751,18 +2599,18 @@ class ConversationSession:
 
     def _get_messages_for_llm(self) -> List[Dict[str, Any]]:
         """
-        Get messages to send to LLM, filtering to last K turns when summarization is enabled.
+        Get messages to send to LLM using intelligent context graph pruning.
         
-        When summarization is enabled and a summary exists, returns only:
-        - System message (at index 0)
-        - Last K turns (user/assistant pairs, where K = config.summarization.last_turns_count)
+        When context graph is enabled, uses tree-based pruning that:
+        - Preserves main conversation thread
+        - Retains relevant branches as long as possible
+        - Automatically removes orphaned branches
+        - Stays within token limits
         
-        When summarization is disabled or no summary exists, returns full message history.
+        When context graph is disabled, falls back to token-aware filtering.
         
-        This function now includes token-aware filtering:
-        - Estimates token count for filtered messages
-        - Truncates tool results if messages exceed token limit
-        - Dynamically reduces turn count if still over limit after truncation
+        Note: This method applies intelligent pruning, but _validate_message_size()
+        is always called afterward as a failsafe to ensure we never exceed token limits.
         
         Returns:
             Filtered message list for LLM calls (with tool results truncated if needed)
@@ -1772,123 +2620,91 @@ class ConversationSession:
         # Check if we're using Gemini client (for Gemini-specific ordering fixes)
         is_gemini = self._is_gemini_client()
         
-        # If summarization not enabled, still apply token-aware filtering
-        if not self._summarization_manager:
-            # Apply token-aware filtering even without summarization
-            filtered = self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
-            # Apply Gemini-specific fix if needed
-            if is_gemini:
-                filtered = self._fix_gemini_tool_call_ordering(filtered)
-            return filtered
-        
-        # Check if summary exists for this session
-        try:
-            summary = self._summarization_manager.summary_storage.load_session_summary(self.session_id)
-            if not summary:
-                # No summary exists yet, apply token-aware filtering to full messages
-                filtered = self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
-                # Apply Gemini-specific fix if needed
-                if is_gemini:
-                    filtered = self._fix_gemini_tool_call_ordering(filtered)
-                return filtered
-        except Exception as e:
-            logger.debug(f"Error checking for summary, using full messages: {e}")
-            filtered = self._apply_token_aware_filtering(self.messages, config.llm.max_context_tokens)
-            # Apply Gemini-specific fix if needed
-            if is_gemini:
-                filtered = self._fix_gemini_tool_call_ordering(filtered)
-            return filtered
-        
-        # Summary exists - filter to system message + last K turns with token awareness
-        # Use gradual buffer calculation if enabled
-        last_turns_count = self._calculate_buffer_turns()
-        
-        max_context_tokens = config.llm.max_context_tokens
-        if not isinstance(max_context_tokens, int):
-            max_context_tokens = 100000  # Default value
-        
-        # Validate system message count before filtering to prevent accumulation issues
+        # Validate system message count before filtering
         self._ensure_single_system_message()
         
-        # Get system message (if exists)
-        system_message = None
-        if self.messages and self.messages[0].get("role") == "system":
-            system_message = self.messages[0]
+        # Get model-specific context limit if LLM client supports it
+        # This respects model hard limits (e.g., deepseek-reasoner: 131072)
+        # while still honoring BROCA_MAX_CONTEXT_TOKENS from .env for other models
+        max_context_tokens = config.llm.max_context_tokens
+        if hasattr(self.llm, 'get_max_context_tokens'):
+            try:
+                model_limit = self.llm.get_max_context_tokens()
+                max_context_tokens = model_limit
+                logger.debug(
+                    f"Using model-specific context limit: {model_limit} tokens (model: {getattr(self.llm, 'model', 'unknown')})"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get model-specific context limit, using config default: {e}")
+                # Fall back to config default
+                if not isinstance(max_context_tokens, int):
+                    max_context_tokens = 100000  # Default value
+        elif not isinstance(max_context_tokens, int):
+            max_context_tokens = 100000  # Default value
         
-        # Get last K turns (non-system messages)
-        # Filter out system messages to get conversation turns
-        non_system_messages = [m for m in self.messages if m.get("role") != "system"]
-        
-        # Start with configured turn count and dynamically reduce if needed
-        current_turns = last_turns_count
-        min_turns = 1  # Always keep at least last 1 turn
-        
-        while current_turns >= min_turns:
-            # Each turn = user + assistant (and possibly tool calls/results)
-            # Estimate: each turn is typically 2-4 messages
-            # To be safe, take last current_turns*4 messages as a conservative estimate
-            turns_to_keep = current_turns * 4
-            start_idx = max(0, len(non_system_messages) - turns_to_keep)
-            last_turns = non_system_messages[start_idx:]
-            
-            # Reconstruct message list: system message (if exists) + last turns
-            filtered_messages = []
-            if system_message:
-                filtered_messages.append(system_message)
-            filtered_messages.extend(last_turns)
-            
-            # Estimate tokens
-            estimated_tokens = estimate_messages_tokens(filtered_messages)
-            
-            # If under limit, truncate tool results and return
-            if estimated_tokens <= max_context_tokens:
-                # Truncate tool results in filtered messages as a safety measure
+        # Use context graph if enabled
+        if self._context_graph and config.context.enabled:
+            try:
+                # Ensure all messages are in the graph
+                # (in case graph wasn't updated for some messages)
+                for msg in self.messages:
+                    if "message_id" not in msg:
+                        msg["message_id"] = str(uuid.uuid4())
+                    # Check if message is already in graph
+                    msg_id = msg.get("message_id")
+                    if msg_id not in self._context_graph.nodes:
+                        # Find parent (previous message)
+                        parent_id = None
+                        if self._context_graph._message_order:
+                            parent_id = self._context_graph._message_order[-1]
+                        self._context_graph.add_message(msg, parent_id=parent_id)
+                
+                # Get messages from context graph with intelligent pruning
+                filtered_messages = self._context_graph.get_messages_for_llm(
+                    max_tokens=max_context_tokens,
+                    safety_margin=config.context.safety_margin,
+                )
+                
+                # Ensure system message is first if it exists
+                system_message = None
+                non_system_messages = []
+                for msg in filtered_messages:
+                    if msg.get("role") == "system":
+                        system_message = msg
+                    else:
+                        non_system_messages.append(msg)
+                
+                # Reconstruct with system message first
+                if system_message:
+                    filtered_messages = [system_message] + non_system_messages
+                else:
+                    filtered_messages = non_system_messages
+                
+                # Truncate tool results as safety measure
                 filtered_messages = self._truncate_tool_results_in_messages(
                     filtered_messages, config.summarization.max_tool_result_size
                 )
+                
                 # Apply Gemini-specific fix if needed
                 if is_gemini:
                     filtered_messages = self._fix_gemini_tool_call_ordering(filtered_messages)
+                
                 logger.debug(
-                    f"Filtered messages for LLM: {len(filtered_messages)} messages, "
-                    f"~{estimated_tokens} tokens (keeping last {current_turns} turns)"
+                    f"Context graph filtered messages: {len(filtered_messages)} messages "
+                    f"(from {len(self.messages)} total)"
                 )
                 return filtered_messages
-            
-            # Over limit - try reducing turn count
-            if current_turns > min_turns:
-                current_turns -= 1
-                logger.debug(
-                    f"Messages exceed token limit ({estimated_tokens} > {max_context_tokens}), "
-                    f"reducing to {current_turns} turns"
-                )
-            else:
-                # At minimum, truncate tool results and return anyway
-                filtered_messages = self._truncate_tool_results_in_messages(
-                    filtered_messages, config.summarization.max_tool_result_size
-                )
-                # Apply Gemini-specific fix if needed
-                if is_gemini:
-                    filtered_messages = self._fix_gemini_tool_call_ordering(filtered_messages)
-                logger.warning(
-                    f"Messages still exceed token limit after truncation "
-                    f"({estimated_tokens} > {max_context_tokens}), returning minimum turns"
-                )
-                return filtered_messages
+                
+            except Exception as e:
+                logger.warning(f"Error using context graph, falling back to token filtering: {e}", exc_info=True)
+                # Fall through to token-aware filtering
         
-        # Fallback: return at least system message + last message
-        filtered_messages = []
-        if system_message:
-            filtered_messages.append(system_message)
-        if non_system_messages:
-            filtered_messages.append(non_system_messages[-1])
-        filtered_messages = self._truncate_tool_results_in_messages(
-            filtered_messages, config.summarization.max_tool_result_size
-        )
+        # Fallback: token-aware filtering (no context graph or error occurred)
+        filtered = self._apply_token_aware_filtering(self.messages, max_context_tokens)
         # Apply Gemini-specific fix if needed
         if is_gemini:
-            filtered_messages = self._fix_gemini_tool_call_ordering(filtered_messages)
-        return filtered_messages
+            filtered = self._fix_gemini_tool_call_ordering(filtered)
+        return filtered
     
     def _apply_token_aware_filtering(
         self, messages: List[Dict[str, Any]], max_tokens: int
@@ -2039,16 +2855,20 @@ class ConversationSession:
     
     def _fix_tool_message_ordering(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Fix tool message ordering by removing orphaned tool messages.
+        Fix tool message ordering by removing orphaned tool messages and incomplete tool call sequences.
         
-        Removes tool messages that don't have a preceding assistant message
-        with matching tool_calls. This ensures messages are valid for OpenAI API.
+        Removes:
+        1. Tool messages that don't have a preceding assistant message with matching tool_calls
+        2. Incomplete tool call sequences (assistant with tool_calls + partial tool responses
+           when followed by user/new assistant before all tool_call_ids are responded to)
+        
+        This ensures messages are valid for OpenAI API.
         
         Args:
-            messages: List of messages (may contain orphaned tool messages)
+            messages: List of messages (may contain orphaned tool messages or incomplete sequences)
             
         Returns:
-            List of messages with orphaned tool messages removed
+            List of messages with orphaned tool messages and incomplete sequences removed
         """
         if not messages:
             return messages
@@ -2056,8 +2876,10 @@ class ConversationSession:
         fixed_messages = []
         # Track tool_call_ids from assistant messages with tool_calls
         valid_tool_call_ids = set()
-        # Track the last assistant message index with tool_calls
+        pending_tool_call_ids = set()  # Track which tool_call_ids are still pending responses
+        # Track the last assistant message index with tool_calls and its tool_call_ids
         last_assistant_with_tool_calls_idx = -1
+        last_assistant_tool_call_ids = set()
         
         for i, msg in enumerate(messages):
             role = msg.get("role")
@@ -2071,7 +2893,28 @@ class ConversationSession:
             if role == "assistant":
                 tool_calls = msg.get("tool_calls")
                 if tool_calls and isinstance(tool_calls, list):
-                    # Extract tool_call_ids
+                    # Check if we have a pending incomplete sequence
+                    if pending_tool_call_ids and last_assistant_with_tool_calls_idx >= 0:
+                        # We have an incomplete sequence - remove it
+                        removed_count = len(fixed_messages) - last_assistant_with_tool_calls_idx
+                        logger.warning(
+                            f"Removing incomplete tool call sequence: assistant at index {last_assistant_with_tool_calls_idx} "
+                            f"with {len(last_assistant_tool_call_ids)} tool_call_ids, but only "
+                            f"{len(last_assistant_tool_call_ids) - len(pending_tool_call_ids)} responded to. "
+                            f"Removing {removed_count} messages (assistant + partial tool responses).",
+                            extra={
+                                "event": "incomplete_sequence_removed",
+                                "assistant_index": last_assistant_with_tool_calls_idx,
+                                "total_tool_call_ids": len(last_assistant_tool_call_ids),
+                                "responded_tool_call_ids": len(last_assistant_tool_call_ids) - len(pending_tool_call_ids),
+                                "pending_tool_call_ids": list(pending_tool_call_ids),
+                                "removed_message_count": removed_count,
+                            }
+                        )
+                        # Remove the incomplete sequence from fixed_messages
+                        fixed_messages = fixed_messages[:last_assistant_with_tool_calls_idx]
+                    
+                    # Extract tool_call_ids for the new assistant message
                     current_tool_call_ids = set()
                     for tool_call in tool_calls:
                         if isinstance(tool_call, dict):
@@ -2079,38 +2922,138 @@ class ConversationSession:
                             if isinstance(tool_call_id, str):
                                 current_tool_call_ids.add(tool_call_id)
                     
-                    # Update tracking
+                    # Update tracking for the new assistant message
                     valid_tool_call_ids = current_tool_call_ids
+                    pending_tool_call_ids = current_tool_call_ids.copy()
+                    last_assistant_tool_call_ids = current_tool_call_ids.copy()
                     last_assistant_with_tool_calls_idx = len(fixed_messages)
                     fixed_messages.append(msg)
                 else:
-                    # Assistant without tool_calls - reset tracking
+                    # Assistant without tool_calls - check for incomplete sequence
+                    if pending_tool_call_ids and last_assistant_with_tool_calls_idx >= 0:
+                        # We have an incomplete sequence - remove it
+                        removed_count = len(fixed_messages) - last_assistant_with_tool_calls_idx
+                        logger.warning(
+                            f"Removing incomplete tool call sequence: assistant at index {last_assistant_with_tool_calls_idx} "
+                            f"with {len(last_assistant_tool_call_ids)} tool_call_ids, but only "
+                            f"{len(last_assistant_tool_call_ids) - len(pending_tool_call_ids)} responded to. "
+                            f"Removing {removed_count} messages (assistant + partial tool responses).",
+                            extra={
+                                "event": "incomplete_sequence_removed",
+                                "assistant_index": last_assistant_with_tool_calls_idx,
+                                "total_tool_call_ids": len(last_assistant_tool_call_ids),
+                                "responded_tool_call_ids": len(last_assistant_tool_call_ids) - len(pending_tool_call_ids),
+                                "pending_tool_call_ids": list(pending_tool_call_ids),
+                                "removed_message_count": removed_count,
+                            }
+                        )
+                        # Remove the incomplete sequence from fixed_messages
+                        fixed_messages = fixed_messages[:last_assistant_with_tool_calls_idx]
+                    
+                    # Reset tracking
                     valid_tool_call_ids.clear()
+                    pending_tool_call_ids.clear()
+                    last_assistant_tool_call_ids.clear()
                     last_assistant_with_tool_calls_idx = -1
                     fixed_messages.append(msg)
             
             # Handle tool messages
             elif role == "tool":
                 tool_call_id = msg.get("tool_call_id")
-                if isinstance(tool_call_id, str) and tool_call_id in valid_tool_call_ids:
+                # CRITICAL: Check if there's a valid preceding assistant message with this tool_call_id
+                has_valid_predecessor = False
+                if last_assistant_with_tool_calls_idx >= 0:
+                    # Check if tool_call_id is in the valid set
+                    if isinstance(tool_call_id, str) and tool_call_id in valid_tool_call_ids:
+                        has_valid_predecessor = True
+                    else:
+                        # Also check if it's in any preceding assistant message (not just the most recent)
+                        for j in range(len(fixed_messages) - 1, -1, -1):
+                            prev_msg = fixed_messages[j]
+                            if prev_msg.get("role") == "assistant":
+                                prev_tool_calls = prev_msg.get("tool_calls")
+                                if prev_tool_calls and isinstance(prev_tool_calls, list):
+                                    prev_tool_call_ids = {
+                                        tc.get("id") for tc in prev_tool_calls
+                                        if isinstance(tc, dict) and isinstance(tc.get("id"), str)
+                                    }
+                                    if tool_call_id in prev_tool_call_ids:
+                                        has_valid_predecessor = True
+                                        break
+                                # If assistant doesn't have tool_calls, stop looking
+                                break
+                            elif prev_msg.get("role") == "user":
+                                # User message resets context
+                                break
+                
+                if has_valid_predecessor:
                     # Valid tool message - has matching tool_call_id
                     fixed_messages.append(msg)
+                    # Remove from pending set if it's there
+                    if isinstance(tool_call_id, str) and tool_call_id in pending_tool_call_ids:
+                        pending_tool_call_ids.remove(tool_call_id)
+                        # If all tool_call_ids are now responded to, clear the tracking
+                        if not pending_tool_call_ids:
+                            last_assistant_with_tool_calls_idx = -1
+                            last_assistant_tool_call_ids.clear()
                 else:
                     # Orphaned tool message - remove it
-                    logger.debug(
+                    logger.warning(
                         f"Removing orphaned tool message with tool_call_id '{tool_call_id}' "
                         f"(no preceding assistant message with matching tool_calls)"
                     )
             
-            # User messages are always included
+            # User messages
             elif role == "user":
+                # Check for incomplete sequence before adding user message
+                if pending_tool_call_ids and last_assistant_with_tool_calls_idx >= 0:
+                    # We have an incomplete sequence - remove it
+                    removed_count = len(fixed_messages) - last_assistant_with_tool_calls_idx
+                    logger.warning(
+                        f"Removing incomplete tool call sequence: assistant at index {last_assistant_with_tool_calls_idx} "
+                        f"with {len(last_assistant_tool_call_ids)} tool_call_ids, but only "
+                        f"{len(last_assistant_tool_call_ids) - len(pending_tool_call_ids)} responded to. "
+                        f"Removing {removed_count} messages (assistant + partial tool responses).",
+                        extra={
+                            "event": "incomplete_sequence_removed",
+                            "assistant_index": last_assistant_with_tool_calls_idx,
+                            "total_tool_call_ids": len(last_assistant_tool_call_ids),
+                            "responded_tool_call_ids": len(last_assistant_tool_call_ids) - len(pending_tool_call_ids),
+                            "pending_tool_call_ids": list(pending_tool_call_ids),
+                            "removed_message_count": removed_count,
+                        }
+                    )
+                    # Remove the incomplete sequence from fixed_messages
+                    fixed_messages = fixed_messages[:last_assistant_with_tool_calls_idx]
+                
                 # User messages reset the tool call context
                 valid_tool_call_ids.clear()
+                pending_tool_call_ids.clear()
+                last_assistant_tool_call_ids.clear()
                 last_assistant_with_tool_calls_idx = -1
                 fixed_messages.append(msg)
             else:
                 # Unknown role - include it (might be custom roles)
                 fixed_messages.append(msg)
+        
+        # Final check: if we end with pending tool_call_ids, remove the incomplete sequence
+        if pending_tool_call_ids and last_assistant_with_tool_calls_idx >= 0:
+            removed_count = len(fixed_messages) - last_assistant_with_tool_calls_idx
+            logger.warning(
+                f"Removing incomplete tool call sequence at end: assistant at index {last_assistant_with_tool_calls_idx} "
+                f"with {len(last_assistant_tool_call_ids)} tool_call_ids, but only "
+                f"{len(last_assistant_tool_call_ids) - len(pending_tool_call_ids)} responded to. "
+                f"Removing {removed_count} messages (assistant + partial tool responses).",
+                extra={
+                    "event": "incomplete_sequence_removed_at_end",
+                    "assistant_index": last_assistant_with_tool_calls_idx,
+                    "total_tool_call_ids": len(last_assistant_tool_call_ids),
+                    "responded_tool_call_ids": len(last_assistant_tool_call_ids) - len(pending_tool_call_ids),
+                    "pending_tool_call_ids": list(pending_tool_call_ids),
+                    "removed_message_count": removed_count,
+                }
+            )
+            fixed_messages = fixed_messages[:last_assistant_with_tool_calls_idx]
         
         return fixed_messages
     
@@ -2153,6 +3096,216 @@ class ConversationSession:
                     return msg
         
         return None
+    
+    def _find_minimal_preserved_context(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Find minimal context to preserve when Gemini fix removes everything.
+        
+        Preserves:
+        1. The most recent user message (the original query)
+        2. The last complete tool call sequence (assistant with tool_calls + its tool results)
+        
+        This ensures the model has context about what it was trying to do, even if
+        message ordering is invalid.
+        
+        Args:
+            messages: List of message dictionaries to search
+            
+        Returns:
+            List of messages to preserve (most recent user + last tool call sequence)
+        """
+        preserved = []
+        
+        # Find the most recent user message
+        most_recent_user = None
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content")
+                if content is not None and content != "":
+                    most_recent_user = msg
+                    break
+        
+        if most_recent_user:
+            preserved.append(most_recent_user)
+        
+        # Find the last complete tool call sequence
+        # Look for: assistant message with tool_calls, followed by its tool results
+        last_assistant_with_tool_calls = None
+        last_tool_call_ids = set()
+        
+        # Search backwards for the last assistant message with tool_calls
+        for i in range(len(messages) - 1, -1, -1):
+            msg = messages[i]
+            if msg.get("role") == "assistant":
+                tool_calls = msg.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list):
+                    # Extract tool_call_ids
+                    for tool_call in tool_calls:
+                        if isinstance(tool_call, dict):
+                            tool_call_id = tool_call.get("id")
+                            if isinstance(tool_call_id, str):
+                                last_tool_call_ids.add(tool_call_id)
+                    last_assistant_with_tool_calls = (i, msg)
+                    break
+        
+        if last_assistant_with_tool_calls:
+            assistant_idx, assistant_msg = last_assistant_with_tool_calls
+            preserved.append(assistant_msg)
+            
+            # Find tool messages that correspond to this assistant's tool_calls
+            # Look forward from the assistant message
+            for i in range(assistant_idx + 1, len(messages)):
+                msg = messages[i]
+                if msg.get("role") == "tool":
+                    tool_call_id = msg.get("tool_call_id")
+                    if isinstance(tool_call_id, str) and tool_call_id in last_tool_call_ids:
+                        preserved.append(msg)
+                elif msg.get("role") == "user":
+                    # User message breaks the sequence
+                    break
+        
+        return preserved
+    
+    def _detect_tool_call_loop(self, iterations: int) -> Optional[Dict[str, Any]]:
+        """
+        Detect if the model is stuck in a loop making repeated tool calls.
+        
+        Analyzes recent tool calls in the current turn to detect patterns where
+        the same tool is called with identical or similar arguments repeatedly.
+        Only triggers when actual repetition occurs (same tool + same/similar arguments),
+        not just when the same tool is used with different arguments.
+        
+        Args:
+            iterations: Current iteration count
+            
+        Returns:
+            Dictionary with loop detection info if loop detected, None otherwise.
+            Contains: tool_name, repeat_count, pattern_description
+        """
+        if not self.messages:
+            return None
+        
+        # Find the start of the current turn (last user message)
+        last_user_idx = -1
+        for i in range(len(self.messages) - 1, -1, -1):
+            if self.messages[i].get("role") == "user":
+                last_user_idx = i
+                break
+        
+        if last_user_idx == -1:
+            return None
+        
+        # Collect tool calls from current turn
+        recent_tool_calls = []
+        for i in range(last_user_idx + 1, len(self.messages)):
+            msg = self.messages[i]
+            if msg.get("role") == "assistant":
+                tool_calls = msg.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list):
+                    for tool_call in tool_calls:
+                        if isinstance(tool_call, dict):
+                            func = tool_call.get("function", {})
+                            tool_name = func.get("name", "unknown")
+                            arguments_str = func.get("arguments", "{}")
+                            # Try to parse arguments for comparison
+                            try:
+                                import json
+                                arguments = json.loads(arguments_str) if arguments_str else {}
+                            except (json.JSONDecodeError, TypeError):
+                                arguments = {}
+                            recent_tool_calls.append({
+                                "tool_name": tool_name,
+                                "arguments": arguments,
+                                "arguments_str": arguments_str,
+                            })
+        
+        if len(recent_tool_calls) < 2:
+            # Need at least 2 tool calls to detect a loop
+            return None
+        
+        # Check for patterns: look at last 5 tool calls
+        last_n = min(5, len(recent_tool_calls))
+        last_tool_calls = recent_tool_calls[-last_n:]
+        
+        # Pattern: Same tool + same/similar arguments repeated 2+ times
+        # Only trigger loop detection when the same tool is called with identical or similar arguments
+        # This prevents false positives when different commands are executed with the same tool
+        for i in range(len(last_tool_calls) - 1):
+            tc1 = last_tool_calls[i]
+            for j in range(i + 1, len(last_tool_calls)):
+                tc2 = last_tool_calls[j]
+                if tc1["tool_name"] == tc2["tool_name"]:
+                    # Check if arguments are similar
+                    if self._tool_arguments_similar(tc1["arguments"], tc2["arguments"], tc1["tool_name"]):
+                        # Found duplicate - check if there are more
+                        duplicate_count = 2
+                        for k in range(j + 1, len(last_tool_calls)):
+                            tc3 = last_tool_calls[k]
+                            if tc3["tool_name"] == tc1["tool_name"]:
+                                if self._tool_arguments_similar(tc1["arguments"], tc3["arguments"], tc1["tool_name"]):
+                                    duplicate_count += 1
+                        
+                        if duplicate_count >= 2:
+                            return {
+                                "tool_name": tc1["tool_name"],
+                                "repeat_count": duplicate_count,
+                                "pattern_description": f"Tool '{tc1['tool_name']}' with similar arguments called {duplicate_count} times",
+                                "pattern_type": "repeated_tool_args",
+                            }
+        
+        return None
+    
+    def _tool_arguments_similar(
+        self, args1: Dict[str, Any], args2: Dict[str, Any], tool_name: str
+    ) -> bool:
+        """
+        Check if two tool argument dictionaries are similar.
+        
+        For terminal tool, normalizes commands to detect similar patterns.
+        For other tools, does exact comparison.
+        
+        Args:
+            args1: First arguments dict
+            args2: Second arguments dict
+            tool_name: Name of the tool
+            
+        Returns:
+            True if arguments are similar, False otherwise
+        """
+        if tool_name == "terminal":
+            # For terminal, compare command strings (normalize whitespace and paths)
+            cmd1 = args1.get("command", "")
+            cmd2 = args2.get("command", "")
+            if not cmd1 or not cmd2:
+                return cmd1 == cmd2
+            
+            # Normalize: strip whitespace, convert to lowercase for comparison
+            cmd1_normalized = " ".join(cmd1.strip().lower().split())
+            cmd2_normalized = " ".join(cmd2.strip().lower().split())
+            
+            # For exact matches (like "ls -R" repeated)
+            if cmd1_normalized == cmd2_normalized:
+                return True
+            
+            # For similar patterns (like commands with same structure but different paths)
+            # Extract base command (first word)
+            cmd1_base = cmd1_normalized.split()[0] if cmd1_normalized else ""
+            cmd2_base = cmd2_normalized.split()[0] if cmd2_normalized else ""
+            if cmd1_base == cmd2_base and cmd1_base:
+                # Same base command - check if they're very similar (same flags, etc.)
+                # Simple heuristic: if the normalized commands share significant similarity
+                if len(cmd1_normalized) > 10 and len(cmd2_normalized) > 10:
+                    # For longer commands, check if they share the same structure
+                    # (same first few words, same flags)
+                    words1 = cmd1_normalized.split()[:3]  # First 3 words
+                    words2 = cmd2_normalized.split()[:3]
+                    if words1 == words2:
+                        return True
+        
+        # For other tools, do exact comparison
+        return args1 == args2
     
     def _fix_gemini_tool_call_ordering_single_pass(
         self, messages: List[Dict[str, Any]]
@@ -2372,22 +3525,23 @@ class ConversationSession:
         # The Gemini API requires at least one content message (user or assistant with content)
         non_system_messages = [msg for msg in current_messages if msg.get("role") != "system"]
         if not non_system_messages:
-            # All non-system messages were removed - find the most recent valid content message
-            # from the original messages to preserve
-            fallback_message = self._find_most_recent_content_message(messages)
-            if fallback_message:
+            # All non-system messages were removed - try to preserve meaningful context
+            # by keeping the most recent user message and last tool call sequence
+            preserved_context = self._find_minimal_preserved_context(messages)
+            if preserved_context:
                 logger.warning(
-                    "Gemini fix removed all non-system messages. Preserving most recent content message "
-                    f"({fallback_message.get('role')}) to ensure API call can succeed.",
+                    f"Gemini fix removed all non-system messages. Preserving minimal context "
+                    f"({len(preserved_context)} message(s): most recent user + last tool call sequence) "
+                    "to ensure API call has meaningful context.",
                     extra={
                         "event": "gemini_fix_guard_triggered",
-                        "fallback_role": fallback_message.get("role"),
-                        "fallback_has_content": bool(fallback_message.get("content")),
+                        "preserved_message_count": len(preserved_context),
+                        "preserved_roles": [msg.get("role") for msg in preserved_context],
                         "messages_before_fix": len(messages),
                         "messages_after_fix_before_guard": len(current_messages),
                     }
                 )
-                # Add the fallback message after system messages
+                # Add the preserved context after system messages
                 system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
                 # Ensure only one system message before concatenation
                 if len(system_messages) > 1:
@@ -2400,36 +3554,55 @@ class ConversationSession:
                         }
                     )
                     system_messages = [system_messages[0]]
-                current_messages = system_messages + [fallback_message]
+                current_messages = system_messages + preserved_context
                 # Validate concatenated result
                 self._validate_message_list_for_system_messages(current_messages)
             else:
-                # No fallback found - inject a default user message to prevent API error
-                logger.warning(
-                    "Gemini fix removed all non-system messages and no valid content message found. "
-                    "Injecting default user message to prevent API error.",
-                    extra={
-                        "event": "gemini_fix_injecting_default_message",
-                        "messages_before_fix": len(messages),
-                        "messages_after_fix": len(current_messages),
-                    }
-                )
-                system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
-                # Ensure only one system message before concatenation
-                if len(system_messages) > 1:
+                # Fallback to finding just the most recent content message
+                fallback_message = self._find_most_recent_content_message(messages)
+                if fallback_message:
                     logger.warning(
-                        f"Found {len(system_messages)} system messages in Gemini fix fallback. "
-                        "Keeping only the first.",
+                        "Gemini fix removed all non-system messages. Preserving most recent content message "
+                        f"({fallback_message.get('role')}) to ensure API call can succeed.",
                         extra={
-                            "event": "multiple_system_messages_in_gemini_fix_fallback",
-                            "count": len(system_messages),
+                            "event": "gemini_fix_guard_triggered_fallback",
+                            "fallback_role": fallback_message.get("role"),
+                            "fallback_has_content": bool(fallback_message.get("content")),
+                            "messages_before_fix": len(messages),
+                            "messages_after_fix_before_guard": len(current_messages),
                         }
                     )
-                    system_messages = [system_messages[0]]
-                default_message = {"role": "user", "content": "Please continue the conversation."}
-                current_messages = system_messages + [default_message]
-                # Validate concatenated result
-                self._validate_message_list_for_system_messages(current_messages)
+                    system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
+                    if len(system_messages) > 1:
+                        system_messages = [system_messages[0]]
+                    current_messages = system_messages + [fallback_message]
+                    self._validate_message_list_for_system_messages(current_messages)
+                else:
+                    # Last resort - inject a default user message to prevent API error
+                    logger.warning(
+                        "Gemini fix removed all non-system messages and no valid content message found. "
+                        "Injecting default user message to prevent API error.",
+                        extra={
+                            "event": "gemini_fix_injecting_default_message",
+                            "messages_before_fix": len(messages),
+                            "messages_after_fix": len(current_messages),
+                        }
+                    )
+                    system_messages = [msg for msg in current_messages if msg.get("role") == "system"]
+                    if len(system_messages) > 1:
+                        logger.warning(
+                            f"Found {len(system_messages)} system messages in Gemini fix fallback. "
+                            "Keeping only the first.",
+                            extra={
+                                "event": "multiple_system_messages_in_gemini_fix_fallback",
+                                "count": len(system_messages),
+                            }
+                        )
+                        system_messages = [system_messages[0]]
+                    default_message = {"role": "user", "content": "Please continue the conversation."}
+                    current_messages = system_messages + [default_message]
+                    # Validate concatenated result
+                    self._validate_message_list_for_system_messages(current_messages)
         
         return current_messages
     
@@ -2474,7 +3647,15 @@ class ConversationSession:
         from ..config import config
         
         if max_tokens is None:
-            max_tokens = config.llm.max_context_tokens
+            # Get model-specific context limit if LLM client supports it
+            if hasattr(self.llm, 'get_max_context_tokens'):
+                try:
+                    max_tokens = self.llm.get_max_context_tokens()
+                except Exception as e:
+                    logger.warning(f"Failed to get model-specific context limit, using config default: {e}")
+                    max_tokens = config.llm.max_context_tokens
+            else:
+                max_tokens = config.llm.max_context_tokens
         
         # Estimate tokens
         estimated_tokens = estimate_messages_tokens(messages)
@@ -2500,9 +3681,17 @@ class ConversationSession:
         estimated_after = estimate_messages_tokens(truncated)
         
         if estimated_after > max_tokens:
-            logger.error(
+            logger.warning(
                 f"Messages still exceed token limit after truncation "
-                f"({estimated_after} > {max_tokens}). Consider reducing conversation history."
+                f"({estimated_after} > {max_tokens}). Applying aggressive token filtering as failsafe."
+            )
+            # Apply aggressive token-aware filtering as failsafe
+            # This will remove messages if needed to stay under limit
+            truncated = self._apply_token_aware_filtering(truncated, max_tokens)
+            final_estimated = estimate_messages_tokens(truncated)
+            logger.info(
+                f"Failsafe filtering complete: {estimated_tokens} -> {final_estimated} tokens "
+                f"(limit: {max_tokens})"
             )
         else:
             logger.info(
@@ -2536,8 +3725,9 @@ class ConversationSession:
         # Track which tool_call_ids we've seen in assistant messages
         seen_tool_call_ids = set()
         
-        # Track the last assistant message with tool_calls
+        # Track the last assistant message with tool_calls and its pending tool_call_ids
         last_assistant_with_tool_calls = None
+        pending_tool_call_ids = set()  # Track tool_call_ids that haven't been responded to yet
         
         for i, msg in enumerate(messages):
             role = msg.get("role")
@@ -2550,6 +3740,32 @@ class ConversationSession:
             if role == "assistant":
                 tool_calls = msg.get("tool_calls")
                 if tool_calls:
+                    # CRITICAL: Check for incomplete tool call sequences
+                    # If we encounter a new assistant message with tool_calls while we have
+                    # pending tool_call_ids, the previous sequence is incomplete
+                    if pending_tool_call_ids:
+                        tool_names = [
+                            tc.get("function", {}).get("name", "unknown")
+                            for tc in tool_calls if isinstance(tc, dict)
+                        ] if isinstance(tool_calls, list) else []
+                        error_msg = (
+                            f"Message {i}: Incomplete tool call sequence detected. "
+                            f"Assistant message at index {last_assistant_with_tool_calls} has tool_calls with "
+                            f"{len(pending_tool_call_ids)} unresponded tool_call_ids: {pending_tool_call_ids}. "
+                            "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'."
+                        )
+                        logger.warning(
+                            error_msg,
+                            extra={
+                                "event": "incomplete_tool_call_sequence_detected",
+                                "message_index": i,
+                                "previous_assistant_index": last_assistant_with_tool_calls,
+                                "pending_tool_call_ids": list(pending_tool_call_ids),
+                                "new_tool_names": tool_names,
+                            }
+                        )
+                        return False, error_msg
+                    
                     # Validate tool_calls structure
                     if not isinstance(tool_calls, list):
                         return False, f"Message {i}: tool_calls must be a list, got {type(tool_calls)}"
@@ -2627,23 +3843,80 @@ class ConversationSession:
                         
                         current_tool_call_ids.add(tool_call_id)
                     
-                    # Update tracking
+                    # Update tracking - start tracking pending tool_call_ids for this assistant
                     seen_tool_call_ids.update(current_tool_call_ids)
+                    pending_tool_call_ids = current_tool_call_ids.copy()
                     last_assistant_with_tool_calls = i
                 else:
-                    # Assistant without tool_calls - reset tracking
+                    # Assistant without tool_calls - check if we have pending tool_call_ids
+                    # If so, the previous sequence is incomplete
+                    if pending_tool_call_ids:
+                        error_msg = (
+                            f"Message {i}: Incomplete tool call sequence detected. "
+                            f"Assistant message at index {last_assistant_with_tool_calls} has tool_calls with "
+                            f"{len(pending_tool_call_ids)} unresponded tool_call_ids: {pending_tool_call_ids}. "
+                            "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'."
+                        )
+                        logger.warning(
+                            error_msg,
+                            extra={
+                                "event": "incomplete_tool_call_sequence_detected",
+                                "message_index": i,
+                                "previous_assistant_index": last_assistant_with_tool_calls,
+                                "pending_tool_call_ids": list(pending_tool_call_ids),
+                            }
+                        )
+                        return False, error_msg
+                    
+                    # Reset tracking
                     last_assistant_with_tool_calls = None
                     seen_tool_call_ids.clear()
+                    pending_tool_call_ids.clear()
             
             # Handle tool messages
             elif role == "tool":
                 # Tool message must have a tool_call_id
                 tool_call_id = msg.get("tool_call_id")
+                
+                # CRITICAL: Tool message must follow an assistant message with tool_calls
+                # Check if there's a preceding assistant message with tool_calls
+                has_preceding_assistant = False
+                for j in range(i - 1, -1, -1):
+                    prev_msg = messages[j]
+                    if prev_msg.get("role") == "system":
+                        continue
+                    if prev_msg.get("role") == "assistant":
+                        prev_tool_calls = prev_msg.get("tool_calls")
+                        if prev_tool_calls and isinstance(prev_tool_calls, list):
+                            # Check if this tool_call_id is in the preceding assistant's tool_calls
+                            prev_tool_call_ids = {
+                                tc.get("id") for tc in prev_tool_calls
+                                if isinstance(tc, dict) and isinstance(tc.get("id"), str)
+                            }
+                            if tool_call_id in prev_tool_call_ids:
+                                has_preceding_assistant = True
+                                break
+                        # If assistant doesn't have tool_calls, stop looking
+                        break
+                    elif prev_msg.get("role") == "user":
+                        # User message resets context - no valid preceding assistant
+                        break
+                
+                if not has_preceding_assistant:
+                    return False, (
+                        f"Message {i}: Tool message with tool_call_id '{tool_call_id}' "
+                        "has no preceding assistant message with matching tool_calls. "
+                        "Tool messages must immediately follow an assistant message that contains tool_calls with this tool_call_id."
+                    )
                 if tool_call_id is None:
                     return False, f"Message {i}: tool message missing 'tool_call_id' field"
                 
                 if not isinstance(tool_call_id, str):
                     return False, f"Message {i}: tool message 'tool_call_id' must be a string, got {type(tool_call_id)}"
+                
+                # Remove this tool_call_id from pending set if it's in there
+                if tool_call_id in pending_tool_call_ids:
+                    pending_tool_call_ids.remove(tool_call_id)
                 
                 # Check if this tool_call_id was seen in a preceding assistant message with tool_calls
                 if tool_call_id not in seen_tool_call_ids:
@@ -2677,9 +3950,47 @@ class ConversationSession:
             
             # User messages don't need special validation for tool ordering
             elif role == "user":
+                # CRITICAL: Check for incomplete tool call sequences before user messages
+                if pending_tool_call_ids:
+                    error_msg = (
+                        f"Message {i}: Incomplete tool call sequence detected. "
+                        f"Assistant message at index {last_assistant_with_tool_calls} has tool_calls with "
+                        f"{len(pending_tool_call_ids)} unresponded tool_call_ids: {pending_tool_call_ids}. "
+                        "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'."
+                    )
+                    logger.warning(
+                        error_msg,
+                        extra={
+                            "event": "incomplete_tool_call_sequence_detected",
+                            "message_index": i,
+                            "previous_assistant_index": last_assistant_with_tool_calls,
+                            "pending_tool_call_ids": list(pending_tool_call_ids),
+                        }
+                    )
+                    return False, error_msg
+                
                 # User messages reset the tool call context
                 last_assistant_with_tool_calls = None
                 seen_tool_call_ids.clear()
+                pending_tool_call_ids.clear()
+        
+        # Final check: if we end with pending tool_call_ids, that's also incomplete
+        if pending_tool_call_ids:
+            error_msg = (
+                f"Incomplete tool call sequence at end of messages. "
+                f"Assistant message at index {last_assistant_with_tool_calls} has tool_calls with "
+                f"{len(pending_tool_call_ids)} unresponded tool_call_ids: {pending_tool_call_ids}. "
+                "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'."
+            )
+            logger.warning(
+                error_msg,
+                extra={
+                    "event": "incomplete_tool_call_sequence_detected",
+                    "previous_assistant_index": last_assistant_with_tool_calls,
+                    "pending_tool_call_ids": list(pending_tool_call_ids),
+                }
+            )
+            return False, error_msg
         
         return True, None
     
@@ -2856,11 +4167,12 @@ class ConversationSession:
         Implements size limits, deduplication, and hash-based change detection
         to prevent unbounded growth and duplicate content.
         """
+        from ..config import config
+        
         if not self.world_state_aggregator or not self._world_state_formatter:
             return
 
         try:
-            from ..config import config
             
             # Runtime monitoring: validate state before update
             self._validate_before_update()
@@ -2937,6 +4249,111 @@ class ConversationSession:
                         )
                     
                     parts.append(base_prompt)
+            
+            # 1.5. Add tool calling behavior instructions
+            # This ensures the LLM understands it should automatically continue after tool results
+            tool_calling_instructions = """## TOOL CALLING BEHAVIOR
+
+When you need to use tools to complete a task:
+- You can provide brief commentary alongside tool calls (e.g., "Let me check that file..." or "I'll examine the code...")
+- After tool calls complete and results are returned, AUTOMATICALLY continue - do not wait for user input
+- Review tool results and either:
+  * Make additional tool calls if more information is needed
+  * Provide your final comprehensive response to the user
+- Continue this loop automatically until you have a complete answer to provide
+- Only provide a final text response (with no tool calls) when you're ready to answer the user's question
+- The system will automatically continue after tool results are returned - you don't need to wait for explicit "proceed" or "continue" prompts"""
+            
+            parts.append(tool_calling_instructions)
+            
+            # 1.5.5. Add PFREA Loop Policy (MANDATORY GLOBAL POLICY)
+            # PFREA is a mandatory global policy that shapes all agent behavior
+            pfrea_policy = """## PFREA LOOP POLICY (MANDATORY - GLOBAL REQUIREMENT)
+
+The Plan-Forecast-Replan-Execute-Assess (PFREA) loop is a MANDATORY global policy that you MUST follow for ALL task execution. This is not optional - it is a core requirement that shapes how you operate.
+
+**PFREA Phases (in order):**
+
+1. **PLAN**: Before executing ANY actions or using ANY tools, you MUST create a plan. Your plan must include:
+   - A clear goal statement
+   - Step-by-step actions with specific tools
+   - Assumptions you're making
+   - Expected outcomes for each step
+
+2. **FORECAST**: After creating a plan, you MUST provide a forecast before execution. Your forecast must include:
+   - Feasibility score (0.0-1.0)
+   - Predicted outcomes
+   - Identified risks
+   - Validation issues
+   - Recommendations for improvement
+
+3. **REPLAN** (if needed): If the forecast indicates issues, you MUST create a new improved plan addressing the forecast feedback.
+
+4. **EXECUTE**: Only after plan and forecast are complete can you execute actions using tools.
+
+5. **ASSESS**: After execution, you MUST assess results and determine if replanning is needed.
+
+**CRITICAL RULES:**
+- You CANNOT skip planning or forecasting phases
+- You CANNOT execute tools without a valid plan and forecast
+- The system will block tool execution if you attempt to bypass PFREA
+- Z3 logical verification is performed on all plans (mandatory but non-blocking)
+- All PFREA phase transitions are logged and tracked for compliance
+
+**Consequences of Bypassing:**
+- Tool execution will be blocked
+- System will inject planning/forecast directives
+- Violations are logged and tracked
+- Compliance metrics are monitored
+
+**RESPONSE FORMAT (CRITICAL):**
+- PFREA is an INTERNAL cognitive process that happens in the background
+- Do NOT structure your final response with PLAN/FORECAST/EXECUTION/ASSESS section headers
+- Do NOT explicitly mention "PLAN", "FORECAST", "EXECUTION", or "ASSESS" in your response
+- After completing PFREA cycles internally, respond naturally and conversationally
+- The user should see only the natural result of your reasoning, not the PFREA process itself
+- When the system injects PFREA directives, process them internally but do not echo them in your response
+- Your response should be a natural, flowing answer as if PFREA happened automatically in the background
+
+**This is a GLOBAL POLICY - it applies to ALL conversations and ALL task execution.**"""
+            
+            parts.append(pfrea_policy)
+            
+            # 1.6. Add tool selection guidance (if enabled and available)
+            if (config.tools.selection_guidance_enabled and 
+                self.tool_registry and 
+                hasattr(self.tool_registry, 'tool_selection_guidance') and
+                self.tool_registry.tool_selection_guidance is not None):
+                try:
+                    # Gather context for guidance generation
+                    context = self.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+                    available_tools = self.tool_registry.list_tools()
+                    
+                    guidance_text = self.tool_registry.tool_selection_guidance.generate_guidance_text(
+                        context=context,
+                        available_tools=available_tools
+                    )
+                    
+                    if guidance_text and guidance_text.strip():
+                        # Apply guidance weight to control how prominent it is
+                        if config.tools.guidance_weight > 0:
+                            guidance_section = f"## TOOL SELECTION GUIDANCE\n\n{guidance_text}"
+                            parts.append(guidance_section)
+                            logger.debug(
+                                f"Added tool selection guidance ({len(guidance_text)} chars)",
+                                extra={
+                                    "event": "tool_guidance_added",
+                                    "guidance_length": len(guidance_text),
+                                    "guidance_weight": config.tools.guidance_weight,
+                                }
+                            )
+                except Exception as e:
+                    logger.debug(
+                        f"Error generating tool selection guidance: {e}",
+                        exc_info=True,
+                        extra={"event": "tool_guidance_error"}
+                    )
+                    # Continue without guidance on error
             
             # 2. Add summary context if summarization is enabled
             if self._summarization_manager:
@@ -3193,6 +4610,16 @@ class ConversationSession:
                 size_kb = prompt_size / 1024
                 max_size_kb = config.storage.max_system_prompt_size / 1024
                 
+                # Track size history for growth monitoring
+                import time
+                current_time = time.time()
+                self._system_prompt_size_history.append((current_time, prompt_size))
+                if len(self._system_prompt_size_history) > self._max_history_size:
+                    self._system_prompt_size_history.pop(0)  # Remove oldest
+                
+                # Check for growth trends
+                growth_warning = self._check_prompt_growth(prompt_size)
+                
                 # Calculate final component sizes for logging
                 final_parts = complete_prompt.split("\n\n")
                 final_component_sizes = [len(part) for part in final_parts]
@@ -3206,6 +4633,7 @@ class ConversationSession:
                     "max_size_kb": round(max_size_kb, 2),
                     "size_percentage": round(prompt_size / config.storage.max_system_prompt_size * 100, 1),
                     "component_count": len(final_parts),
+                    "history_size": len(self._system_prompt_size_history),
                 }
                 
                 # Add component sizes if we have them
@@ -3216,21 +4644,28 @@ class ConversationSession:
                 if len(final_parts) >= 3:
                     log_extra["world_state_size"] = final_component_sizes[2]
                 
+                # Add growth warning if detected
+                if growth_warning:
+                    log_extra["growth_warning"] = growth_warning
+                
                 if prompt_size > config.storage.max_system_prompt_size * 0.9:
                     logger.warning(
                         f"System prompt size is {size_kb:.1f}KB (90% of {max_size_kb:.1f}KB limit) - "
-                        f"consider reducing content",
+                        f"consider reducing content" + (f". {growth_warning}" if growth_warning else ""),
                         extra=log_extra
                     )
                 elif prompt_size > config.storage.max_system_prompt_size * 0.7:
                     logger.info(
-                        f"System prompt size is {size_kb:.1f}KB ({prompt_size / config.storage.max_system_prompt_size * 100:.0f}% of limit)",
+                        f"System prompt size is {size_kb:.1f}KB ({prompt_size / config.storage.max_system_prompt_size * 100:.0f}% of limit)" +
+                        (f". {growth_warning}" if growth_warning else ""),
                         extra=log_extra
                     )
                 else:
-                    logger.debug(
+                    log_level = logger.warning if growth_warning else logger.debug
+                    log_level(
                         f"Updated system prompt with current world state and summary context "
-                        f"(size: {prompt_size} chars, {size_kb:.1f}KB)",
+                        f"(size: {prompt_size} chars, {size_kb:.1f}KB)" +
+                        (f". {growth_warning}" if growth_warning else ""),
                         extra=log_extra
                     )
             else:
@@ -3284,9 +4719,68 @@ class ConversationSession:
         
         return False
     
+    def _check_prompt_growth(self, current_size: int) -> Optional[str]:
+        """
+        Check for unbounded growth in system prompt size.
+        
+        Args:
+            current_size: Current system prompt size in characters
+            
+        Returns:
+            Warning message if growth detected, None otherwise
+        """
+        if len(self._system_prompt_size_history) < 5:
+            return None  # Need at least 5 measurements
+        
+        # Get recent measurements (last 10)
+        recent_history = self._system_prompt_size_history[-10:]
+        if len(recent_history) < 5:
+            return None
+        
+        sizes = [size for _, size in recent_history]
+        
+        # Check for consistent growth trend
+        if len(sizes) >= 5:
+            # Calculate average growth rate
+            growth_rates = []
+            for i in range(1, len(sizes)):
+                if sizes[i-1] > 0:
+                    growth_rate = (sizes[i] - sizes[i-1]) / sizes[i-1]
+                    growth_rates.append(growth_rate)
+            
+            if growth_rates:
+                avg_growth_rate = sum(growth_rates) / len(growth_rates)
+                
+                # Alert if average growth rate exceeds 5% per update
+                if avg_growth_rate > 0.05:
+                    return (
+                        f"System prompt showing consistent growth: "
+                        f"average {avg_growth_rate*100:.1f}% per update. "
+                        f"Size increased from {sizes[0]} to {sizes[-1]} chars "
+                        f"({((sizes[-1] - sizes[0]) / sizes[0] * 100) if sizes[0] > 0 else 0:.1f}% total). "
+                        f"This may indicate unbounded accumulation."
+                    )
+        
+        # Check for sudden large increase
+        if len(sizes) >= 2:
+            last_increase = sizes[-1] - sizes[-2]
+            if sizes[-2] > 0 and last_increase > sizes[-2] * 0.2:  # More than 20% increase
+                return (
+                    f"System prompt increased by {last_increase} chars ({last_increase/sizes[-2]*100:.1f}%) "
+                    f"in single update. This may indicate content duplication."
+                )
+        
+        return None
+    
     def _validate_system_prompt_for_duplicates(self, prompt_content: str) -> None:
         """
         Validate system prompt for duplicate sections and log warnings.
+        
+        Checks for:
+        - Duplicate sections (general)
+        - Duplicate JSON sections in world state
+        - Duplicate summary sections
+        - Duplicate base prompt content
         
         Args:
             prompt_content: The system prompt content to validate
@@ -3300,13 +4794,28 @@ class ConversationSession:
         if len(sections) < 2:
             return
         
-        # Check for duplicate sections
+        # Check for duplicate sections (general)
         seen_sections = []
         duplicates_found = []
+        json_sections = []
+        summary_sections = []
         
         for i, section in enumerate(sections):
             # Normalize section for comparison (remove leading markers like "##")
             normalized = " ".join(section.split())
+            
+            # Detect JSON sections (world state)
+            if section.strip().startswith("{") and section.strip().endswith("}"):
+                try:
+                    import json
+                    json.loads(section)
+                    json_sections.append((i, section))
+                except (json.JSONDecodeError, ValueError):
+                    pass  # Not valid JSON
+            
+            # Detect summary sections
+            if "## Session Summary" in section or "Historical Context" in section:
+                summary_sections.append((i, section))
             
             # Check against previously seen sections
             for j, seen in enumerate(seen_sections):
@@ -3316,10 +4825,70 @@ class ConversationSession:
             
             seen_sections.append(normalized)
         
+        # Check for duplicate JSON sections
+        if len(json_sections) > 1:
+            json_duplicates = []
+            for i, (idx1, json1) in enumerate(json_sections):
+                for j, (idx2, json2) in enumerate(json_sections[i+1:], start=i+1):
+                    if self._is_duplicate_content(json1, json2, threshold=0.8):
+                        json_duplicates.append((idx1, idx2))
+            
+            if json_duplicates:
+                logger.warning(
+                    f"Detected {len(json_duplicates)} duplicate JSON section(s) in system prompt (world state). "
+                    f"This indicates world state is being duplicated. Duplicate pairs: {json_duplicates}",
+                    extra={
+                        "event": "duplicate_json_sections_detected",
+                        "count": len(json_duplicates),
+                        "pairs": json_duplicates,
+                    }
+                )
+        
+        # Check for duplicate summary sections
+        if len(summary_sections) > 1:
+            summary_duplicates = []
+            for i, (idx1, summary1) in enumerate(summary_sections):
+                for j, (idx2, summary2) in enumerate(summary_sections[i+1:], start=i+1):
+                    if self._is_duplicate_content(summary1, summary2, threshold=0.7):
+                        summary_duplicates.append((idx1, idx2))
+            
+            if summary_duplicates:
+                logger.warning(
+                    f"Detected {len(summary_duplicates)} duplicate summary section(s) in system prompt. "
+                    f"This indicates summary context is being duplicated. Duplicate pairs: {summary_duplicates}",
+                    extra={
+                        "event": "duplicate_summary_sections_detected",
+                        "count": len(summary_duplicates),
+                        "pairs": summary_duplicates,
+                    }
+                )
+        
+        # Check if base prompt is duplicated in other sections
+        if self.base_system_prompt:
+            base_normalized = " ".join(self.base_system_prompt.split())
+            for i, section in enumerate(sections):
+                section_normalized = " ".join(section.split())
+                if i > 0 and self._is_duplicate_content(base_normalized, section_normalized, threshold=0.8):
+                    logger.warning(
+                        f"Base system prompt appears to be duplicated in section {i}. "
+                        "This indicates base prompt content is being repeated.",
+                        extra={
+                            "event": "base_prompt_duplicated_in_section",
+                            "section_index": i,
+                            "section_preview": section[:200],
+                        }
+                    )
+        
+        # Log general duplicate sections
         if duplicates_found:
             logger.warning(
                 f"Detected {len(duplicates_found)} potential duplicate section(s) in system prompt. "
-                f"This may indicate content accumulation. Sections: {duplicates_found[:3]}"
+                f"This may indicate content accumulation. Sections: {duplicates_found[:3]}",
+                extra={
+                    "event": "duplicate_sections_detected",
+                    "count": len(duplicates_found),
+                    "sections": duplicates_found[:5],  # Limit to 5 for logging
+                }
             )
     
     def _validate_before_update(self) -> None:
@@ -3567,76 +5136,6 @@ class ConversationSession:
         )
         return False
 
-    # ---------- Critic enforcement helpers ----------
-
-    def _has_pending_critic_rejection(self) -> bool:
-        """
-        Check if there's a pending critic rejection that requires iteration.
-
-        Returns:
-            True if:
-            - Critic tool exists but has never been called in this turn, OR
-            - The last critic tool call resulted in a rejection
-            False if the last critic call was accepted
-        """
-        if not self.tool_registry:
-            return False
-
-        # Check if critic tool is registered
-        critic_tool = self.tool_registry.get_tool("critic")
-        if not critic_tool:
-            return False
-
-        # Find the index of the last user message (start of current turn)
-        last_user_index = -1
-        for i, message in enumerate(self.messages):
-            if message.get("role") == "user":
-                last_user_index = i
-
-        # Look backwards through messages from the last user message
-        # to find critic tool results in the current turn
-        critic_called_in_turn = False
-        last_critic_result = None
-
-        for i in range(len(self.messages) - 1, last_user_index, -1):
-            message = self.messages[i]
-            if message.get("role") == "tool" and message.get("name") == "critic":
-                critic_called_in_turn = True
-                # Check raw result if available
-                raw_result = message.get("_raw_result")
-                if raw_result and isinstance(raw_result, dict):
-                    last_critic_result = raw_result
-                    break
-
-                # Fallback: check formatted content for rejection indicators
-                content = message.get("content", "")
-                if "rejected" in content.lower() or "violat" in content.lower():
-                    # Check if it's actually rejected (not just mentioning rejection)
-                    if (
-                        "accepted" not in content.lower()
-                        or "rejected" in content.lower()
-                    ):
-                        last_critic_result = {"accepted": False}
-                        break
-                # If we find an accepted critic result
-                elif (
-                    "accepted" in content.lower() and "rejected" not in content.lower()
-                ):
-                    last_critic_result = {"accepted": True}
-                    break
-
-        # If critic tool exists but was never called in this turn, block final response
-        if not critic_called_in_turn:
-            return True
-
-        # If critic was called, check if it was accepted
-        if last_critic_result:
-            accepted = last_critic_result.get("accepted", False)
-            return not accepted
-
-        # If we can't determine the result, assume rejection (safer)
-        return True
-
     # ---------- Tool handling helpers ----------
 
     def _handle_tool_calls(
@@ -3651,6 +5150,8 @@ class ConversationSession:
             response: Raw LLM response
             tool_calls: List of tool call dictionaries
         """
+        from ..config import config
+        
         if not self.tool_registry:
             logger.warning(
                 "Received tool calls but no tool registry available",
@@ -3852,7 +5353,6 @@ class ConversationSession:
                         logger.debug(f"Failed to complete tool status display: {e}", exc_info=True)
                 
                 # Truncate tool result if it exceeds size limit
-                from ..config import config
                 max_tool_result_size = config.summarization.max_tool_result_size
                 tool_result = truncate_tool_result(tool_result, max_tool_result_size)
                 
@@ -3888,6 +5388,54 @@ class ConversationSession:
                     tool_result["event_ids"].append(tool_result_event_id)
                 
                 self.messages.append(tool_result)
+                
+                # Add tool result to context graph
+                if self._context_graph:
+                    try:
+                        # Find parent (the assistant message with tool_calls)
+                        parent_id = None
+                        for msg in reversed(self.messages[:-1]):  # All messages except the one we just added
+                            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                                # Check if this assistant message has the matching tool_call
+                                for tc in msg.get("tool_calls", []):
+                                    if tc.get("id") == tool_call_id:
+                                        parent_id = msg.get("message_id")
+                                        if not parent_id and self._context_graph._message_order:
+                                            # Find by position
+                                            msg_idx = len(self.messages) - 2
+                                            if msg_idx < len(self._context_graph._message_order):
+                                                parent_id = self._context_graph._message_order[msg_idx]
+                                        break
+                                if parent_id:
+                                    break
+                        
+                        # Fallback: use last message in graph
+                        if not parent_id and self._context_graph._message_order:
+                            parent_id = self._context_graph._message_order[-1]
+                        
+                        # Add message_id if not present
+                        if "message_id" not in tool_result:
+                            tool_result["message_id"] = tool_result_event_id or str(uuid.uuid4())
+                        
+                        self._context_graph.add_message(
+                            tool_result,
+                            parent_id=parent_id,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to add tool result to context graph: {e}", exc_info=True)
+                
+                # Verify tool result was properly added to messages
+                # This ensures the next LLM iteration will receive the tool result
+                logger.debug(
+                    f"Tool result added to messages: {tool_name} (call_id: {tool_call_id})",
+                    extra={
+                        "event": "tool_result_added",
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "messages_count": len(self.messages),
+                        "last_message_role": self.messages[-1].get("role") if self.messages else None,
+                    }
+                )
 
                 # Instrumentation: Record tool usage and reasoning
                 if self.internal_sensing_framework:
@@ -3975,14 +5523,44 @@ class ConversationSession:
                     },
                 )
                 # Add error message
-                self.messages.append(
-                    {
-                        "tool_call_id": tool_call_id,
-                        "role": "tool",
-                        "name": tool_name,
-                        "content": f"Error: {str(e)}",
-                    }
-                )
+                error_tool_result = {
+                    "tool_call_id": tool_call_id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": f"Error: {str(e)}",
+                }
+                self.messages.append(error_tool_result)
+                
+                # Add error tool result to context graph
+                if self._context_graph:
+                    try:
+                        # Find parent (the assistant message with tool_calls)
+                        parent_id = None
+                        for msg in reversed(self.messages[:-1]):
+                            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                                for tc in msg.get("tool_calls", []):
+                                    if tc.get("id") == tool_call_id:
+                                        parent_id = msg.get("message_id")
+                                        if not parent_id and self._context_graph._message_order:
+                                            msg_idx = len(self.messages) - 2
+                                            if msg_idx < len(self._context_graph._message_order):
+                                                parent_id = self._context_graph._message_order[msg_idx]
+                                        break
+                                if parent_id:
+                                    break
+                        
+                        if not parent_id and self._context_graph._message_order:
+                            parent_id = self._context_graph._message_order[-1]
+                        
+                        if "message_id" not in error_tool_result:
+                            error_tool_result["message_id"] = str(uuid.uuid4())
+                        
+                        self._context_graph.add_message(
+                            error_tool_result,
+                            parent_id=parent_id,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to add error tool result to context graph: {e}", exc_info=True)
 
     # ---------- Storage helpers ----------
 
@@ -4026,11 +5604,21 @@ class ConversationSession:
         The system_prompt field in metadata stores the base system prompt
         (user-defined invariants), not the full combined prompt with world state.
         The full prompt is always available in the messages[0]["content"].
+        
+        CRITICAL: Before saving, ensure system prompt is up-to-date with latest world state.
+        This ensures saved conversations include the latest internal sensing values.
         """
         if not self.storage:
             return
 
         try:
+            # CRITICAL: Update system prompt with latest world state BEFORE saving
+            # This ensures saved conversations have the latest internal sensing values
+            if self.world_state_aggregator and self._world_state_formatter:
+                logger.debug("Updating system prompt before save to ensure latest world state")
+                self._last_world_state_hash = None  # Force update
+                self._update_system_prompt()
+            
             # Validate system message count before saving to prevent saving contaminated state
             # This is critical - we don't want to persist multiple system messages
             self._ensure_single_system_message()

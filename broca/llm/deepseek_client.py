@@ -338,6 +338,37 @@ class DeepSeekClient:
         """
         return self.model == "deepseek-reasoner"
     
+    def get_max_context_tokens(self) -> int:
+        """
+        Get the maximum context tokens for the current model.
+        
+        Returns the model-specific hard limit if the model has one,
+        otherwise returns the configured max_context_tokens from config
+        (which respects BROCA_MAX_CONTEXT_TOKENS from .env).
+        
+        Model-specific hard limits take precedence to prevent API errors.
+        For example, deepseek-reasoner has a hard limit of 131,072 tokens,
+        regardless of what BROCA_MAX_CONTEXT_TOKENS is set to.
+        
+        Returns:
+            Maximum context tokens for this model
+        """
+        # Model-specific hard limits (these override config)
+        MODEL_LIMITS: Dict[str, int] = {
+            "deepseek-reasoner": 131072,
+            # Add other model-specific limits here as needed
+        }
+        
+        # Check if this model has a hard limit
+        if self.model in MODEL_LIMITS:
+            model_limit = MODEL_LIMITS[self.model]
+            config_limit = config.llm.max_context_tokens
+            # Return the minimum to respect both model limit and config
+            return min(model_limit, config_limit)
+        
+        # No model-specific limit, use config (which reads from .env BROCA_MAX_CONTEXT_TOKENS)
+        return config.llm.max_context_tokens
+    
     @staticmethod
     def extract_reasoning_content(response: Dict[str, Any]) -> Optional[str]:
         """
@@ -359,43 +390,101 @@ class DeepSeekClient:
     @staticmethod
     def clean_messages_for_reasoner(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Clean messages by removing reasoning_content fields.
+        Clean messages by removing reasoning_content fields and filtering invalid tool messages.
         
         DeepSeek reasoner model requires that reasoning_content from previous
         responses is not included in subsequent requests. However, assistant messages
-        with tool_calls MUST retain their reasoning_content field.
+        with tool_calls MUST have their reasoning_content field (even if empty).
         
-        This method removes reasoning_content from:
-        - Final assistant responses (no tool_calls)
-        - But keeps reasoning_content in assistant messages with tool_calls
+        Also filters out tool messages that don't have a preceding assistant message
+        with matching tool_calls (prevents 400 errors from API).
+        
+        This method:
+        - Removes reasoning_content from final assistant responses (no tool_calls)
+        - Ensures assistant messages with tool_calls have reasoning_content field
+          (adds empty string if missing, preserves existing value if present)
+        - Filters out orphaned tool messages (no preceding assistant with tool_calls)
         
         Args:
             messages: List of message dictionaries (may contain reasoning_content)
             
         Returns:
-            New list of messages with reasoning_content removed from final responses only
+            New list of messages with reasoning_content properly handled and invalid tool messages removed
         """
         cleaned = []
-        for msg in messages:
+        last_assistant_with_tool_calls = None  # Track last assistant message with tool_calls and its tool_call_ids
+        
+        for i, msg in enumerate(messages):
             # Create a copy to avoid mutating the original
             cleaned_msg = msg.copy()
             role = cleaned_msg.get("role")
             
-            # Only remove reasoning_content from assistant messages that DON'T have tool_calls
-            # Assistant messages with tool_calls MUST keep reasoning_content (API requirement)
-            if role == "assistant" and "reasoning_content" in cleaned_msg:
+            # Handle assistant messages
+            if role == "assistant":
                 # Check if this assistant message has tool_calls
                 has_tool_calls = "tool_calls" in cleaned_msg and cleaned_msg.get("tool_calls")
                 
-                # Remove reasoning_content only if it's a final response (no tool_calls)
-                if not has_tool_calls:
-                    del cleaned_msg["reasoning_content"]
-                # If it has tool_calls, keep reasoning_content (required by API)
+                if has_tool_calls:
+                    # Assistant messages with tool_calls MUST have reasoning_content field (API requirement)
+                    # Add it if missing (set to empty string), preserve if present
+                    if "reasoning_content" not in cleaned_msg:
+                        cleaned_msg["reasoning_content"] = ""
+                        logger.debug(
+                            f"Added missing reasoning_content field to assistant message with tool_calls at index {i}",
+                            extra={
+                                "event": "reasoning_content_added_to_message",
+                                "message_index": i,
+                                "has_tool_calls": True,
+                            }
+                        )
+                    # Track this assistant message and its tool_call_ids
+                    tool_calls = cleaned_msg.get("tool_calls", [])
+                    tool_call_ids = [tc.get("id") for tc in tool_calls if isinstance(tc, dict) and tc.get("id")]
+                    last_assistant_with_tool_calls = {"index": i, "tool_call_ids": set(tool_call_ids)}
+                    # If reasoning_content exists, keep it (required by API)
+                else:
+                    # Final assistant response (no tool_calls) - remove reasoning_content
+                    if "reasoning_content" in cleaned_msg:
+                        del cleaned_msg["reasoning_content"]
+                    # Reset tracking when we hit an assistant without tool_calls
+                    last_assistant_with_tool_calls = None
+            elif role == "tool":
+                # Validate tool message: must have a preceding assistant message with matching tool_calls
+                tool_call_id = cleaned_msg.get("tool_call_id")
+                if tool_call_id and last_assistant_with_tool_calls:
+                    # Check if this tool_call_id matches one from the last assistant with tool_calls
+                    if tool_call_id in last_assistant_with_tool_calls["tool_call_ids"]:
+                        # Valid tool message - keep it
+                        cleaned.append(cleaned_msg)
+                    else:
+                        # Orphaned tool message - skip it
+                        logger.warning(
+                            f"Filtering out orphaned tool message at index {i} with tool_call_id '{tool_call_id}'. "
+                            f"Last assistant with tool_calls was at index {last_assistant_with_tool_calls['index']} "
+                            f"with tool_call_ids: {last_assistant_with_tool_calls['tool_call_ids']}"
+                        )
+                        continue
+                elif tool_call_id:
+                    # Tool message with no preceding assistant with tool_calls - skip it
+                    logger.warning(
+                        f"Filtering out orphaned tool message at index {i} with tool_call_id '{tool_call_id}'. "
+                        "No preceding assistant message with tool_calls found."
+                    )
+                    continue
+                else:
+                    # Tool message without tool_call_id - skip it (invalid)
+                    logger.warning(
+                        f"Filtering out tool message at index {i} without tool_call_id."
+                    )
+                    continue
             elif "reasoning_content" in cleaned_msg:
                 # Remove from non-assistant messages (shouldn't have it, but clean it anyway)
                 del cleaned_msg["reasoning_content"]
             
-            cleaned.append(cleaned_msg)
+            # Only append if we didn't skip it (tool messages are conditionally appended above)
+            if role != "tool":
+                cleaned.append(cleaned_msg)
+        
         return cleaned
     
     @staticmethod
@@ -405,6 +494,8 @@ class DeepSeekClient:
         
         DeepSeek reasoner model does not support consecutive user or assistant messages.
         Messages must alternate between user and assistant (with system/tool messages allowed).
+        
+        Also validates that tool messages follow an assistant message with tool_calls.
         
         Note: Assistant messages after tool messages are allowed (tool execution is between them).
         
@@ -416,17 +507,61 @@ class DeepSeekClient:
         """
         last_role = None
         last_was_tool = False
+        last_assistant_with_tool_calls = None  # Track last assistant message with tool_calls
         
-        for msg in messages:
+        for i, msg in enumerate(messages):
             role = msg.get("role")
             # Skip system messages (they don't count for interleaving)
             if role == "system":
                 continue
             
-            # Tool messages reset the last_role tracking (allow assistant after tool)
+            # Validate tool messages: must follow an assistant message with tool_calls
             if role == "tool":
+                tool_call_id = msg.get("tool_call_id")
+                if tool_call_id:
+                    # Check if there's a preceding assistant message with this tool_call_id
+                    found_preceding = False
+                    for j in range(i - 1, -1, -1):
+                        prev_msg = messages[j]
+                        prev_role = prev_msg.get("role")
+                        if prev_role == "system":
+                            continue
+                        if prev_role == "assistant":
+                            prev_tool_calls = prev_msg.get("tool_calls")
+                            if prev_tool_calls and isinstance(prev_tool_calls, list):
+                                # Check if this tool_call_id is in the assistant's tool_calls
+                                for tc in prev_tool_calls:
+                                    if isinstance(tc, dict) and tc.get("id") == tool_call_id:
+                                        found_preceding = True
+                                        last_assistant_with_tool_calls = i - 1
+                                        break
+                                if found_preceding:
+                                    break
+                            # If assistant doesn't have tool_calls, stop looking
+                            break
+                        elif prev_role == "tool":
+                            # Continue looking past tool messages
+                            continue
+                        else:
+                            # Hit a user message, stop looking
+                            break
+                    
+                    if not found_preceding:
+                        logger.error(
+                            f"Tool message at index {i} with tool_call_id '{tool_call_id}' "
+                            "has no preceding assistant message with matching tool_calls. "
+                            "This will cause a 400 error from the API."
+                        )
+                        return False
+                
                 last_was_tool = True
                 continue
+            
+            # Track assistant messages with tool_calls
+            if role == "assistant":
+                tool_calls = msg.get("tool_calls")
+                if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
+                    last_assistant_with_tool_calls = i
             
             # Check for consecutive user or assistant messages
             # Exception: assistant after tool is allowed

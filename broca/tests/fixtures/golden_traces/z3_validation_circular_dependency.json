@@ -1,0 +1,26 @@
+{
+  "description": "Golden trace for Z3 circular dependency detection",
+  "input": {
+    "goals": [
+      {
+        "name": "goal_A",
+        "dependencies": ["goal_B"]
+      },
+      {
+        "name": "goal_B",
+        "dependencies": ["goal_A"]
+      }
+    ]
+  },
+  "expected_output": {
+    "is_valid": false,
+    "error": "Circular goal dependencies detected: goal_A -> goal_B -> goal_A",
+    "warnings": []
+  },
+  "metadata": {
+    "z3_available": true,
+    "validation_type": "goal_dependencies",
+    "cycle_detected": true
+  }
+}
+

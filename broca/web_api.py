@@ -3,60 +3,110 @@ from uuid import uuid4
 from datetime import datetime, timezone
 import json
 import logging
+import os
 import time
+from pathlib import Path
 
 import psutil
-from fastapi import FastAPI, HTTPException, Body
+import threading
+from fastapi import FastAPI, HTTPException, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 import uvicorn
 
 from .main_repl_runtime import initialize_runtime, BrocaRuntime
 from .repl.session import ConversationSession
+from .reasoning.plan_exec_assess_loop import LoopPhase
+
+# Import ResponseAnalyzer for internal sensing integration
+try:
+    from .internal_sensing.response_analyzer import ResponseAnalyzer
+except ImportError:
+    ResponseAnalyzer = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
 # Global runtime components (shared)
 _runtime: Optional[BrocaRuntime] = None
+PROJECT_ROOT: Path = Path(__file__).parent.parent.resolve()
 
 app = FastAPI(title="BrocaOS Web API")
 
-# --- Activity / Metrics State ---
-LAST_WORK_TS: float = 0.0
-ACTIVE_REQUESTS: int = 0
 
-
-def mark_work() -> None:
-    """Mark that the system is actively processing work.
-
-    Updates the last-activity timestamp used by /api/metrics to decide
-    whether the system is in a WORKING vs IDLE state for the NeuralCore.
+class RequestState:
     """
-    global LAST_WORK_TS
-    LAST_WORK_TS = time.time()
+    Thread-safe request state tracking.
+    
+    Tracks active requests and last work timestamp with proper synchronization
+    for multi-worker/async FastAPI deployments.
+    """
+    
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._last_work_ts: float = 0.0
+        self._active_requests: int = 0
+    
+    def mark_work(self) -> None:
+        """Mark that the system is actively processing work."""
+        with self._lock:
+            self._last_work_ts = time.time()
+    
+    def begin_request(self) -> None:
+        """Mark the start of a request that may involve tools / cognition."""
+        with self._lock:
+            self._active_requests += 1
+            self._last_work_ts = time.time()
+    
+    def end_request(self) -> None:
+        """Mark the end of an active request."""
+        with self._lock:
+            if self._active_requests > 0:
+                self._active_requests -= 1
+            self._last_work_ts = time.time()
+    
+    def get_metrics(self, recent_window: float = 5.0) -> Dict[str, Any]:
+        """
+        Get current metrics in a thread-safe way.
+        
+        Args:
+            recent_window: Time window in seconds to consider recent work
+            
+        Returns:
+            Dictionary with metrics including is_working flag
+        """
+        now_sec = time.time()
+        with self._lock:
+            active_requests = self._active_requests
+            last_work_ts = self._last_work_ts
+        
+        is_working = active_requests > 0 or (now_sec - last_work_ts) < recent_window
+        
+        return {
+            "active_requests": active_requests,
+            "last_work_ts": last_work_ts,
+            "is_working": is_working,
+        }
+
+
+# Singleton instance for request state
+_request_state = RequestState()
+
+
+# Convenience functions for backward compatibility
+def mark_work() -> None:
+    """Mark that the system is actively processing work."""
+    _request_state.mark_work()
 
 
 def begin_request() -> None:
-    """Mark the start of a request that may involve tools / cognition.
-
-    Increments ACTIVE_REQUESTS and updates the last-work timestamp.
-    """
-    global ACTIVE_REQUESTS
-    ACTIVE_REQUESTS += 1
-    mark_work()
+    """Mark the start of a request that may involve tools / cognition."""
+    _request_state.begin_request()
 
 
 def end_request() -> None:
-    """Mark the end of an active request.
-
-    Decrements ACTIVE_REQUESTS (safely) and bumps last-work timestamp so
-    the system remains in WORKING state briefly after completion.
-    """
-    global ACTIVE_REQUESTS
-    if ACTIVE_REQUESTS > 0:
-        ACTIVE_REQUESTS -= 1
-    mark_work()
+    """Mark the end of an active request."""
+    _request_state.end_request()
 
 
 
@@ -99,10 +149,13 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     messages: List[Message]
     stream: bool = False
+    web_search: bool = True
+    include_rl_signals: bool = False  # Include RL signal metrics in response
 
 class ChatResponse(BaseModel):
     conversation_id: str
     reply: Message
+    rl_signals: Optional[Dict[str, Any]] = None  # RL signal metrics if requested
 
 class TitleUpdate(BaseModel):
     title: str
@@ -121,52 +174,196 @@ def get_storage():
 
 def create_session(conversation_id: str) -> ConversationSession:
     rt = get_runtime()
+    
+    # Extract PEA loop managers from reasoning_tool if available
+    goal_manager = None
+    skill_manager = None
+    experience_logger = None
+    
+    if rt.reasoning_tool:
+        if hasattr(rt.reasoning_tool, 'goal_manager'):
+            goal_manager = rt.reasoning_tool.goal_manager
+        if hasattr(rt.reasoning_tool, 'learning_tool') and rt.reasoning_tool.learning_tool:
+            if hasattr(rt.reasoning_tool.learning_tool, 'skill_manager'):
+                skill_manager = rt.reasoning_tool.learning_tool.skill_manager
+            if hasattr(rt.reasoning_tool.learning_tool, 'experience_logger'):
+                experience_logger = rt.reasoning_tool.learning_tool.experience_logger
+    
     session = ConversationSession.from_storage(
         session_id=conversation_id,
         storage=rt.conversation_storage,
         tool_registry=rt.tool_registry,
         internal_sensing_framework=rt.internal_sensing,
-        world_state_aggregator=rt.world_state_aggregator
+        world_state_aggregator=rt.world_state_aggregator,
+        goal_manager=goal_manager,
+        skill_manager=skill_manager,
+        experience_logger=experience_logger,
     )
     return session
 
 def generate_title(user_message: str) -> str:
-    """Generate a short, punchy title using the LLM."""
+    """Generate a short, punchy title using the LLM.
+    
+    Note: This function blocks and should be called in a background thread/task.
+    For non-blocking usage, use update_conversation_title_async() instead.
+    
+    Uses direct LLM call to avoid tool access and PFREA loop interference.
+    This is a legitimate bypass because:
+    - Simple LLM call with no tool usage
+    - No planning or execution required
+    - No state changes or side effects
+    - Fast, stateless operation
+    """
+    # Log PFREA bypass
+    try:
+        from .reasoning.pfrea_tracker import get_pfrea_tracker, PFREAEventType
+        tracker = get_pfrea_tracker()
+        if tracker:
+            tracker.record_bypass(
+                reason="title_generation",
+                justification="Simple LLM call with no tool usage or planning required. Stateless operation with no side effects.",
+                context={"user_message_preview": user_message[:50]}
+            )
+    except Exception as e:
+        logger.debug(f"Could not record PFREA bypass: {e}")
+    
+    logger.info(
+        "PFREA: Bypassed for title generation (legitimate - no planning needed)",
+        extra={
+            "event": "pfrea_bypass",
+            "reason": "title_generation",
+            "justification": "Simple LLM call with no tool usage or planning required",
+            "session_id": None,  # No session for this operation
+        }
+    )
+    
     rt = get_runtime()
     prompt = f"Generate a very short (max 5 words), punchy title for a conversation that starts with: '{user_message}'. Return ONLY the title text, no quotes or punctuation."
+    
+    # Use direct LLM call to avoid tool access and session overhead
+    # Make system prompt very explicit to prevent PFREA loop behavior
+    system_prompt = (
+        "You are a simple title generator. Your ONLY task is to generate a short title (3-5 words).\n\n"
+        "CRITICAL RULES:\n"
+        "1. DO NOT create a plan, forecast, or any structured response\n"
+        "2. DO NOT use any tools or make tool calls\n"
+        "3. DO NOT write explanations, steps, assumptions, or any other text\n"
+        "4. Return ONLY the title text itself (3-5 words)\n"
+        "5. No quotes, no punctuation, no markdown, no formatting\n"
+        "6. Just the title words, nothing else\n\n"
+        "Example: If asked for a title about 'Hello world', return: Hello World\n"
+        "NOT: 'Hello World' or ## Hello World or any other format.\n\n"
+        "Remember: ONLY the title text, nothing else."
+    )
+    
     try:
-        # Use a clean session for title generation
-        temp_session = ConversationSession(llm=rt.session.llm)
-        title = temp_session.send(prompt, stream=False)
-        return title.strip().strip('"').strip("'")
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        
+        # Direct LLM call - no session, no tools, no PFREA loop
+        # Note: Temperature handling (including gpt-5 model compatibility) is handled by the LLM client
+        response = rt.session.llm.chat(messages, temperature=0.7)
+        title = rt.session.llm.extract_assistant_content(response)
+        
+        if not title:
+            return user_message[:40] + "..."
+        
+        # Extract title from response - handle cases where LLM returns extra content
+        title = title.strip()
+        
+        # Remove markdown formatting
+        title = title.replace("**", "").replace("*", "").replace("#", "").strip()
+        
+        # If response contains structured sections (Plan, Forecast, etc.), extract just the title
+        # Look for the last line that's short and looks like a title
+        lines = [line.strip() for line in title.split('\n') if line.strip()]
+        
+        # Filter out lines that look like structured sections
+        title_candidates = []
+        skip_keywords = ['plan', 'forecast', 'goal', 'steps', 'assumptions', 'expected', 
+                        'feasibility', 'predicted', 'risks', 'issues', 'recommendations',
+                        'assumptions', 'outcomes', 'score']
+        
+        for line in lines:
+            line_lower = line.lower()
+            # Skip lines that start with section headers
+            if any(line_lower.startswith(kw + ':') or line_lower.startswith('## ' + kw) 
+                   for kw in skip_keywords):
+                continue
+            # Skip lines that are just numbers or bullets
+            if line.strip().startswith(('1.', '2.', '3.', '4.', '5.', '-', '*')):
+                continue
+            # Keep short lines that look like titles (3-5 words, no colons after first word)
+            words = line.split()
+            if 2 <= len(words) <= 6:
+                # Check if it's not a structured field (no colons except maybe at very end)
+                if ':' not in line or line.count(':') == 1 and line.endswith(':'):
+                    title_candidates.append(line)
+        
+        # If we found title candidates, use the last one (most likely to be the actual title)
+        if title_candidates:
+            title = title_candidates[-1]
+        else:
+            # Fallback: use the last line that's reasonably short
+            for line in reversed(lines):
+                words = line.split()
+                if 2 <= len(words) <= 8:
+                    # Remove any trailing punctuation/formatting
+                    title = line.rstrip('.,;:!?')
+                    break
+        
+        # Final cleanup
+        title = title.strip().strip('"').strip("'").strip()
+        # Remove any remaining markdown or special characters at start/end
+        title = title.lstrip('#').strip()
+        
+        # If title is still too long or contains structured content, use first few words
+        words = title.split()
+        if len(words) > 6:
+            title = ' '.join(words[:5])
+        
+        # Final validation - if it looks like structured content, fall back to user message
+        if any(kw in title.lower() for kw in ['plan', 'forecast', 'goal:', 'steps:', 'feasibility']):
+            logger.warning(f"Title generation returned structured content, using fallback")
+            return user_message[:40] + "..."
+        
+        return title if title and len(title) > 0 else user_message[:40] + "..."
     except Exception as e:
-        logger.warning(f"Failed to generate title: {e}")
+        logger.warning(f"Failed to generate title: {e}", exc_info=True)
         return user_message[:40] + "..."
+
+
+def update_conversation_title_async(conversation_id: str, user_message: str) -> None:
+    """Update conversation title asynchronously in background."""
+    try:
+        title = generate_title(user_message)
+        storage = get_storage()
+        data = storage.load_conversation(conversation_id)
+        if data:
+            metadata = data.get("metadata", {})
+            metadata["title"] = title
+            metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+            storage.save_conversation(conversation_id, data.get("messages", []), metadata)
+            logger.debug(f"Updated conversation title asynchronously: {title}")
+    except Exception as e:
+        logger.warning(f"Failed to update conversation title asynchronously: {e}", exc_info=True)
 
 
 @app.get("/api/metrics")
 async def metrics():
-    """System + activity metrics for NeuralCore.
-
-    Returns CPU, memory pressure, uptime, and a boolean isWorking flag
-    based on recent chat activity, matching the shape expected by the
-    NeuralCore visualization in broca-www.
-    """
-    # Live CPU usage as fraction [0,1]
     cpu_percent = psutil.cpu_percent(interval=0.1) / 100.0
-
-    # Memory pressure: used / total
     vm = psutil.virtual_memory()
     mem_pressure = vm.used / vm.total if vm.total else 0.0
-
-    # Uptime: seconds since boot
     boot_time = psutil.boot_time()
     now_sec = time.time()
     uptime = int(now_sec - boot_time)
-
-    # "Working" if there is an active request OR recent activity
-    RECENT_WINDOW = 5.0  # seconds
-    is_working = ACTIVE_REQUESTS > 0 or (now_sec - LAST_WORK_TS) < RECENT_WINDOW
+    RECENT_WINDOW = 5.0
+    
+    # Get thread-safe metrics
+    state_metrics = _request_state.get_metrics(recent_window=RECENT_WINDOW)
+    is_working = state_metrics["is_working"]
 
     return {
         "cpu": max(0.0, min(cpu_percent, 1.0)),
@@ -175,6 +372,308 @@ async def metrics():
         "isWorking": is_working,
         "timestamp": int(now_sec * 1000),
     }
+
+
+@app.get("/api/cognitive-architecture/health")
+async def get_system_health():
+    """Get system health status from health monitor."""
+    rt = get_runtime()
+    if not rt.system_health_monitor:
+        raise HTTPException(status_code=503, detail="System health monitoring not enabled")
+    
+    try:
+        health_report = rt.system_health_monitor.assess_health()
+        return {
+            "overall_health": health_report.overall_health,
+            "status": health_report.status.value,
+            "stability_score": health_report.stability_score,
+            "issues": [{"severity": issue.severity.value, "message": issue.message} for issue in health_report.issues],
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting system health: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/cognitive-architecture/statistics")
+async def get_cognitive_architecture_stats():
+    """Get statistics from all cognitive architecture components."""
+    rt = get_runtime()
+    stats = {}
+    
+    # Hierarchical control stats
+    if rt.hierarchical_controller:
+        try:
+            control_stats = rt.hierarchical_controller.get_control_statistics()
+            if control_stats.get("status") != "no_data":
+                stats["hierarchical_control"] = control_stats
+        except Exception as e:
+            logger.debug(f"Error getting hierarchical control stats: {e}")
+    
+    # Recursive reasoning stats
+    if rt.recursive_reasoning_engine:
+        try:
+            reasoning_stats = rt.recursive_reasoning_engine.get_statistics()
+            if reasoning_stats.get("status") != "no_data":
+                stats["recursive_reasoning"] = reasoning_stats
+        except Exception as e:
+            logger.debug(f"Error getting recursive reasoning stats: {e}")
+    
+    # Metacognitive loops stats
+    if rt.metacognitive_loop:
+        try:
+            meta_stats = rt.metacognitive_loop.get_statistics()
+            if meta_stats.get("status") != "no_data":
+                stats["metacognitive"] = meta_stats
+        except Exception as e:
+            logger.debug(f"Error getting metacognitive stats: {e}")
+    
+    # Nested feedback stats
+    if rt.nested_feedback_system:
+        try:
+            feedback_stats = rt.nested_feedback_system.get_statistics()
+            stats["nested_feedback"] = feedback_stats
+        except Exception as e:
+            logger.debug(f"Error getting nested feedback stats: {e}")
+    
+    # System dynamics stats
+    if rt.system_dynamics:
+        try:
+            dynamics_stats = rt.system_dynamics.get_statistics()
+            if dynamics_stats.get("status") != "no_data":
+                stats["system_dynamics"] = dynamics_stats
+        except Exception as e:
+            logger.debug(f"Error getting system dynamics stats: {e}")
+    
+    # System health stats
+    if rt.system_health_monitor:
+        try:
+            health_report = rt.system_health_monitor.assess_health()
+            stats["system_health"] = {
+                "overall_health": health_report.overall_health,
+                "status": health_report.status.value,
+                "stability_score": health_report.stability_score,
+                "issues_count": len(health_report.issues)
+            }
+        except Exception as e:
+            logger.debug(f"Error getting system health stats: {e}")
+    
+    # MPC controller stats
+    if rt.mpc_controller:
+        try:
+            mpc_stats = rt.mpc_controller.get_statistics()
+            if mpc_stats.get("status") != "no_data":
+                stats["mpc_control"] = mpc_stats
+        except Exception as e:
+            logger.debug(f"Error getting MPC controller stats: {e}")
+    
+    # Distributed control stats
+    if rt.distributed_control:
+        try:
+            dist_stats = rt.distributed_control.get_statistics()
+            stats["distributed_control"] = dist_stats
+        except Exception as e:
+            logger.debug(f"Error getting distributed control stats: {e}")
+    
+    # Recursive improvement stats
+    if rt.recursive_improvement:
+        try:
+            improvement_stats = rt.recursive_improvement.get_statistics()
+            stats["recursive_improvement"] = improvement_stats
+        except Exception as e:
+            logger.debug(f"Error getting recursive improvement stats: {e}")
+    
+    return {
+        "components": stats,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
+
+class CognitiveQueryRequest(BaseModel):
+    query: str
+    include_z3_validation: bool = True
+    include_affective_state: bool = True
+    include_thought_process: bool = True
+    include_memory_traversal: bool = False
+    include_rl_signals: bool = False  # Include RL signal metrics in response
+
+class CognitiveQueryResponse(BaseModel):
+    response: str
+    thought_process: List[Dict[str, Any]] = []
+    z3_validation: Optional[Dict[str, Any]] = None
+    affective_state: Optional[Dict[str, Any]] = None
+    memory_traversal: Optional[Dict[str, Any]] = None
+    rl_signals: Optional[Dict[str, Any]] = None  # RL signal metrics if requested
+    processing_time_ms: int
+
+@app.post("/api/cognitive/query", response_model=CognitiveQueryResponse)
+async def cognitive_query(req: CognitiveQueryRequest):
+    """Process a cognitive query with full introspection."""
+    # Import config locally at the very start to avoid scoping issues
+    from .config import config as app_config
+    
+    begin_request()
+    start_time = time.time()
+    try:
+        rt = get_runtime()
+        
+        # Extract PEA loop managers from reasoning_tool if available
+        goal_manager = None
+        skill_manager = None
+        experience_logger = None
+        
+        if rt.reasoning_tool:
+            if hasattr(rt.reasoning_tool, 'goal_manager'):
+                goal_manager = rt.reasoning_tool.goal_manager
+            if hasattr(rt.reasoning_tool, 'learning_tool') and rt.reasoning_tool.learning_tool:
+                if hasattr(rt.reasoning_tool.learning_tool, 'skill_manager'):
+                    skill_manager = rt.reasoning_tool.learning_tool.skill_manager
+                if hasattr(rt.reasoning_tool.learning_tool, 'experience_logger'):
+                    experience_logger = rt.reasoning_tool.learning_tool.experience_logger
+        
+        # Create a temporary session for this query
+        temp_session = ConversationSession(
+            llm=rt.session.llm,
+            tool_registry=rt.tool_registry,
+            internal_sensing_framework=rt.internal_sensing,
+            world_state_aggregator=rt.world_state_aggregator,
+            goal_manager=goal_manager,
+            skill_manager=skill_manager,
+            experience_logger=experience_logger,
+        )
+        
+        # Get the response
+        response_text = temp_session.send(req.query, stream=False)
+        
+        # Build response with introspection data
+        result = {
+            "response": response_text,
+            "thought_process": [],
+            "processing_time_ms": int((time.time() - start_time) * 1000)
+        }
+        
+        # Add Z3 validation if requested and available
+        if req.include_z3_validation and hasattr(rt, 'z3_validator') and rt.z3_validator:
+            try:
+                # This would be implemented in the Z3 validator
+                pass
+            except Exception as e:
+                logger.warning(f"Z3 validation failed: {e}")
+        
+        # Add affective state if requested
+        if req.include_affective_state and rt.internal_sensing:
+            try:
+                affective_state = rt.internal_sensing.get_current_affective_state()
+                if affective_state:
+                    result["affective_state"] = affective_state
+            except Exception as e:
+                logger.warning(f"Affective state retrieval failed: {e}")
+        
+        # Add RL signals if requested
+        if req.include_rl_signals and rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
+            reasoning_tool = rt.world_state_aggregator.reasoning_tool
+            if reasoning_tool and hasattr(reasoning_tool, 'feedback_loop_manager'):
+                feedback_loop_manager = reasoning_tool.feedback_loop_manager
+                if feedback_loop_manager and feedback_loop_manager.rl_signals_enabled and feedback_loop_manager.rl_signal_aggregator:
+                    try:
+                        # Get affective state for RL signals
+                        affective_state = None
+                        if rt.internal_sensing:
+                            try:
+                                affective_state = rt.internal_sensing.get_current_affective_state()
+                            except Exception:
+                                pass
+                        
+                        # Get prediction error if available
+                        prediction_error = None
+                        if rt.internal_sensing and hasattr(rt.internal_sensing.interoception, 'predictive'):
+                            try:
+                                prediction_error = rt.internal_sensing.interoception.predictive.get_rl_prediction_error_signal()
+                            except Exception:
+                                pass
+                        
+                        # Compute RL signals
+                        rl_metrics = feedback_loop_manager.rl_signal_aggregator.compute_signals(
+                            affective_state=affective_state,
+                            prediction_error=prediction_error,
+                        )
+                        
+                        # Prepare RL signals data for response
+                        result["rl_signals"] = {
+                            "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                            "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                            "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                            "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                            "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                            "composite_reward": round(rl_metrics.composite_reward, 3),
+                            "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
+                            "weights": {
+                                "dissonance": rl_metrics.weight_dissonance,
+                                "surprise": rl_metrics.weight_surprise,
+                                "curiosity": rl_metrics.weight_curiosity,
+                                "info_gain": rl_metrics.weight_info_gain,
+                                "coherence": rl_metrics.weight_coherence,
+                            }
+                        }
+                        
+                        # Apply RL feedback
+                        try:
+                            from .reasoning.feedback_loop import FeedbackMetrics
+                            feedback_metrics = FeedbackMetrics(window_size=1)
+                            feedback_loop_manager._apply_rl_feedback(
+                                feedback_metrics,
+                                emotional_state=affective_state
+                            )
+                        except Exception as e:
+                            logger.debug(f"Error applying RL feedback in cognitive query: {e}", exc_info=True)
+                            
+                    except Exception as e:
+                        logger.warning(f"Error computing RL signals in cognitive query: {e}", exc_info=True)
+        
+        # Add memory traversal if requested
+        if req.include_memory_traversal and rt.memory_manager:
+            try:
+                # Get memories related to the query
+                memories = rt.memory_manager.retrieve_memories(req.query, limit=10)
+                if memories:
+                    result["memory_traversal"] = {
+                        "retrieved_memories": [
+                            {
+                                "id": m.id,
+                                "text": m.text[:200] + "..." if len(m.text) > 200 else m.text,
+                                "relevance": m.relevance_score if hasattr(m, 'relevance_score') else 0.5,
+                                "namespace": m.namespace
+                            }
+                            for m in memories
+                        ],
+                        "relationships_found": len(memories)
+                    }
+            except Exception as e:
+                logger.warning(f"Memory traversal failed: {e}")
+        
+        return CognitiveQueryResponse(**result)
+        
+    finally:
+        end_request()
+@app.post("/api/cognitive-architecture/reconfigure")
+async def trigger_reconfiguration():
+    """Trigger system reconfiguration (if authorized)."""
+    rt = get_runtime()
+    if not rt.reconfiguration_manager:
+        raise HTTPException(status_code=503, detail="Reconfiguration not enabled")
+    
+    try:
+        result = rt.reconfiguration_manager.reconfigure()
+        return {
+            "success": result.success,
+            "changes": result.changes if result.success else [],
+            "message": result.message,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error triggering reconfiguration: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/conversations", response_model=NewConversationResponse)
@@ -235,6 +734,13 @@ async def load_conversation(conversation_id: str) -> LoadConversationResponse:
     raw_msgs = data.get("messages", [])
     msgs = []
     for m in raw_msgs:
+        # Filter out SYSTEM DIRECTIVE messages - these are internal system warnings
+        # and should not be exposed via the API
+        if m.get("role") == "user":
+            content = m.get("content", "")
+            if content and "[SYSTEM DIRECTIVE" in content:
+                continue  # Skip this message
+        
         if "content" not in m:
             m["content"] = ""
         msgs.append(Message(**m))
@@ -261,51 +767,531 @@ async def delete_conversation(conversation_id: str):
     storage.delete_conversation(conversation_id)
     return {"success": True}
 
-def stream_response(conversation_id: str, user_message: str) -> Generator[str, None, None]:
+def stream_response(conversation_id: str, user_message: str, web_search_enabled: bool = True, include_rl_signals: bool = False) -> Generator[str, None, None]:
+    # Import config locally at the very start to avoid scoping issues
+    # This ensures config is available before any methods that might import it locally
+    from .config import config as app_config
+    
     rt = get_runtime()
     storage = get_storage()
     session = create_session(conversation_id)
+    
+    # Log PFREA initialization in stream_response
+    if session.pfrea_loop:
+        try:
+            current_phase = session.pfrea_loop.current_phase
+            logger.info(
+                f"PFREA: stream_response initialized - Current phase: {current_phase}",
+                extra={
+                    "event": "pfrea_stream_init",
+                    "phase": str(current_phase),
+                    "conversation_id": conversation_id,
+                }
+            )
+        except Exception as e:
+            logger.debug(f"Error logging PFREA initialization in stream_response: {e}", exc_info=True)
+    else:
+        logger.warning(
+            "PFREA: stream_response - PFREA loop not initialized",
+            extra={
+                "event": "pfrea_missing",
+                "conversation_id": conversation_id,
+            }
+        )
+    
+    # Ensure PEA loop managers are wired (in case they weren't available during create_session)
+    if session.pea_loop and rt.reasoning_tool:
+        goal_manager = None
+        skill_manager = None
+        experience_logger = None
+        
+        if hasattr(rt.reasoning_tool, 'goal_manager'):
+            goal_manager = rt.reasoning_tool.goal_manager
+        if hasattr(rt.reasoning_tool, 'learning_tool') and rt.reasoning_tool.learning_tool:
+            if hasattr(rt.reasoning_tool.learning_tool, 'skill_manager'):
+                skill_manager = rt.reasoning_tool.learning_tool.skill_manager
+            if hasattr(rt.reasoning_tool.learning_tool, 'experience_logger'):
+                experience_logger = rt.reasoning_tool.learning_tool.experience_logger
+        
+        if goal_manager or skill_manager or experience_logger:
+            session.wire_pea_loop_managers(
+                goal_manager=goal_manager,
+                skill_manager=skill_manager,
+                experience_logger=experience_logger,
+            )
 
-    # Mark that we're actively processing a streaming user chat request
     mark_work()
+    
+    user_text = user_message
+    if session.internal_sensing_framework and ResponseAnalyzer:
+        try:
+            topics = ResponseAnalyzer.extract_topics(user_text, session.messages[-5:])
+            for topic, level in topics.items():
+                session.internal_sensing_framework.interoception.cognition.record_attention(
+                    topic, level
+                )
+            
+            response_id = f"response_{len(session.messages) + 1}"
+            session._current_response_id = response_id
+            session.internal_sensing_framework.interoception.physiology._record_operation_start(
+                response_id
+            )
+            
+            session.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
+                session.messages
+            )
+            session.internal_sensing_framework._last_sample_time = 0.0
+            session.internal_sensing_framework.sample_internal_state()
+        except Exception as e:
+            logger.debug(f"Error in pre-LLM instrumentation: {e}", exc_info=True)
     
     session.messages.append({"role": "user", "content": user_message})
     
+    # PFREA Control Loop: Reset for new goal and enforce planning if needed
+    loop = session.pfrea_loop or session.pea_loop
+    forecast_enabled = True
+    if hasattr(app_config, 'reasoning') and hasattr(app_config.reasoning, 'pfrea_forecast_enabled'):
+        forecast_enabled = app_config.reasoning.pfrea_forecast_enabled
+    
+    if loop:
+        # Reset for new goal if this is a new user message
+        if loop.current_phase is None or loop.current_phase == LoopPhase.COMPLETE:
+            loop.reset_for_new_goal(user_text)
+            if not hasattr(session, '_forecast_directive_count'):
+                session._forecast_directive_count = 0
+            session._forecast_directive_count = 0  # Reset forecast directive counter for new goal
+            logger.info(
+                "PFREA: Reset for new goal in stream_response",
+                extra={
+                    "event": "pfrea_reset_new_goal",
+                    "conversation_id": conversation_id,
+                    "user_message": user_text[:100] if user_text else None,
+                }
+            )
+        
+        # Check if planning should be enforced
+        if loop and loop.should_require_plan(user_text, has_tool_calls=False):
+            planning_directive = loop.enforce_planning_phase(user_text)
+            # CRITICAL: Set phase to PLAN when enforcing planning
+            loop.current_phase = LoopPhase.PLAN
+            # Update user message in messages list
+            if session.messages and session.messages[-1].get("role") == "user":
+                session.messages[-1]["content"] = planning_directive
+            
+            logger.info(
+                "PFREA: Planning phase enforced at conversation start in stream_response",
+                extra={
+                    "event": "pfrea_planning_enforced_start",
+                    "conversation_id": conversation_id,
+                    "current_phase": loop.current_phase.value if loop.current_phase else "None",
+                    "phase_set": loop.current_phase == LoopPhase.PLAN,
+                    "has_plan": loop.current_plan is not None,
+                }
+            )
+    
     try:
-        tools = rt.tool_registry.to_openai_format() if rt.tool_registry else None
+        # Gather context for tool filtering/ranking if guidance is enabled
+        context = None
+        if (rt.tool_registry and 
+            hasattr(rt.tool_registry, 'tool_selection_guidance') and
+            rt.tool_registry.tool_selection_guidance is not None):
+            try:
+                if app_config and app_config.tools.pre_filtering_enabled:
+                    context = rt.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+            except Exception as e:
+                logger.debug(f"Error gathering context for tool filtering in web_api: {e}", exc_info=True)
+        
+        tools = rt.tool_registry.to_openai_format(context=context) if rt.tool_registry else None
+        
+        if tools and not web_search_enabled:
+            tools = [t for t in tools if t["function"]["name"] != "web_search"]
+            logger.info("Web search tool disabled for this request")
         
         iterations = 0
-        while iterations < 10:
+        last_warning_iteration = 0
+        max_iterations = 100  # Match session.send() max iterations
+        assistant_text = None
+        last_response = None
+        
+        while iterations < max_iterations:
             iterations += 1
             session._update_system_prompt()
             messages_for_llm = session._get_messages_for_llm()
             
-            # Use chat() to detect tool calls
-            response = session.llm.chat(messages_for_llm, tools=tools)
+            # Check for loop conditions and inject warnings if needed (same as session.send())
+            warning_thresholds = [10, 20, 30, 50, 75, 90]
+            should_warn = False
+            warning_message = None
             
-            tool_calls = session.llm.extract_tool_calls(response)
-            if tool_calls:
-                # Execute tools one by one and yield call/result pairs for visual auditing
-                for tc in tool_calls:
-                    # Create a specific assistant message for this tool call to ensure interleaved storage
-                    interleaved_assistant_msg = {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [tc]
-                    }
-                    session.messages.append(interleaved_assistant_msg)
+            for threshold in warning_thresholds:
+                if iterations >= threshold and last_warning_iteration < threshold:
+                    should_warn = True
+                    last_warning_iteration = threshold
                     
-                    # Yield tool call
+                    # Detect loops using session's method
+                    loop_info = session._detect_tool_call_loop(iterations) if hasattr(session, '_detect_tool_call_loop') else None
+                    
+                    # Generate warning message based on severity
+                    if iterations >= 75:
+                        severity = "CRITICAL"
+                        urgency = "MUST"
+                    elif iterations >= 50:
+                        severity = "CRITICAL"
+                        urgency = "MUST"
+                    elif iterations >= 30:
+                        severity = "HIGH"
+                        urgency = "should"
+                    else:
+                        severity = "MEDIUM"
+                        urgency = "should"
+                    
+                    if loop_info:
+                        tool_name = loop_info["tool_name"]
+                        repeat_count = loop_info["repeat_count"]
+                        pattern = loop_info["pattern_description"]
+                        warning_message = (
+                            f"[SYSTEM DIRECTIVE - {severity} WARNING] You are on iteration {iterations}. "
+                            f"A loop has been detected: {pattern}. You {urgency} break out of this loop. "
+                            "Review the tool results you've received and either:\n"
+                            "- Make different tool calls if you need different information\n"
+                            "- Provide your final comprehensive response to the user if you have enough information\n"
+                            "Do not continue making the same tool calls repeatedly. The system automatically continues "
+                            "after tool results - you should review results and respond accordingly."
+                        )
+                    else:
+                        if iterations >= 50:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] Very high iteration count ({iterations}). "
+                                f"You {urgency} provide a final response to the user. Review all tool results you've received "
+                                "and provide a comprehensive answer. The system automatically continues after tool results - "
+                                "you should respond with your final answer, not wait for user input."
+                            )
+                        elif iterations >= 30:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] High iteration count ({iterations}). "
+                                "You may be stuck in a loop. Review tool results and either make different tool calls "
+                                "if needed, or provide your final response. The system automatically continues - "
+                                "you should respond based on tool results, not wait for user prompts."
+                            )
+                        else:
+                            warning_message = (
+                                f"[SYSTEM DIRECTIVE - {severity} WARNING] You're on iteration {iterations}. "
+                                "Consider if your current approach is working. If you're making progress with tool calls, continue. "
+                                "If you have enough information from tool results, provide your final response. "
+                                "Remember: the system automatically continues after tool results - review them and respond accordingly."
+                            )
+                    break
+            
+            if should_warn and warning_message:
+                session.messages.append({"role": "user", "content": warning_message})
+                logger.warning(
+                    f"Injected loop warning at iteration {iterations}",
+                    extra={
+                        "event": "loop_warning_injected",
+                        "iteration": iterations,
+                        "warning_threshold": last_warning_iteration,
+                    }
+                )
+            
+            # PFREA enforcement: Check if we're in the correct phase before LLM call
+            # Re-get loop reference (may have changed)
+            loop = session.pfrea_loop or session.pea_loop
+            if loop:
+                try:
+                    current_phase = loop.current_phase
+                    loop_state = loop.get_loop_state()
+                    
+                    logger.info(
+                        f"PFREA: stream_response iteration {iterations} - Current phase: {current_phase}",
+                        extra={
+                            "event": "pfrea_phase_check",
+                            "iteration": iterations,
+                            "phase": str(current_phase),
+                            "conversation_id": conversation_id,
+                        }
+                    )
+                    
+                    # Log PFREA state
+                    if hasattr(loop, 'pfrea_tracker') and loop.pfrea_tracker:
+                        metrics = loop.pfrea_tracker.get_current_metrics()
+                        logger.debug(
+                            f"PFREA metrics: compliance_score={metrics.compliance_score:.3f}, "
+                            f"phase_transitions={metrics.phase_transitions_count}",
+                            extra={
+                                "event": "pfrea_metrics",
+                                "compliance_score": metrics.compliance_score,
+                                "phase_transitions": metrics.phase_transitions_count,
+                            }
+                        )
+                except Exception as e:
+                    logger.debug(f"Error checking PFREA state in stream_response: {e}", exc_info=True)
+            
+            response = session.llm.chat(messages_for_llm, tools=tools)
+            last_response = response  # Store for max_iterations handling
+            tool_calls = session.llm.extract_tool_calls(response)
+            
+            # Extract assistant content (intermediary commentary) before processing tool calls
+            assistant_content = session.llm.extract_assistant_content(response) or None
+            assistant_text = assistant_content  # Track for plan/forecast extraction
+            
+            # PFREA Control Loop: Extract plan from response if we don't have one yet
+            if loop and assistant_text and loop.current_plan is None:
+                plan = loop.extract_plan_from_response(assistant_text)
+                if plan:
+                    loop.current_plan = plan
+                    # Phase should already be PLAN if we enforced planning, but set it to be sure
+                    if loop.current_phase != LoopPhase.PLAN:
+                        loop.current_phase = LoopPhase.PLAN
+                    logger.info(
+                        f"PFREA: Extracted plan from response in stream_response: {plan.plan_id}",
+                        extra={
+                            "event": "pfrea_plan_extracted_stream",
+                            "conversation_id": conversation_id,
+                            "plan_id": plan.plan_id,
+                            "goal": plan.goal,
+                            "steps_count": len(plan.steps),
+                            "iteration": iterations,
+                            "z3_verified": plan.z3_verification.get("is_logically_sound", True) if plan.z3_verification else None,
+                        }
+                    )
+                    if not hasattr(session, '_forecast_directive_count'):
+                        session._forecast_directive_count = 0
+                    session._forecast_directive_count = 0  # Reset counter when plan is extracted
+                    # If forecast is enabled, transition to FORECAST phase
+                    if forecast_enabled and not tool_calls:
+                        loop.current_phase = LoopPhase.FORECAST
+                        forecast_directive = loop.enforce_forecast_phase(plan)
+                        session.messages.append({"role": "user", "content": forecast_directive})
+                        session._forecast_directive_count = 1  # First forecast directive injection
+                        logger.info(
+                            "PFREA: Plan extracted, requesting forecast in stream_response",
+                            extra={
+                                "event": "pfrea_forecast_requested_stream",
+                                "conversation_id": conversation_id,
+                                "plan_id": plan.plan_id,
+                                "iteration": iterations,
+                            }
+                        )
+                        continue  # Loop back to get forecast
+                    elif not forecast_enabled:
+                        # Forecast disabled, go straight to EXECUTE
+                        loop.current_phase = LoopPhase.EXECUTE
+                        logger.info(
+                            "PFREA: Forecast disabled, proceeding to execution in stream_response",
+                            extra={
+                                "event": "pfrea_forecast_skipped_disabled_stream",
+                                "conversation_id": conversation_id,
+                                "plan_id": plan.plan_id,
+                            }
+                        )
+            
+            # PFREA Control Loop: Try to extract forecast even when tool_calls are present (fallback)
+            if loop and loop.current_phase == LoopPhase.FORECAST and loop.current_plan and assistant_text:
+                forecast = loop.extract_forecast_from_response(assistant_text)
+                if forecast:
+                    loop.current_forecast = forecast
+                    loop.forecast_history.append(forecast)
+                    logger.info(
+                        f"PFREA: Extracted forecast from response in stream_response (feasibility={forecast.feasibility_score:.2f})",
+                        extra={
+                            "event": "pfrea_forecast_extracted_stream",
+                            "conversation_id": conversation_id,
+                            "plan_id": forecast.plan_id,
+                            "feasibility_score": forecast.feasibility_score,
+                            "should_replan": forecast.should_replan,
+                            "iteration": iterations,
+                        }
+                    )
+                    if not hasattr(session, '_forecast_directive_count'):
+                        session._forecast_directive_count = 0
+                    session._forecast_directive_count = 0  # Reset counter
+                    
+                    # Check if re-planning is needed
+                    if loop.should_replan_after_forecast(forecast):
+                        loop.current_phase = LoopPhase.RE_PLAN
+                        replan_directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
+                        session.messages.append({"role": "user", "content": replan_directive})
+                        logger.info(
+                            "PFREA: Forecast indicates re-planning needed in stream_response",
+                            extra={
+                                "event": "pfrea_replan_triggered_stream",
+                                "conversation_id": conversation_id,
+                                "plan_id": forecast.plan_id,
+                                "feasibility_score": forecast.feasibility_score,
+                                "iteration": iterations,
+                            }
+                        )
+                        continue  # Loop back to get replan
+                    else:
+                        # Forecast approved, transition to EXECUTE
+                        loop.current_phase = LoopPhase.EXECUTE
+                        logger.info(
+                            "PFREA: Forecast approved, proceeding to execution in stream_response",
+                            extra={
+                                "event": "pfrea_execution_approved_stream",
+                                "conversation_id": conversation_id,
+                                "plan_id": forecast.plan_id,
+                                "feasibility_score": forecast.feasibility_score,
+                                "iteration": iterations,
+                            }
+                        )
+                        # Continue to allow tool execution
+            
+            if session.internal_sensing_framework and tool_calls:
+                try:
+                    processing_depth = len(tool_calls) + iterations - 1
+                    session.internal_sensing_framework.interoception.cognition.record_processing_depth(
+                        f"turn_{iterations}", processing_depth
+                    )
+                except Exception as e:
+                    logger.debug(f"Error tracking processing depth: {e}", exc_info=True)
+            
+            if tool_calls:
+                # PFREA Control Loop: Check if we can execute actions (mandatory enforcement)
+                if loop:
+                    # Block tool execution if required phases are not complete
+                    if not loop.can_execute_actions(forecast_enabled=forecast_enabled):
+                        # Inject appropriate phase directive
+                        if loop.should_require_plan(user_text, has_tool_calls=True):
+                            directive = loop.enforce_planning_phase(user_text)
+                            session.messages.append({"role": "user", "content": directive})
+                            logger.warning(
+                                "PFREA: Blocked tool execution - planning required in stream_response",
+                                extra={
+                                    "event": "pfrea_execution_blocked_stream",
+                                    "reason": "planning_required",
+                                    "conversation_id": conversation_id,
+                                    "iteration": iterations,
+                                    "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    "current_phase": loop.current_phase.value if loop.current_phase else None,
+                                }
+                            )
+                            continue  # Loop back to get plan
+                        elif loop.should_require_forecast():
+                            # Loop protection: prevent infinite loops
+                            if not hasattr(session, '_forecast_directive_count'):
+                                session._forecast_directive_count = 0
+                            if session._forecast_directive_count >= 3:
+                                logger.error(
+                                    "PFREA: Forecast directive injected 3 times, skipping forecast to prevent infinite loop in stream_response",
+                                    extra={
+                                        "event": "pfrea_forecast_loop_protection_stream",
+                                        "conversation_id": conversation_id,
+                                        "iteration": iterations,
+                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    }
+                                )
+                                # Skip forecast and proceed to EXECUTE (graceful degradation)
+                                loop.current_forecast = None  # Mark as skipped
+                                loop.current_phase = LoopPhase.EXECUTE
+                                logger.warning(
+                                    "PFREA: Skipped forecast phase due to loop protection, proceeding to execution in stream_response",
+                                    extra={
+                                        "event": "pfrea_forecast_skipped_stream",
+                                        "conversation_id": conversation_id,
+                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    }
+                                )
+                                # Continue to allow tool execution
+                            else:
+                                session._forecast_directive_count += 1
+                                directive = loop.enforce_forecast_phase(loop.current_plan)
+                                session.messages.append({"role": "user", "content": directive})
+                                logger.warning(
+                                    f"PFREA: Blocked tool execution - forecast required (attempt {session._forecast_directive_count}/3) in stream_response",
+                                    extra={
+                                        "event": "pfrea_execution_blocked_stream",
+                                        "reason": "forecast_required",
+                                        "conversation_id": conversation_id,
+                                        "iteration": iterations,
+                                        "attempt": session._forecast_directive_count,
+                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    }
+                                )
+                                continue  # Loop back to get forecast
+                        elif loop.should_require_replan():
+                            # Re-plan based on forecast
+                            forecast = loop.current_forecast
+                            directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
+                            loop.current_phase = LoopPhase.RE_PLAN
+                            session.messages.append({"role": "user", "content": directive})
+                            logger.warning(
+                                "PFREA: Blocked tool execution - re-planning required in stream_response",
+                                extra={
+                                    "event": "pfrea_execution_blocked_stream",
+                                    "reason": "replanning_required",
+                                    "conversation_id": conversation_id,
+                                    "iteration": iterations,
+                                    "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    "forecast_feasibility": forecast.feasibility_score if forecast else None,
+                                }
+                            )
+                            continue  # Loop back to get replan
+                    else:
+                        # Execution allowed
+                        logger.info(
+                            f"PFREA: Tool execution ALLOWED in stream_response (iteration {iterations})",
+                            extra={
+                                "event": "pfrea_execution_allowed_stream",
+                                "iteration": iterations,
+                                "phase": str(loop.current_phase),
+                                "conversation_id": conversation_id,
+                                "tool_calls_count": len(tool_calls),
+                            }
+                        )
+                        
+                        # Record execution in PFREA tracker
+                        if hasattr(loop, 'pfrea_tracker'):
+                            loop.pfrea_tracker.record_execution_allowed()
+                
+                # Log tool calls detected for automatic continuation
+                tool_names = [tc.get("function", {}).get("name", "unknown") for tc in tool_calls]
+                logger.info(
+                    f"Tool calls detected in stream_response (iteration {iterations})",
+                    extra={
+                        "event": "tool_calls_detected",
+                        "tool_calls_count": len(tool_calls),
+                        "tool_names": tool_names,
+                        "iteration": iterations,
+                        "pfrea_execution_allowed": execution_allowed,
+                        "pfrea_blocked_reason": execution_blocked_reason,
+                    },
+                )
+                
+                # Note: We continue processing tool calls even if PFREA blocks them
+                # This maintains backward compatibility, but the violation is logged
+                # In a stricter implementation, we could skip tool execution here
+                
+                # Create single assistant message with all tool calls and content (preserves intermediary commentary)
+                # This matches session.send() behavior
+                assistant_message = {
+                    "role": "assistant",
+                    "content": assistant_content,  # Preserve intermediary commentary
+                    "tool_calls": tool_calls,
+                }
+                session.messages.append(assistant_message)
+                
+                # Process each tool call and yield streaming events
+                for tc in tool_calls:
                     yield json.dumps({
                         "type": "tool_call",
                         "tool_call": tc,
                         "conversation_id": conversation_id
                     }) + "\n"
                     
-                    # Execute tool
                     result_dict = rt.tool_registry.execute_tool_call(tc)
                     
-                    # Yield result
+                    # Verify tool result was properly added (logging for debugging)
+                    logger.debug(
+                        f"Tool result added in stream_response: {tc.get('function', {}).get('name', 'unknown')} (call_id: {tc.get('id', '')})",
+                        extra={
+                            "event": "tool_result_added",
+                            "tool_name": tc.get("function", {}).get("name", "unknown"),
+                            "tool_call_id": tc.get("id", ""),
+                            "messages_count": len(session.messages),
+                        }
+                    )
+                    
                     yield json.dumps({
                         "type": "tool_result",
                         "tool_call_id": tc["id"],
@@ -314,16 +1300,29 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                         "conversation_id": conversation_id
                     }) + "\n"
                     
-                    # Add tool result to history
                     session.messages.append(result_dict)
                 
-                # Continue loop to see if LLM wants to do more
+                # Verify automatic continuation - log that we're continuing after tool calls
+                tool_results_count = sum(1 for msg in session.messages if msg.get("role") == "tool")
+                logger.debug(
+                    f"Continuing after tool calls in stream_response: {len(tool_calls)} tool calls made, {tool_results_count} total tool results in messages",
+                    extra={
+                        "event": "auto_continuation_after_tools",
+                        "iteration": iterations,
+                        "tool_calls_count": len(tool_calls),
+                        "tool_results_count": tool_results_count,
+                        "messages_count": len(session.messages),
+                    }
+                )
+                
+                # Continue loop automatically after tool results (matches session.send() behavior)
                 continue
             else:
-                # Final response
+                # No tool calls - final response
                 content = session.llm.extract_assistant_content(response)
+                if not content:
+                    content = "I apologize, but I encountered an issue processing your request."
                 
-                # Yield in chunks to simulate streaming
                 chunk_size = 32
                 for i in range(0, len(content), chunk_size):
                     yield json.dumps({
@@ -333,31 +1332,364 @@ def stream_response(conversation_id: str, user_message: str) -> Generator[str, N
                     }) + "\n"
                 
                 session.messages.append({"role": "assistant", "content": content})
+                assistant_text = content
+                
+                # Measure cognitive dissonance and compute RL signals if available
+                rl_signals_data = None
+                if rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
+                    reasoning_tool = rt.world_state_aggregator.reasoning_tool
+                    if reasoning_tool:
+                        # Measure cognitive dissonance (NON-BLOCKING - runs in background)
+                        if hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
+                            cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
+                            if cognitive_dissonance_monitor and content:
+                                # Run in background thread to avoid blocking conversation
+                                import threading
+                                
+                                def measure_dissonance_async():
+                                    try:
+                                        logger.debug("Measuring cognitive dissonance from conversation (background thread)")
+                                        cognitive_dissonance_monitor.measure_dissonance_from_conversation(
+                                            response=content,
+                                            messages=session.messages
+                                        )
+                                        logger.debug("Cognitive dissonance measurement completed")
+                                    except Exception as e:
+                                        logger.warning(f"Error measuring cognitive dissonance in web_api (background): {e}", exc_info=True)
+                                
+                                # Start background thread (fire-and-forget)
+                                thread = threading.Thread(target=measure_dissonance_async, daemon=True)
+                                thread.start()
+                        
+                        # Compute RL signals if feedback loop manager is available
+                        if hasattr(reasoning_tool, 'feedback_loop_manager') and reasoning_tool.feedback_loop_manager:
+                            feedback_loop_manager = reasoning_tool.feedback_loop_manager
+                            if feedback_loop_manager.rl_signals_enabled and feedback_loop_manager.rl_signal_aggregator:
+                                try:
+                                    from .reasoning.rl_signals import RLSignalAggregator
+                                    
+                                    # Get affective state for RL signals
+                                    affective_state = None
+                                    if session.internal_sensing_framework:
+                                        try:
+                                            affective_state = session.internal_sensing_framework.get_current_affective_state()
+                                        except Exception:
+                                            pass
+                                    
+                                    # Get prediction error if available
+                                    prediction_error = None
+                                    if session.internal_sensing_framework and hasattr(session.internal_sensing_framework.interoception, 'predictive'):
+                                        try:
+                                            prediction_error = session.internal_sensing_framework.interoception.predictive.get_rl_prediction_error_signal()
+                                        except Exception:
+                                            pass
+                                    
+                                    # Compute RL signals
+                                    rl_metrics = feedback_loop_manager.rl_signal_aggregator.compute_signals(
+                                        affective_state=affective_state,
+                                        prediction_error=prediction_error,
+                                    )
+                                    
+                                    # Prepare RL signals data for response
+                                    rl_signals_data = {
+                                        "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                                        "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                                        "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                                        "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                                        "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                                        "composite_reward": round(rl_metrics.composite_reward, 3),
+                                        "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
+                                        "weights": {
+                                            "dissonance": rl_metrics.weight_dissonance,
+                                            "surprise": rl_metrics.weight_surprise,
+                                            "curiosity": rl_metrics.weight_curiosity,
+                                            "info_gain": rl_metrics.weight_info_gain,
+                                            "coherence": rl_metrics.weight_coherence,
+                                        }
+                                    }
+                                    
+                                    # Apply RL feedback if feedback loop manager is available
+                                    if hasattr(feedback_loop_manager, '_apply_rl_feedback'):
+                                        try:
+                                            from .reasoning.feedback_loop import FeedbackMetrics
+                                            # Create minimal feedback metrics for RL feedback
+                                            feedback_metrics = FeedbackMetrics(window_size=1)
+                                            feedback_loop_manager._apply_rl_feedback(
+                                                feedback_metrics,
+                                                emotional_state=affective_state
+                                            )
+                                        except Exception as e:
+                                            logger.debug(f"Error applying RL feedback in web_api: {e}", exc_info=True)
+                                    
+                                except Exception as e:
+                                    logger.warning(f"Error computing RL signals in web_api: {e}", exc_info=True)
+                
                 break
         
-        # Persist
+        # Handle max iterations reached (same as session.send())
+        if iterations >= max_iterations and not assistant_text:
+            logger.warning(
+                f"Reached max tool iterations ({max_iterations}) in stream_response",
+                extra={
+                    "event": "max_tool_iterations_reached",
+                    "max_iterations": max_iterations,
+                    "iteration": iterations,
+                },
+            )
+            # Try to extract any response content from last iteration
+            if last_response:
+                assistant_text = session.llm.extract_assistant_content(last_response) or "I apologize, but I encountered an issue processing your request."
+            else:
+                assistant_text = "I apologize, but I encountered an issue processing your request."
+            
+            # Stream the error message
+            chunk_size = 32
+            for i in range(0, len(assistant_text), chunk_size):
+                yield json.dumps({
+                    "type": "text",
+                    "content": assistant_text[i:i+chunk_size],
+                    "conversation_id": conversation_id
+                }) + "\n"
+            
+            session.messages.append({"role": "assistant", "content": assistant_text})
+        
+        if session.internal_sensing_framework and ResponseAnalyzer and 'assistant_text' in locals():
+            try:
+                response_id = getattr(session, "_current_response_id", f"response_{len(session.messages)}")
+                # Only record operation end if operation start was called (check if response_id exists in starts)
+                if hasattr(session.internal_sensing_framework.interoception.physiology, '_operation_starts'):
+                    if response_id in session.internal_sensing_framework.interoception.physiology._operation_starts:
+                        latency = session.internal_sensing_framework.interoception.physiology._record_operation_end(
+                            response_id
+                        )
+                    else:
+                        logger.debug(f"Skipping operation end for {response_id}: operation start not found")
+                        latency = None
+                else:
+                    latency = None
+                if latency is not None and latency > 0:
+                    normalized_latency = session.internal_sensing_framework.interoception.physiology._normalize_latency(
+                        latency
+                    )
+                    if normalized_latency is not None:
+                        session.internal_sensing_framework.interoception.physiology.metrics[
+                            "processing_latency"
+                        ] = normalized_latency
+                
+                confidence = None
+                uncertainty = None
+                if assistant_text:
+                    confidence = ResponseAnalyzer.estimate_confidence(assistant_text)
+                    if confidence is not None:
+                        session.internal_sensing_framework.interoception.cognition.record_confidence(
+                            response_id, confidence
+                        )
+                    else:
+                        session.internal_sensing_framework.interoception.cognition.record_confidence(
+                            response_id, 0.5
+                        )
+                        confidence = 0.5
+                    
+                    uncertainty = ResponseAnalyzer.detect_uncertainty(assistant_text)
+                    if uncertainty is not None:
+                        session.internal_sensing_framework.interoception.cognition.record_uncertainty(
+                            response_id, uncertainty
+                        )
+                else:
+                    session.internal_sensing_framework.interoception.cognition.record_confidence(
+                        response_id, 0.5
+                    )
+                    confidence = 0.5
+                    session.internal_sensing_framework.interoception.cognition.record_uncertainty(
+                        response_id, 0.0
+                    )
+                    uncertainty = 0.0
+                
+                if assistant_text:
+                    conversation_messages = session.messages + [
+                        {"role": "assistant", "content": assistant_text}
+                    ]
+                    session.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
+                        conversation_messages
+                    )
+                    
+                    arousal = ResponseAnalyzer.compute_arousal(assistant_text)
+                    if arousal is not None:
+                        session.internal_sensing_framework.interoception.affect.compute_arousal(arousal)
+                else:
+                    conversation_messages = [m for m in session.messages if m.get("role") in ("user", "assistant")]
+                    if conversation_messages:
+                        session.internal_sensing_framework.interoception.affect.compute_valence_from_conversation_history(
+                            conversation_messages
+                        )
+                    session.internal_sensing_framework.interoception.affect.compute_arousal(0.5)
+                
+                session.internal_sensing_framework.interoception.affect.update_from_cognitive(
+                    session.internal_sensing_framework.interoception.cognition
+                )
+                
+                session.internal_sensing_framework.interoception.cognition.record_reasoning_step(
+                    f"step_{response_id}",
+                    {
+                        "premise": user_text[:100] if session.messages else "",
+                        "conclusion": assistant_text[:100] if assistant_text else "[tool-only response]",
+                        "confidence": confidence,
+                    },
+                )
+                
+                fresh_state = session.internal_sensing_framework.sample_internal_state(force=True)
+                try:
+                    session.internal_sensing_framework.save_state()
+                except Exception as e:
+                    logger.warning(f"Failed to save state after sampling: {e}", exc_info=True)
+                
+                if session.world_state_aggregator and session._world_state_formatter:
+                    session._last_world_state_hash = None
+                    session._update_system_prompt()
+            except Exception as e:
+                logger.error(f"Error in post-processing instrumentation: {e}", exc_info=True)
+        
         data = storage.load_conversation(conversation_id)
         metadata = data.get("metadata", {}) if data else {}
         if metadata.get("title") == "New conversation":
-            metadata["title"] = generate_title(user_message)
+            # Don't block - title generation will happen in background thread
+            # Use default title for now, will be updated asynchronously
+            metadata["title"] = user_message[:40] + "..."
+            # Schedule title generation in background thread (non-blocking)
+            import threading
+            thread = threading.Thread(
+                target=update_conversation_title_async,
+                args=(conversation_id, user_message),
+                daemon=True
+            )
+            thread.start()
         metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
         storage.save_conversation(conversation_id, session.messages, metadata)
         
     except Exception as e:
         logger.error(f"Streaming error: {e}", exc_info=True)
+        error_content = f"\n[Error: {str(e)}]"
         yield json.dumps({
             "type": "text",
-            "content": f"\n[Error: {str(e)}]",
+            "content": error_content,
             "conversation_id": conversation_id
         }) + "\n"
+        assistant_text = error_content
     
-    yield json.dumps({
+    if 'assistant_text' not in locals():
+        assistant_text = None
+    
+    if 'session' in locals() and session.internal_sensing_framework and ResponseAnalyzer:
+        try:
+            response_id = getattr(session, "_current_response_id", f"response_{len(session.messages)}")
+            if assistant_text:
+                session.internal_sensing_framework.interoception.cognition.record_confidence(response_id, 0.5)
+                session.internal_sensing_framework.interoception.affect.compute_arousal(0.5)
+            session.internal_sensing_framework.sample_internal_state(force=True)
+            try:
+                session.internal_sensing_framework.save_state()
+            except Exception:
+                pass
+            if session.world_state_aggregator and session._world_state_formatter:
+                session._last_world_state_hash = None
+                session._update_system_prompt()
+        except Exception:
+            pass
+    
+    # Include RL signals in done message if requested
+    done_data = {
         "type": "done",
         "conversation_id": conversation_id
-    }) + "\n"
+    }
+    
+    # Add RL signals if requested and available
+    if include_rl_signals and 'session' in locals() and 'rt' in locals():
+        if rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
+            reasoning_tool = rt.world_state_aggregator.reasoning_tool
+            if reasoning_tool and hasattr(reasoning_tool, 'feedback_loop_manager'):
+                feedback_loop_manager = reasoning_tool.feedback_loop_manager
+                if feedback_loop_manager and feedback_loop_manager.rl_signals_enabled and feedback_loop_manager.rl_signal_aggregator:
+                    try:
+                        # Get affective state for RL signals
+                        affective_state = None
+                        if session.internal_sensing_framework:
+                            try:
+                                affective_state = session.internal_sensing_framework.get_current_affective_state()
+                            except Exception:
+                                pass
+                        
+                        # Get prediction error if available
+                        prediction_error = None
+                        if session.internal_sensing_framework and hasattr(session.internal_sensing_framework.interoception, 'predictive'):
+                            try:
+                                prediction_error = session.internal_sensing_framework.interoception.predictive.get_rl_prediction_error_signal()
+                            except Exception:
+                                pass
+                        
+                        # Compute RL signals
+                        rl_metrics = feedback_loop_manager.rl_signal_aggregator.compute_signals(
+                            affective_state=affective_state,
+                            prediction_error=prediction_error,
+                        )
+                        
+                        # Add RL signals to done message
+                        done_data["rl_signals"] = {
+                            "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                            "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                            "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                            "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                            "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                            "composite_reward": round(rl_metrics.composite_reward, 3),
+                            "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
+                            "weights": {
+                                "dissonance": rl_metrics.weight_dissonance,
+                                "surprise": rl_metrics.weight_surprise,
+                                "curiosity": rl_metrics.weight_curiosity,
+                                "info_gain": rl_metrics.weight_info_gain,
+                                "coherence": rl_metrics.weight_coherence,
+                            }
+                        }
+                        
+                        # Apply RL feedback
+                        try:
+                            from .reasoning.feedback_loop import FeedbackMetrics
+                            feedback_metrics = FeedbackMetrics(window_size=1)
+                            feedback_loop_manager._apply_rl_feedback(
+                                feedback_metrics,
+                                emotional_state=affective_state
+                            )
+                        except Exception as e:
+                            logger.debug(f"Error applying RL feedback in stream_response: {e}", exc_info=True)
+                            
+                    except Exception as e:
+                        logger.warning(f"Error computing RL signals in stream_response: {e}", exc_info=True)
+    
+    # Log PFREA completion in stream_response
+    if 'session' in locals() and session.pfrea_loop:
+        try:
+            current_phase = session.pfrea_loop.current_phase
+            if hasattr(session.pfrea_loop, 'pfrea_tracker'):
+                metrics = session.pfrea_loop.pfrea_tracker.get_current_metrics()
+                logger.info(
+                    f"PFREA: stream_response completed - Final phase: {current_phase}, "
+                    f"compliance_score={metrics.compliance_score:.3f}",
+                    extra={
+                        "event": "pfrea_stream_complete",
+                        "phase": str(current_phase),
+                        "conversation_id": conversation_id,
+                        "compliance_score": metrics.compliance_score,
+                    }
+                )
+        except Exception as e:
+            logger.debug(f"Error logging PFREA completion in stream_response: {e}", exc_info=True)
+    
+    yield json.dumps(done_data) + "\n"
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
+    # Import config locally at the very start to avoid scoping issues
+    from .config import config as app_config
+    
     begin_request()
     try:
         if not req.messages:
@@ -373,28 +1705,455 @@ async def chat(req: ChatRequest):
 
         if req.stream:
             return StreamingResponse(
-                stream_response(req.conversation_id, last.content),
+                stream_response(req.conversation_id, last.content, web_search_enabled=req.web_search, include_rl_signals=req.include_rl_signals),
                 media_type="application/x-ndjson"
             )
 
-        # Non-streaming
         session = create_session(req.conversation_id)
+        
+        # Ensure PEA loop managers are wired (in case they weren't available during create_session)
+        rt = get_runtime()
+        if session.pea_loop and rt.reasoning_tool:
+            goal_manager = None
+            skill_manager = None
+            experience_logger = None
+            
+            if hasattr(rt.reasoning_tool, 'goal_manager'):
+                goal_manager = rt.reasoning_tool.goal_manager
+            if hasattr(rt.reasoning_tool, 'learning_tool') and rt.reasoning_tool.learning_tool:
+                if hasattr(rt.reasoning_tool.learning_tool, 'skill_manager'):
+                    skill_manager = rt.reasoning_tool.learning_tool.skill_manager
+                if hasattr(rt.reasoning_tool.learning_tool, 'experience_logger'):
+                    experience_logger = rt.reasoning_tool.learning_tool.experience_logger
+            
+            if goal_manager or skill_manager or experience_logger:
+                session.wire_pea_loop_managers(
+                    goal_manager=goal_manager,
+                    skill_manager=skill_manager,
+                    experience_logger=experience_logger,
+                )
+        
         reply_text = session.send(last.content, stream=False)
+        
+        # Compute RL signals if requested and available
+        rl_signals_data = None
+        if req.include_rl_signals:
+            rt = get_runtime()
+            if rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
+                reasoning_tool = rt.world_state_aggregator.reasoning_tool
+                if reasoning_tool and hasattr(reasoning_tool, 'feedback_loop_manager'):
+                    feedback_loop_manager = reasoning_tool.feedback_loop_manager
+                    if feedback_loop_manager and feedback_loop_manager.rl_signals_enabled and feedback_loop_manager.rl_signal_aggregator:
+                        try:
+                            # Get affective state for RL signals
+                            affective_state = None
+                            if session.internal_sensing_framework:
+                                try:
+                                    affective_state = session.internal_sensing_framework.get_current_affective_state()
+                                except Exception:
+                                    pass
+                            
+                            # Get prediction error if available
+                            prediction_error = None
+                            if session.internal_sensing_framework and hasattr(session.internal_sensing_framework.interoception, 'predictive'):
+                                try:
+                                    prediction_error = session.internal_sensing_framework.interoception.predictive.get_rl_prediction_error_signal()
+                                except Exception:
+                                    pass
+                            
+                            # Compute RL signals
+                            rl_metrics = feedback_loop_manager.rl_signal_aggregator.compute_signals(
+                                affective_state=affective_state,
+                                prediction_error=prediction_error,
+                            )
+                            
+                            # Prepare RL signals data for response
+                            rl_signals_data = {
+                                "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                                "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                                "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                                "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                                "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                                "composite_reward": round(rl_metrics.composite_reward, 3),
+                                "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
+                                "weights": {
+                                    "dissonance": rl_metrics.weight_dissonance,
+                                    "surprise": rl_metrics.weight_surprise,
+                                    "curiosity": rl_metrics.weight_curiosity,
+                                    "info_gain": rl_metrics.weight_info_gain,
+                                    "coherence": rl_metrics.weight_coherence,
+                                }
+                            }
+                            
+                            # Apply RL feedback
+                            try:
+                                from .reasoning.feedback_loop import FeedbackMetrics
+                                feedback_metrics = FeedbackMetrics(window_size=1)
+                                feedback_loop_manager._apply_rl_feedback(
+                                    feedback_metrics,
+                                    emotional_state=affective_state
+                                )
+                            except Exception as e:
+                                logger.debug(f"Error applying RL feedback in chat endpoint: {e}", exc_info=True)
+                                
+                        except Exception as e:
+                            logger.warning(f"Error computing RL signals in chat endpoint: {e}", exc_info=True)
         
         storage = get_storage()
         data = storage.load_conversation(req.conversation_id)
         metadata = data.get("metadata", {}) if data else {}
         if metadata.get("title") == "New conversation":
-            metadata["title"] = generate_title(last.content)
+            # Don't block - use default title for now, generate proper title in background
+            metadata["title"] = last.content[:40] + "..."
+            # Schedule title generation as background task (non-blocking)
+            background_tasks.add_task(update_conversation_title_async, req.conversation_id, last.content)
         metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
         storage.save_conversation(req.conversation_id, session.messages, metadata)
         
         return ChatResponse(
             conversation_id=req.conversation_id,
-            reply=Message(role="assistant", content=reply_text)
+            reply=Message(role="assistant", content=reply_text),
+            rl_signals=rl_signals_data
         )
     finally:
         end_request()
 
+
+@app.get("/api/memories")
+async def get_memories(query: Optional[str] = None):
+    rt = get_runtime()
+    if not rt.memory_manager:
+        raise HTTPException(status_code=500, detail="Memory manager not initialized")
+    
+    if query:
+        results = rt.memory_manager.retrieve_memories(query, limit=50)
+    else:
+        results = rt.memory_manager.storage.get_recent_memories(limit=50)
+    
+    return {
+        "memories": [
+            {
+                "id": m.id,
+                "text": m.text,
+                "namespace": m.namespace,
+                "importance": m.importance,
+                "tags": m.tags,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "source": m.source.model_dump() if m.source else None
+            } for m in results
+        ]
+    }
+
+@app.get("/api/memories/graph")
+async def get_memory_graph(memory_ids: str, depth: int = 2):
+    """Get a subgraph of memory relationships."""
+    rt = get_runtime()
+    if not rt.memory_manager:
+        raise HTTPException(status_code=500, detail="Memory manager not initialized")
+    
+    try:
+        ids = [int(id_str) for id_str in memory_ids.split(",")]
+        graph = rt.memory_manager.relationships.get_relationship_graph(ids, depth=depth)
+        return graph
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/memories/{memory_id}/related")
+async def get_related_memories(memory_id: int, limit: int = 10):
+    rt = get_runtime()
+    if not rt.memory_manager:
+        raise HTTPException(status_code=500, detail="Memory manager not initialized")
+    
+    related = rt.memory_manager.relationships.get_related(memory_id, limit=limit)
+    return {
+        "related": [
+            {
+                "memory": {
+                    "id": m.id,
+                    "text": m.text,
+                    "namespace": m.namespace,
+                    "importance": m.importance,
+                    "tags": m.tags,
+                    "source": m.source.model_dump() if m.source else None
+                },
+                "relationship": {
+                    "type": rel.relation_type.value,
+                    "strength": rel.strength,
+                    "bidirectional": rel.bidirectional
+                }
+            } for m, rel in related
+        ]
+    }
+
+@app.get("/api/artifacts")
+async def get_artifacts():
+    workspace_root = PROJECT_ROOT
+    artifacts_dir = workspace_root / "artifacts"
+    
+    if not artifacts_dir.exists():
+        return {"artifacts": []}
+    
+    artifacts = []
+    for item in artifacts_dir.rglob("*"):
+        if item.name == ".gitkeep": continue
+        
+        rel_path = item.relative_to(workspace_root)
+        artifacts.append({
+            "name": item.name,
+            "path": str(rel_path),
+            "type": "directory" if item.is_dir() else "file",
+            "size": item.stat().st_size if item.is_file() else None,
+            "last_modified": datetime.fromtimestamp(item.stat().st_mtime, timezone.utc).isoformat()
+        })
+    
+    return {"artifacts": artifacts}
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="BrocaOS Web API Server")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--reload", action="store_true", default=True)
+    
+    args = parser.parse_args()
+    uvicorn.run("broca.web_api:app", host=args.host, port=args.port, reload=args.reload)
+
+class ProjectConfig(BaseModel):
+    root_path: str
+
+@app.get("/api/project/config")
+async def get_project_config():
+    global PROJECT_ROOT
+    return {"root_path": str(PROJECT_ROOT)}
+
+@app.post("/api/project/config")
+async def update_project_config(project_config: ProjectConfig):
+    """Update project configuration."""
+    global PROJECT_ROOT
+    new_path = Path(project_config.root_path).resolve()
+    if not new_path.exists():
+        raise HTTPException(status_code=400, detail="Path does not exist")
+    PROJECT_ROOT = new_path
+    return {"success": True, "root_path": str(PROJECT_ROOT)}
+
+# ===== REASONING & LEARNING TOOL ENDPOINTS =====
+
+class ToolExecutionRequest(BaseModel):
+    """Request to execute a tool."""
+    tool_name: str
+    action: str
+    parameters: Dict[str, Any] = {}
+
+class PriorityRequest(BaseModel):
+    """Request to add a priority."""
+    name: str
+    description: Optional[str] = None
+    importance: float = Field(0.5, ge=0.0, le=1.0)
+
+@app.post("/api/tools/execute")
+async def execute_tool(request: ToolExecutionRequest):
+    """Execute any registered tool directly."""
+    begin_request()
+    try:
+        rt = get_runtime()
+        tool = rt.tool_registry.get_tool(request.tool_name)
+        if not tool:
+            raise HTTPException(status_code=404, detail=f"Tool '{{request.tool_name}}' not found")
+        
+        result = tool.execute(request.action, **request.parameters)
+        
+        # Automatically observe tool execution for learning if learning_tool is available
+        if rt.tool_registry and rt.tool_registry.learning_tool:
+            try:
+                tool_call_data = {
+                    "name": request.tool_name,
+                    "parameters": {"action": request.action, **request.parameters}
+                }
+                success = result.get("success", True) if isinstance(result, dict) else True
+                result_data = {
+                    "success": success,
+                    "result": result
+                }
+                rt.tool_registry.learning_tool.execute("observe_tool_call", tool_call=tool_call_data, result=result_data)
+                logger.debug(f"Automatically observed tool execution '{request.tool_name}' for learning (web_api)")
+            except Exception as e:
+                logger.debug(f"Failed to observe tool execution for learning: {e}", exc_info=True)
+        
+        return result
+    finally:
+        end_request()
+
+@app.get("/api/tools")
+async def list_tools():
+    """List all available tools with descriptions."""
+    rt = get_runtime()
+    tools = rt.tool_registry.list_tools()
+    return [{
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": tool.parameters
+    } for tool in tools]
+
+@app.post("/api/priorities")
+async def add_priority(priority: PriorityRequest):
+    """Add a priority to the reasoning system."""
+    begin_request()
+    try:
+        rt = get_runtime()
+        reasoning = rt.tool_registry.get_tool("reasoning")
+        if not reasoning:
+            raise HTTPException(status_code=503, detail="Reasoning system not available")
+        
+        from datetime import datetime, timezone
+        
+        result = reasoning.execute("add_to_memory", memory_content={
+            "type": "priority",
+            "name": priority.name,
+            "description": priority.description or f"Manage {{priority.name}}",
+            "status": "active",
+            "importance": priority.importance,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        
+        return {
+            "success": True,
+            "priority": priority.name,
+            "importance": priority.importance,
+            "result": "Priority added to reasoning system"
+        }
+    finally:
+        end_request()
+
+@app.get("/api/priorities")
+async def list_priorities():
+    """List all priorities in the reasoning system."""
+    rt = get_runtime()
+    reasoning = rt.tool_registry.get_tool("reasoning")
+    if not reasoning:
+        raise HTTPException(status_code=503, detail="Reasoning system not available")
+    
+    result = reasoning.execute("retrieve_from_memory", 
+                             memory_pattern={"type": "priority"})
+    return result
+
+@app.get("/api/pfrea/metrics")
+async def get_pfrea_metrics():
+    """Get PFREA compliance metrics and audit trail."""
+    try:
+        from .reasoning.pfrea_tracker import get_pfrea_tracker
+        tracker = get_pfrea_tracker()
+        
+        if not tracker:
+            return {
+                "enabled": False,
+                "error": "PFREA tracker not available"
+            }
+        
+        metrics = tracker.get_metrics()
+        compliance_report = tracker.get_compliance_report()
+        
+        return {
+            "metrics": metrics,
+            "compliance_report": compliance_report,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Error getting PFREA metrics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error retrieving PFREA metrics: {str(e)}")
+
+@app.get("/api/pfrea/audit-trail")
+async def get_pfrea_audit_trail(
+    session_id: Optional[str] = None,
+    plan_id: Optional[str] = None,
+    limit: int = 100
+):
+    """Get PFREA audit trail of events."""
+    try:
+        from .reasoning.pfrea_tracker import get_pfrea_tracker, PFREAEventType
+        tracker = get_pfrea_tracker()
+        
+        if not tracker:
+            raise HTTPException(status_code=503, detail="PFREA tracker not available")
+        
+        audit_trail = tracker.get_audit_trail(
+            session_id=session_id,
+            plan_id=plan_id,
+            limit=limit
+        )
+        
+        return {
+            "events": audit_trail,
+            "count": len(audit_trail),
+            "filters": {
+                "session_id": session_id,
+                "plan_id": plan_id,
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting PFREA audit trail: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error retrieving audit trail: {str(e)}")
+
+@app.get("/api/cognitive-architecture/status")
+async def get_cognitive_status():
+    """Get comprehensive cognitive architecture status."""
+    rt = get_runtime()
+    from datetime import datetime, timezone
+    
+    status = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "components": {}
+    }
+    
+    # Get reasoning system status
+    reasoning = rt.tool_registry.get_tool("reasoning")
+    if reasoning:
+        try:
+            state_result = reasoning.execute("get_state")
+            status["components"]["reasoning"] = state_result.get("state", {})
+        except Exception as e:
+            status["components"]["reasoning"] = {"error": str(e)}
+    
+    # Get learning system status
+    learning = rt.tool_registry.get_tool("learning")
+    if learning:
+        try:
+            learning_result = learning.execute("get_learning_state")
+            status["components"]["learning"] = learning_result
+        except Exception as e:
+            status["components"]["learning"] = {"error": str(e)}
+    
+    # Count tools
+    if rt.tool_registry:
+        tools = rt.tool_registry.list_tools()
+        status["tools"] = {
+            "count": len(tools),
+            "available": [t.name for t in tools]
+        }
+    
+    return status
+
+@app.get("/api/reasoning/rules")
+async def list_reasoning_rules():
+    """List all production rules in the reasoning system."""
+    rt = get_runtime()
+    reasoning = rt.tool_registry.get_tool("reasoning")
+    if not reasoning:
+        raise HTTPException(status_code=503, detail="Reasoning system not available")
+    
+    result = reasoning.execute("list_rules")
+    return result
+
+@app.get("/api/reasoning/goals")
+async def list_reasoning_goals():
+    """List all active goals in the reasoning system."""
+    rt = get_runtime()
+    reasoning = rt.tool_registry.get_tool("reasoning")
+    if not reasoning:
+        raise HTTPException(status_code=503, detail="Reasoning system not available")
+    
+    result = reasoning.execute("get_goals")
+    return result

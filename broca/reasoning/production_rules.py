@@ -1,0 +1,410 @@
+"""
+Production rules for symbolic reasoning.
+
+Implements production rules (if-then rules) that can match patterns in
+working memory and execute actions (add/remove/modify memory, trigger
+tool calls, or modify goals).
+"""
+
+from __future__ import annotations
+
+import logging
+import json
+import threading
+from typing import Dict, Any, List, Optional, Union, Callable
+from enum import Enum
+from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from contextlib import contextmanager
+from .working_memory import WorkingMemory, WorkingMemoryItem
+
+logger = logging.getLogger(__name__)
+
+
+class RuleType(Enum):
+    """Types of production rules."""
+    INFERENCE = "inference"  # Adds new facts based on existing ones
+    ACTION = "action"       # Triggers actions or tool calls
+    GOAL = "goal"          # Creates or modifies goals
+    CONSTRAIN = "constraint" # Constrains possible actions
+    META = "meta"          # Rules about rules
+
+
+@dataclass
+class ProductionRule:
+    """
+    A production rule (if-then rule) for cognitive reasoning.
+    
+    Conditions are patterns to match against working memory.
+    Actions are executed when conditions are satisfied.
+    """
+    
+    name: str
+    conditions: List[Dict[str, Any]]  # List of condition patterns
+    actions: List[Dict[str, Any]]     # List of actions to execute
+    rule_type: RuleType = RuleType.INFERENCE
+    priority: float = 1.0  # Higher priority rules fire first
+    strength: float = 1.0  # Rule strength (for learning)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_fired: Optional[datetime] = None
+    fire_count: int = 0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert rule to dictionary representation."""
+        return {
+            "name": self.name,
+            "conditions": self.conditions,
+            "actions": self.actions,
+            "rule_type": self.rule_type.value,
+            "priority": self.priority,
+            "strength": self.strength,
+            "created_at": self.created_at.isoformat(),
+            "last_fired": self.last_fired.isoformat() if self.last_fired else None,
+            "fire_count": self.fire_count,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> ProductionRule:
+        """Create rule from dictionary representation."""
+        return cls(
+            name=data["name"],
+            conditions=data["conditions"],
+            actions=data["actions"],
+            rule_type=RuleType(data.get("rule_type", "inference")),
+            priority=data.get("priority", 1.0),
+            strength=data.get("strength", 1.0),
+            created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else datetime.now(timezone.utc),
+            last_fired=datetime.fromisoformat(data["last_fired"]) if data.get("last_fired") else None,
+            fire_count=data.get("fire_count", 0),
+        )
+    
+    def matches(self, working_memory: WorkingMemory) -> bool:
+        """
+        Check if rule conditions match working memory.
+        
+        This is a simple implementation - in practice, you'd want
+        a pattern matcher that can handle variables, negation, etc.
+        """
+        # Simple matching: check if each condition exists in working memory
+        for condition in self.conditions:
+            # Look for pattern in working memory items
+            found = False
+            for wm_item in working_memory.items:
+                if self._pattern_matches(condition, wm_item.content):
+                    found = True
+                    break
+            if not found:
+                return False
+        return True
+    
+    def _pattern_matches(self, pattern: Union[Dict[str, Any], str], content: Union[Dict[str, Any], str]) -> bool:
+        """Check if pattern matches memory content."""
+        # Handle None values
+        if pattern is None or content is None:
+            return False
+        
+        # Handle string patterns
+        if isinstance(pattern, str):
+            if isinstance(content, str):
+                # String-to-string comparison
+                return pattern == content
+            elif isinstance(content, dict):
+                # String pattern against dict content: convert dict to string for comparison
+                content_str = str(content)
+                return pattern in content_str or pattern == content_str
+            else:
+                # String pattern against other types: convert both to string
+                return str(pattern) == str(content)
+        
+        # Handle string content with dict pattern
+        if isinstance(content, str):
+            # Dict pattern can't match string content
+            return False
+        
+        # Both should be dicts at this point, but check to be safe
+        if not isinstance(pattern, dict) or not isinstance(content, dict):
+            return False
+        
+        # Simple equality check for dict-to-dict matching
+        # TODO: Implement pattern matching with variables, wildcards, etc.
+        for key, value in pattern.items():
+            if key not in content:
+                return False
+            if isinstance(value, dict) and isinstance(content[key], dict):
+                # Recursive check for nested dicts
+                if not self._pattern_matches(value, content[key]):
+                    return False
+            elif value != content[key]:
+                return False
+        return True
+    
+    def execute(self, working_memory: WorkingMemory, context: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """
+        Execute rule actions.
+        
+        Returns list of results from executed actions.
+        """
+        context = context or {}
+        results = []
+        
+        for action in self.actions:
+            action_type = action.get("type", "add_to_memory")
+            action_result = self._execute_action(action_type, action, working_memory, context)
+            results.append(action_result)
+        
+        # Update rule statistics
+        self.last_fired = datetime.now(timezone.utc)
+        self.fire_count += 1
+        
+        logger.debug(f"Rule '{self.name}' fired (count: {self.fire_count})")
+        return results
+    
+    def _execute_action(self, action_type: str, action: Dict[str, Any], 
+                       working_memory: WorkingMemory, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute specific action type."""
+        if action_type == "add_to_memory":
+            # Add new fact to working memory
+            content = action.get("content", {})
+            working_memory.add(content)
+            return {"type": "add_to_memory", "content": content}
+        
+        elif action_type == "remove_from_memory":
+            # Remove matching items from working memory
+            pattern = action.get("pattern", {})
+            removed = working_memory.remove_matching(pattern)
+            return {"type": "remove_from_memory", "pattern": pattern, "removed_count": removed}
+        
+        elif action_type == "modify_memory":
+            # Modify matching items in working memory
+            pattern = action.get("pattern", {})
+            modification = action.get("modification", {})
+            modified = working_memory.modify_matching(pattern, modification)
+            return {"type": "modify_memory", "pattern": pattern, "modification": modification, "modified_count": modified}
+        
+        elif action_type == "trigger_tool":
+            # Trigger a tool call (queued for execution)
+            tool_name = action.get("tool_name")
+            parameters = action.get("parameters", {})
+            working_memory.queue_tool_call(tool_name, parameters)
+            return {"type": "trigger_tool", "tool_name": tool_name, "parameters": parameters}
+        
+        elif action_type == "create_goal":
+            # Create a new goal
+            goal_data = action.get("goal", {})
+            working_memory.add_goal(goal_data)
+            return {"type": "create_goal", "goal": goal_data}
+        
+        elif action_type == "log_message":
+            # Log a message
+            message = action.get("message", "")
+            logger.info(f"Rule '{self.name}': {message}")
+            return {"type": "log_message", "message": message}
+        
+        else:
+            logger.warning(f"Unknown action type: {action_type}")
+            return {"type": "unknown", "action": action}
+
+
+class ProductionRuleSystem:
+    """
+    System for managing and executing production rules.
+    
+    Maintains a set of rules, selects rules to fire based on
+    working memory, and executes rule actions.
+    """
+    
+    def __init__(self, working_memory: Optional[WorkingMemory] = None):
+        self.rules: List[ProductionRule] = []
+        self.working_memory = working_memory or WorkingMemory()
+        self.rule_history: List[Dict[str, Any]] = []
+        self.learning_enabled: bool = True
+        
+        # Thread safety for state synchronization
+        self._state_lock = threading.RLock()
+        
+        # Default inference rules
+        self._add_default_rules()
+    
+    @contextmanager
+    def acquire_state_lock(self, timeout: Optional[float] = None):
+        """
+        Context manager for acquiring state lock.
+        
+        Args:
+            timeout: Optional timeout in seconds (None = no timeout)
+        """
+        acquired = self._state_lock.acquire(timeout=timeout)
+        if not acquired:
+            raise TimeoutError(f"Failed to acquire state lock within {timeout}s")
+        try:
+            yield
+        finally:
+            self._state_lock.release()
+    
+    def _add_default_rules(self):
+        """Add default inference rules."""
+        # Rule: If we have a goal to implement something, create subgoal to analyze codebase
+        self.add_rule(ProductionRule(
+            name="goal_to_analyze_codebase",
+            conditions=[
+                {"type": "goal", "goal_type": "implementation", "status": "active"}
+            ],
+            actions=[
+                {
+                    "type": "create_goal",
+                    "goal": {
+                        "name": "analyze_codebase",
+                        "description": "Analyze codebase structure for implementation",
+                        "priority": 0.8,
+                        "dependencies": [],
+                        "status": "active"
+                    }
+                }
+            ],
+            rule_type=RuleType.GOAL,
+            priority=1.5
+        ))
+        
+        # Rule: If analyzing codebase and haven't examined files, create file examination subgoal
+        self.add_rule(ProductionRule(
+            name="analyze_codebase_files",
+            conditions=[
+                {"type": "goal", "name": "analyze_codebase", "status": "active"},
+                {"type": "memory", "content_type": "codebase_analysis", "status": "not_started"}
+            ],
+            actions=[
+                {
+                    "type": "create_goal", 
+                    "goal": {
+                        "name": "examine_files",
+                        "description": "Examine key files in codebase",
+                        "priority": 0.9,
+                        "dependencies": ["analyze_codebase"],
+                        "status": "active"
+                    }
+                }
+            ],
+            rule_type=RuleType.GOAL,
+            priority=1.2
+        ))
+        
+        # Rule: If we need to examine files, trigger file listing tool
+        self.add_rule(ProductionRule(
+            name="examine_files_trigger",
+            conditions=[
+                {"type": "goal", "name": "examine_files", "status": "active"},
+                {"type": "state", "files_examined": False}
+            ],
+            actions=[
+                {
+                    "type": "trigger_tool",
+                    "tool_name": "terminal",
+                    "parameters": {"command": "find . -name '*.py' -type f | head -20"}
+                }
+            ],
+            rule_type=RuleType.ACTION,
+            priority=1.0
+        ))
+        
+        # Rule: Inference - If multiple related memories, create synthesis
+        self.add_rule(ProductionRule(
+            name="synthesize_related_memories",
+            conditions=[
+                {"type": "memory", "tags": {"contains": "related"}},
+                {"type": "state", "synthesis_created": False}
+            ],
+            actions=[
+                {
+                    "type": "add_to_memory",
+                    "content": {
+                        "type": "synthesis",
+                        "description": "Synthesis of related memories",
+                        "source": "inference_rule",
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                }
+            ],
+            rule_type=RuleType.INFERENCE,
+            priority=0.8
+        ))
+    
+    def add_rule(self, rule: ProductionRule):
+        """Add a rule to the system."""
+        with self._state_lock:
+            self.rules.append(rule)
+            logger.debug(f"Added rule: {rule.name}")
+    
+    def remove_rule(self, rule_name: str):
+        """Remove a rule by name."""
+        with self._state_lock:
+            self.rules = [r for r in self.rules if r.name != rule_name]
+    
+    def match_rules(self) -> List[ProductionRule]:
+        """Find rules whose conditions match current working memory."""
+        matched_rules = []
+        for rule in self.rules:
+            try:
+                if rule.matches(self.working_memory):
+                    matched_rules.append(rule)
+            except Exception as e:
+                logger.error(f"Error matching rule '{rule.name}': {e}")
+                continue
+        
+        # Sort by priority (highest first), then strength
+        matched_rules.sort(key=lambda r: (r.priority, r.strength), reverse=True)
+        return matched_rules
+    
+    def execute_cycle(self, max_rules: int = 5) -> List[Dict[str, Any]]:
+        """
+        Execute one reasoning cycle.
+        
+        Returns list of action results from fired rules.
+        """
+        matched_rules = self.match_rules()
+        if not matched_rules:
+            return []
+        
+        # Limit number of rules to fire
+        rules_to_fire = matched_rules[:max_rules]
+        all_results = []
+        
+        for rule in rules_to_fire:
+            try:
+                results = rule.execute(self.working_memory)
+                all_results.extend(results)
+                
+                # Record in history
+                self.rule_history.append({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "rule": rule.name,
+                    "results": results
+                })
+                
+                # Limit history size
+                if len(self.rule_history) > 100:
+                    self.rule_history = self.rule_history[-100:]
+                    
+            except Exception as e:
+                logger.error(f"Error executing rule '{rule.name}': {e}")
+                continue
+        
+        return all_results
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert system to dictionary representation."""
+        return {
+            "rules": [rule.to_dict() for rule in self.rules],
+            "working_memory": self.working_memory.to_dict(),
+            "rule_history": self.rule_history[-20:],  # Last 20 entries
+            "learning_enabled": self.learning_enabled
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> ProductionRuleSystem:
+        """Create system from dictionary representation."""
+        system = cls()
+        system.rules = [ProductionRule.from_dict(rule_data) for rule_data in data.get("rules", [])]
+        system.working_memory = WorkingMemory.from_dict(data.get("working_memory", {}))
+        system.rule_history = data.get("rule_history", [])
+        system.learning_enabled = data.get("learning_enabled", True)
+        return system

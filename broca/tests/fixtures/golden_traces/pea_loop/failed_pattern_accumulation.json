@@ -1,0 +1,29 @@
+{
+  "scenario": "failed_pattern_accumulation",
+  "description": "Multiple failed patterns tracked",
+  "inputs": {
+    "user_message": "Fix multiple bugs",
+    "max_failed_patterns": 5,
+    "plans": [
+      {"goal": "Fix bug 1", "steps": [{"description": "Try A"}]},
+      {"goal": "Fix bug 2", "steps": [{"description": "Try B"}]},
+      {"goal": "Fix bug 3", "steps": [{"description": "Try C"}]},
+      {"goal": "Fix bug 4", "steps": [{"description": "Try D"}]},
+      {"goal": "Fix bug 5", "steps": [{"description": "Try E"}]},
+      {"goal": "Fix bug 6", "steps": [{"description": "Try F"}]}
+    ],
+    "executions": [
+      [{"tool_name": "terminal", "success": false}],
+      [{"tool_name": "terminal", "success": false}],
+      [{"tool_name": "terminal", "success": false}],
+      [{"tool_name": "terminal", "success": false}],
+      [{"tool_name": "terminal", "success": false}],
+      [{"tool_name": "terminal", "success": false}]
+    ]
+  },
+  "expected_outputs": {
+    "failed_patterns_count": 5,
+    "all_should_replan": true
+  }
+}
+

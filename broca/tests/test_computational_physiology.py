@@ -31,12 +31,12 @@ class TestComputationalPhysiologyInitialization:
         assert "attention_fluctuation" in monitor.metrics
         assert "energy_efficiency" in monitor.metrics
         
-        # Check default values are None (unknown until measured)
-        assert monitor.metrics["computational_load"] is None
-        assert monitor.metrics["memory_pressure"] is None
-        assert monitor.metrics["processing_latency"] is None
-        assert monitor.metrics["attention_fluctuation"] is None
-        assert monitor.metrics["energy_efficiency"] is None
+        # Check default values (should never be None)
+        assert monitor.metrics["computational_load"] == 0.5  # Moderate default
+        assert monitor.metrics["memory_pressure"] == 0.5  # Moderate default
+        assert monitor.metrics["processing_latency"] == 0.0  # No latency default
+        assert monitor.metrics["attention_fluctuation"] == 0.0  # No fluctuation default
+        assert monitor.metrics["energy_efficiency"] == 0.5  # Moderate default
 
 
 class TestCPULoadSensing:
@@ -79,11 +79,11 @@ class TestCPULoadSensing:
         mock_psutil.cpu_percent.return_value = 150.0
         assert monitor._measure_cpu_load() == 1.0
     
-    def test_cpu_load_none_when_psutil_unavailable(self):
+    def test_cpu_load_default_when_psutil_unavailable(self):
         """
-        Test that CPU load returns None when psutil unavailable.
+        Test that CPU load returns default when psutil unavailable.
         
-        Rationale: Ensures unavailable data is properly indicated.
+        Rationale: Ensures unavailable data uses default value.
         """
         # Temporarily remove psutil
         import broca.internal_sensing.computational_physiology as cp_module
@@ -93,7 +93,7 @@ class TestCPULoadSensing:
         try:
             monitor = ComputationalPhysiologyMonitor()
             cpu_load = monitor._measure_cpu_load()
-            assert cpu_load is None
+            assert cpu_load == 0.5  # Default value
         finally:
             cp_module.psutil = original_psutil
 
@@ -138,11 +138,11 @@ class TestMemoryPressureSensing:
         mock_memory.percent = 100.0
         assert monitor._measure_memory_pressure() == 1.0
     
-    def test_memory_pressure_none_when_psutil_unavailable(self):
+    def test_memory_pressure_default_when_psutil_unavailable(self):
         """
-        Test that memory pressure returns None when psutil unavailable.
+        Test that memory pressure returns default when psutil unavailable.
         
-        Rationale: Ensures unavailable data is properly indicated.
+        Rationale: Ensures unavailable data uses default value.
         """
         # Temporarily remove psutil
         import broca.internal_sensing.computational_physiology as cp_module
@@ -152,7 +152,7 @@ class TestMemoryPressureSensing:
         try:
             monitor = ComputationalPhysiologyMonitor()
             memory_pressure = monitor._measure_memory_pressure()
-            assert memory_pressure is None
+            assert memory_pressure == 0.5  # Default value
         finally:
             cp_module.psutil = original_psutil
 
@@ -185,23 +185,23 @@ class TestProcessingLatencySensing:
         # Test that processing_latency is computed
         monitor.sample_resources()
         avg_latency = monitor.metrics["processing_latency"]
-        assert avg_latency is not None
+        assert isinstance(avg_latency, float)
         assert avg_latency >= 0.0
     
-    def test_processing_latency_none_when_no_operations(self):
+    def test_processing_latency_default_when_no_operations(self):
         """
-        Test that processing latency returns None when no operations tracked.
+        Test that processing latency returns default when no operations tracked.
         
-        Rationale: Ensures unavailable data is properly indicated.
+        Rationale: Ensures unavailable data uses default value.
         """
         monitor = ComputationalPhysiologyMonitor()
         
         # No operations tracked
         latency = monitor._calculate_processing_latency()
-        assert latency is None
+        assert latency == 0.0  # Default value
         
         monitor.sample_resources()
-        assert monitor.metrics["processing_latency"] is None
+        assert monitor.metrics["processing_latency"] == 0.0  # Default value
     
     def test_processing_latency_normalization(self):
         """
@@ -273,25 +273,25 @@ class TestAttentionFluctuation:
         
         fluctuation = monitor._calculate_attention_fluctuation()
         
-        assert fluctuation is not None
+        assert isinstance(fluctuation, float)
         assert fluctuation < 0.1  # Should be low for stable attention
     
-    def test_attention_fluctuation_none_when_insufficient_data(self):
+    def test_attention_fluctuation_default_when_insufficient_data(self):
         """
-        Test that attention fluctuation returns None when insufficient data.
+        Test that attention fluctuation returns default when insufficient data.
         
-        Rationale: Ensures unavailable data is properly indicated.
+        Rationale: Ensures unavailable data uses default value.
         """
         monitor = ComputationalPhysiologyMonitor()
         
         # No data
         fluctuation = monitor._calculate_attention_fluctuation()
-        assert fluctuation is None
+        assert fluctuation == 0.0  # Default value
         
         # Only one data point
         monitor._record_attention_level(0.7)
         fluctuation = monitor._calculate_attention_fluctuation()
-        assert fluctuation is None
+        assert fluctuation == 0.0  # Default value (needs at least 2 points)
 
 
 class TestEnergyEfficiency:
@@ -329,25 +329,20 @@ class TestEnergyEfficiency:
         efficiency = monitor._calculate_energy_efficiency()
         
         # Efficiency should be lower with high load
-        assert efficiency is not None
+        assert isinstance(efficiency, float)
         assert efficiency < 0.5
     
-    def test_energy_efficiency_none_when_resources_unavailable(self):
+    def test_energy_efficiency_default_when_resources_unavailable(self):
         """
-        Test that energy efficiency returns None when resources unavailable.
+        Test that energy efficiency returns default when resources unavailable.
         
-        Rationale: Ensures unavailable data is properly indicated.
+        Rationale: Ensures unavailable data uses default value.
         """
         monitor = ComputationalPhysiologyMonitor()
         
-        # Both None
+        # Should use defaults even if metrics are None (they shouldn't be, but test resilience)
         efficiency = monitor._calculate_energy_efficiency()
-        assert efficiency is None
-        
-        # One None
-        monitor.metrics["computational_load"] = 0.5
-        efficiency = monitor._calculate_energy_efficiency()
-        assert efficiency is None
+        assert efficiency == 0.5  # Default value (uses default metrics)
 
 
 class TestResourceSampling:

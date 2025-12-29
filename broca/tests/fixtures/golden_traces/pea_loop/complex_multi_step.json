@@ -1,0 +1,30 @@
+{
+  "scenario": "complex_multi_step",
+  "description": "Complex plan with many steps",
+  "inputs": {
+    "user_message": "Deploy the application",
+    "plan": {
+      "goal": "Deploy the application",
+      "steps": [
+        {"description": "Build application"},
+        {"description": "Run tests"},
+        {"description": "Create deployment package"},
+        {"description": "Deploy to staging"},
+        {"description": "Verify deployment"}
+      ]
+    },
+    "executions": [
+      {"tool_name": "terminal", "success": true},
+      {"tool_name": "terminal", "success": true},
+      {"tool_name": "terminal", "success": true},
+      {"tool_name": "terminal", "success": true},
+      {"tool_name": "terminal", "success": true}
+    ]
+  },
+  "expected_outputs": {
+    "goal_achieved": true,
+    "success_rate": 1.0,
+    "num_executions": 5
+  }
+}
+

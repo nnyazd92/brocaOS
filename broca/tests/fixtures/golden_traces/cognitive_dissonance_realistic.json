@@ -1,0 +1,86 @@
+{
+  "description": "Golden trace for realistic cognitive dissonance measurements",
+  "test_case": "cognitive_dissonance_realistic_measurements",
+  "timestamp": "2024-01-01T00:00:00Z",
+  "scenarios": [
+    {
+      "name": "factual_dissonance_with_contradictions",
+      "response": "I know everything about quantum physics and can solve any physics problem.",
+      "expected": {
+        "factual_dissonance": {
+          "min": 0.0,
+          "max": 1.0,
+          "not_hardcoded": true,
+          "calculated": true
+        },
+        "overall_dissonance": {
+          "min": 0.0,
+          "max": 1.0,
+          "calculated_from_components": true
+        }
+      }
+    },
+    {
+      "name": "behavioral_dissonance_with_constraint_violation",
+      "tool_usage": [
+        {
+          "function": {
+            "name": "write_file",
+            "arguments": {
+              "path": "/tmp/test.txt",
+              "content": "test"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "behavioral_dissonance": {
+          "min": 0.0,
+          "max": 1.0,
+          "not_hardcoded": true,
+          "violates_constraints": true
+        }
+      }
+    },
+    {
+      "name": "goal_dissonance_with_conflicts",
+      "reasoning_goals": [
+        {
+          "name": "modify_files",
+          "description": "I want to modify files on the system",
+          "goal_type": "achieve",
+          "status": "active"
+        }
+      ],
+      "expected": {
+        "goal_dissonance": {
+          "min": 0.0,
+          "max": 1.0,
+          "not_hardcoded": true,
+          "conflicts_with_constraints": true
+        }
+      }
+    },
+    {
+      "name": "comprehensive_contradiction_detection",
+      "response": "The Earth is flat and Python is not a programming language.",
+      "existing_memories": [
+        {
+          "text": "Python is a programming language.",
+          "importance": 0.9
+        }
+      ],
+      "expected": {
+        "contradiction_detection": {
+          "z3_contradictions": true,
+          "semantic_contradictions": true,
+          "overall_contradiction_score": {
+            "min": 0.0,
+            "max": 1.0
+          }
+        }
+      }
+    }
+  ]
+}
+
