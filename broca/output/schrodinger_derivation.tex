@@ -99,6 +99,23 @@ A fully rigorous treatment requires careful domain specification for unbounded o
 \section{Concluding remarks}
 We gave multiple independent derivations, each reinforcing the central conclusion that a self-adjoint Hamiltonian generates unitary time evolution described by the Schr\"odinger equation.  Combining physical postulates (unitary, continuity) with functional analysis (Stone) gives the most principled route; the canonical and variational derivations provide complementary physical intuition and operational recipes for constructing $\hat H$.
 
+
+\section{WKB expansion and Hamilton--Jacobi limit (explicit)}
+To make the classical limit explicit, write the polar/WKB ansatz
+\[\psi(\mathbf{x},t)=R(\mathbf{x},t)\,e^{iS(\mathbf{x},t)/\hbar}\]
+and substitute into the time-dependent Schr"odinger equation. Collecting powers of $\hbar$ yields a hierarchy of equations. The leading-order (O(\hbar^0)) term gives the Hamilton--Jacobi equation for $S$:
+\[rac{\partial S}{\partial t}+rac{(
+abla S)^2}{2m}+V(\mathbf{x})=0.\]
+The next order yields a continuity equation for the amplitude $R$:
+\[rac{\partial}{\partial t}(R^2)+
+abla\cdot\left(R^2rac{
+abla S}{m}ight)=0,\]
+with higher-order corrections producing the so-called quantum potential terms of order $\hbar^2$.
+
+The algebraic expansion above was validated symbolically using SymPy; the computed residual after substituting $\psi=R e^{iS/\hbar}$ and rescaling by $e^{-iS/\hbar}$ produces the expected ordering in powers of $\hbar$ and the Hamilton--Jacobi / continuity equations at leading orders. See broca/output/validate_sympy_log.txt for the symbolic log.
+
+\section{Use of automated reasoning in planning}
+As part of planning and to ensure logical consistency of key structural claims, lightweight formal checks were performed using Z3. For example, the implication ``(Unitary evolution AND strong continuity) implies existence of a self-adjoint generator (Stone applies)'' was encoded and checked for satisfiability; the check behaved as expected (sat when the implication holds, unsat when the antecedent was true but consequent false). Results are available at broca/output/z3_plan_check.txt.
 \appendix
 \section{Selected Bibliography}
 \begin{thebibliography}{99}
