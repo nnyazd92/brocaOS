@@ -135,6 +135,13 @@ class ReasoningConfig(BaseModel):
     pea_loop_track_failed_patterns: bool = os.getenv("BROCA_PEA_LOOP_TRACK_PATTERNS", "true").lower() == "true"
     pea_loop_max_failed_patterns: int = int(os.getenv("BROCA_PEA_LOOP_MAX_FAILED_PATTERNS", "10"))
     
+    # PFREA Logging and Compliance
+    pfrea_logging_enabled: bool = os.getenv("BROCA_PFREA_LOGGING_ENABLED", "true").lower() == "true"
+    pfrea_metrics_enabled: bool = os.getenv("BROCA_PFREA_METRICS_ENABLED", "true").lower() == "true"
+    pfrea_audit_trail_enabled: bool = os.getenv("BROCA_PFREA_AUDIT_TRAIL_ENABLED", "true").lower() == "true"
+    pfrea_compliance_threshold: float = float(os.getenv("BROCA_PFREA_COMPLIANCE_THRESHOLD", "0.95"))
+    pfrea_violation_alert_threshold: int = int(os.getenv("BROCA_PFREA_VIOLATION_ALERT_THRESHOLD", "10"))
+    
     # Debugging
     debug_mode: bool = os.getenv("BROCA_REASONING_DEBUG_MODE", "false").lower() == "true"
     log_rule_firings: bool = os.getenv("BROCA_REASONING_LOG_RULE_FIRINGS", "true").lower() == "true"

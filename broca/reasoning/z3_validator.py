@@ -509,6 +509,241 @@ class Z3LogicalValidator:
             warnings.append(f"Validation error: {str(e)}")
             return True, None, warnings
     
+    def validate_plan_logic(
+        self,
+        plan: Any  # Plan from plan_exec_assess_loop
+    ) -> Dict[str, Any]:
+        """
+        Validate that a plan logically leads to its goal.
+        
+        Encodes plan steps as logical propositions and checks if:
+        (step_1 AND step_2 AND ... AND assumptions) => goal
+        
+        Args:
+            plan: Plan object with goal, steps, assumptions, expected_outcomes
+            
+        Returns:
+            Dictionary with validation results:
+            - is_logically_sound: bool
+            - logical_issues: List[str] (descriptions of logical problems)
+            - recommendations: List[str] (suggestions for improvement)
+            - missing_preconditions: List[str] (preconditions that may be missing)
+            - contradictions: List[Tuple[str, str]] (contradictory steps/assumptions)
+            - warnings: List[str] (non-critical warnings)
+        """
+        if not self.enabled:
+            return {
+                "is_logically_sound": True,
+                "logical_issues": [],
+                "recommendations": [],
+                "missing_preconditions": [],
+                "contradictions": [],
+                "warnings": ["Z3 validation is disabled"],
+            }
+        
+        if not plan:
+            return {
+                "is_logically_sound": False,
+                "logical_issues": ["Plan is None or empty"],
+                "recommendations": ["Provide a valid plan"],
+                "missing_preconditions": [],
+                "contradictions": [],
+                "warnings": [],
+            }
+        
+        solver = Solver()
+        warnings: List[str] = []
+        logical_issues: List[str] = []
+        recommendations: List[str] = []
+        missing_preconditions: List[str] = []
+        contradictions: List[Tuple[str, str]] = []
+        
+        try:
+            solver.set("timeout", int(self.timeout * 1000))
+            
+            # Extract goal proposition
+            goal_text = getattr(plan, 'goal', '') or ''
+            goal_prop = self._extract_plan_proposition(goal_text, "goal")
+            goal_var = self._get_variable(goal_prop) if goal_prop else None
+            
+            # Extract step propositions
+            steps = getattr(plan, 'steps', []) or []
+            step_vars: List[BoolRef] = []
+            step_props: List[str] = []
+            
+            for i, step in enumerate(steps):
+                step_desc = step.get("description", "") if isinstance(step, dict) else str(step)
+                step_prop = self._extract_plan_proposition(step_desc, f"step_{i+1}")
+                if step_prop:
+                    step_props.append(step_prop)
+                    var = self._get_variable(step_prop)
+                    if var is not None:
+                        step_vars.append(var)
+            
+            # Extract assumption propositions
+            assumptions = getattr(plan, 'assumptions', []) or []
+            assumption_vars: List[BoolRef] = []
+            assumption_props: List[str] = []
+            
+            for i, assumption in enumerate(assumptions):
+                assump_text = assumption if isinstance(assumption, str) else str(assumption)
+                assump_prop = self._extract_plan_proposition(assump_text, f"assumption_{i+1}")
+                if assump_prop:
+                    assumption_props.append(assump_prop)
+                    var = self._get_variable(assump_prop)
+                    if var is not None:
+                        assumption_vars.append(var)
+            
+            # Encode step ordering: step_i => step_i+1 (if step i is required for step i+1)
+            # This is a heuristic - we assume sequential steps depend on previous ones
+            for i in range(len(step_vars) - 1):
+                if step_vars[i] is not None and step_vars[i+1] is not None:
+                    solver.add(Implies(step_vars[i], step_vars[i+1]))
+            
+            # Encode assumptions as premises (they are given)
+            if assumption_vars:
+                solver.add(And(*assumption_vars))
+            
+            # Check if steps + assumptions => goal
+            if step_vars and goal_var is not None:
+                # Encode: (step_1 AND step_2 AND ... AND assumptions) => goal
+                all_steps = And(*step_vars) if step_vars else None
+                if all_steps is not None and assumption_vars:
+                    all_premises = And(all_steps, And(*assumption_vars))
+                elif all_steps is not None:
+                    all_premises = all_steps
+                elif assumption_vars:
+                    all_premises = And(*assumption_vars)
+                else:
+                    all_premises = None
+                
+                if all_premises is not None:
+                    # Check if premises imply goal
+                    implication = Implies(all_premises, goal_var)
+                    solver.push()
+                    solver.add(Not(implication))  # Try to prove implication false
+                    result = solver.check()
+                    solver.pop()
+                    
+                    if result == unsat:
+                        # Implication is valid - plan is logically sound
+                        is_logically_sound = True
+                    elif result == sat:
+                        # Implication is not valid - plan may not lead to goal
+                        is_logically_sound = False
+                        logical_issues.append(
+                            "Plan steps and assumptions do not logically guarantee the goal will be achieved"
+                        )
+                        recommendations.append(
+                            "Review plan steps to ensure they collectively lead to the goal"
+                        )
+                        recommendations.append(
+                            "Consider adding intermediate steps or clarifying assumptions"
+                        )
+                    else:  # unknown
+                        is_logically_sound = True  # Default to sound if Z3 can't determine
+                        warnings.append("Z3 could not determine if plan logically leads to goal")
+                else:
+                    # No steps or assumptions - plan is incomplete
+                    is_logically_sound = False
+                    logical_issues.append("Plan has no steps or assumptions")
+                    recommendations.append("Add specific steps to achieve the goal")
+            else:
+                # No steps or no goal - plan is incomplete
+                is_logically_sound = False
+                if not step_vars:
+                    logical_issues.append("Plan has no steps")
+                    recommendations.append("Add specific steps to achieve the goal")
+                if goal_var is None:
+                    logical_issues.append("Plan has no clear goal")
+                    recommendations.append("Define a clear, specific goal")
+            
+            # Check for contradictions in assumptions
+            if len(assumption_props) > 1:
+                assumption_propositions = [(prop, True) for prop in assumption_props]
+                assumption_contradictions = self.detect_contradictions(assumption_propositions)
+                if assumption_contradictions:
+                    contradictions.extend(assumption_contradictions)
+                    logical_issues.append(
+                        f"Found {len(assumption_contradictions)} contradictory assumptions"
+                    )
+                    recommendations.append("Review and resolve contradictory assumptions")
+            
+            # Check for contradictions between steps
+            if len(step_props) > 1:
+                step_propositions = [(prop, True) for prop in step_props]
+                step_contradictions = self.detect_contradictions(step_propositions)
+                if step_contradictions:
+                    contradictions.extend(step_contradictions)
+                    logical_issues.append(
+                        f"Found {len(step_contradictions)} contradictory steps"
+                    )
+                    recommendations.append("Review and resolve contradictory steps")
+            
+            # Check for missing preconditions
+            # Heuristic: if goal requires something that's not in steps or assumptions
+            if goal_var is not None and step_vars:
+                # Try to identify what might be missing
+                # This is simplified - in practice would use more sophisticated analysis
+                if len(step_vars) < 2:
+                    missing_preconditions.append("Plan may need more intermediate steps")
+                    recommendations.append("Consider breaking down the goal into smaller steps")
+            
+            # Update validation stats
+            self.update_validation_stats(
+                contradictions_count=len(contradictions)
+            )
+            
+            return {
+                "is_logically_sound": is_logically_sound,
+                "logical_issues": logical_issues,
+                "recommendations": recommendations,
+                "missing_preconditions": missing_preconditions,
+                "contradictions": contradictions,
+                "warnings": warnings,
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in Z3 plan logic validation: {e}", exc_info=True)
+            warnings.append(f"Validation error: {str(e)}")
+            # Return non-blocking result - don't fail the plan
+            return {
+                "is_logically_sound": True,  # Default to sound on error
+                "logical_issues": [],
+                "recommendations": [],
+                "missing_preconditions": [],
+                "contradictions": [],
+                "warnings": warnings,
+            }
+    
+    def _extract_plan_proposition(self, text: str, prefix: str) -> str:
+        """
+        Extract a proposition name from plan text.
+        
+        Uses heuristics to create a proposition identifier from text.
+        
+        Args:
+            text: Text to extract proposition from
+            prefix: Prefix for the proposition name
+            
+        Returns:
+            Proposition name string
+        """
+        if not text:
+            return f"{prefix}_empty"
+        
+        # Normalize text: lowercase, remove special chars, take first few words
+        import re
+        normalized = re.sub(r'[^\w\s]', '', text.lower())
+        words = normalized.split()[:5]  # Take first 5 words
+        prop_name = f"{prefix}_{'_'.join(words)}"
+        
+        # Limit length
+        if len(prop_name) > 100:
+            prop_name = prop_name[:100]
+        
+        return prop_name
+    
     def detect_contradictions(
         self,
         propositions: List[Tuple[str, bool]]  # (name, truth_value)

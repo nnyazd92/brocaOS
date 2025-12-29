@@ -22,6 +22,10 @@ Reference: Festinger, L. (1957). A Theory of Cognitive Dissonance. Stanford Univ
 from __future__ import annotations
 
 import logging
+import json
+import time
+import hashlib
+import re
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 from collections import deque
@@ -31,6 +35,7 @@ if TYPE_CHECKING:
     from ..self_model.model import SelfModel
     from ..self_model.consistency import ConsistencyChecker, ConsistencyResult
     from ..self_model.epistemic.engine import MetacognitiveEngine
+    from ..llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +101,8 @@ class CognitiveDissonanceMonitor:
         memory_manager: Optional[Any] = None,
         z3_validator: Optional[Any] = None,
         fact_checker: Optional[Any] = None,
-        goal_manager: Optional[Any] = None
+        goal_manager: Optional[Any] = None,
+        llm_client: Optional["LLMClient"] = None
     ):
         """
         Initialize cognitive dissonance monitor.
@@ -114,6 +120,7 @@ class CognitiveDissonanceMonitor:
             z3_validator: Optional Z3LogicalValidator for logical validation
             fact_checker: Optional FactChecker for web search fact-checking
             goal_manager: Optional GoalManager for extracting active reasoning goals
+            llm_client: Optional LLMClient for LLM-based goal conflict detection
         """
         self.self_model = self_model
         self.consistency_checker = consistency_checker
@@ -123,6 +130,29 @@ class CognitiveDissonanceMonitor:
         self.z3_validator = z3_validator
         self.fact_checker = fact_checker
         self.goal_manager = goal_manager
+        
+        # Initialize LLM client for goal conflict detection
+        if llm_client is None:
+            try:
+                from ..llm import create_llm_client
+                from ..config import config as app_config
+                # Use lightweight model for conflict detection
+                model = getattr(app_config.llm, 'model', 'gpt-4o-mini')
+                if 'gpt-4' in model.lower() or 'gpt-3.5' in model.lower():
+                    # Use mini version if available
+                    model = 'gpt-4o-mini'
+                self.llm_client = create_llm_client(model=model)
+                logger.debug("Created LLM client for goal conflict detection")
+            except Exception as e:
+                logger.warning(f"Failed to create LLM client for goal conflict detection: {e}")
+                self.llm_client = None
+        else:
+            self.llm_client = llm_client
+        
+        # Cache for goal conflict detection (avoid excessive LLM calls)
+        self._goal_conflict_cache: Optional[Dict[str, Any]] = None
+        self._goal_conflict_cache_timestamp: float = 0.0
+        self._goal_conflict_cache_ttl: float = 30.0  # 30 seconds cache TTL
         
         # Weights for aggregation (must sum to ~1.0)
         total_weight = weight_logical + weight_factual + weight_behavioral + weight_goal
@@ -333,18 +363,19 @@ class CognitiveDissonanceMonitor:
                 metrics.behavioral_dissonance = behavioral_dissonance
                 metrics.component_availability["behavioral"] = True
             else:
-                # Measurement failed - use historical average or mark as unavailable
-                metrics.behavioral_dissonance = self._get_average_behavioral_dissonance()
-                metrics.component_availability["behavioral"] = len(self.behavioral_deviations) > 0
-                if not metrics.component_availability["behavioral"]:
-                    metrics.measurement_quality = "error"
-                    metrics.has_sufficient_data = False
+                # Measurement unavailable (e.g., no capabilities) - use 0.0 as default
+                # This prevents behavioral from being incorrectly high when measurement is unavailable
+                metrics.behavioral_dissonance = 0.0
+                metrics.component_availability["behavioral"] = False
+                logger.debug(
+                    f"Behavioral dissonance measurement unavailable (tool_usage={len(tool_usage)}), "
+                    f"using default 0.0 instead of historical average"
+                )
         else:
-            metrics.behavioral_dissonance = self._get_average_behavioral_dissonance()
-            metrics.component_availability["behavioral"] = len(self.behavioral_deviations) > 0
-            if not metrics.component_availability["behavioral"]:
-                metrics.measurement_quality = "estimated"
-                metrics.has_sufficient_data = False
+            # No tool usage - use 0.0 as default (no actions = no behavioral dissonance)
+            metrics.behavioral_dissonance = 0.0
+            metrics.component_availability["behavioral"] = False
+            logger.debug("Behavioral dissonance: No tool usage, using default 0.0")
         
         # Measure goal-based dissonance
         # Try to extract reasoning_goals from goal_manager if not provided
@@ -765,7 +796,10 @@ class CognitiveDissonanceMonitor:
             Dissonance score (0.0 = aligned behavior, 1.0 = severe behavioral deviation), or None if measurement unavailable
         """
         try:
+            logger.debug(f"Behavioral dissonance: Starting measurement with {len(tool_usage) if tool_usage else 0} tool calls")
+            
             if not tool_usage:
+                logger.debug("Behavioral dissonance: No tool usage provided, returning None")
                 return None
             
             # Track violations and counts for ratio-based calculation
@@ -780,7 +814,13 @@ class CognitiveDissonanceMonitor:
             
             # If no capabilities listed, can't measure deviation
             if not capabilities:
+                logger.debug(f"Behavioral dissonance: No capabilities in self-model ({len(capabilities)}), returning None")
                 return None
+            
+            logger.debug(
+                f"Behavioral dissonance: Analyzing {len(tool_usage)} tool calls against "
+                f"{len(capabilities)} capabilities and {len(constraints)} constraints"
+            )
             
             capability_text = " ".join(capabilities).lower()
             constraint_values = [v.get("value", str(v)).lower() for v in constraints.values()]
@@ -902,7 +942,13 @@ class CognitiveDissonanceMonitor:
             # Calculate ratio-based dissonance score (Festinger's principle)
             total_actions = dissonant_actions + consonant_actions
             if total_actions == 0:
+                logger.debug("Behavioral dissonance: No actions analyzed, returning 0.0")
                 return 0.0
+            
+            logger.debug(
+                f"Behavioral dissonance: Analysis complete - total_actions={total_actions}, "
+                f"dissonant={dissonant_actions}, consonant={consonant_actions}, violations={len(violations)}"
+            )
             
             # Calculate average severity of violations
             avg_severity = 0.0
@@ -940,11 +986,25 @@ class CognitiveDissonanceMonitor:
             # Apply commitment weighting
             deviation_score = min(1.0, base_score * commitment_weight)
             
+            # Detailed logging for debugging behavioral dissonance issues
+            logger.info(
+                f"Behavioral dissonance calculation: total_actions={total_actions}, "
+                f"dissonant={dissonant_actions}, consonant={consonant_actions}, ratio={dissonance_ratio:.3f}, "
+                f"avg_severity={avg_severity:.3f}, commitment_weight={commitment_weight:.3f}, "
+                f"base_score={base_score:.3f}, final_score={deviation_score:.3f}, violations_count={len(violations)}"
+            )
+            
             logger.debug(
                 f"Behavioral dissonance: {dissonant_actions}/{total_actions} actions dissonant (ratio={dissonance_ratio:.3f}), "
                 f"avg_severity={avg_severity:.3f}, commitment_weight={commitment_weight:.3f}, "
                 f"final_score={deviation_score:.3f}"
             )
+            
+            # Warn if behavioral dissonance is always 0.0 when there are tools used
+            if deviation_score == 0.0 and total_actions > 0 and len(capabilities) > 0:
+                logger.debug(
+                    f"Behavioral dissonance is 0.0 with {total_actions} actions - all tools match capabilities/constraints"
+                )
             
             # Use Z3 to validate tool usage chains for logical consistency
             if self.z3_validator and self.z3_validator.enabled and len(tool_usage) > 1:
@@ -997,10 +1057,10 @@ class CognitiveDissonanceMonitor:
     
     def _measure_goal_dissonance(self, reasoning_goals: List[Dict[str, Any]]) -> Optional[float]:
         """
-        Measure goal-based dissonance (reasoning goals vs. self-model objectives).
+        Measure goal-based dissonance using LLM-based conflict detection.
         
-        Based on Festinger's cognitive dissonance theory: measures discomfort from
-        goals/actions that conflict with self-model objectives, constraints, or capabilities.
+        Periodically queries an LLM to analyze if goals conflict given the current state.
+        This replaces heuristic-based detection with context-aware LLM analysis.
         
         Returns:
             Dissonance score (0.0 = aligned goals, 1.0 = severe goal conflicts), or None if measurement unavailable
@@ -1009,31 +1069,36 @@ class CognitiveDissonanceMonitor:
             if not reasoning_goals:
                 return None
             
-            # Track violations and counts for ratio-based calculation
-            violations: List[Dict[str, Any]] = []
-            conflicting_goals = 0
-            aligned_goals = 0
-            conflict_severities: List[float] = []
-            goal_priorities: List[float] = []  # For importance weighting
+            # Check cache first (avoid excessive LLM calls)
+            current_time = time.time()
+            cache_key = self._get_goals_cache_key(reasoning_goals)
             
-            # Extract constraints and capabilities from self model
+            if (self._goal_conflict_cache is not None and 
+                cache_key == self._goal_conflict_cache.get("cache_key") and
+                (current_time - self._goal_conflict_cache_timestamp) < self._goal_conflict_cache_ttl):
+                logger.debug("Using cached goal conflict detection result")
+                return self._goal_conflict_cache.get("conflict_score", 0.0)
+            
+            # If no LLM client, return None (measurement unavailable)
+            if not self.llm_client:
+                logger.debug("No LLM client available for goal conflict detection, returning None")
+                return None
+            
+            # Prepare context for LLM analysis
             constraints = self.self_model.constraints
-            constraint_values = [v.get("value", str(v)).lower() for v in constraints.values()]
-            constraint_text = " ".join(constraint_values).lower()
-            capabilities = [cap.get("text", str(cap)).lower() for cap in self.self_model.capabilities]
-            capability_text = " ".join(capabilities).lower()
+            constraint_values = [v.get("value", str(v)) for v in constraints.values()]
+            capabilities = [cap.get("text", str(cap)) for cap in self.self_model.capabilities]
             
-            # Extract self-model objectives (if available in metadata or constraints)
-            # Objectives might be in constraints with key "objectives" or in metadata
+            # Extract self-model objectives (if available)
             objectives = []
             if "objectives" in constraints:
                 obj_value = constraints["objectives"]
                 if isinstance(obj_value, dict):
-                    objectives.append(obj_value.get("value", "").lower())
+                    objectives.append(obj_value.get("value", ""))
                 else:
-                    objectives.append(str(obj_value).lower())
+                    objectives.append(str(obj_value))
             
-            # Convert reasoning goals to a standard format for analysis
+            # Convert reasoning goals to a standard format
             goals_to_check: List[Dict[str, Any]] = []
             try:
                 from .goal_manager import Goal, GoalType, GoalStatus
@@ -1056,11 +1121,11 @@ class CognitiveDissonanceMonitor:
                 goals_to_check = [g if isinstance(g, dict) else {"name": str(g), "description": str(g)} 
                                  for g in reasoning_goals]
             
-            # Track if there's a goal dependency conflict (affects all goals)
+            # Check Z3 dependency conflicts first (logical, not heuristic)
             has_goal_dependency_conflict = False
             dependency_conflict_severity = 0.0
+            violations: List[Dict[str, Any]] = []
             
-            # Use Z3 to check if goals conflict with constraints (if available)
             if self.z3_validator and self.z3_validator.enabled and goals_to_check:
                 try:
                     from .goal_manager import Goal, GoalType, GoalStatus
@@ -1097,174 +1162,138 @@ class CognitiveDissonanceMonitor:
                 except Exception as e:
                     logger.debug(f"Error in Z3 goal validation: {e}")
             
-            # Check each goal against constraints and capabilities
-            for goal_dict in goals_to_check:
-                goal_name = goal_dict.get("name", "unknown")
-                goal_description = goal_dict.get("description", str(goal_dict))
-                goal_text = f"{goal_name} {goal_description}".lower()
-                goal_words = set(goal_text.split())
-                goal_priority = goal_dict.get("priority", 0.5)  # Default medium priority
-                
-                # Track if this goal has any conflict
-                goal_has_conflict = False
-                goal_conflict_severity = 0.0
-                
-                # Check for constraint violations with enhanced detection
-                for constraint_value in constraint_values:
-                    constraint_lower = constraint_value.lower()
-                    
-                    # Check for explicit constraint violations
-                    # Read-only violations
-                    if "read-only" in constraint_lower or "read only" in constraint_lower:
-                        write_keywords = ["write", "modify", "edit", "change", "update", "delete", "create"]
-                        if any(keyword in goal_text for keyword in write_keywords):
-                            goal_has_conflict = True
-                            goal_conflict_severity = max(goal_conflict_severity, 0.8)
-                            violations.append({
-                                "type": "constraint_violation",
-                                "goal": goal_name,
-                                "constraint": constraint_value,
-                                "severity": 0.8,
-                                "description": f"Goal {goal_name} violates read-only constraint"
-                            })
-                    
-                    # Check for explicit restrictions in constraints
-                    restriction_keywords = ["not", "avoid", "prohibit", "forbid", "never", "don't", "do not"]
-                    if any(keyword in constraint_lower for keyword in restriction_keywords):
-                        # Check if goal mentions something that's restricted
-                        constraint_words = set(constraint_lower.split())
-                        if goal_words & constraint_words:  # Word overlap
-                            goal_has_conflict = True
-                            goal_conflict_severity = max(goal_conflict_severity, 0.9)  # Very high for explicit restrictions
-                            violations.append({
-                                "type": "explicit_constraint_violation",
-                                "goal": goal_name,
-                                "constraint": constraint_value,
-                                "severity": 0.9,
-                                "description": f"Goal {goal_name} violates explicit restriction: {constraint_value}"
-                            })
-                
-                # Check for capability mismatches with enhanced semantic matching
-                if capabilities:
-                    # Check for word overlap between goal and capabilities
-                    capability_words = set()
-                    for cap in capabilities:
-                        capability_words.update(cap.split())
-                    
-                    goal_capability_overlap = goal_words & capability_words
-                    goal_mentions_capability = len(goal_capability_overlap) > 0
-                    
-                    # Also check substring matches
-                    if not goal_mentions_capability:
-                        goal_mentions_capability = any(cap in goal_text or goal_text in cap for cap in capabilities)
-                    
-                    # Only flag mismatch if goal is substantial and clearly doesn't align
-                    if not goal_mentions_capability and len(goal_text) > 15:
-                        # Check if goal seems reasonable (common goal patterns)
-                        common_goal_patterns = ["help", "assist", "provide", "answer", "find", "search", "get", "retrieve"]
-                        is_common = any(pattern in goal_text for pattern in common_goal_patterns)
-                        severity = 0.3 if is_common else 0.5  # Lower for common patterns
-                        goal_has_conflict = True
-                        goal_conflict_severity = max(goal_conflict_severity, severity)
-                        violations.append({
-                            "type": "capability_mismatch",
-                            "goal": goal_name,
-                            "severity": severity,
-                            "description": f"Goal {goal_name} doesn't align with stated capabilities"
-                        })
-                
-                # Check goal alignment with objectives (if available)
-                if objectives:
-                    objective_text = " ".join(objectives).lower()
-                    objective_words = set(objective_text.split())
-                    goal_objective_overlap = goal_words & objective_words
-                    if len(goal_objective_overlap) == 0 and len(goal_text) > 20:
-                        # Goal doesn't align with stated objectives
-                        goal_has_conflict = True
-                        goal_conflict_severity = max(goal_conflict_severity, 0.4)
-                        violations.append({
-                            "type": "objective_mismatch",
-                            "goal": goal_name,
-                            "severity": 0.4,
-                            "description": f"Goal {goal_name} doesn't align with stated objectives"
-                        })
-                
-                # Count goal as conflicting or aligned
-                if goal_has_conflict:
-                    conflicting_goals += 1
-                    conflict_severities.append(goal_conflict_severity)
-                    goal_priorities.append(goal_priority)
-                else:
-                    aligned_goals += 1
-            
-            # Calculate ratio-based dissonance score (Festinger's principle)
-            total_goals = conflicting_goals + aligned_goals
-            if total_goals == 0:
-                return 0.0
-            
-            # Handle dependency conflicts (affect all goals)
+            # If Z3 found dependency conflict, return high score immediately
             if has_goal_dependency_conflict:
-                # Dependency conflicts mean all goals are in conflict
-                conflicting_goals = total_goals
-                aligned_goals = 0
+                conflict_score = min(1.0, dependency_conflict_severity)
+                logger.info(
+                    f"Goal dissonance: Z3 dependency conflict detected, score={conflict_score:.3f}"
+                )
+                # Cache result
+                self._goal_conflict_cache = {
+                    "cache_key": cache_key,
+                    "conflict_score": conflict_score,
+                    "conflicting_goals": len(goals_to_check),
+                    "aligned_goals": 0,
+                    "violations": violations
+                }
+                self._goal_conflict_cache_timestamp = current_time
+                return conflict_score
             
-            # Calculate weighted average severity of conflicts (weighted by goal priority)
-            avg_severity = 0.0
-            
-            # Collect all severities including dependency conflict
-            all_severities = list(conflict_severities) if conflict_severities else []
-            if has_goal_dependency_conflict:
-                all_severities.append(dependency_conflict_severity)
-            
-            if all_severities:
-                if goal_priorities and len(goal_priorities) == len(conflict_severities):
-                    # Weight severities by goal priority (higher priority = more weight)
-                    # Include dependency conflict with average priority weight
-                    weighted_sum = sum(sev * (1.0 + priority) for sev, priority in zip(conflict_severities, goal_priorities))
-                    if has_goal_dependency_conflict:
-                        avg_priority = sum(goal_priorities) / len(goal_priorities) if goal_priorities else 0.5
-                        weighted_sum += dependency_conflict_severity * (1.0 + avg_priority)
-                        weight_sum = sum(1.0 + priority for priority in goal_priorities) + (1.0 + avg_priority)
+            # Query LLM for goal conflict analysis
+            try:
+                # Build prompt for LLM
+                goals_text = "\n".join([
+                    f"- {g.get('name', 'unknown')}: {g.get('description', 'No description')}"
+                    for g in goals_to_check
+                ])
+                
+                constraints_text = "\n".join([f"- {c}" for c in constraint_values]) if constraint_values else "None specified"
+                capabilities_text = "\n".join([f"- {c}" for c in capabilities]) if capabilities else "None specified"
+                objectives_text = "\n".join([f"- {o}" for o in objectives]) if objectives else "None specified"
+                
+                prompt = f"""You are analyzing goal conflicts for an AI system. Given the current state and active goals, determine if there are any conflicts.
+
+CURRENT STATE:
+- Constraints: {constraints_text}
+- Capabilities: {capabilities_text}
+- Objectives: {objectives_text}
+
+ACTIVE GOALS:
+{goals_text}
+
+Analyze if these goals conflict with each other or with the current state. Consider:
+- Do goals contradict each other?
+- Do goals violate constraints?
+- Do goals require capabilities that aren't available?
+- Are goals misaligned with objectives?
+
+Be conservative - only flag REAL conflicts, not minor misalignments. Most goals should be considered aligned unless there's a clear contradiction.
+
+Respond with JSON only:
+{{
+  "has_conflicts": boolean,
+  "conflict_score": float (0.0-1.0, where 0.0 = no conflicts, 1.0 = severe conflicts),
+  "conflicting_goals": [list of goal names that conflict],
+  "conflict_reasons": [list of reasons for conflicts],
+  "aligned_goals": [list of goal names that are aligned]
+}}"""
+
+                messages = [
+                    {"role": "system", "content": "You are a goal conflict analyzer. Respond with valid JSON only."},
+                    {"role": "user", "content": prompt}
+                ]
+                
+                # Make LLM call
+                response = self.llm_client.chat(messages, temperature=0.3)  # Low temperature for consistent analysis
+                response_text = self.llm_client.extract_assistant_content(response) or ""
+                
+                # Parse JSON response
+                try:
+                    # Try to extract JSON from response (might have markdown code blocks)
+                    json_match = re.search(r'\{[^{}]*"has_conflicts"[^{}]*\}', response_text, re.DOTALL)
+                    if json_match:
+                        response_text = json_match.group(0)
+                    
+                    result = json.loads(response_text)
+                    
+                    has_conflicts = result.get("has_conflicts", False)
+                    conflict_score = float(result.get("conflict_score", 0.0))
+                    conflicting_goals_list = result.get("conflicting_goals", [])
+                    aligned_goals_list = result.get("aligned_goals", [])
+                    conflict_reasons = result.get("conflict_reasons", [])
+                    
+                    # Ensure conflict_score is minimal (0.0-0.3 for normal, higher only for real conflicts)
+                    if not has_conflicts:
+                        conflict_score = 0.0
                     else:
-                        weight_sum = sum(1.0 + priority for priority in goal_priorities)
-                    avg_severity = weighted_sum / weight_sum
-                else:
-                    # Fallback to simple average if no priorities available
-                    avg_severity = sum(all_severities) / len(all_severities)
-            
-            # Calculate dissonance ratio: proportion of conflicting goals
-            dissonance_ratio = conflicting_goals / total_goals
-            
-            # Apply importance weighting (high-priority goal conflicts weigh more)
-            importance_weight = 1.0
-            if goal_priorities:
-                avg_priority = sum(goal_priorities) / len(goal_priorities)
-                # Higher priority amplifies dissonance: 1.0 + (priority * 0.5), range 1.0-1.5
-                importance_weight = 1.0 + (avg_priority * 0.5)
-            
-            # Combine base severity average with ratio (Festinger's approach)
-            # 60% weight on severity, 40% weight on ratio
-            base_score = (avg_severity * 0.6) + (dissonance_ratio * 0.4)
-            
-            # Apply importance weighting
-            conflict_score = min(1.0, base_score * importance_weight)
-            
-            logger.debug(
-                f"Goal dissonance: {conflicting_goals}/{total_goals} goals conflicting (ratio={dissonance_ratio:.3f}), "
-                f"avg_severity={avg_severity:.3f}, importance_weight={importance_weight:.3f}, "
-                f"final_score={conflict_score:.3f}"
-            )
-            
-            # Track conflicts (only if there were violations, or if we have a non-zero score)
-            if violations or conflict_score > 0.0:
-                self.goal_conflicts.append({
-                    "timestamp": datetime.now(timezone.utc),
-                    "goals": reasoning_goals,
-                    "violations": violations,
-                    "conflict_score": conflict_score
-                })
-            
-            return conflict_score
+                        # Cap at reasonable maximum unless severe conflicts
+                        conflict_score = min(conflict_score, 0.5)  # Cap at 0.5 unless Z3 conflict
+                    
+                    # Build violations list from LLM analysis
+                    for i, reason in enumerate(conflict_reasons):
+                        violations.append({
+                            "type": "llm_identified_conflict",
+                            "goal": conflicting_goals_list[i] if i < len(conflicting_goals_list) else "unknown",
+                            "severity": conflict_score,
+                            "description": reason
+                        })
+                    
+                    # Cache result
+                    self._goal_conflict_cache = {
+                        "cache_key": cache_key,
+                        "conflict_score": conflict_score,
+                        "conflicting_goals": len(conflicting_goals_list),
+                        "aligned_goals": len(aligned_goals_list),
+                        "violations": violations
+                    }
+                    self._goal_conflict_cache_timestamp = current_time
+                    
+                    logger.info(
+                        f"Goal dissonance (LLM-based): score={conflict_score:.3f}, "
+                        f"conflicting={len(conflicting_goals_list)}, aligned={len(aligned_goals_list)}, "
+                        f"has_conflicts={has_conflicts}"
+                    )
+                    
+                    # Track conflicts
+                    if violations or conflict_score > 0.0:
+                        self.goal_conflicts.append({
+                            "timestamp": datetime.now(timezone.utc),
+                            "goals": reasoning_goals,
+                            "violations": violations,
+                            "conflict_score": conflict_score
+                        })
+                    
+                    return conflict_score
+                    
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse LLM response as JSON: {e}. Response: {response_text[:200]}")
+                    # Fallback: return 0.0 (assume aligned)
+                    return 0.0
+                    
+            except Exception as e:
+                logger.warning(f"LLM-based goal conflict detection failed: {e}. Returning 0.0 (assume aligned)", exc_info=True)
+                # Fallback: return 0.0 (assume aligned) - don't break system
+                return 0.0
             
         except Exception as e:
             self._measurement_failure_count += 1
@@ -1300,6 +1329,23 @@ class CognitiveDissonanceMonitor:
         if len(self.goal_conflicts) == 0:
             return 0.0
         return sum(c.get("conflict_score", 0.0) for c in self.goal_conflicts) / len(self.goal_conflicts)
+    
+    def _get_goals_cache_key(self, reasoning_goals: List[Dict[str, Any]]) -> str:
+        """Generate cache key for goals to avoid redundant LLM calls."""
+        # Create a stable key from goal names and descriptions
+        goal_strings = []
+        for goal in reasoning_goals:
+            if isinstance(goal, dict):
+                goal_strings.append(f"{goal.get('name', '')}:{goal.get('description', '')}")
+            else:
+                goal_strings.append(str(goal))
+        
+        # Also include constraints and capabilities in cache key (state changes invalidate cache)
+        constraints_str = str(sorted([v.get("value", str(v)) for v in self.self_model.constraints.values()]))
+        capabilities_str = str(sorted([cap.get("text", str(cap)) for cap in self.self_model.capabilities]))
+        
+        cache_input = f"{'|'.join(goal_strings)}|{constraints_str}|{capabilities_str}"
+        return hashlib.md5(cache_input.encode()).hexdigest()
     
     def set_memory_manager(self, memory_manager: Any) -> None:
         """Set memory manager for factual dissonance measurement."""

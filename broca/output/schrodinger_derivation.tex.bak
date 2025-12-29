@@ -4,15 +4,12 @@
 \usepackage{hyperref}
 \usepackage{geometry}
 \usepackage{graphicx}
-\newcommand{\ket}[1]{\lvert #1 \rangle}
-\newcommand{\bra}[1]{\langle #1 \rvert}
-\newcommand{\braket}[2]{\langle #1\vert #2\rangle}
+ewcommand{\ket}[1]{\lvert #1 \rangle}
+ewcommand{\bra}[1]{\langle #1 \rvert}
+ewcommand{\braket}[2]{\langle #1\vert #2\rangle}
 \geometry{margin=1in}
-\title{A Rigorous and Defensible Derivation of the Schr\"odinger Equation}
-\author{BrocaOS (assisted derivation)\\Compiled for: Nick Yazdani}
-\date{\today}
 
-\begin{document}
+\title{A Rigorous and Defensible Derivation of the Schr\"odinger Equation}\n\author{BrocaOS (assisted derivation)\\Compiled for: Nick Yazdani}\n\date{\today}\n\begin{document}
 \maketitle
 \begin{abstract}
 We present a multi-faceted derivation of the time-dependent Schr\"odinger equation emphasizing mathematical rigor, physical plausibility, and historical continuity.  Multiple routes are given: (1) a functional-analytic route via Stone's theorem connecting continuous unitary evolution to a self-adjoint generator; (2) canonical quantization from the Hamiltonian formulation of classical mechanics; (3) action/variational principle for complex fields; (4) a short-time path-integral consistency derivation; and (5) the classical limit (Hamilton--Jacobi and WKB).  At key steps we indicate domain and self-adjointness caveats, operator-ordering concerns, and supply references.  The file is prepared to compile on Overleaf.
@@ -121,18 +118,9 @@ abla\cdot\left(R^2\frac{
 abla S}{m}\right)=0,\]
 with higher-order corrections producing the so-called quantum potential terms of order $\hbar^2$.
 
-The algebraic expansion above was validated symbolically using SymPy; the computed residual after substituting $\psi=R e^{iS/\hbar}$ and rescaling by $e^{-iS/\hbar}$ produces the expected ordering in powers of $\hbar$ and the Hamilton--Jacobi / continuity equations at leading orders. See validate\_sympy\_log.txt for the symbolic log.
+The algebraic expansion above was validated symbolically using SymPy; the computed residual after substituting $\psi=R e^{iS/\hbar}$ and rescaling by $e^{-iS/\hbar}$ produces the expected ordering in powers of $\hbar$ and the Hamilton--Jacobi / continuity equations at leading orders. See broca/output/validate_sympy_log.txt for the symbolic log.
 \section{Use of automated reasoning in planning}
-As part of planning and to ensure logical consistency of key structural claims, lightweight formal checks were performed using Z3. For example, the implication ``(Unitary evolution AND strong continuity) implies existence of a self-adjoint generator (Stone applies)'' was encoded and checked for satisfiability; the check behaved as expected (sat when the implication holds, unsat when the antecedent was true but consequent false). Results are available at z3\_plan\_check.txt.
-
-\section{Short-time free-particle propagator (symbolic)}
-The short-time free-particle propagator kernel has leading Gaussian form. The symbolic leading-order kernel used in the path-integral derivation was computed and the LaTeX representation is included below.
-\input{sage\_propagator.tex}
-egin{figure}[h!]
-\centering
-\includegraphics[width=0.8	extwidth]{propagator\_phase.pdf}
-\caption{Phase of the free-particle propagator kernel as a function of $x-y$ for fixed $\Delta t$ (visualized modulo $2\pi$).}
-\end{figure}
+As part of planning and to ensure logical consistency of key structural claims, lightweight formal checks were performed using Z3. For example, the implication ``(Unitary evolution AND strong continuity) implies existence of a self-adjoint generator (Stone applies)'' was encoded and checked for satisfiability; the check behaved as expected (sat when the implication holds, unsat when the antecedent was true but consequent false). Results are available at broca/output/z3_plan_check.txt.
 \appendix
 \section{Selected Bibliography}
 \begin{thebibliography}{99}

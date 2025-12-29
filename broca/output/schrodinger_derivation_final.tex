@@ -1,4 +1,4 @@
-% Schrodinger_Equation_Derivation.tex
+% Final canonical preamble
 \documentclass[11pt]{article}
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{hyperref}
@@ -9,9 +9,8 @@
 \newcommand{\braket}[2]{\langle #1\vert #2\rangle}
 \geometry{margin=1in}
 \title{A Rigorous and Defensible Derivation of the Schr\"odinger Equation}
-\author{BrocaOS (assisted derivation)\\Compiled for: Nick Yazdani}
+\author{BrocaOS (assisted derivation)\\ \ Compiled for: Nick Yazdani}
 \date{\today}
-
 \begin{document}
 \maketitle
 \begin{abstract}
@@ -127,10 +126,10 @@ As part of planning and to ensure logical consistency of key structural claims, 
 
 \section{Short-time free-particle propagator (symbolic)}
 The short-time free-particle propagator kernel has leading Gaussian form. The symbolic leading-order kernel used in the path-integral derivation was computed and the LaTeX representation is included below.
-\input{sage\_propagator.tex}
-egin{figure}[h!]
+\input{sage_propagator.tex}
+\begin{figure}[h!]
 \centering
-\includegraphics[width=0.8	extwidth]{propagator\_phase.pdf}
+\includegraphics[width=0.8extwidth]{propagator\_phase.pdf}
 \caption{Phase of the free-particle propagator kernel as a function of $x-y$ for fixed $\Delta t$ (visualized modulo $2\pi$).}
 \end{figure}
 \appendix
@@ -142,5 +141,4 @@ egin{figure}[h!]
 \bibitem{reed_simon1} M. Reed and B. Simon, "Methods of Modern Mathematical Physics I: Functional Analysis," Academic Press (1972).
 \bibitem{hall} B. C. Hall, "Quantum Theory for Mathematicians," Graduate Texts in Mathematics, Springer (2013).
 \end{thebibliography}
-
 \end{document}

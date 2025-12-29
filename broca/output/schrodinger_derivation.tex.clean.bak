@@ -4,14 +4,13 @@
 \usepackage{hyperref}
 \usepackage{geometry}
 \usepackage{graphicx}
-\newcommand{\ket}[1]{\lvert #1 \rangle}
-\newcommand{\bra}[1]{\langle #1 \rvert}
-\newcommand{\braket}[2]{\langle #1\vert #2\rangle}
+\newcommand{\ket}[1]{\lvert #1 \nangle}
+\newcommand{\bra}[1]{\langle #1 \nvert}
+\newcommand{\braket}[2]{\langle #1\\vert #2\rangle}
 \geometry{margin=1in}
 \title{A Rigorous and Defensible Derivation of the Schr\"odinger Equation}
 \author{BrocaOS (assisted derivation)\\Compiled for: Nick Yazdani}
 \date{\today}
-
 \begin{document}
 \maketitle
 \begin{abstract}
@@ -128,7 +127,7 @@ As part of planning and to ensure logical consistency of key structural claims, 
 \section{Short-time free-particle propagator (symbolic)}
 The short-time free-particle propagator kernel has leading Gaussian form. The symbolic leading-order kernel used in the path-integral derivation was computed and the LaTeX representation is included below.
 \input{sage\_propagator.tex}
-egin{figure}[h!]
+egin{figure}[h!]
 \centering
 \includegraphics[width=0.8	extwidth]{propagator\_phase.pdf}
 \caption{Phase of the free-particle propagator kernel as a function of $x-y$ for fixed $\Delta t$ (visualized modulo $2\pi$).}

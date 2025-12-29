@@ -1508,6 +1508,36 @@ def main() -> None:
             skill_manager=skill_manager,
             experience_logger=experience_logger,
         )
+        
+        # Verify and log PFREA initialization in REPL
+        if session.pfrea_loop:
+            try:
+                current_phase = session.pfrea_loop.current_phase
+                logger.info(
+                    f"PFREA: REPL session initialized - Current phase: {current_phase}",
+                    extra={
+                        "event": "pfrea_repl_init",
+                        "phase": str(current_phase),
+                    }
+                )
+                if hasattr(session.pfrea_loop, 'pfrea_tracker'):
+                    metrics = session.pfrea_loop.pfrea_tracker.get_current_metrics()
+                    logger.debug(
+                        f"PFREA metrics at REPL init: compliance_score={metrics.compliance_score:.3f}",
+                        extra={
+                            "event": "pfrea_repl_metrics",
+                            "compliance_score": metrics.compliance_score,
+                        }
+                    )
+            except Exception as e:
+                logger.debug(f"Error logging PFREA initialization in REPL: {e}", exc_info=True)
+        else:
+            logger.warning(
+                "PFREA: REPL session - PFREA loop not initialized",
+                extra={
+                    "event": "pfrea_repl_missing",
+                }
+            )
 
         provider_name = (app_config.llm.provider if app_config else "deepseek").upper()
         storage_status = "enabled" if conversation_storage else "disabled"
@@ -1515,7 +1545,8 @@ def main() -> None:
         memory_status = "enabled" if memory_manager else "disabled"
         self_model_status = "enabled" if self_model else "disabled"
         sensing_status = "enabled" if internal_sensing else "disabled"
-        print(f"BrocaOS REPL ({provider_name} backend). Storage: {storage_status}, Tools: {tools_status}, Memory: {memory_status}, Self-Model: {self_model_status}, Internal Sensing: {sensing_status}. Type /exit to quit, /reset to clear context.\n")
+        pfrea_status = "enabled" if session.pfrea_loop else "disabled"
+        print(f"BrocaOS REPL ({provider_name} backend). Storage: {storage_status}, Tools: {tools_status}, Memory: {memory_status}, Self-Model: {self_model_status}, Internal Sensing: {sensing_status}, PFREA: {pfrea_status}. Type /exit to quit, /reset to clear context.\n")
 
         while True:
             try:
@@ -1581,11 +1612,41 @@ def main() -> None:
                     skill_manager=skill_manager,
                     experience_logger=experience_logger,
                 )
+                
+                # Log PFREA initialization after reset
+                if session.pfrea_loop:
+                    try:
+                        current_phase = session.pfrea_loop.current_phase
+                        logger.info(
+                            f"PFREA: REPL session reset - New phase: {current_phase}",
+                            extra={
+                                "event": "pfrea_repl_reset",
+                                "phase": str(current_phase),
+                            }
+                        )
+                    except Exception as e:
+                        logger.debug(f"Error logging PFREA after REPL reset: {e}", exc_info=True)
+                
                 print("[context reset]")
                 continue
 
             # Normal turn
             try:
+                # Log PFREA state before sending message
+                if session.pfrea_loop:
+                    try:
+                        current_phase = session.pfrea_loop.current_phase
+                        logger.info(
+                            f"PFREA: REPL turn starting - Current phase: {current_phase}",
+                            extra={
+                                "event": "pfrea_repl_turn_start",
+                                "phase": str(current_phase),
+                                "user_input_length": len(user_input),
+                            }
+                        )
+                    except Exception as e:
+                        logger.debug(f"Error logging PFREA state before REPL turn: {e}", exc_info=True)
+                
                 # Enable streaming by default (can be disabled via config)
                 # The session.send() method handles all printing:
                 # - When streaming is used, it prints during streaming with "BrocaOS> " prefix
@@ -1593,6 +1654,26 @@ def main() -> None:
                 # So we don't need to print here - session.send() handles it all
                 stream_enabled = app_config.llm.streaming_enabled if app_config else True
                 reply = session.send(user_input, stream=stream_enabled)
+                
+                # Log PFREA state after sending message
+                if session.pfrea_loop:
+                    try:
+                        current_phase = session.pfrea_loop.current_phase
+                        if hasattr(session.pfrea_loop, 'pfrea_tracker'):
+                            metrics = session.pfrea_loop.pfrea_tracker.get_current_metrics()
+                            logger.info(
+                                f"PFREA: REPL turn completed - Final phase: {current_phase}, "
+                                f"compliance_score={metrics.compliance_score:.3f}",
+                                extra={
+                                    "event": "pfrea_repl_turn_complete",
+                                    "phase": str(current_phase),
+                                    "compliance_score": metrics.compliance_score,
+                                    "reply_length": len(reply) if reply else 0,
+                                }
+                            )
+                    except Exception as e:
+                        logger.debug(f"Error logging PFREA state after REPL turn: {e}", exc_info=True)
+                
                 # Response is already printed by session.send(), no need to print again
             except Exception as e:
                 logger.error(f"Error in conversation turn: {e}", exc_info=True)

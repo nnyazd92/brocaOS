@@ -17,6 +17,7 @@ import uvicorn
 
 from .main_repl_runtime import initialize_runtime, BrocaRuntime
 from .repl.session import ConversationSession
+from .reasoning.plan_exec_assess_loop import LoopPhase
 
 # Import ResponseAnalyzer for internal sensing integration
 try:
@@ -207,7 +208,35 @@ def generate_title(user_message: str) -> str:
     For non-blocking usage, use update_conversation_title_async() instead.
     
     Uses direct LLM call to avoid tool access and PFREA loop interference.
+    This is a legitimate bypass because:
+    - Simple LLM call with no tool usage
+    - No planning or execution required
+    - No state changes or side effects
+    - Fast, stateless operation
     """
+    # Log PFREA bypass
+    try:
+        from .reasoning.pfrea_tracker import get_pfrea_tracker, PFREAEventType
+        tracker = get_pfrea_tracker()
+        if tracker:
+            tracker.record_bypass(
+                reason="title_generation",
+                justification="Simple LLM call with no tool usage or planning required. Stateless operation with no side effects.",
+                context={"user_message_preview": user_message[:50]}
+            )
+    except Exception as e:
+        logger.debug(f"Could not record PFREA bypass: {e}")
+    
+    logger.info(
+        "PFREA: Bypassed for title generation (legitimate - no planning needed)",
+        extra={
+            "event": "pfrea_bypass",
+            "reason": "title_generation",
+            "justification": "Simple LLM call with no tool usage or planning required",
+            "session_id": None,  # No session for this operation
+        }
+    )
+    
     rt = get_runtime()
     prompt = f"Generate a very short (max 5 words), punchy title for a conversation that starts with: '{user_message}'. Return ONLY the title text, no quotes or punctuation."
     
@@ -747,6 +776,29 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
     storage = get_storage()
     session = create_session(conversation_id)
     
+    # Log PFREA initialization in stream_response
+    if session.pfrea_loop:
+        try:
+            current_phase = session.pfrea_loop.current_phase
+            logger.info(
+                f"PFREA: stream_response initialized - Current phase: {current_phase}",
+                extra={
+                    "event": "pfrea_stream_init",
+                    "phase": str(current_phase),
+                    "conversation_id": conversation_id,
+                }
+            )
+        except Exception as e:
+            logger.debug(f"Error logging PFREA initialization in stream_response: {e}", exc_info=True)
+    else:
+        logger.warning(
+            "PFREA: stream_response - PFREA loop not initialized",
+            extra={
+                "event": "pfrea_missing",
+                "conversation_id": conversation_id,
+            }
+        )
+    
     # Ensure PEA loop managers are wired (in case they weren't available during create_session)
     if session.pea_loop and rt.reasoning_tool:
         goal_manager = None
@@ -794,6 +846,48 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
             logger.debug(f"Error in pre-LLM instrumentation: {e}", exc_info=True)
     
     session.messages.append({"role": "user", "content": user_message})
+    
+    # PFREA Control Loop: Reset for new goal and enforce planning if needed
+    loop = session.pfrea_loop or session.pea_loop
+    forecast_enabled = True
+    if hasattr(app_config, 'reasoning') and hasattr(app_config.reasoning, 'pfrea_forecast_enabled'):
+        forecast_enabled = app_config.reasoning.pfrea_forecast_enabled
+    
+    if loop:
+        # Reset for new goal if this is a new user message
+        if loop.current_phase is None or loop.current_phase == LoopPhase.COMPLETE:
+            loop.reset_for_new_goal(user_text)
+            if not hasattr(session, '_forecast_directive_count'):
+                session._forecast_directive_count = 0
+            session._forecast_directive_count = 0  # Reset forecast directive counter for new goal
+            logger.info(
+                "PFREA: Reset for new goal in stream_response",
+                extra={
+                    "event": "pfrea_reset_new_goal",
+                    "conversation_id": conversation_id,
+                    "user_message": user_text[:100] if user_text else None,
+                }
+            )
+        
+        # Check if planning should be enforced
+        if loop and loop.should_require_plan(user_text, has_tool_calls=False):
+            planning_directive = loop.enforce_planning_phase(user_text)
+            # CRITICAL: Set phase to PLAN when enforcing planning
+            loop.current_phase = LoopPhase.PLAN
+            # Update user message in messages list
+            if session.messages and session.messages[-1].get("role") == "user":
+                session.messages[-1]["content"] = planning_directive
+            
+            logger.info(
+                "PFREA: Planning phase enforced at conversation start in stream_response",
+                extra={
+                    "event": "pfrea_planning_enforced_start",
+                    "conversation_id": conversation_id,
+                    "current_phase": loop.current_phase.value if loop.current_phase else "None",
+                    "phase_set": loop.current_phase == LoopPhase.PLAN,
+                    "has_plan": loop.current_plan is not None,
+                }
+            )
     
     try:
         # Gather context for tool filtering/ranking if guidance is enabled
@@ -899,12 +993,149 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     }
                 )
             
+            # PFREA enforcement: Check if we're in the correct phase before LLM call
+            # Re-get loop reference (may have changed)
+            loop = session.pfrea_loop or session.pea_loop
+            if loop:
+                try:
+                    current_phase = loop.current_phase
+                    loop_state = loop.get_loop_state()
+                    
+                    logger.info(
+                        f"PFREA: stream_response iteration {iterations} - Current phase: {current_phase}",
+                        extra={
+                            "event": "pfrea_phase_check",
+                            "iteration": iterations,
+                            "phase": str(current_phase),
+                            "conversation_id": conversation_id,
+                        }
+                    )
+                    
+                    # Log PFREA state
+                    if hasattr(loop, 'pfrea_tracker') and loop.pfrea_tracker:
+                        metrics = loop.pfrea_tracker.get_current_metrics()
+                        logger.debug(
+                            f"PFREA metrics: compliance_score={metrics.compliance_score:.3f}, "
+                            f"phase_transitions={metrics.phase_transitions_count}",
+                            extra={
+                                "event": "pfrea_metrics",
+                                "compliance_score": metrics.compliance_score,
+                                "phase_transitions": metrics.phase_transitions_count,
+                            }
+                        )
+                except Exception as e:
+                    logger.debug(f"Error checking PFREA state in stream_response: {e}", exc_info=True)
+            
             response = session.llm.chat(messages_for_llm, tools=tools)
             last_response = response  # Store for max_iterations handling
             tool_calls = session.llm.extract_tool_calls(response)
             
             # Extract assistant content (intermediary commentary) before processing tool calls
             assistant_content = session.llm.extract_assistant_content(response) or None
+            assistant_text = assistant_content  # Track for plan/forecast extraction
+            
+            # PFREA Control Loop: Extract plan from response if we don't have one yet
+            if loop and assistant_text and loop.current_plan is None:
+                plan = loop.extract_plan_from_response(assistant_text)
+                if plan:
+                    loop.current_plan = plan
+                    # Phase should already be PLAN if we enforced planning, but set it to be sure
+                    if loop.current_phase != LoopPhase.PLAN:
+                        loop.current_phase = LoopPhase.PLAN
+                    logger.info(
+                        f"PFREA: Extracted plan from response in stream_response: {plan.plan_id}",
+                        extra={
+                            "event": "pfrea_plan_extracted_stream",
+                            "conversation_id": conversation_id,
+                            "plan_id": plan.plan_id,
+                            "goal": plan.goal,
+                            "steps_count": len(plan.steps),
+                            "iteration": iterations,
+                            "z3_verified": plan.z3_verification.get("is_logically_sound", True) if plan.z3_verification else None,
+                        }
+                    )
+                    if not hasattr(session, '_forecast_directive_count'):
+                        session._forecast_directive_count = 0
+                    session._forecast_directive_count = 0  # Reset counter when plan is extracted
+                    # If forecast is enabled, transition to FORECAST phase
+                    if forecast_enabled and not tool_calls:
+                        loop.current_phase = LoopPhase.FORECAST
+                        forecast_directive = loop.enforce_forecast_phase(plan)
+                        session.messages.append({"role": "user", "content": forecast_directive})
+                        session._forecast_directive_count = 1  # First forecast directive injection
+                        logger.info(
+                            "PFREA: Plan extracted, requesting forecast in stream_response",
+                            extra={
+                                "event": "pfrea_forecast_requested_stream",
+                                "conversation_id": conversation_id,
+                                "plan_id": plan.plan_id,
+                                "iteration": iterations,
+                            }
+                        )
+                        continue  # Loop back to get forecast
+                    elif not forecast_enabled:
+                        # Forecast disabled, go straight to EXECUTE
+                        loop.current_phase = LoopPhase.EXECUTE
+                        logger.info(
+                            "PFREA: Forecast disabled, proceeding to execution in stream_response",
+                            extra={
+                                "event": "pfrea_forecast_skipped_disabled_stream",
+                                "conversation_id": conversation_id,
+                                "plan_id": plan.plan_id,
+                            }
+                        )
+            
+            # PFREA Control Loop: Try to extract forecast even when tool_calls are present (fallback)
+            if loop and loop.current_phase == LoopPhase.FORECAST and loop.current_plan and assistant_text:
+                forecast = loop.extract_forecast_from_response(assistant_text)
+                if forecast:
+                    loop.current_forecast = forecast
+                    loop.forecast_history.append(forecast)
+                    logger.info(
+                        f"PFREA: Extracted forecast from response in stream_response (feasibility={forecast.feasibility_score:.2f})",
+                        extra={
+                            "event": "pfrea_forecast_extracted_stream",
+                            "conversation_id": conversation_id,
+                            "plan_id": forecast.plan_id,
+                            "feasibility_score": forecast.feasibility_score,
+                            "should_replan": forecast.should_replan,
+                            "iteration": iterations,
+                        }
+                    )
+                    if not hasattr(session, '_forecast_directive_count'):
+                        session._forecast_directive_count = 0
+                    session._forecast_directive_count = 0  # Reset counter
+                    
+                    # Check if re-planning is needed
+                    if loop.should_replan_after_forecast(forecast):
+                        loop.current_phase = LoopPhase.RE_PLAN
+                        replan_directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
+                        session.messages.append({"role": "user", "content": replan_directive})
+                        logger.info(
+                            "PFREA: Forecast indicates re-planning needed in stream_response",
+                            extra={
+                                "event": "pfrea_replan_triggered_stream",
+                                "conversation_id": conversation_id,
+                                "plan_id": forecast.plan_id,
+                                "feasibility_score": forecast.feasibility_score,
+                                "iteration": iterations,
+                            }
+                        )
+                        continue  # Loop back to get replan
+                    else:
+                        # Forecast approved, transition to EXECUTE
+                        loop.current_phase = LoopPhase.EXECUTE
+                        logger.info(
+                            "PFREA: Forecast approved, proceeding to execution in stream_response",
+                            extra={
+                                "event": "pfrea_execution_approved_stream",
+                                "conversation_id": conversation_id,
+                                "plan_id": forecast.plan_id,
+                                "feasibility_score": forecast.feasibility_score,
+                                "iteration": iterations,
+                            }
+                        )
+                        # Continue to allow tool execution
             
             if session.internal_sensing_framework and tool_calls:
                 try:
@@ -916,6 +1147,103 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     logger.debug(f"Error tracking processing depth: {e}", exc_info=True)
             
             if tool_calls:
+                # PFREA Control Loop: Check if we can execute actions (mandatory enforcement)
+                if loop:
+                    # Block tool execution if required phases are not complete
+                    if not loop.can_execute_actions(forecast_enabled=forecast_enabled):
+                        # Inject appropriate phase directive
+                        if loop.should_require_plan(user_text, has_tool_calls=True):
+                            directive = loop.enforce_planning_phase(user_text)
+                            session.messages.append({"role": "user", "content": directive})
+                            logger.warning(
+                                "PFREA: Blocked tool execution - planning required in stream_response",
+                                extra={
+                                    "event": "pfrea_execution_blocked_stream",
+                                    "reason": "planning_required",
+                                    "conversation_id": conversation_id,
+                                    "iteration": iterations,
+                                    "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    "current_phase": loop.current_phase.value if loop.current_phase else None,
+                                }
+                            )
+                            continue  # Loop back to get plan
+                        elif loop.should_require_forecast():
+                            # Loop protection: prevent infinite loops
+                            if not hasattr(session, '_forecast_directive_count'):
+                                session._forecast_directive_count = 0
+                            if session._forecast_directive_count >= 3:
+                                logger.error(
+                                    "PFREA: Forecast directive injected 3 times, skipping forecast to prevent infinite loop in stream_response",
+                                    extra={
+                                        "event": "pfrea_forecast_loop_protection_stream",
+                                        "conversation_id": conversation_id,
+                                        "iteration": iterations,
+                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    }
+                                )
+                                # Skip forecast and proceed to EXECUTE (graceful degradation)
+                                loop.current_forecast = None  # Mark as skipped
+                                loop.current_phase = LoopPhase.EXECUTE
+                                logger.warning(
+                                    "PFREA: Skipped forecast phase due to loop protection, proceeding to execution in stream_response",
+                                    extra={
+                                        "event": "pfrea_forecast_skipped_stream",
+                                        "conversation_id": conversation_id,
+                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    }
+                                )
+                                # Continue to allow tool execution
+                            else:
+                                session._forecast_directive_count += 1
+                                directive = loop.enforce_forecast_phase(loop.current_plan)
+                                session.messages.append({"role": "user", "content": directive})
+                                logger.warning(
+                                    f"PFREA: Blocked tool execution - forecast required (attempt {session._forecast_directive_count}/3) in stream_response",
+                                    extra={
+                                        "event": "pfrea_execution_blocked_stream",
+                                        "reason": "forecast_required",
+                                        "conversation_id": conversation_id,
+                                        "iteration": iterations,
+                                        "attempt": session._forecast_directive_count,
+                                        "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    }
+                                )
+                                continue  # Loop back to get forecast
+                        elif loop.should_require_replan():
+                            # Re-plan based on forecast
+                            forecast = loop.current_forecast
+                            directive = loop.enforce_planning_phase(user_text, is_replan=True, forecast=forecast)
+                            loop.current_phase = LoopPhase.RE_PLAN
+                            session.messages.append({"role": "user", "content": directive})
+                            logger.warning(
+                                "PFREA: Blocked tool execution - re-planning required in stream_response",
+                                extra={
+                                    "event": "pfrea_execution_blocked_stream",
+                                    "reason": "replanning_required",
+                                    "conversation_id": conversation_id,
+                                    "iteration": iterations,
+                                    "plan_id": loop.current_plan.plan_id if loop.current_plan else None,
+                                    "forecast_feasibility": forecast.feasibility_score if forecast else None,
+                                }
+                            )
+                            continue  # Loop back to get replan
+                    else:
+                        # Execution allowed
+                        logger.info(
+                            f"PFREA: Tool execution ALLOWED in stream_response (iteration {iterations})",
+                            extra={
+                                "event": "pfrea_execution_allowed_stream",
+                                "iteration": iterations,
+                                "phase": str(loop.current_phase),
+                                "conversation_id": conversation_id,
+                                "tool_calls_count": len(tool_calls),
+                            }
+                        )
+                        
+                        # Record execution in PFREA tracker
+                        if hasattr(loop, 'pfrea_tracker'):
+                            loop.pfrea_tracker.record_execution_allowed()
+                
                 # Log tool calls detected for automatic continuation
                 tool_names = [tc.get("function", {}).get("name", "unknown") for tc in tool_calls]
                 logger.info(
@@ -925,8 +1253,14 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                         "tool_calls_count": len(tool_calls),
                         "tool_names": tool_names,
                         "iteration": iterations,
+                        "pfrea_execution_allowed": execution_allowed,
+                        "pfrea_blocked_reason": execution_blocked_reason,
                     },
                 )
+                
+                # Note: We continue processing tool calls even if PFREA blocks them
+                # This maintains backward compatibility, but the violation is logged
+                # In a stricter implementation, we could skip tool execution here
                 
                 # Create single assistant message with all tool calls and content (preserves intermediary commentary)
                 # This matches session.send() behavior
@@ -1330,6 +1664,25 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     except Exception as e:
                         logger.warning(f"Error computing RL signals in stream_response: {e}", exc_info=True)
     
+    # Log PFREA completion in stream_response
+    if 'session' in locals() and session.pfrea_loop:
+        try:
+            current_phase = session.pfrea_loop.current_phase
+            if hasattr(session.pfrea_loop, 'pfrea_tracker'):
+                metrics = session.pfrea_loop.pfrea_tracker.get_current_metrics()
+                logger.info(
+                    f"PFREA: stream_response completed - Final phase: {current_phase}, "
+                    f"compliance_score={metrics.compliance_score:.3f}",
+                    extra={
+                        "event": "pfrea_stream_complete",
+                        "phase": str(current_phase),
+                        "conversation_id": conversation_id,
+                        "compliance_score": metrics.compliance_score,
+                    }
+                )
+        except Exception as e:
+            logger.debug(f"Error logging PFREA completion in stream_response: {e}", exc_info=True)
+    
     yield json.dumps(done_data) + "\n"
 
 @app.post("/api/chat")
@@ -1683,6 +2036,66 @@ async def list_priorities():
     result = reasoning.execute("retrieve_from_memory", 
                              memory_pattern={"type": "priority"})
     return result
+
+@app.get("/api/pfrea/metrics")
+async def get_pfrea_metrics():
+    """Get PFREA compliance metrics and audit trail."""
+    try:
+        from .reasoning.pfrea_tracker import get_pfrea_tracker
+        tracker = get_pfrea_tracker()
+        
+        if not tracker:
+            return {
+                "enabled": False,
+                "error": "PFREA tracker not available"
+            }
+        
+        metrics = tracker.get_metrics()
+        compliance_report = tracker.get_compliance_report()
+        
+        return {
+            "metrics": metrics,
+            "compliance_report": compliance_report,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Error getting PFREA metrics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error retrieving PFREA metrics: {str(e)}")
+
+@app.get("/api/pfrea/audit-trail")
+async def get_pfrea_audit_trail(
+    session_id: Optional[str] = None,
+    plan_id: Optional[str] = None,
+    limit: int = 100
+):
+    """Get PFREA audit trail of events."""
+    try:
+        from .reasoning.pfrea_tracker import get_pfrea_tracker, PFREAEventType
+        tracker = get_pfrea_tracker()
+        
+        if not tracker:
+            raise HTTPException(status_code=503, detail="PFREA tracker not available")
+        
+        audit_trail = tracker.get_audit_trail(
+            session_id=session_id,
+            plan_id=plan_id,
+            limit=limit
+        )
+        
+        return {
+            "events": audit_trail,
+            "count": len(audit_trail),
+            "filters": {
+                "session_id": session_id,
+                "plan_id": plan_id,
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting PFREA audit trail: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error retrieving audit trail: {str(e)}")
 
 @app.get("/api/cognitive-architecture/status")
 async def get_cognitive_status():

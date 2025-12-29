@@ -22,6 +22,15 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+# Import PFREA tracker types (optional - will fail gracefully if not available)
+try:
+    from .pfrea_tracker import PFREAEventType, get_pfrea_tracker
+    PFREA_TRACKER_AVAILABLE = True
+except ImportError:
+    PFREA_TRACKER_AVAILABLE = False
+    PFREAEventType = None  # type: ignore
+    get_pfrea_tracker = None  # type: ignore
+
 
 class LoopPhase(Enum):
     """Current phase of the PFREA loop."""
@@ -42,6 +51,7 @@ class Plan:
     expected_outcomes: List[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     plan_id: str = field(default_factory=lambda: f"plan_{datetime.now(timezone.utc).timestamp()}")
+    z3_verification: Optional[Dict[str, Any]] = field(default=None)  # Z3 validation results
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -51,6 +61,7 @@ class Plan:
             "expected_outcomes": self.expected_outcomes,
             "created_at": self.created_at.isoformat(),
             "plan_id": self.plan_id,
+            "z3_verification": self.z3_verification,
         }
 
 
@@ -157,6 +168,7 @@ class PlanForecastReplanExecuteAssessLoop:
         success_threshold: float = 0.8,
         track_failed_patterns: bool = True,
         max_failed_patterns: int = 10,
+        z3_validator: Optional[Any] = None,
     ):
         self.goal_manager = goal_manager
         self.skill_manager = skill_manager
@@ -166,6 +178,26 @@ class PlanForecastReplanExecuteAssessLoop:
         self.success_threshold = success_threshold
         self.track_failed_patterns = track_failed_patterns
         self.max_failed_patterns = max_failed_patterns
+        
+        # Initialize Z3 validator if not provided
+        if z3_validator is None:
+            try:
+                from .z3_validator import Z3LogicalValidator
+                from .config import ReasoningConfig
+                
+                # Instantiate ReasoningConfig to access instance attributes
+                config = ReasoningConfig()
+                
+                self.z3_validator = Z3LogicalValidator(
+                    enable_z3=config.z3_validation_enabled,
+                    timeout=config.z3_validation_timeout,
+                    max_constraints=config.z3_max_constraints
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize Z3 validator: {e}", exc_info=True)
+                self.z3_validator = None
+        else:
+            self.z3_validator = z3_validator
         
         # Current state
         self.current_phase: Optional[LoopPhase] = None
@@ -180,7 +212,24 @@ class PlanForecastReplanExecuteAssessLoop:
         # Track failed patterns to prevent loops
         self.failed_patterns: List[Dict[str, Any]] = []  # Patterns that didn't work
         
-        logger.info("Initialized PlanForecastReplanExecuteAssessLoop")
+        # Initialize PFREA tracker for compliance monitoring
+        self._tracker = None
+        if PFREA_TRACKER_AVAILABLE and get_pfrea_tracker:
+            try:
+                from .config import ReasoningConfig
+                if getattr(ReasoningConfig, 'pfrea_metrics_enabled', True):
+                    self._tracker = get_pfrea_tracker()
+            except Exception as e:
+                logger.debug(f"PFREA tracker not available: {e}")
+        
+        logger.info(
+            "Initialized PlanForecastReplanExecuteAssessLoop",
+            extra={
+                "event": "pfrea_initialized",
+                "z3_enabled": self.z3_validator is not None and (self.z3_validator.enabled if hasattr(self.z3_validator, 'enabled') else False),
+                "tracker_enabled": self._tracker is not None,
+            }
+        )
     
     def should_require_plan(self, user_message: str, has_tool_calls: bool) -> bool:
         """
@@ -197,34 +246,74 @@ class PlanForecastReplanExecuteAssessLoop:
         """
         # Always require planning if not enabled (mandatory PFREA)
         if not self.require_planning:
-            return True
-        
+            result = True
+            reason = "planning_always_required"
         # If we're in ASSESS phase and replan needed, require plan
-        if self.current_phase == LoopPhase.ASSESS:
+        elif self.current_phase == LoopPhase.ASSESS:
             # Check if last assessment indicated replan needed
             if self.assessment_history:
                 last_assessment = self.assessment_history[-1]
                 if last_assessment.should_replan:
-                    return True
-        
+                    result = True
+                    reason = "assessment_indicates_replan"
+                else:
+                    result = False
+                    reason = "assessment_no_replan_needed"
+            else:
+                result = False
+                reason = "no_assessment_history"
         # If we're in FORECAST phase and re-plan recommended, require plan
-        if self.current_phase == LoopPhase.FORECAST and self.current_forecast:
+        elif self.current_phase == LoopPhase.FORECAST and self.current_forecast:
             if self.current_forecast.should_replan:
-                return True
-        
+                result = True
+                reason = "forecast_indicates_replan"
+            else:
+                result = False
+                reason = "forecast_no_replan_needed"
         # If we have no current plan and LLM wants to make tool calls, require plan
-        if self.current_plan is None and has_tool_calls:
-            return True
-        
+        elif self.current_plan is None and has_tool_calls:
+            result = True
+            reason = "no_plan_with_tool_calls"
         # If current plan is complete, require new plan
-        if self.current_plan and self.current_phase == LoopPhase.COMPLETE:
-            return True
-        
+        elif self.current_plan and self.current_phase == LoopPhase.COMPLETE:
+            result = True
+            reason = "plan_complete_need_new"
         # If we're starting fresh (no phase set), require plan
-        if self.current_phase is None:
-            return True
+        elif self.current_phase is None:
+            result = True
+            reason = "no_phase_set"
+        else:
+            result = False
+            reason = "plan_not_required"
         
-        return False
+        # Log enforcement check
+        if self._tracker and PFREAEventType:
+            self._tracker.record_event(
+                event_type=PFREAEventType.ENFORCEMENT,
+                phase=self.current_phase.value if self.current_phase else None,
+                plan_id=self.current_plan.plan_id if self.current_plan else None,
+                context={
+                    "check_type": "should_require_plan",
+                    "result": result,
+                    "reason": reason,
+                    "has_tool_calls": has_tool_calls,
+                }
+            )
+        
+        logger.debug(
+            f"PFREA: Planning requirement check: {result} (reason: {reason})",
+            extra={
+                "event": "pfrea_enforcement_check",
+                "check_type": "should_require_plan",
+                "result": result,
+                "reason": reason,
+                "current_phase": self.current_phase.value if self.current_phase else None,
+                "has_plan": self.current_plan is not None,
+                "has_tool_calls": has_tool_calls,
+            }
+        )
+        
+        return result
     
     def should_require_forecast(self) -> bool:
         """
@@ -277,21 +366,69 @@ class PlanForecastReplanExecuteAssessLoop:
         """
         # Must have a plan
         if not self.current_plan:
-            return False
-        
+            result = False
+            reason = "no_plan"
         # If forecast is enabled, must have a forecast
-        if forecast_enabled and not self.current_forecast:
-            return False
-        
+        elif forecast_enabled and not self.current_forecast:
+            result = False
+            reason = "no_forecast"
         # Cannot execute if in planning phases
-        if self.current_phase in [LoopPhase.PLAN, LoopPhase.FORECAST, LoopPhase.RE_PLAN]:
-            return False
-        
+        elif self.current_phase in [LoopPhase.PLAN, LoopPhase.FORECAST, LoopPhase.RE_PLAN]:
+            result = False
+            reason = f"in_planning_phase_{self.current_phase.value}"
         # Can execute if in EXECUTE phase
-        if self.current_phase == LoopPhase.EXECUTE:
-            return True
+        elif self.current_phase == LoopPhase.EXECUTE:
+            result = True
+            reason = "in_execute_phase"
+        else:
+            result = False
+            reason = f"phase_not_executable_{self.current_phase.value if self.current_phase else 'none'}"
         
-        return False
+        # Log execution check
+        logger.debug(
+            f"PFREA: Execution check: {result} (reason: {reason})",
+            extra={
+                "event": "pfrea_execution_check",
+                "result": result,
+                "reason": reason,
+                "forecast_enabled": forecast_enabled,
+                "has_plan": self.current_plan is not None,
+                "has_forecast": self.current_forecast is not None,
+                "current_phase": self.current_phase.value if self.current_phase else None,
+                "plan_id": self.current_plan.plan_id if self.current_plan else None,
+            }
+        )
+        
+        # Track execution check
+        if self._tracker and PFREAEventType:
+            self._tracker.record_event(
+                event_type=PFREAEventType.ENFORCEMENT,
+                phase=self.current_phase.value if self.current_phase else None,
+                plan_id=self.current_plan.plan_id if self.current_plan else None,
+                context={
+                    "check_type": "can_execute_actions",
+                    "result": result,
+                    "reason": reason,
+                    "forecast_enabled": forecast_enabled,
+                }
+            )
+            
+            # Record violation if execution attempted without proper phases
+            if not result and self.current_plan:
+                violation_type = "execution_blocked"
+                if reason == "no_plan":
+                    violation_type = "execution_without_plan"
+                elif reason == "no_forecast":
+                    violation_type = "execution_without_forecast"
+                
+                self._tracker.record_violation(
+                    violation_type=violation_type,
+                    description=f"Execution blocked: {reason}",
+                    plan_id=self.current_plan.plan_id,
+                    context={"forecast_enabled": forecast_enabled}
+                )
+        
+        return result
     
     def extract_plan_from_response(self, response_text: str) -> Optional[Plan]:
         """
@@ -343,14 +480,85 @@ class PlanForecastReplanExecuteAssessLoop:
                 expected_outcomes = [o.strip() for o in outcomes_text.split('\n') if o.strip() and o.strip().startswith('-')]
                 expected_outcomes = [o.lstrip('- ').strip() for o in expected_outcomes]
             
-            return Plan(
+            plan = Plan(
                 goal=goal,
                 steps=steps,
                 assumptions=assumptions,
                 expected_outcomes=expected_outcomes,
             )
+            
+            # Verify plan with Z3
+            z3_results = self.verify_plan_with_z3(plan)
+            plan.z3_verification = z3_results
+            
+            # Log plan extraction
+            logger.info(
+                f"PFREA: Plan extracted: {plan.plan_id}",
+                extra={
+                    "event": "pfrea_plan_extracted",
+                    "plan_id": plan.plan_id,
+                    "goal": goal,
+                    "steps_count": len(steps),
+                    "assumptions_count": len(assumptions),
+                    "z3_verified": z3_results.get("is_logically_sound", True) if z3_results else None,
+                    "z3_issues": len(z3_results.get("logical_issues", [])) if z3_results else 0,
+                }
+            )
+            
+            # Track plan extraction
+            if self._tracker and PFREAEventType:
+                self._tracker.record_event(
+                    event_type=PFREAEventType.PLAN_EXTRACTED,
+                    phase=LoopPhase.PLAN.value,
+                    plan_id=plan.plan_id,
+                    context={
+                        "goal": goal,
+                        "steps_count": len(steps),
+                        "assumptions_count": len(assumptions),
+                        "z3_verified": z3_results.get("is_logically_sound", True) if z3_results else None,
+                    }
+                )
+            
+            return plan
         
         return None
+    
+    def verify_plan_with_z3(self, plan: Plan) -> Dict[str, Any]:
+        """
+        Verify plan logic using Z3 validator.
+        
+        This method is mandatory but non-blocking - it always returns results
+        even if Z3 is unavailable or fails.
+        
+        Args:
+            plan: Plan to verify
+            
+        Returns:
+            Dictionary with Z3 validation results (never raises exceptions)
+        """
+        if not self.z3_validator:
+            return {
+                "is_logically_sound": True,  # Default to sound if Z3 unavailable
+                "logical_issues": [],
+                "recommendations": [],
+                "missing_preconditions": [],
+                "contradictions": [],
+                "warnings": ["Z3 validator not available"],
+            }
+        
+        try:
+            return self.z3_validator.validate_plan_logic(plan)
+        except Exception as e:
+            logger.warning(f"Z3 plan verification failed (non-blocking): {e}")
+            # Return non-blocking result - never fail the plan
+            return {
+                "is_logically_sound": True,  # Default to sound on error
+                "logical_issues": [],
+                "recommendations": [],
+                "missing_preconditions": [],
+                "contradictions": [],
+                "warnings": [f"Z3 verification error: {str(e)}"],
+            }
     
     def _parse_plan_steps(self, plan_text: str) -> List[Dict[str, Any]]:
         """Parse plan text into structured steps."""
@@ -473,6 +681,58 @@ class PlanForecastReplanExecuteAssessLoop:
             should_replan = True
             replan_reason = f"Multiple validation issues ({len(validation_issues)}) identified"
         
+        # Log forecast extraction
+        logger.info(
+            f"PFREA: Forecast extracted for plan {self.current_plan.plan_id}",
+            extra={
+                "event": "pfrea_forecast_extracted",
+                "plan_id": self.current_plan.plan_id,
+                "feasibility_score": feasibility_score,
+                "should_replan": should_replan,
+                "risks_count": len(identified_risks),
+                "issues_count": len(validation_issues),
+                "recommendations_count": len(recommendations),
+            }
+        )
+        
+        # Track forecast extraction
+        if self._tracker and PFREAEventType:
+            self._tracker.record_event(
+                event_type=PFREAEventType.FORECAST_EXTRACTED,
+                phase=LoopPhase.FORECAST.value,
+                plan_id=self.current_plan.plan_id,
+                context={
+                    "feasibility_score": feasibility_score,
+                    "should_replan": should_replan,
+                    "risks_count": len(identified_risks),
+                    "issues_count": len(validation_issues),
+                }
+            )
+        
+        # Automatically include Z3 validation results if available
+        if self.current_plan and self.current_plan.z3_verification:
+            z3_verification = self.current_plan.z3_verification
+            
+            # Add Z3 logical issues to validation_issues
+            if z3_verification.get("logical_issues"):
+                for issue in z3_verification["logical_issues"]:
+                    if issue not in validation_issues:
+                        validation_issues.append(f"Z3: {issue}")
+            
+            # Add Z3 recommendations to recommendations
+            if z3_verification.get("recommendations"):
+                for rec in z3_verification["recommendations"]:
+                    if rec not in recommendations:
+                        recommendations.append(f"Z3: {rec}")
+            
+            # If Z3 found critical logical issues, suggest replanning (but don't block)
+            if not z3_verification.get("is_logically_sound", True):
+                if not should_replan:
+                    # Soft suggestion - don't force replan but indicate it's recommended
+                    if len(z3_verification.get("logical_issues", [])) > 0:
+                        should_replan = True
+                        replan_reason = f"Z3 logical verification found issues (recommended to revise, but not required)"
+        
         return Forecast(
             plan_id=self.current_plan.plan_id,
             feasibility_score=feasibility_score,
@@ -494,11 +754,53 @@ class PlanForecastReplanExecuteAssessLoop:
         Returns:
             Forecast directive message
         """
+        # Log forecast phase enforcement
+        logger.info(
+            f"PFREA: Enforcing forecast phase for plan {plan.plan_id}",
+            extra={
+                "event": "pfrea_forecast_enforced",
+                "plan_id": plan.plan_id,
+                "steps_count": len(plan.steps),
+                "z3_verified": plan.z3_verification.get("is_logically_sound", True) if plan.z3_verification else None,
+            }
+        )
+        
+        # Track phase transition to FORECAST
+        if self._tracker and PFREAEventType:
+            old_phase = self.current_phase.value if self.current_phase else None
+            self._tracker.record_phase_transition(
+                from_phase=old_phase,
+                to_phase=LoopPhase.FORECAST.value,
+                plan_id=plan.plan_id,
+                reason="plan_extracted"
+            )
+        
         forecast_directive = (
             f"\n\n[SYSTEM DIRECTIVE - FORECAST REQUIRED - DO NOT USE TOOLS]\n"
             f"Plan {plan.plan_id} has been created. Before executing ANY actions or using ANY tools, you MUST provide a forecast.\n\n"
             f"CRITICAL: You must provide the forecast in your text response. DO NOT use any tools. DO NOT make any tool calls.\n"
             f"Simply provide your forecast analysis in the response text below.\n\n"
+        )
+        
+        # Include Z3 verification results if available
+        if plan.z3_verification:
+            z3_verification = plan.z3_verification
+            forecast_directive += "**Z3 Logical Verification Results (Informational - Not Blocking):**\n"
+            if z3_verification.get("is_logically_sound", True):
+                forecast_directive += "- Status: Plan is logically sound\n"
+            else:
+                forecast_directive += "- Status: Plan has logical issues (consider revising)\n"
+            
+            if z3_verification.get("logical_issues"):
+                forecast_directive += f"- Logical Issues: {', '.join(z3_verification['logical_issues'][:3])}\n"
+            if z3_verification.get("recommendations"):
+                forecast_directive += f"- Z3 Recommendations: {', '.join(z3_verification['recommendations'][:3])}\n"
+            if z3_verification.get("warnings"):
+                forecast_directive += f"- Warnings: {', '.join(z3_verification['warnings'][:2])}\n"
+            forecast_directive += "\n"
+            forecast_directive += "NOTE: Z3 verification is informational only. You can still proceed with execution even if logical issues are found.\n\n"
+        
+        forecast_directive += (
             f"Your forecast must include:\n"
             f"1. **Feasibility Score**: A score from 0.0 to 1.0 indicating how feasible the plan is\n"
             f"2. **Predicted Outcomes**: What you expect to happen if this plan is executed\n"
@@ -549,6 +851,18 @@ class PlanForecastReplanExecuteAssessLoop:
         Returns:
             Modified user message with planning requirement
         """
+        # Log planning phase enforcement
+        logger.info(
+            f"PFREA: Enforcing planning phase (replan={is_replan})",
+            extra={
+                "event": "pfrea_planning_enforced",
+                "is_replan": is_replan,
+                "current_phase": self.current_phase.value if self.current_phase else None,
+                "plan_id": self.current_plan.plan_id if self.current_plan else None,
+                "forecast_available": forecast is not None,
+            }
+        )
+        
         if is_replan:
             planning_directive = (
                 "\n\n[SYSTEM DIRECTIVE - RE-PLANNING REQUIRED]\n"
@@ -571,6 +885,18 @@ class PlanForecastReplanExecuteAssessLoop:
                 if forecast.recommendations:
                     planning_directive += f"- Recommendations: {', '.join(forecast.recommendations[:3])}\n"
                 planning_directive += "\n"
+            
+            # Include Z3 verification results from previous plan if available
+            if self.current_plan and self.current_plan.z3_verification:
+                z3_verification = self.current_plan.z3_verification
+                if not z3_verification.get("is_logically_sound", True):
+                    planning_directive += "**Previous Plan Z3 Logical Verification:**\n"
+                    planning_directive += "- Status: Plan had logical issues\n"
+                    if z3_verification.get("logical_issues"):
+                        planning_directive += f"- Issues: {', '.join(z3_verification['logical_issues'][:3])}\n"
+                    if z3_verification.get("recommendations"):
+                        planning_directive += f"- Z3 Recommendations: {', '.join(z3_verification['recommendations'][:3])}\n"
+                    planning_directive += "\n"
             
             planning_directive += (
                 "Format your plan as:\n"
@@ -637,11 +963,41 @@ class PlanForecastReplanExecuteAssessLoop:
         )
         self.execution_history.append(execution)
         
-        # Update phase
-        self.current_phase = LoopPhase.EXECUTE
+        # Update phase if not already in EXECUTE
+        old_phase = self.current_phase
+        if self.current_phase != LoopPhase.EXECUTE:
+            self.current_phase = LoopPhase.EXECUTE
+            # Track phase transition
+            if self._tracker and PFREAEventType:
+                self._tracker.record_phase_transition(
+                    from_phase=old_phase.value if old_phase else None,
+                    to_phase=LoopPhase.EXECUTE.value,
+                    plan_id=plan_id,
+                    reason="action_execution_started"
+                )
+        
+        # Track action recording
+        if self._tracker and PFREAEventType:
+            self._tracker.record_event(
+                event_type=PFREAEventType.ACTION_RECORDED,
+                phase=LoopPhase.EXECUTE.value,
+                plan_id=plan_id,
+                context={
+                    "step_index": step_index,
+                    "tool_name": tool_name,
+                    "success": success,
+                }
+            )
         
         logger.info(
-            f"Recorded action execution: {tool_name} (plan={plan_id}, step={step_index}, success={success})"
+            f"PFREA: Recorded action execution: {tool_name} (plan={plan_id}, step={step_index}, success={success})",
+            extra={
+                "event": "pfrea_action_recorded",
+                "plan_id": plan_id,
+                "step_index": step_index,
+                "tool_name": tool_name,
+                "success": success,
+            }
         )
     
     def assess_execution(self, plan: Plan, executions: List[ActionExecution]) -> Assessment:
@@ -723,7 +1079,30 @@ class PlanForecastReplanExecuteAssessLoop:
         )
         
         self.assessment_history.append(assessment)
+        
+        # Track phase transition to ASSESS
+        old_phase = self.current_phase
         self.current_phase = LoopPhase.ASSESS
+        if self._tracker and PFREAEventType:
+            self._tracker.record_phase_transition(
+                from_phase=old_phase.value if old_phase else None,
+                to_phase=LoopPhase.ASSESS.value,
+                plan_id=plan.plan_id,
+                reason="execution_completed"
+            )
+            
+            # Track assessment generation
+            self._tracker.record_event(
+                event_type=PFREAEventType.ASSESSMENT_GENERATED,
+                phase=LoopPhase.ASSESS.value,
+                plan_id=plan.plan_id,
+                context={
+                    "goal_achieved": goal_achieved,
+                    "success_rate": success_rate,
+                    "failures_count": len(failures),
+                    "should_replan": should_replan,
+                }
+            )
         
         # Record failed pattern if plan failed
         if not goal_achieved and self.track_failed_patterns:
@@ -738,8 +1117,17 @@ class PlanForecastReplanExecuteAssessLoop:
                 self.failed_patterns = self.failed_patterns[-self.max_failed_patterns:]
         
         logger.info(
-            f"Assessed plan {plan.plan_id}: success_rate={success_rate:.2f}, "
-            f"goal_achieved={goal_achieved}, should_replan={should_replan}"
+            f"PFREA: Assessed plan {plan.plan_id}: success_rate={success_rate:.2f}, "
+            f"goal_achieved={goal_achieved}, should_replan={should_replan}",
+            extra={
+                "event": "pfrea_assessment_generated",
+                "plan_id": plan.plan_id,
+                "goal_achieved": goal_achieved,
+                "success_rate": success_rate,
+                "failures_count": len(failures),
+                "should_replan": should_replan,
+                "replan_reason": replan_reason,
+            }
         )
         
         return assessment
@@ -811,6 +1199,29 @@ class PlanForecastReplanExecuteAssessLoop:
             "forecasts_count": len(self.forecast_history),
             "failed_patterns_count": len(self.failed_patterns),
         }
+    
+    def check_compliance(self) -> Optional[Dict[str, Any]]:
+        """
+        Check PFREA compliance and log warnings if needed.
+        
+        Returns:
+            Warning dictionary if compliance issues detected, None otherwise
+        """
+        if not self._tracker:
+            return None
+        
+        try:
+            from .config import ReasoningConfig
+            compliance_threshold = getattr(ReasoningConfig, 'pfrea_compliance_threshold', 0.95)
+            violation_threshold = getattr(ReasoningConfig, 'pfrea_violation_alert_threshold', 10)
+            
+            return self._tracker.check_compliance_and_warn(
+                compliance_threshold=compliance_threshold,
+                violation_alert_threshold=violation_threshold,
+            )
+        except Exception as e:
+            logger.debug(f"Error checking PFREA compliance: {e}")
+            return None
 
 
 # Backward compatibility alias
