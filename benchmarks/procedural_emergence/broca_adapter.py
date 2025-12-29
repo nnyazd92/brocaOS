@@ -76,6 +76,30 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
 
     try:
         # Send user text to session (synchronous)
+        import time as _time
+        start_t = _time.time()
+
+        # Record procedures last_applied timestamps before running the turn (if available)
+        procedures_before = {}
+        try:
+            rt = get_runtime()
+            reasoning_tool = getattr(rt, 'reasoning_tool', None)
+            learning_tool = None
+            if reasoning_tool and hasattr(reasoning_tool, 'learning_tool'):
+                learning_tool = reasoning_tool.learning_tool
+            if not learning_tool and hasattr(rt, 'learning_tool'):
+                learning_tool = getattr(rt, 'learning_tool')
+            if learning_tool:
+                pl = getattr(learning_tool, 'procedural_learner', None)
+                if pl:
+                    for name, proc in pl.procedures.items():
+                        try:
+                            procedures_before[name] = getattr(proc, 'last_applied', None)
+                        except Exception:
+                            procedures_before[name] = None
+        except Exception:
+            procedures_before = {}
+
         reply = session.send(input_text, stream=False)
 
         # Attempt to get simple RL signals if available via runtime
@@ -232,19 +256,41 @@ def process_single_task(task: Dict[str, Any], conversation_id: Optional[str] = N
         except Exception:
             pass
 
+        end_t = _time.time()
+        duration_secs = end_t - start_t
+
+        # Determine which procedures were applied during this turn by comparing last_applied timestamps
+        procedures_applied = []
+        try:
+            if learning_tool and hasattr(learning_tool, 'procedural_learner'):
+                pl = learning_tool.procedural_learner
+                for name, proc in pl.procedures.items():
+                    try:
+                        before = procedures_before.get(name)
+                        after = getattr(proc, 'last_applied', None)
+                        if before is None and after is not None:
+                            # Newly applied
+                            procedures_applied.append({'procedure_name': name, 'confidence': getattr(proc, 'confidence', None)})
+                        elif before is not None and after is not None and after > before:
+                            procedures_applied.append({'procedure_name': name, 'confidence': getattr(proc, 'confidence', None)})
+                    except Exception:
+                        continue
+        except Exception:
+            procedures_applied = []
+
         result = {
             'task_id': task.get('id'),
             'success': bool(success),
             'final_output': reply,
             'tool_calls': tool_calls,
-            'procedures_applied': [],
+            'procedures_applied': procedures_applied,
             'learning_snapshot': learning_snapshot,
             'rl_signals': rl_signals or {},
             'dissonance_before': None,
             'dissonance_after': None,
             'start_time': start_ts,
             'end_time': datetime.utcnow().isoformat() + 'Z',
-            'duration': None
+            'duration': duration_secs
         }
         return result
 
