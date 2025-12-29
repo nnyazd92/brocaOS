@@ -18,6 +18,7 @@ import uvicorn
 from .main_repl_runtime import initialize_runtime, BrocaRuntime
 from .repl.session import ConversationSession
 from .reasoning.plan_exec_assess_loop import LoopPhase
+from .memory import SourceType, RelationType
 
 # Import ResponseAnalyzer for internal sensing integration
 try:
@@ -156,6 +157,41 @@ class ChatResponse(BaseModel):
     conversation_id: str
     reply: Message
     rl_signals: Optional[Dict[str, Any]] = None  # RL signal metrics if requested
+
+
+class MemoryQueryRequest(BaseModel):
+    """Request model for /api/memories."""
+
+    query: Optional[str] = Field(
+        default=None,
+        description="Text query for semantic search. Required unless memory_ids is provided."
+    )
+    memory_ids: Optional[List[int]] = Field(
+        default=None,
+        description="Optional list of memory IDs to retrieve directly."
+    )
+    namespace: Optional[str] = None
+    namespaces: Optional[List[str]] = None
+    namespace_exact: bool = Field(default=False, description="Use exact namespace matching when true.")
+    tags: Optional[List[str]] = None
+    tag_mode: Literal["any", "all"] = Field(default="any")
+    query_phrases: Optional[List[str]] = None
+    limit: int = Field(default=5, ge=1, le=20)
+    recency_weight: float = Field(default=0.3, ge=0.0, le=1.0)
+    created_after: Optional[str] = None
+    created_before: Optional[str] = None
+    last_used_after: Optional[str] = None
+    last_used_before: Optional[str] = None
+    min_importance: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    max_importance: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    min_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    rank_by_confidence: bool = Field(default=True)
+    warn_low_confidence: bool = Field(default=True)
+    source_types: Optional[List[SourceType]] = None
+    include_linked: bool = Field(default=True)
+    linked_limit: int = Field(default=5, ge=1, le=10)
+
+    model_config = ConfigDict(use_enum_values=True)
 
 class TitleUpdate(BaseModel):
     title: str
@@ -1819,30 +1855,202 @@ async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
         end_request()
 
 
-@app.get("/api/memories")
-async def get_memories(query: Optional[str] = None):
+@app.post("/api/memories")
+async def get_memories(request: MemoryQueryRequest):
+    """
+    Retrieve memories with advanced filtering and epistemic metadata.
+    
+    Mirrors RetrieveMemoriesTool parameters, supports graph traversal via linked
+    memories, and surfaces epistemic confidence when available.
+    """
     rt = get_runtime()
     if not rt.memory_manager:
         raise HTTPException(status_code=500, detail="Memory manager not initialized")
     
-    if query:
-        results = rt.memory_manager.retrieve_memories(query, limit=50)
+    memory_manager = rt.memory_manager
+    epistemic_engine = getattr(getattr(rt, "tool_registry", None), "epistemic_engine", None)
+
+    # Validate memory_ids
+    if request.memory_ids:
+        if not all(isinstance(mid, int) and mid > 0 for mid in request.memory_ids):
+            raise HTTPException(status_code=400, detail="memory_ids must be a list of positive integers")
+        memory_ids = request.memory_ids[: request.limit]
     else:
-        results = rt.memory_manager.storage.get_recent_memories(limit=50)
+        memory_ids = None
+        if not request.query or not request.query.strip():
+            raise HTTPException(status_code=400, detail="Either 'query' or 'memory_ids' must be provided")
     
-    return {
-        "memories": [
-            {
-                "id": m.id,
-                "text": m.text,
-                "namespace": m.namespace,
-                "importance": m.importance,
-                "tags": m.tags,
-                "created_at": m.created_at.isoformat() if m.created_at else None,
-                "source": m.source.model_dump() if m.source else None
-            } for m in results
-        ]
+    # Clamp and validate numeric ranges
+    limit = max(1, min(20, request.limit))
+    recency_weight = max(0.0, min(1.0, request.recency_weight))
+    linked_limit = max(1, min(10, request.linked_limit))
+    
+    # Validate importance range coherence
+    if request.min_importance is not None and request.max_importance is not None:
+        if request.min_importance > request.max_importance:
+            raise HTTPException(
+                status_code=400,
+                detail=f"min_importance ({request.min_importance}) cannot be greater than max_importance ({request.max_importance})"
+            )
+    
+    # Parse dates
+    def _parse_date(value: Optional[str], field_name: str) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail=f"Invalid {field_name} date format: {value}. Use ISO format.")
+    
+    created_after = _parse_date(request.created_after, "created_after")
+    created_before = _parse_date(request.created_before, "created_before")
+    last_used_after = _parse_date(request.last_used_after, "last_used_after")
+    last_used_before = _parse_date(request.last_used_before, "last_used_before")
+    
+    # Validate tag mode
+    tag_mode = request.tag_mode if request.tag_mode in ["any", "all"] else "any"
+    
+    # Validate min_confidence range
+    if request.min_confidence is not None and not (0.0 <= request.min_confidence <= 1.0):
+        raise HTTPException(status_code=400, detail=f"min_confidence must be between 0.0 and 1.0, got {request.min_confidence}")
+    
+    # Source types normalization
+    source_type_enums: Optional[List[SourceType]] = None
+    if request.source_types:
+        try:
+            source_type_enums = [SourceType(st) for st in request.source_types]
+        except ValueError as e:
+            valid_values = [st.value for st in SourceType]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid source_type in list: {e}. Must be one of: {valid_values}"
+            )
+    
+    # Fetch memories
+    try:
+        if memory_ids:
+            memories = []
+            for memory_id in memory_ids:
+                mem = memory_manager.get_memory(memory_id)
+                if mem:
+                    memories.append(mem)
+            retrieval_mode = "id_based"
+            epistemic_result = None
+        else:
+            retrieval_mode = "query_based"
+            if epistemic_engine:
+                epistemic_result = memory_manager.retrieve_memories_with_epistemic(
+                    query=request.query.strip(),
+                    limit=limit,
+                    namespace=request.namespace.strip() if request.namespace else None,
+                    namespaces=request.namespaces,
+                    tags=request.tags,
+                    epistemic_engine=epistemic_engine,
+                    min_confidence=request.min_confidence,
+                    rank_by_confidence=request.rank_by_confidence,
+                    warn_low_confidence=request.warn_low_confidence,
+                    recency_weight=recency_weight,
+                    namespace_exact=request.namespace_exact,
+                    tag_mode=tag_mode,
+                    query_phrases=request.query_phrases,
+                    created_after=created_after,
+                    created_before=created_before,
+                    last_used_after=last_used_after,
+                    last_used_before=last_used_before,
+                    min_importance=request.min_importance,
+                    max_importance=request.max_importance,
+                    source_types=source_type_enums
+                )
+                memories = epistemic_result.get("memories", [])
+            else:
+                epistemic_result = None
+                memories = memory_manager.retrieve_memories(
+                    query=request.query.strip(),
+                    namespace=request.namespace.strip() if request.namespace else None,
+                    namespaces=request.namespaces,
+                    tags=request.tags,
+                    limit=limit,
+                    recency_weight=recency_weight,
+                    namespace_exact=request.namespace_exact,
+                    tag_mode=tag_mode,
+                    query_phrases=request.query_phrases,
+                    created_after=created_after,
+                    created_before=created_before,
+                    last_used_after=last_used_after,
+                    last_used_before=last_used_before,
+                    min_importance=request.min_importance,
+                    max_importance=request.max_importance,
+                    source_types=source_type_enums
+                )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving memories via API: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    # Serialize memories and include linked relationships
+    serialized_memories = []
+    for mem in memories:
+        mem_dict = {
+            "id": mem.id,
+            "text": mem.text,
+            "namespace": mem.namespace,
+            "importance": mem.importance,
+            "tags": mem.tags,
+            "created_at": mem.created_at.isoformat() if mem.created_at else None,
+            "last_used_at": mem.last_used_at.isoformat() if mem.last_used_at else None,
+            "source": mem.source.model_dump() if mem.source else None,
+            "linked_memories": []
+        }
+        
+        if request.include_linked and mem.id is not None:
+            try:
+                related = memory_manager.get_related_memories(
+                    memory_id=mem.id,
+                    relation_types=None,
+                    direction="both",
+                    min_strength=0.0,
+                    limit=linked_limit
+                )
+                linked_list = []
+                for related_mem, relationship in related:
+                    if relationship.source_id == mem.id:
+                        direction = "outgoing"
+                    elif relationship.target_id == mem.id:
+                        direction = "incoming"
+                    else:
+                        direction = "unknown"
+                    
+                    linked_list.append({
+                        "memory_id": related_mem.id,
+                        "relationship_type": relationship.relation_type.value if isinstance(relationship.relation_type, RelationType) else relationship.relation_type,
+                        "relationship_strength": relationship.strength,
+                        "direction": direction,
+                        "text_preview": related_mem.text[:50] + "..." if len(related_mem.text) > 50 else related_mem.text
+                    })
+                mem_dict["linked_memories"] = linked_list
+            except Exception as e:
+                logger.warning(f"Error fetching linked memories for memory {mem.id}: {e}", exc_info=True)
+                mem_dict["linked_memories"] = []
+        
+        serialized_memories.append(mem_dict)
+    
+    response = {
+        "success": True,
+        "retrieval_mode": retrieval_mode,
+        "recency_weight_used": recency_weight,
+        "count": len(serialized_memories),
+        "memories": serialized_memories,
+        "query": request.query if retrieval_mode == "query_based" else None,
+        "memory_ids": memory_ids if retrieval_mode == "id_based" else None,
     }
+    
+    if epistemic_result:
+        response["low_confidence_warnings"] = epistemic_result.get("low_confidence_warnings", [])
+        response["confidence_stats"] = epistemic_result.get("confidence_stats", {})
+        response["epistemic_context"] = epistemic_result.get("epistemic_context")
+    
+    return response
 
 @app.get("/api/memories/graph")
 async def get_memory_graph(memory_ids: str, depth: int = 2):

@@ -12,9 +12,24 @@ import tempfile
 from typing import Dict, Any, Generator
 from unittest.mock import Mock, MagicMock
 
+import httpx
 import pytest
 
 from broca.llm.deepseek_client import DeepSeekClient
+
+# ---------------------------------------------------------------------------
+# Compatibility patches
+# ---------------------------------------------------------------------------
+# Starlette's TestClient passes an 'app' parameter to httpx.Client, but
+# httpx>=0.28 removed that parameter. Drop it to keep existing tests working.
+if "app" not in httpx.Client.__init__.__code__.co_varnames:
+    _orig_httpx_client_init = httpx.Client.__init__
+
+    def _patched_httpx_client_init(self, *args, **kwargs):
+        kwargs.pop("app", None)
+        return _orig_httpx_client_init(self, *args, **kwargs)
+
+    httpx.Client.__init__ = _patched_httpx_client_init  # type: ignore[assignment]
 
 
 @pytest.fixture
@@ -310,4 +325,3 @@ def mock_llm_response_with_trailing() -> str:
     }
     import json
     return json.dumps(json_content) + "\n\nThis is a valid JSON response above."
-
