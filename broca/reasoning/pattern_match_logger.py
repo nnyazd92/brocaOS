@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,45 @@ class PatternMatchLogger:
         self._lock = threading.Lock()
         self._header_written_batches = False
         self._header_written_pairs = False
+        self._batch_fieldnames = [
+            "timestamp",
+            "batch_id",
+            "model",
+            "num_pairs",
+            "latency_ms",
+            "cache_hits",
+            "fallback_used",
+            "parse_ok",
+            "error_type",
+            "prompt_chars",
+            "response_chars",
+            "prompt_hash",
+            "response_hash",
+            # Training-relevant content (truncated)
+            "prompt_text_trunc",
+            "response_text_trunc",
+        ]
+        self._pair_fieldnames = [
+            "timestamp",
+            "batch_id",
+            "pair_index",
+            "pattern_type",
+            "match_label",
+            "confidence",
+            "cache_hit",
+            "fallback_used",
+            "llm_used",
+            "parse_ok",
+            "error_type",
+            "context",
+            "pattern_json",
+            "item_json",
+            "pattern_hash",
+            "item_hash",
+            # Explicit training IO
+            "input_json",
+            "output_json",
+        ]
 
         if not self.cfg.enabled:
             return
@@ -117,7 +157,10 @@ class PatternMatchLogger:
 
         batches_path, _ = self._paths()
         self._maybe_rotate_size(batches_path)
+        self._maybe_migrate_schema_in_place(batches_path, self._batch_fieldnames)
 
+        prompt_text_t = _truncate(prompt_text, self.cfg.max_content_chars)
+        response_text_t = _truncate(response_text, self.cfg.max_content_chars)
         row = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "batch_id": batch_id,
@@ -132,13 +175,15 @@ class PatternMatchLogger:
             "response_chars": len(response_text),
             "prompt_hash": _sha256_text(prompt_text),
             "response_hash": _sha256_text(response_text) if response_text else "",
+            "prompt_text_trunc": prompt_text_t,
+            "response_text_trunc": response_text_t,
         }
 
         with self._lock:
             file_exists = batches_path.exists()
             mode = "a" if file_exists else "w"
             with open(batches_path, mode, newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+                writer = csv.DictWriter(f, fieldnames=self._batch_fieldnames)
                 if not self._header_written_batches and not file_exists:
                     writer.writeheader()
                     self._header_written_batches = True
@@ -165,6 +210,7 @@ class PatternMatchLogger:
 
         _, pairs_path = self._paths()
         self._maybe_rotate_size(pairs_path)
+        self._maybe_migrate_schema_in_place(pairs_path, self._pair_fieldnames)
 
         pattern_json = _json_dumps_stable(pattern)
         item_json = _json_dumps_stable(item)
@@ -188,16 +234,68 @@ class PatternMatchLogger:
             "item_json": item_json_t,
             "pattern_hash": _sha256_text(pattern_json),
             "item_hash": _sha256_text(item_json),
+            "input_json": _truncate(_json_dumps_stable({"pattern": pattern, "item": item}), self.cfg.max_content_chars),
+            "output_json": _truncate(_json_dumps_stable({"match": bool(match_label), "confidence": float(confidence)}), self.cfg.max_content_chars),
         }
 
         with self._lock:
             file_exists = pairs_path.exists()
             mode = "a" if file_exists else "w"
             with open(pairs_path, mode, newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+                writer = csv.DictWriter(f, fieldnames=self._pair_fieldnames)
                 if not self._header_written_pairs and not file_exists:
                     writer.writeheader()
                     self._header_written_pairs = True
                 writer.writerow(row)
+
+    def _maybe_migrate_schema_in_place(self, path: Path, expected_fieldnames: list[str]) -> None:
+        """
+        Ensure we keep a single append-only CSV with stable columns.
+        If header differs, rewrite once preserving all rows and filling new columns with blanks.
+        """
+        try:
+            if not path.exists():
+                return
+            with open(path, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+            if not header:
+                return
+            if list(header) == expected_fieldnames:
+                return
+
+            # Backup then migrate in-place
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup = path.with_name(f"{path.stem}.schema_backup.{ts}{path.suffix}")
+            path.replace(backup)
+
+            # Read old rows
+            with open(backup, "r", encoding="utf-8", newline="") as f:
+                old_reader = csv.DictReader(f)
+                old_rows = list(old_reader)
+                old_fields = list(old_reader.fieldnames or header)
+
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                newline="",
+                encoding="utf-8",
+                dir=str(path.parent),
+                delete=False,
+                prefix=f".{path.stem}.",
+                suffix=".tmp",
+            ) as tf:
+                tmp_path = Path(tf.name)
+                writer = csv.DictWriter(tf, fieldnames=expected_fieldnames)
+                writer.writeheader()
+                for r in old_rows:
+                    out = {k: "" for k in expected_fieldnames}
+                    for k in old_fields:
+                        if k in out:
+                            out[k] = r.get(k, "")
+                    writer.writerow(out)
+
+            tmp_path.replace(path)
+        except Exception as e:
+            logger.warning(f"PatternMatchLogger schema migration failed for {path}: {e}", exc_info=True)
 
 

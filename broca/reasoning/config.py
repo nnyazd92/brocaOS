@@ -107,7 +107,8 @@ class ReasoningConfig(BaseModel):
     # LLM pattern matching logging
     llm_pattern_logging_enabled: bool = os.getenv("BROCA_REASONING_LLM_PATTERN_LOGGING_ENABLED", "true").lower() == "true"
     llm_pattern_log_path: str = os.getenv("BROCA_REASONING_LLM_PATTERN_LOG_PATH", "data/llm_pattern_matching_log.csv")
-    llm_pattern_log_rotation: str = os.getenv("BROCA_REASONING_LLM_PATTERN_LOG_ROTATION", "daily")  # "daily" | "size" | "none"
+    # Default to a single central dataset file for training (pandas-friendly).
+    llm_pattern_log_rotation: str = os.getenv("BROCA_REASONING_LLM_PATTERN_LOG_ROTATION", "none")  # "daily" | "size" | "none"
     llm_pattern_log_max_size_mb: int = int(os.getenv("BROCA_REASONING_LLM_PATTERN_LOG_MAX_SIZE_MB", "100"))
     
     # Loop detection

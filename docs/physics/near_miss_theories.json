@@ -1,0 +1,77 @@
+[
+  {
+    "name": "E8xE8_Lattice",
+    "description": "E8\u00d7E8 lattice (248D total) with 16D interface",
+    "broken_assumption": "leech_lattice_selection",
+    "dimensionality": {
+      "substrate": 248,
+      "interface": 16
+    },
+    "packing_density": 0.0005,
+    "kissing_number": 240,
+    "symmetry_group": "E8\u00d7E8",
+    "\u03b1_G_prediction": 3.938713616132971e-07,
+    "failure_reason": "Wrong dimensionality \u2192 wrong representation theory",
+    "diagnostic_value": "Isolates dimensionality constraint"
+  },
+  {
+    "name": "A24_Lattice",
+    "description": "A24 root lattice (24D) with different symmetry",
+    "broken_assumption": "leech_lattice_selection",
+    "dimensionality": {
+      "substrate": 24,
+      "interface": 4
+    },
+    "packing_density": 0.0015,
+    "kissing_number": 48,
+    "symmetry_group": "Weyl(A24)",
+    "\u03b1_G_prediction": 6.105006105006105e-05,
+    "failure_reason": "Wrong symmetry \u2192 wrong coupling efficiency",
+    "diagnostic_value": "Isolates symmetry role in coupling"
+  },
+  {
+    "name": "Continuous_Substrate",
+    "description": "Continuous 24D manifold, no discrete lattice",
+    "broken_assumption": "discrete_spacetime",
+    "dimensionality": {
+      "substrate": 24,
+      "interface": 4
+    },
+    "packing_density": 1.0,
+    "kissing_number": Infinity,
+    "symmetry_group": "SO(24)",
+    "\u03b1_G_prediction": 1.6666666666666667e-11,
+    "failure_reason": "Continuous \u2192 infinite capacity \u2192 wrong \u03b1_G",
+    "diagnostic_value": "Tests discrete vs continuous assumption"
+  },
+  {
+    "name": "Relational_Information",
+    "description": "Information measured relationally, not globally",
+    "broken_assumption": "information_measure_global",
+    "dimensionality": {
+      "substrate": 24,
+      "interface": 4
+    },
+    "packing_density": 0.001929,
+    "kissing_number": 196560,
+    "symmetry_group": "Co\u2080",
+    "\u03b1_G_prediction": 1.6356328856328854e-07,
+    "failure_reason": "Relational measure \u2192 different capacity scaling",
+    "diagnostic_value": "Tests information measure formulation"
+  },
+  {
+    "name": "Emergent_Symmetry",
+    "description": "Symmetry emerges from dynamics, not primitive",
+    "broken_assumption": "symmetry_primitive",
+    "dimensionality": {
+      "substrate": 24,
+      "interface": 4
+    },
+    "packing_density": 0.001929,
+    "kissing_number": 196560,
+    "symmetry_group": "Emergent Co\u2080",
+    "\u03b1_G_prediction": 0.00016074999999999998,
+    "failure_reason": "Emergent symmetry \u2192 different representation constraints",
+    "diagnostic_value": "Tests symmetry fundamentality"
+  }
+]

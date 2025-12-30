@@ -1,0 +1,114 @@
+{
+  "scaling_results": {
+    "results": [
+      {
+        "d": 2,
+        "D": 24,
+        "f_measured": 0.0893366508835756,
+        "f_theoretical_alpha1": 0.08333333333333333,
+        "f_theoretical_alpha2": 0.006944444444444444,
+        "f_theoretical_alpha3": 0.0005787037037037036
+      },
+      {
+        "d": 3,
+        "D": 24,
+        "f_measured": 0.13004778739319794,
+        "f_theoretical_alpha1": 0.125,
+        "f_theoretical_alpha2": 0.015625,
+        "f_theoretical_alpha3": 0.001953125
+      },
+      {
+        "d": 4,
+        "D": 24,
+        "f_measured": 0.16864386393662706,
+        "f_theoretical_alpha1": 0.16666666666666666,
+        "f_theoretical_alpha2": 0.027777777777777776,
+        "f_theoretical_alpha3": 0.0046296296296296285
+      },
+      {
+        "d": 6,
+        "D": 24,
+        "f_measured": 0.2532568110738792,
+        "f_theoretical_alpha1": 0.25,
+        "f_theoretical_alpha2": 0.0625,
+        "f_theoretical_alpha3": 0.015625
+      },
+      {
+        "d": 8,
+        "D": 24,
+        "f_measured": 0.33608780671787647,
+        "f_theoretical_alpha1": 0.3333333333333333,
+        "f_theoretical_alpha2": 0.1111111111111111,
+        "f_theoretical_alpha3": 0.03703703703703703
+      },
+      {
+        "d": 12,
+        "D": 24,
+        "f_measured": 0.49523249512680456,
+        "f_theoretical_alpha1": 0.5,
+        "f_theoretical_alpha2": 0.25,
+        "f_theoretical_alpha3": 0.125
+      },
+      {
+        "d": 16,
+        "D": 24,
+        "f_measured": 0.6629541313889262,
+        "f_theoretical_alpha1": 0.6666666666666666,
+        "f_theoretical_alpha2": 0.4444444444444444,
+        "f_theoretical_alpha3": 0.2962962962962962
+      },
+      {
+        "d": 20,
+        "D": 24,
+        "f_measured": 0.836657549886232,
+        "f_theoretical_alpha1": 0.8333333333333334,
+        "f_theoretical_alpha2": 0.6944444444444445,
+        "f_theoretical_alpha3": 0.5787037037037038
+      }
+    ],
+    "alpha_fitted": 0.9725117235594603,
+    "intercept": -0.01841268974339611,
+    "r_squared": 0.9997266012154901,
+    "d_ratios": [
+      0.08333333333333333,
+      0.125,
+      0.16666666666666666,
+      0.25,
+      0.3333333333333333,
+      0.5,
+      0.6666666666666666,
+      0.8333333333333334
+    ],
+    "f_measured": [
+      0.0893366508835756,
+      0.13004778739319794,
+      0.16864386393662706,
+      0.2532568110738792,
+      0.33608780671787647,
+      0.49523249512680456,
+      0.6629541313889262,
+      0.836657549886232
+    ]
+  },
+  "holographic_analysis": {
+    "storage_scaling": 23,
+    "transfer_scaling_linear": 1,
+    "transfer_scaling_area": 2,
+    "explanation": "Transfer requires both source AND destination to match interface subspace"
+  },
+  "parameters": {
+    "D": 24,
+    "d_values": [
+      2,
+      3,
+      4,
+      6,
+      8,
+      12,
+      16,
+      20
+    ],
+    "K": 196560,
+    "rho": 0.001929
+  }
+}

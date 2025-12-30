@@ -1,0 +1,53 @@
+{
+  "timestamp": "2025-12-28T05:02:00Z",
+  "project_root": "/home/wizard/Documents/Code/BrocaOS",
+  "house": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts",
+  "architecture_version": "BROCA SMARTER v2.0",
+  "key_artifacts": {
+    "identity": "/home/wizard/Documents/Code/BrocaOS/docs/identity/IDENTITY.v0.2.json",
+    "self_model": "/home/wizard/Documents/Code/BrocaOS/docs/self_model/self_model.v2.json",
+    "self_model_current": "/home/wizard/Documents/Code/BrocaOS/docs/self_model/SELF_MODEL_CURRENT.json",
+    "memories_db": "/home/wizard/Documents/Code/BrocaOS/memories.db",
+    "memories_index": "/home/wizard/Documents/Code/BrocaOS/memories.faiss",
+    "self_model_db": "/home/wizard/Documents/Code/BrocaOS/self_model.db",
+    "namespace_index": "/home/wizard/Documents/Code/BrocaOS/docs/memory/memory_namespaces_index.md",
+    "llm_cache": "/home/wizard/Documents/Code/BrocaOS/docs/memory/LLM_CACHE.v0.1.sqlite",
+    "memory_graph": "/home/wizard/Documents/Code/BrocaOS/docs/memory/MEMORY_GRAPH_STATE.v0.1.json",
+    "logs": "/home/wizard/Documents/Code/BrocaOS/broca_repl.log",
+    "env_file": "/home/wizard/Documents/Code/BrocaOS/.env"
+  },
+  "cognitive_architecture_components": {
+    "reasoning": {
+      "directory": "broca/reasoning/",
+      "key_files": ["integration_tool.py", "cognitive_dissonance.py", "production_rules.py", "working_memory.py"]
+    },
+    "learning": {
+      "directory": "broca/learning/",
+      "key_files": ["integration_tool.py", "procedural_learning.py", "skill_manager.py", "pattern_extractor.py"]
+    },
+    "self_regulation": {
+      "directory": "broca/damping/",
+      "key_files": ["pipeline.py", "profiles.py"]
+    },
+    "emotional_intelligence": {
+      "directory": "broca/internal_sensing/",
+      "key_files": ["affective_state.py", "emotional_appraisal.py", "emotional_regulation.py"]
+    }
+  },
+  "session": {
+    "latest_summary": "/home/wizard/Documents/Code/BrocaOS/docs/protocols/SESSION_SUMMARY_2025-12-28T10:15:00Z.json"
+  },
+  "shutdown_reports": [
+    "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/logs/shutdown/SHUTDOWN_REPORT_2025-12-17T23-32-55Z.md",
+    "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/logs/shutdown/SHUTDOWN_REPORT_2025-12-20T23-22-48Z.md"
+  ],
+  "shutdown_complete_markers": [
+    "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/logs/shutdown/SHUTDOWN_COMPLETE_20251217T233255Z.md",
+    "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/logs/shutdown/SHUTDOWN_COMPLETE_2025-12-20T23-22-48Z.md"
+  ],
+  "governance_documents": {
+    "origin_story": "/home/wizard/Documents/Code/BrocaOS/docs/artifacts/BROCA_ORIGIN_STORY.md",
+    "operators_guide": "/home/wizard/Documents/Code/BrocaOS/docs/operators/OPERATORS_GUIDE.md",
+    "protocols": "/home/wizard/Documents/Code/BrocaOS/docs/protocols/"
+  }
+}

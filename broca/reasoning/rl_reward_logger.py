@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
 import shutil
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -114,30 +115,14 @@ class RLRewardLogger:
         # Ensure directory exists
         if self.enabled:
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            # If appending to an existing file, ensure schema compatibility.
-            # If the existing header doesn't match v3, rotate the file to a timestamped backup
-            # and start a fresh v3 file at the original path.
+
+            # If appending to an existing file, ensure schema compatibility WITHOUT truncation.
+            # If the header is older/different, perform an in-place migration:
+            # - backup the original once
+            # - rewrite with the new superset header
+            # - preserve all existing rows (missing columns => blank)
             if self.log_file.exists() and self.append:
-                try:
-                    with open(self.log_file, "r", encoding="utf-8") as f:
-                        reader = csv.reader(f)
-                        header = next(reader, None)
-                    if header and list(header) != self._fieldnames_v3:
-                        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-                        backup_path = self.log_file.with_name(f"{self.log_file.stem}.v1.{ts}{self.log_file.suffix}")
-                        shutil.copy2(self.log_file, backup_path)
-                        # Truncate original so we can write v3 header
-                        with open(self.log_file, "w", encoding="utf-8") as f:
-                            pass
-                        self._header_written = False
-                        self._total_entries = 0
-                        logger.warning(
-                            f"Rotated RL rewards CSV due to schema change. "
-                            f"Old file copied to {backup_path.absolute()} and {self.log_file.absolute()} reset to v3."
-                        )
-                except Exception as e:
-                    logger.warning(f"Failed to check/rotate RL reward CSV schema: {e}", exc_info=True)
+                self._maybe_migrate_schema_in_place()
 
             # Check if file exists and has header, count existing entries
             if self.log_file.exists() and self.append:
@@ -310,6 +295,124 @@ class RLRewardLogger:
                     "total_entries": self._total_entries,
                 }
             )
+
+    def _maybe_migrate_schema_in_place(self) -> None:
+        """
+        Ensure rl_rewards.csv always remains a single central append-only dataset.
+
+        If the existing header differs from the current schema, we perform an in-place migration that:
+        - preserves ALL existing rows
+        - writes the new header (superset)
+        - fills missing columns with blanks
+        - keeps a backup copy of the pre-migration file
+        """
+        try:
+            if not self.log_file.exists():
+                return
+            with open(self.log_file, "r", encoding="utf-8", newline="") as f:
+                reader = csv.reader(f)
+                first_row = next(reader, None)
+            if not first_row:
+                return
+
+            # Detect a headerless file that is already in "v3 positional" format (data rows only).
+            # This can happen if an earlier bug or manual edit wrote rows without a header.
+            # Heuristic:
+            # - first cell looks like an ISO timestamp
+            # - number of columns matches current schema
+            # - does not contain the literal "timestamp" header token
+            def _looks_like_iso_ts(s: str) -> bool:
+                if not isinstance(s, str):
+                    return False
+                # Lightweight, safe heuristic (no regex): "YYYY-" and "T" must exist.
+                return len(s) >= 10 and s[4:5] == "-" and "T" in s
+
+            is_headerless_v3 = (
+                ("timestamp" not in [c.strip() for c in first_row if isinstance(c, str)])
+                and len(first_row) == len(self._fieldnames_v3)
+                and _looks_like_iso_ts(str(first_row[0]))
+            )
+
+            # Normal headered case
+            if not is_headerless_v3 and list(first_row) == self._fieldnames_v3:
+                return
+
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup_path = self.log_file.with_name(f"{self.log_file.stem}.schema_backup.{ts}{self.log_file.suffix}")
+            shutil.copy2(self.log_file, backup_path)
+
+            if is_headerless_v3:
+                # Read all rows positionally and re-emit with proper header
+                with open(self.log_file, "r", encoding="utf-8", newline="") as f:
+                    r = csv.reader(f)
+                    positional_rows = list(r)
+
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    newline="",
+                    encoding="utf-8",
+                    dir=str(self.log_file.parent),
+                    delete=False,
+                    prefix=f".{self.log_file.stem}.",
+                    suffix=".tmp",
+                ) as tf:
+                    tmp_path = Path(tf.name)
+                    writer = csv.DictWriter(tf, fieldnames=self._fieldnames_v3)
+                    writer.writeheader()
+                    for prow in positional_rows:
+                        if len(prow) != len(self._fieldnames_v3):
+                            # Skip malformed trailing blank lines
+                            if len([c for c in prow if str(c).strip()]) == 0:
+                                continue
+                            raise ValueError(
+                                f"Headerless v3 file has row with {len(prow)} cols; expected {len(self._fieldnames_v3)}"
+                            )
+                        out = {k: prow[i] for i, k in enumerate(self._fieldnames_v3)}
+                        writer.writerow(out)
+
+                tmp_path.replace(self.log_file)
+                self._header_written = True
+                logger.warning(
+                    f"Repaired headerless RL rewards CSV (added header, preserved rows). "
+                    f"Backup: {backup_path.absolute()} Current: {self.log_file.absolute()}"
+                )
+                return
+
+            # Read all existing rows with the old header
+            with open(self.log_file, "r", encoding="utf-8", newline="") as f:
+                old_reader = csv.DictReader(f)
+                old_rows = list(old_reader)
+                old_fieldnames = list(old_reader.fieldnames or first_row)
+
+            # Write migrated file to a temp path in same directory (atomic replace)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                newline="",
+                encoding="utf-8",
+                dir=str(self.log_file.parent),
+                delete=False,
+                prefix=f".{self.log_file.stem}.",
+                suffix=".tmp",
+            ) as tf:
+                tmp_path = Path(tf.name)
+                writer = csv.DictWriter(tf, fieldnames=self._fieldnames_v3)
+                writer.writeheader()
+
+                for r in old_rows:
+                    out = {k: "" for k in self._fieldnames_v3}
+                    for k in old_fieldnames:
+                        if k in out:
+                            out[k] = r.get(k, "")
+                    writer.writerow(out)
+
+            tmp_path.replace(self.log_file)
+            self._header_written = True
+            logger.warning(
+                f"Migrated RL rewards CSV schema in place (preserved rows). "
+                f"Backup: {backup_path.absolute()} Current: {self.log_file.absolute()}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed RL rewards CSV in-place schema migration: {e}", exc_info=True)
     
     def _log_summary(self) -> None:
         """Log periodic summary statistics."""

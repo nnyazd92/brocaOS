@@ -1,0 +1,57 @@
+[
+  {
+    "theory": "E8xE8_Lattice",
+    "\u03b1_G_pred": 3.938713616132971e-07,
+    "\u03b1_G_target": 4.095649579527463e-05,
+    "ratio": 0.009616822776589694,
+    "log_difference": -2.0169683872666098,
+    "failure_severity": "LARGE - >2 orders off",
+    "diagnostic": "Fundamentally wrong scaling",
+    "broken_assumption": "leech_lattice_selection",
+    "failure_reason": "Wrong dimensionality \u2192 wrong representation theory"
+  },
+  {
+    "theory": "A24_Lattice",
+    "\u03b1_G_pred": 6.105006105006105e-05,
+    "\u03b1_G_target": 4.095649579527463e-05,
+    "ratio": 1.4906075303714026,
+    "log_difference": 0.1733633109036817,
+    "failure_severity": "CLOSE - within factor of 3",
+    "diagnostic": "Theory nearly works - minor adjustment needed",
+    "broken_assumption": "leech_lattice_selection",
+    "failure_reason": "Wrong symmetry \u2192 wrong coupling efficiency"
+  },
+  {
+    "theory": "Continuous_Substrate",
+    "\u03b1_G_pred": 1.6666666666666667e-11,
+    "\u03b1_G_target": 4.095649579527463e-05,
+    "ratio": 4.069358557913929e-07,
+    "log_difference": -6.390474042055562,
+    "failure_severity": "LARGE - >2 orders off",
+    "diagnostic": "Fundamentally wrong scaling",
+    "broken_assumption": "discrete_spacetime",
+    "failure_reason": "Continuous \u2192 infinite capacity \u2192 wrong \u03b1_G"
+  },
+  {
+    "theory": "Relational_Information",
+    "\u03b1_G_pred": 1.6356328856328854e-07,
+    "\u03b1_G_target": 4.095649579527463e-05,
+    "ratio": 0.003993586008453382,
+    "log_difference": -2.3986369578837023,
+    "failure_severity": "LARGE - >2 orders off",
+    "diagnostic": "Fundamentally wrong scaling",
+    "broken_assumption": "information_measure_global",
+    "failure_reason": "Relational measure \u2192 different capacity scaling"
+  },
+  {
+    "theory": "Emergent_Symmetry",
+    "\u03b1_G_pred": 0.00016074999999999998,
+    "\u03b1_G_target": 4.095649579527463e-05,
+    "ratio": 3.924896329107984,
+    "log_difference": 0.5938281899243409,
+    "failure_severity": "MODERATE - within 2 orders",
+    "diagnostic": "Clear mismatch but same ballpark",
+    "broken_assumption": "symmetry_primitive",
+    "failure_reason": "Emergent symmetry \u2192 different representation constraints"
+  }
+]

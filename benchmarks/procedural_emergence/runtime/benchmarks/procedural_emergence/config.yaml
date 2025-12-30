@@ -1,0 +1,23 @@
+# Procedural Emergence benchmark config
+suite_name: procedural_emergence
+description: "Benchmark suite to measure induction and reuse of learned procedures from repeated tool-call sequences."
+num_runs: 3
+seeds: [42, 43, 44]
+# procedural learner thresholds (mirror values from broca/learning/procedural_learning.py)
+procedural:
+  min_sequence_length: 2
+  min_success_rate: 0.7
+  confidence_threshold: 0.6
+# instrumentation toggles
+instrumentation:
+  enable_procedural_learning: true
+  enable_rl_signals: true
+  enable_action_gate: true
+  enable_experience_logging: true
+# runtime hooks (if using a REST API or REPL, fill these)
+runtime:
+  broca_api: null
+  repl_socket: null
+  script_timeout_seconds: 30
+logging:
+  results_dir: runtime/benchmarks/procedural_emergence/results

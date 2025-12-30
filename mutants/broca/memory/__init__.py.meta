@@ -1,0 +1,9 @@
+{
+    "exit_code_by_key": {
+        "broca.memory.x\u01c1MemoryRecord\u01c1update_last_used__mutmut_1": null,
+        "broca.memory.x\u01c1MemoryRecord\u01c1update_last_used__mutmut_2": null
+    },
+    "hash_by_function_name": {},
+    "durations_by_key": {},
+    "estimated_durations_by_key": {}
+}

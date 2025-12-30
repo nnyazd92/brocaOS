@@ -617,6 +617,44 @@ class ToolRegistry:
                     impact = 2 if tool_name in ('terminal', 'web_search') else 1
                     self.internal_sensing_framework.record_cognitive_impact(tool_name, impact)
 
+                    # --- Instrumentation: append structured experience for RL ---
+                    try:
+                        from broca.rl.experiences import append_experience
+                        import json
+                        from pathlib import Path as _Path
+                        from datetime import datetime as _dt
+
+                        uid = hashlib.sha1(f"{tool_name}:{time.time()}".encode()).hexdigest()
+                        experience = {
+                            "uid": uid,
+                            "timestamp": _dt.utcnow().isoformat() + "Z",
+                            "tool_name": tool_name,
+                            "arguments": arguments,
+                            "result_summary": str(result)[:1000],
+                            "success": (result.get("success", True) if isinstance(result, dict) else True),
+                            "execution_time_ms": execution_time_ms,
+                            "epistemic": None,
+                            "provenance": None,
+                        }
+
+                        if epistemic_impact is not None and isinstance(epistemic_impact, dict):
+                            experience["epistemic"] = {
+                                "tool_reliability": epistemic_impact.get("confidence_metrics", {}).get("tool_reliability_score"),
+                                "evidence_strength": epistemic_impact.get("confidence_metrics", {}).get("evidence_strength"),
+                            }
+
+                        try:
+                            token_path = _Path("/home/wizard/Documents/Code/BrocaOS/.temporary_token.txt")
+                            if token_path.exists():
+                                token_json = json.loads(token_path.read_text(encoding="utf-8"))
+                                experience["provenance"] = {"token_jti": token_json.get("payload", {}).get("jti"), "scopes": token_json.get("payload", {}).get("scopes")}
+                        except Exception:
+                            pass
+
+                        append_experience(experience)
+                    except Exception as e:
+                        logger.debug(f"Failed to append experience for RL: {e}", exc_info=True)
+
                     # Record informational surprise (expectation vs reality)
                     # Expectation is the tool name + arguments, reality is the result
                     expectation = f'{tool_name} {str(arguments)}'

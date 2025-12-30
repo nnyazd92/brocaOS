@@ -1,0 +1,80 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\title{L-ToEC v6.5 Near-Miss Theory Analysis}
+\author{Deliberate Destabilization Diagnostic}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Executive Summary}
+
+Systematic construction of 5 near-miss theories that break individual L-ToEC
+assumptions. Analysis shows which assumptions critically control the
+$\alpha_G$ prediction and which have limited effect.
+
+\section{Near-Miss Theories}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{p{0.2\textwidth}p{0.35\textwidth}p{0.2\textwidth}p{0.15\textwidth}}
+\toprule
+\textbf{Theory} & \textbf{Description} & \textbf{Broken Assumption} & \textbf{$\alpha_G$ Prediction} \\
+\midrule
+E8xE8\_Lattice & E8×E8 lattice (248D total) with 16D interface & leech\_lattice\_selection & $3.94e-07$ \\
+\midrule
+A24\_Lattice & A24 root lattice (24D) with different symmetry & leech\_lattice\_selection & $6.11e-05$ \\
+\midrule
+Continuous\_Substrate & Continuous 24D manifold, no discrete lattice & discrete\_spacetime & $1.67e-11$ \\
+\midrule
+Relational\_Information & Information measured relationally, not globally & information\_measure\_global & $1.64e-07$ \\
+\midrule
+Emergent\_Symmetry & Symmetry emerges from dynamics, not primitive & symmetry\_primitive & $1.61e-04$ \\
+\bottomrule
+\end{tabular}
+\caption{Near-miss theories and their $\alpha_G$ predictions}
+\end{table}
+
+\section{Analysis vs Target $\alpha_G = 4.1\times 10^{-5}$}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{p{0.2\textwidth}p{0.2\textwidth}p{0.2\textwidth}p{0.3\textwidth}}
+\toprule
+\textbf{Theory} & \textbf{Ratio} & \textbf{Failure Severity} & \textbf{Diagnostic} \\
+\midrule
+E8xE8\_Lattice & $9.6e-03$ & LARGE - >2 orders off & Fundamentally wrong scaling \\
+\midrule
+A24\_Lattice & $1.5e+00$ & CLOSE - within factor of 3 & Theory nearly works - minor adjustment needed \\
+\midrule
+Continuous\_Substrate & $4.1e-07$ & LARGE - >2 orders off & Fundamentally wrong scaling \\
+\midrule
+Relational\_Information & $4.0e-03$ & LARGE - >2 orders off & Fundamentally wrong scaling \\
+\midrule
+Emergent\_Symmetry & $3.9e+00$ & MODERATE - within 2 orders & Clear mismatch but same ballpark \\
+\bottomrule
+\end{tabular}
+\caption{Failure analysis of near-miss theories}
+\end{table}
+
+\section{Criticality Assessment}
+
+\begin{itemize}
+\item \textbf{leech\_lattice\_selection}: Important (avg $\log_10$ diff = 1.1)
+\item \textbf{discrete\_spacetime}: \textbf{CRITICAL} (avg $\log_10$ diff = 6.4)
+\item \textbf{information\_measure\_global}: \textbf{CRITICAL} (avg $\log_10$ diff = 2.4)
+\item \textbf{symmetry\_primitive}: Moderate (avg $\log_10$ diff = 0.6)
+\end{itemize}
+
+\section*{Conclusion}
+
+The near-miss analysis reveals which assumptions are \textbf{critical controllers}
+of the $\alpha_G$ prediction. Theories breaking critical assumptions fail by
+multiple orders of magnitude, while those breaking peripheral assumptions
+remain closer to the target value.
+
+This diagnostic approach isolates the mechanisms that actually determine
+gravity's weakness in the L-ToEC framework.
+
+\end{document}
