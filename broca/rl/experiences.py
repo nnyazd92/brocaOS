@@ -19,8 +19,7 @@ def _append_jsonl(path: Path, obj: Dict[str, Any]) -> None:
     with _LOCK:
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(obj, ensure_ascii=False))
-            f.write("
-")
+            f.write("\n")
 
 
 def append_experience(record: Dict[str, Any]) -> None:
