@@ -17,6 +17,49 @@ from broca.reasoning.cognitive_dissonance import CognitiveDissonanceMonitor, Dis
 from broca.self_model.model import SelfModel
 
 
+class DummyGoalLLM:
+    """
+    Deterministic, fast LLM stub for goal-conflict detection in tests.
+
+    We intentionally avoid real model initialization to keep Hypothesis tests non-flaky.
+    """
+
+    def chat(self, messages, temperature=0.0, **kwargs):
+        prompt = (messages or [])[-1].get("content", "") if isinstance((messages or [])[-1], dict) else ""
+        p = str(prompt).lower()
+
+        # Heuristic: if goals mention writing/modifying and constraints include "never write",
+        # return a conflict.
+        has_write_goal = ("write" in p) or ("modify" in p) or ("delete" in p)
+        has_no_write_constraint = ("never write" in p) or ("read-only" in p) or ("read only" in p)
+
+        if has_write_goal and has_no_write_constraint:
+            content = (
+                '{'
+                '"has_conflicts": true, '
+                '"conflict_score": 0.3, '
+                '"conflicting_goals": ["modify_files"], '
+                '"conflict_reasons": ["Goal violates read-only/no-write constraint."], '
+                '"aligned_goals": []'
+                '}'
+            )
+        else:
+            content = (
+                '{'
+                '"has_conflicts": false, '
+                '"conflict_score": 0.0, '
+                '"conflicting_goals": [], '
+                '"conflict_reasons": [], '
+                '"aligned_goals": ["analyze_code"]'
+                '}'
+            )
+
+        return {"choices": [{"message": {"content": content}}]}
+
+    def extract_assistant_content(self, response):
+        return response["choices"][0]["message"]["content"]
+
+
 @pytest.fixture
 def sample_self_model():
     """Create a sample self-model for testing."""
@@ -38,6 +81,9 @@ def cognitive_dissonance_monitor(sample_self_model):
     return CognitiveDissonanceMonitor(
         self_model=sample_self_model,
         history_window=100,
+        # Avoid slow first-run real LLM initialization in tests (Hypothesis deadline flake),
+        # while still supporting goal-conflict logic.
+        llm_client=DummyGoalLLM(),
     )
 
 

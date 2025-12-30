@@ -335,12 +335,28 @@ class RLSignalAggregator:
         
         # 1. Dissonance reward: 1.0 - dissonance (minimize dissonance = maximize reward)
         if dissonance_metrics:
-            overall_dissonance = dissonance_metrics.overall_dissonance
-            metrics.has_dissonance_data = True
-            metrics.dissonance_raw = overall_dissonance
-            metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
-            metrics.dissonance_estimator = "measured"
-            metrics.dissonance_uncertainty = 0.0
+            # IMPORTANT: dissonance_metrics can represent an "estimated/insufficient" measurement
+            # (e.g., when response=None and most components are unavailable). In that case we must
+            # not allow the default numeric values to create strong reward gradients.
+            has_sufficient = bool(getattr(dissonance_metrics, "has_sufficient_data", True))
+            component_availability = getattr(dissonance_metrics, "component_availability", None)
+            any_component = True
+            if isinstance(component_availability, dict):
+                any_component = any(bool(v) for v in component_availability.values())
+            if not has_sufficient or not any_component:
+                metrics.has_dissonance_data = False
+                metrics.dissonance_raw = None
+                metrics.dissonance_reward = 0.5  # neutral when insufficient
+                metrics.dissonance_estimator = "unavailable"
+                metrics.dissonance_uncertainty = 1.0
+            else:
+                overall_dissonance = float(getattr(dissonance_metrics, "overall_dissonance", 0.0))
+                overall_dissonance = max(0.0, min(1.0, overall_dissonance))
+                metrics.has_dissonance_data = True
+                metrics.dissonance_raw = overall_dissonance
+                metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
+                metrics.dissonance_estimator = "measured"
+                metrics.dissonance_uncertainty = 0.0
         elif self.cognitive_dissonance_monitor:
             try:
                 dissonance_data = self.cognitive_dissonance_monitor.get_aggregated_dissonance()

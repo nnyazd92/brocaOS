@@ -67,13 +67,42 @@ class DissonanceMetrics:
     })
     
     def compute_overall(self) -> float:
-        """Compute overall dissonance from component scores."""
-        self.overall_dissonance = (
-            self.logical_dissonance * self.weight_logical +
-            self.factual_dissonance * self.weight_factual +
-            self.behavioral_dissonance * self.weight_behavioral +
-            self.goal_dissonance * self.weight_goal
-        )
+        """
+        Compute overall dissonance from component scores.
+
+        Missingness semantics (reward-shaping safety):
+        - If a component is unavailable, it is DROPPED from the aggregation.
+        - We renormalize weights over available components.
+        - If no components are available, overall dissonance is neutral (0.5) and
+          has_sufficient_data is set False.
+        """
+        components = [
+            ("logical", float(self.logical_dissonance), float(self.weight_logical)),
+            ("factual", float(self.factual_dissonance), float(self.weight_factual)),
+            ("behavioral", float(self.behavioral_dissonance), float(self.weight_behavioral)),
+            ("goal", float(self.goal_dissonance), float(self.weight_goal)),
+        ]
+
+        num = 0.0
+        den = 0.0
+        for name, value, w in components:
+            if not self.component_availability.get(name, False):
+                continue
+            # Defensive clamps
+            value = max(0.0, min(1.0, float(value)))
+            w = max(0.0, float(w))
+            num += value * w
+            den += w
+
+        if den <= 0.0:
+            # No usable components => neutral overall dissonance
+            self.overall_dissonance = 0.5
+            self.has_sufficient_data = False
+            return self.overall_dissonance
+
+        self.overall_dissonance = max(0.0, min(1.0, num / den))
+        # At least one component contributed
+        self.has_sufficient_data = True
         return self.overall_dissonance
 
 
@@ -320,14 +349,12 @@ class CognitiveDissonanceMonitor:
                 metrics.component_availability["logical"] = len(self.logical_violations) > 0
                 if not metrics.component_availability["logical"]:
                     metrics.measurement_quality = "error"
-                    metrics.has_sufficient_data = False
         else:
             # Use historical average if no current measurement
             metrics.logical_dissonance = self._get_average_logical_dissonance()
             metrics.component_availability["logical"] = len(self.logical_violations) > 0
             if not metrics.component_availability["logical"]:
                 metrics.measurement_quality = "estimated"
-                metrics.has_sufficient_data = False
         
         # Measure factual dissonance
         if response:
@@ -341,13 +368,11 @@ class CognitiveDissonanceMonitor:
                 metrics.component_availability["factual"] = len(self.factual_errors) > 0
                 if not metrics.component_availability["factual"]:
                     metrics.measurement_quality = "error"
-                    metrics.has_sufficient_data = False
         else:
             metrics.factual_dissonance = self._get_average_factual_dissonance()
             metrics.component_availability["factual"] = len(self.factual_errors) > 0
             if not metrics.component_availability["factual"]:
                 metrics.measurement_quality = "estimated"
-                metrics.has_sufficient_data = False
         
         # Measure behavioral dissonance
         # Try to extract tool_usage from conversation_context if not provided
@@ -390,13 +415,11 @@ class CognitiveDissonanceMonitor:
                 metrics.component_availability["goal"] = len(self.goal_conflicts) > 0
                 if not metrics.component_availability["goal"]:
                     metrics.measurement_quality = "error"
-                    metrics.has_sufficient_data = False
         else:
             metrics.goal_dissonance = self._get_average_goal_dissonance()
             metrics.component_availability["goal"] = len(self.goal_conflicts) > 0
             if not metrics.component_availability["goal"]:
                 metrics.measurement_quality = "estimated"
-                metrics.has_sufficient_data = False
         
         # If no components have data, mark as unavailable
         if not any(metrics.component_availability.values()):
