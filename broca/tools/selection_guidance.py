@@ -1190,6 +1190,7 @@ class ToolSelectionGuidance:
             rl_signal_aggregator=rl_signal_aggregator,
             skill_manager=skill_manager,
             goal_manager=goal_manager,
+            policy_ranker=None
         )
         
         # Initialize base ranker
@@ -1219,6 +1220,15 @@ class ToolSelectionGuidance:
         # Initialize context cache
         self.context_cache = ContextCache(ttl_seconds=context_cache_ttl_seconds)
         self.incremental_updater = IncrementalContextUpdater(self.guidance_aggregator)
+
+        # attach policy ranker to guidance aggregator if available
+        try:
+            from broca.rl.policy import PolicyRanker
+            pr = PolicyRanker()
+            pr.load_model(None)
+            self.guidance_aggregator.policy_ranker = pr
+        except Exception:
+            self.guidance_aggregator.policy_ranker = None
         
         # Initialize temporal tracker and relationship graph
         self.temporal_tracker = TemporalContextTracker()
@@ -1278,6 +1288,17 @@ class ToolSelectionGuidance:
         top_tools: List[ToolRanking] = []
         if available_tools and len(available_tools) > 0:
             rankings = self.tool_ranker.rank_tools(available_tools, context)
+            # If learned ranking algorithm is selected, incorporate policy_ranker predictions
+            if self.ranking_algorithm == 'learned' and hasattr(self.guidance_aggregator, 'get_policy_rankings'):
+                policy_rankings = self.guidance_aggregator.get_policy_rankings(available_tools, context)
+                if policy_rankings:
+                    # Combine rankings: weighted average of base score and policy score
+                    alpha = 0.7
+                    policy_scores = {r.tool_name: r.score for r in policy_rankings}
+                    for r in rankings:
+                        policy_score = policy_scores.get(r.tool_name, 0.0)
+                        r.score = alpha * policy_score + (1 - alpha) * r.score
+                    rankings.sort(key=lambda r: r.score, reverse=True)
             top_tools = [r for r in rankings if r.score > 0.6][:3]
         
         # Record guidance suggestions in metrics
