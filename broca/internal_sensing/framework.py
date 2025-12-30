@@ -152,6 +152,19 @@ class InternalSensingFramework:
         # Keep only recent usage
         if len(self._tool_usage) > 100:
             self._tool_usage = self._tool_usage[-100:]
+
+        # --- Instrumentation: append lightweight stream event for RL ingestion ---
+        try:
+            from broca.rl.experiences import append_stream_event
+            event = {
+                "timestamp": time.time(),
+                "tool_name": tool_name,
+                "parameters": parameters,
+                "success": (result.get("success", True) if isinstance(result, dict) else True),
+            }
+            append_stream_event(event)
+        except Exception:
+            pass
     
     def get_tool_statistics(self) -> Dict[str, Any]:
         """
