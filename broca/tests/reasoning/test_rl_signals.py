@@ -100,32 +100,50 @@ class TestRLSignalMetrics:
         assert 0.0 <= composite <= 1.0
     
     def test_exploration_exploitation_balance(self):
-        """Test exploration-exploitation balance calculation."""
-        # High exploration (curiosity + info_gain)
+        """Test exploration-exploitation balance calculation.
+        
+        Updated for Active Inference formula that uses RAW signal values
+        and includes prediction_error, dissonance in exploration drive.
+        """
+        # High exploration (high curiosity, info_gain, surprise, dissonance)
         metrics_explore = RLSignalMetrics(
             timestamp=datetime.now(timezone.utc),
             curiosity_reward=0.9,
             information_gain_reward=0.9,
             coherence_reward=0.1,
-            surprise_reward=0.1,
-            dissonance_reward=0.1,
+            surprise_reward=0.1,  # Low reward = high raw surprise
+            dissonance_reward=0.1,  # Low reward = high raw dissonance
+            # Explicit raw values for clearer semantics
+            curiosity_raw=0.9,
+            info_gain_raw=0.9,
+            raw_surprise=0.9,
+            dissonance_raw=0.9,
+            coherence_raw=0.1,
+            prediction_error_raw=0.8,
         )
         
         balance_explore = metrics_explore.get_exploration_exploitation_balance()
-        assert balance_explore > 0.7  # Should favor exploration
+        assert balance_explore > 0.6, f"Should favor exploration, got {balance_explore}"
         
-        # High exploitation (coherence + low surprise + low dissonance)
+        # High exploitation (high coherence, low surprise, low dissonance)
         metrics_exploit = RLSignalMetrics(
             timestamp=datetime.now(timezone.utc),
             curiosity_reward=0.1,
             information_gain_reward=0.1,
             coherence_reward=0.9,
-            surprise_reward=0.9,
-            dissonance_reward=0.9,
+            surprise_reward=0.9,  # High reward = low raw surprise
+            dissonance_reward=0.9,  # High reward = low raw dissonance
+            # Explicit raw values
+            curiosity_raw=0.1,
+            info_gain_raw=0.1,
+            raw_surprise=0.1,
+            dissonance_raw=0.1,
+            coherence_raw=0.9,
+            prediction_error_raw=0.1,
         )
         
         balance_exploit = metrics_exploit.get_exploration_exploitation_balance()
-        assert balance_exploit < 0.3  # Should favor exploitation
+        assert balance_exploit < 0.4, f"Should favor exploitation, got {balance_exploit}"
 
 
 class TestRLSignalAggregator:

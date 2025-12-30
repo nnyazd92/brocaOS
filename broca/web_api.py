@@ -23,6 +23,21 @@ from .memory import SourceType, RelationType
 # RL Reward Logger
 _rl_reward_logger = None
 
+# Tool selection logger (shared with rl.online_policy)
+_tool_selection_logger = None
+
+def _get_tool_selection_logger():
+    """Get tool selection logger from RL module."""
+    global _tool_selection_logger
+    if _tool_selection_logger is None:
+        try:
+            from .rl.online_policy import tool_selection_logger
+            _tool_selection_logger = tool_selection_logger
+        except ImportError:
+            # Fallback to main logger if RL module not available
+            _tool_selection_logger = logger
+    return _tool_selection_logger
+
 def _get_rl_reward_logger():
     """Get or initialize RL reward logger."""
     global _rl_reward_logger
@@ -56,6 +71,78 @@ except ImportError:
     ResponseAnalyzer = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+class _MetricsCache:
+    """
+    Thread-safe cache for /api/metrics.
+
+    /api/metrics is polled heavily by the frontend. Doing blocking psutil sampling
+    inside an async handler (e.g., cpu_percent(interval=0.1)) stalls the event loop.
+    We instead sample in a background thread and serve cached results instantly.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._snapshot: Optional[Dict[str, Any]] = None
+        self._boot_time: Optional[float] = None
+
+    def set_snapshot(self, snapshot: Dict[str, Any]) -> None:
+        with self._lock:
+            self._snapshot = snapshot
+
+    def get_snapshot(self) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            return dict(self._snapshot) if self._snapshot is not None else None
+
+    def get_boot_time(self) -> float:
+        with self._lock:
+            if self._boot_time is None:
+                self._boot_time = float(psutil.boot_time())
+            return float(self._boot_time)
+
+
+_metrics_cache = _MetricsCache()
+_metrics_thread_started = False
+
+
+def _start_metrics_sampler_thread(interval_sec: float = 0.5) -> None:
+    global _metrics_thread_started
+    if _metrics_thread_started:
+        return
+    _metrics_thread_started = True
+
+    def _loop() -> None:
+        # Prime cpu_percent so subsequent calls have a baseline. This is non-blocking.
+        try:
+            psutil.cpu_percent(interval=None)
+        except Exception:
+            pass
+
+        while True:
+            try:
+                cpu = psutil.cpu_percent(interval=None) / 100.0
+                vm = psutil.virtual_memory()
+                mem = (vm.used / vm.total) if getattr(vm, "total", 0) else 0.0
+                now_sec = time.time()
+                boot_time = _metrics_cache.get_boot_time()
+                uptime = int(now_sec - boot_time)
+                _metrics_cache.set_snapshot(
+                    {
+                        "cpu": max(0.0, min(float(cpu), 1.0)),
+                        "memory": max(0.0, min(float(mem), 1.0)),
+                        "uptime": int(uptime),
+                        "timestamp": int(now_sec * 1000),
+                    }
+                )
+            except Exception:
+                # Never crash this loop; worst case metrics will be stale.
+                pass
+
+            time.sleep(max(0.05, float(interval_sec)))
+
+    t = threading.Thread(target=_loop, daemon=True, name="broca-metrics-sampler")
+    t.start()
+
 
 def _clean_pfrea_references(text: str) -> tuple[str, bool]:
     """
@@ -124,11 +211,161 @@ def _clean_pfrea_references(text: str) -> tuple[str, bool]:
     
     return cleaned, had_refs
 
+
+def _log_tool_call_rl_reward(
+    *,
+    reward_logger: Any,
+    tool_call: Dict[str, Any],
+    session_messages: List[Dict[str, Any]],
+    world_state_aggregator: Optional[Any],
+) -> None:
+    """
+    Web API path executes tools directly (not via ConversationSession._handle_tool_calls()).
+    This helper ensures we still append a row to rl_rewards.csv per tool execution.
+    """
+    try:
+        if reward_logger is None or not getattr(reward_logger, "enabled", False):
+            return
+
+        tool_name = tool_call.get("function", {}).get("name", "unknown")
+        tool_call_id = tool_call.get("id", "")
+
+        # Best-effort: compute real RL metrics from the reasoning tool if available.
+        rl_metrics = None
+        if world_state_aggregator and hasattr(world_state_aggregator, "reasoning_tool") and world_state_aggregator.reasoning_tool:
+            reasoning_tool = world_state_aggregator.reasoning_tool
+            fb = getattr(reasoning_tool, "feedback_loop_manager", None)
+            agg = getattr(fb, "rl_signal_aggregator", None) if fb is not None else None
+
+            if agg is not None:
+                try:
+                    # Best-effort: pre-measure dissonance so tool-call rows don't default to neutral.
+                    cd_monitor = getattr(fb, "cognitive_dissonance_monitor", None)
+                    if cd_monitor is not None:
+                        try:
+                            cd_monitor.measure_dissonance(
+                                response=None,
+                                tool_usage=[tool_call] if isinstance(tool_call, dict) else None,
+                                conversation_context=session_messages,
+                            )
+                        except Exception:
+                            pass
+
+                    rl_metrics = agg.compute_signals()
+                except Exception:
+                    rl_metrics = None
+
+        if rl_metrics is not None:
+            reward_logger.log_reward_signals(rl_metrics, context=f"tool_call_{tool_name}_{tool_call_id}")
+            return
+
+        # Fallback: always log a tool-call row even if real RL signals are unavailable.
+        from .reasoning.rl_signals import RLSignalMetrics
+        from .config import config as app_config
+
+        minimal = RLSignalMetrics(
+            timestamp=datetime.now(timezone.utc),
+            dissonance_reward=0.0,
+            surprise_reward=0.0,
+            curiosity_reward=0.0,
+            information_gain_reward=0.0,
+            coherence_reward=0.0,
+            weight_dissonance=getattr(app_config.reasoning, "rl_weight_dissonance", 0.3),
+            weight_surprise=getattr(app_config.reasoning, "rl_weight_surprise", 0.2),
+            weight_curiosity=getattr(app_config.reasoning, "rl_weight_curiosity", 0.2),
+            weight_info_gain=getattr(app_config.reasoning, "rl_weight_info_gain", 0.15),
+            weight_coherence=getattr(app_config.reasoning, "rl_weight_coherence", 0.15),
+        )
+        minimal.composite_reward = minimal.compute_composite()
+        reward_logger.log_reward_signals(minimal, context=f"tool_call_{tool_name}_{tool_call_id}")
+    except Exception:
+        # Never let logging failures break streaming/tool execution.
+        return
+
 # Global runtime components (shared)
 _runtime: Optional[BrocaRuntime] = None
+_runtime_status: str = "not_started"  # not_started | initializing | ready | error
+_runtime_lock = threading.Lock()
+_runtime_init_started_at: Optional[float] = None
+_runtime_ready_at: Optional[float] = None
+_runtime_init_error: Optional[str] = None
 PROJECT_ROOT: Path = Path(__file__).parent.parent.resolve()
 
 app = FastAPI(title="BrocaOS Web API")
+
+
+@app.on_event("startup")
+async def _startup_metrics_sampler() -> None:
+    # Start sampler early so the first metrics request is instant.
+    _start_metrics_sampler_thread(interval_sec=0.5)
+    # Start heavy runtime initialization off the event loop to avoid blocking the web server.
+    _ensure_runtime_initializing()
+
+
+def _ensure_runtime_initializing() -> None:
+    """
+    Ensure the BrocaRuntime initialization is in progress in a background thread.
+
+    This prevents the first request from blocking the event loop while we load the memory index,
+    self-model, reasoning daemon, etc.
+    """
+    global _runtime_status, _runtime_init_started_at, _runtime_init_error
+    with _runtime_lock:
+        if _runtime_status in ("initializing", "ready"):
+            return
+        if _runtime_status == "error":
+            # Do not auto-retry; surface the error via /api/healthz.
+            return
+
+        _runtime_status = "initializing"
+        _runtime_init_started_at = time.time()
+        _runtime_init_error = None
+
+        def _init() -> None:
+            global _runtime, _runtime_status, _runtime_ready_at, _runtime_init_error
+            try:
+                rt = initialize_runtime()
+                with _runtime_lock:
+                    _runtime = rt
+                    _runtime_status = "ready"
+                    _runtime_ready_at = time.time()
+                    _runtime_init_error = None
+                logger.info("Web API runtime initialized (ready)")
+            except Exception as e:
+                with _runtime_lock:
+                    _runtime = None
+                    _runtime_status = "error"
+                    _runtime_init_error = str(e)
+                logger.error(f"Web API runtime initialization failed: {e}", exc_info=True)
+
+        t = threading.Thread(target=_init, daemon=True, name="broca-runtime-init")
+        t.start()
+
+
+@app.get("/api/healthz")
+async def healthz() -> Dict[str, Any]:
+    """
+    Lightweight readiness endpoint.
+
+    - Always responds quickly (no runtime init side-effects)
+    - Exposes runtime init state for the frontend and operational debugging
+    """
+    with _runtime_lock:
+        status = _runtime_status
+        started_at = _runtime_init_started_at
+        ready_at = _runtime_ready_at
+        err = _runtime_init_error
+
+    now = time.time()
+    init_age = (now - started_at) if started_at else None
+    return {
+        "status": status,
+        "init_started_at": started_at,
+        "init_ready_at": ready_at,
+        "init_age_sec": init_age,
+        "error": err,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 class RequestState:
@@ -294,9 +531,15 @@ class TitleUpdate(BaseModel):
 
 def get_runtime() -> BrocaRuntime:
     global _runtime
-    if _runtime is None:
-        _runtime = initialize_runtime()
-    return _runtime
+    # Never initialize runtime synchronously on the request path.
+    _ensure_runtime_initializing()
+    with _runtime_lock:
+        if _runtime_status == "ready" and _runtime is not None:
+            return _runtime
+        if _runtime_status == "error":
+            raise HTTPException(status_code=500, detail=f"Runtime initialization failed: {_runtime_init_error}")
+        # initializing / not_started
+        raise HTTPException(status_code=503, detail="Runtime initializing, try again shortly")
 
 def get_storage():
     rt = get_runtime()
@@ -485,24 +728,30 @@ def update_conversation_title_async(conversation_id: str, user_message: str) -> 
 
 @app.get("/api/metrics")
 async def metrics():
-    cpu_percent = psutil.cpu_percent(interval=0.1) / 100.0
-    vm = psutil.virtual_memory()
-    mem_pressure = vm.used / vm.total if vm.total else 0.0
-    boot_time = psutil.boot_time()
     now_sec = time.time()
-    uptime = int(now_sec - boot_time)
     RECENT_WINDOW = 5.0
     
     # Get thread-safe metrics
     state_metrics = _request_state.get_metrics(recent_window=RECENT_WINDOW)
     is_working = state_metrics["is_working"]
 
+    snap = _metrics_cache.get_snapshot()
+    if not snap:
+        # Safe defaults: never block the async path. The background sampler will populate soon.
+        boot_time = _metrics_cache.get_boot_time()
+        snap = {
+            "cpu": 0.0,
+            "memory": 0.0,
+            "uptime": int(now_sec - boot_time),
+            "timestamp": int(now_sec * 1000),
+        }
+
     return {
-        "cpu": max(0.0, min(cpu_percent, 1.0)),
-        "memory": max(0.0, min(mem_pressure, 1.0)),
-        "uptime": uptime,
+        "cpu": snap["cpu"],
+        "memory": snap["memory"],
+        "uptime": snap["uptime"],
         "isWorking": is_working,
-        "timestamp": int(now_sec * 1000),
+        "timestamp": snap["timestamp"],
     }
 
 
@@ -954,7 +1203,56 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
             except Exception as e:
                 logger.debug(f"Error gathering context for tool filtering in web_api: {e}", exc_info=True)
         
-        tools = rt.tool_registry.to_openai_format(context=context) if rt.tool_registry else None
+        # Get RL-based tool selection with confidence gating
+        rl_selection = None
+        ts_logger = _get_tool_selection_logger()
+        
+        ts_logger.info(
+            f"API_REQUEST | conversation_id={conversation_id} | "
+            f"rl_enabled={app_config.rl.enabled if app_config else False} | "
+            f"user_message_length={len(user_message)}"
+        )
+        
+        if rt.tool_registry and app_config and app_config.rl.enabled:
+            try:
+                rl_selection = rt.tool_registry.get_rl_selection(context=context)
+                if rl_selection:
+                    ts_logger.info(
+                        f"API_RL_SELECTION | conversation_id={conversation_id} | "
+                        f"mode={rl_selection.mode} | confidence={rl_selection.confidence:.2%} | "
+                        f"tool={rl_selection.tool_name} | score={rl_selection.score:.4f} | "
+                        f"alternatives={[(t, f'{s:.4f}') for t, s in rl_selection.alternatives]} | "
+                        f"reason={rl_selection.reason}"
+                    )
+                    
+                    logger.info(
+                        f"RL selection: mode={rl_selection.mode}, tool={rl_selection.tool_name}, "
+                        f"confidence={rl_selection.confidence:.1%}",
+                        extra={
+                            "event": "web_api_rl_selection",
+                            "mode": rl_selection.mode,
+                            "tool": rl_selection.tool_name,
+                            "confidence": rl_selection.confidence,
+                            "reason": rl_selection.reason,
+                        }
+                    )
+                else:
+                    ts_logger.debug(
+                        f"API_RL_SELECTION | conversation_id={conversation_id} | "
+                        f"result=none | reason=ranker_returned_none"
+                    )
+            except Exception as e:
+                ts_logger.warning(
+                    f"API_RL_ERROR | conversation_id={conversation_id} | error={str(e)}"
+                )
+                logger.debug(f"Error getting RL selection in web_api: {e}", exc_info=True)
+        else:
+            ts_logger.debug(
+                f"API_RL_SKIP | conversation_id={conversation_id} | "
+                f"reason={'no_registry' if not rt.tool_registry else 'rl_disabled'}"
+            )
+        
+        tools = rt.tool_registry.to_openai_format(context=context, rl_selection=rl_selection) if rt.tool_registry else None
         
         if tools and not web_search_enabled:
             tools = [t for t in tools if t["function"]["name"] != "web_search"]
@@ -1115,6 +1413,16 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     }) + "\n"
                     
                     result_dict = rt.tool_registry.execute_tool_call(tc)
+
+                    # Log RL reward signals per tool call (append-only)
+                    # Note: stream_response bypasses ConversationSession._handle_tool_calls(),
+                    # so we must log here to avoid missing tool executions in rl_rewards.csv.
+                    _log_tool_call_rl_reward(
+                        reward_logger=_get_rl_reward_logger(),
+                        tool_call=tc,
+                        session_messages=session.messages,
+                        world_state_aggregator=rt.world_state_aggregator,
+                    )
                     
                     # Verify tool result was properly added (logging for debugging)
                     logger.debug(

@@ -30,6 +30,8 @@ class EpistemicLayer:
     - Verification history: Records of verification events
     - Inference chains: Graph of knowledge dependencies
     - Temporal dynamics: Evolution of knowledge over time
+    - Usage frequency: How often each knowledge item is accessed (for information gain)
+    - Importance: How critical each knowledge item is (for information gain)
     """
     
     def __init__(self) -> None:
@@ -41,6 +43,17 @@ class EpistemicLayer:
         self.temporal_dynamics: Dict[KnowledgeID, KnowledgeEvolution] = {}
         # Memory ID to Knowledge ID mapping
         self.memory_knowledge_mapping: Dict[int, KnowledgeID] = {}
+        
+        # ============================================================
+        # NEW: Importance and usage tracking for REAL information gain
+        # ============================================================
+        # Usage frequency: count of how often knowledge is accessed
+        # Used in info_gain formula: gain = importance × uncertainty × (1 + usage_frequency)
+        self._usage_frequency: Dict[KnowledgeID, int] = {}
+        
+        # Importance: how critical this knowledge is (0.0 to 1.0)
+        # Can be set explicitly or derived from usage patterns
+        self._importance: Dict[KnowledgeID, float] = {}
     
     def add_knowledge_source(self, knowledge_id: KnowledgeID, source: SourceMetadata) -> None:
         """Add or update knowledge source for a knowledge item."""
@@ -95,6 +108,90 @@ class EpistemicLayer:
     def get_memory_ids_for_knowledge(self, knowledge_id: KnowledgeID) -> List[int]:
         """Get all memory IDs associated with a knowledge ID."""
         return [mid for mid, kid in self.memory_knowledge_mapping.items() if kid == knowledge_id]
+    
+    # ================================================================
+    # Usage Frequency Tracking (for information gain calculation)
+    # ================================================================
+    
+    def get_usage_frequency(self, knowledge_id: KnowledgeID) -> int:
+        """
+        Get usage frequency for a knowledge item.
+        
+        Returns 0 if knowledge hasn't been accessed yet.
+        """
+        return self._usage_frequency.get(knowledge_id, 0)
+    
+    def record_knowledge_access(self, knowledge_id: KnowledgeID) -> int:
+        """
+        Record that a knowledge item was accessed.
+        
+        Increments the usage counter. Used to calculate information gain:
+        - More frequently accessed knowledge = higher impact if wrong
+        - gain = importance × uncertainty × (1 + usage_frequency)
+        
+        Returns:
+            Updated usage frequency count
+        """
+        current = self._usage_frequency.get(knowledge_id, 0)
+        self._usage_frequency[knowledge_id] = current + 1
+        return current + 1
+    
+    # ================================================================
+    # Importance Tracking (for information gain calculation)
+    # ================================================================
+    
+    def get_importance(self, knowledge_id: KnowledgeID) -> float:
+        """
+        Get importance score for a knowledge item.
+        
+        Importance reflects how critical this knowledge is:
+        - 0.0 = not important (verifying has no value)
+        - 0.5 = moderate importance (default)
+        - 1.0 = critically important (must verify)
+        
+        Returns 0.5 (moderate) if not explicitly set.
+        """
+        return self._importance.get(knowledge_id, 0.5)
+    
+    def set_importance(self, knowledge_id: KnowledgeID, importance: float) -> None:
+        """
+        Set importance score for a knowledge item.
+        
+        Args:
+            knowledge_id: ID of knowledge item
+            importance: Importance score (will be clamped to [0.0, 1.0])
+        """
+        # Clamp to valid range
+        self._importance[knowledge_id] = max(0.0, min(1.0, importance))
+    
+    def update_importance_from_usage(self, knowledge_id: KnowledgeID) -> float:
+        """
+        Update importance based on usage patterns.
+        
+        Heuristic: frequently accessed knowledge is more important.
+        Uses sigmoid-like scaling to map usage to importance.
+        
+        Formula: importance = base + usage_factor × (1 - base)
+        where usage_factor = min(1.0, usage_frequency / 50)
+        
+        This ensures:
+        - 0 uses → base importance (0.5)
+        - 50+ uses → near maximum importance (approaching 1.0)
+        
+        Returns:
+            Updated importance value
+        """
+        usage = self.get_usage_frequency(knowledge_id)
+        base_importance = 0.5
+        
+        # Scale usage to [0, 1] range (saturates around 50 uses)
+        usage_factor = min(1.0, usage / 50.0)
+        
+        # Blend: start at base, approach 1.0 with more usage
+        new_importance = base_importance + usage_factor * (1.0 - base_importance)
+        
+        self._importance[knowledge_id] = new_importance
+        return new_importance
     
     def has_knowledge(self, knowledge_id: KnowledgeID) -> bool:
         """Check if knowledge item exists in any tracking structure."""
@@ -151,6 +248,9 @@ class EpistemicLayer:
                 for kid, evolution in self.temporal_dynamics.items()
             },
             "memory_knowledge_mapping": self.memory_knowledge_mapping,
+            # NEW: Persist importance and usage tracking for real info gain
+            "usage_frequency": self._usage_frequency,
+            "importance": self._importance,
         }
     
     @classmethod
@@ -239,6 +339,18 @@ class EpistemicLayer:
             for key, value in mapping_data.items():
                 memory_id = int(key) if isinstance(key, str) else key
                 layer.memory_knowledge_mapping[memory_id] = value
+        
+        # Reconstruct usage_frequency (NEW for real info gain)
+        usage_data = data.get("usage_frequency", {})
+        if isinstance(usage_data, dict):
+            for key, value in usage_data.items():
+                layer._usage_frequency[key] = int(value) if value else 0
+        
+        # Reconstruct importance (NEW for real info gain)
+        importance_data = data.get("importance", {})
+        if isinstance(importance_data, dict):
+            for key, value in importance_data.items():
+                layer._importance[key] = float(value) if value else 0.5
         
         return layer
 

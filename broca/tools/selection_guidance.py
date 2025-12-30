@@ -75,11 +75,16 @@ class GuidanceAggregator:
         rl_signal_aggregator: Optional["RLSignalAggregator"] = None,
         skill_manager: Optional["SkillManager"] = None,
         goal_manager: Optional["GoalManager"] = None,
+        policy_ranker: Optional[Any] = None,
     ):
         self.reasoning_tool = reasoning_tool
         self.rl_signal_aggregator = rl_signal_aggregator
         self.skill_manager = skill_manager
         self.goal_manager = goal_manager
+        self.policy_ranker = policy_ranker
+        # TTL cache for policy predictions
+        self._policy_cache = {}
+        self._policy_cache_ttl = 2.0  # seconds
     
     def gather_context(self) -> Dict[str, Any]:
         """
@@ -158,6 +163,39 @@ class GuidanceAggregator:
             except Exception as e:
                 logger.debug(f"Error getting production rules: {e}")
         
+
+    def get_policy_rankings(self, tools: List["Tool"], context: Dict[str, Any]) -> List[ToolRanking]:
+        """Use PolicyRanker to produce ToolRanking list sorted by predicted probability.
+
+        Returns empty list if no policy_ranker is configured.
+        """
+        if not self.policy_ranker:
+            return []
+
+        # Simple cache key based on tools names and a short-time window
+        key = hashlib.sha256(("|".join([t.name for t in tools]) + str(int(time.time()//self._policy_cache_ttl))).encode()).hexdigest()
+        now = time.time()
+        if key in self._policy_cache:
+            val, ts = self._policy_cache[key]
+            if now - ts < self._policy_cache_ttl:
+                return val
+
+        try:
+            probs = self.policy_ranker.predict_distribution(context, tools)
+            rankings: List[ToolRanking] = []
+            for t in tools:
+                name = t.name
+                score = float(probs.get(name, 0.0))
+                rankings.append(ToolRanking(tool_name=name, score=score, expected_reward=score))
+
+            rankings.sort(key=lambda r: r.score, reverse=True)
+            self._policy_cache[key] = (rankings, now)
+            return rankings
+        except Exception as e:
+            logger.debug(f"PolicyRanker error: {e}")
+            return []
+
+
         return context
 
 
@@ -1152,6 +1190,7 @@ class ToolSelectionGuidance:
             rl_signal_aggregator=rl_signal_aggregator,
             skill_manager=skill_manager,
             goal_manager=goal_manager,
+            policy_ranker=None
         )
         
         # Initialize base ranker
@@ -1181,6 +1220,15 @@ class ToolSelectionGuidance:
         # Initialize context cache
         self.context_cache = ContextCache(ttl_seconds=context_cache_ttl_seconds)
         self.incremental_updater = IncrementalContextUpdater(self.guidance_aggregator)
+
+        # attach policy ranker to guidance aggregator if available
+        try:
+            from broca.rl.policy import PolicyRanker
+            pr = PolicyRanker()
+            pr.load_model(None)
+            self.guidance_aggregator.policy_ranker = pr
+        except Exception:
+            self.guidance_aggregator.policy_ranker = None
         
         # Initialize temporal tracker and relationship graph
         self.temporal_tracker = TemporalContextTracker()
@@ -1240,6 +1288,17 @@ class ToolSelectionGuidance:
         top_tools: List[ToolRanking] = []
         if available_tools and len(available_tools) > 0:
             rankings = self.tool_ranker.rank_tools(available_tools, context)
+            # If learned ranking algorithm is selected, incorporate policy_ranker predictions
+            if self.ranking_algorithm == 'learned' and hasattr(self.guidance_aggregator, 'get_policy_rankings'):
+                policy_rankings = self.guidance_aggregator.get_policy_rankings(available_tools, context)
+                if policy_rankings:
+                    # Combine rankings: weighted average of base score and policy score
+                    alpha = 0.7
+                    policy_scores = {r.tool_name: r.score for r in policy_rankings}
+                    for r in rankings:
+                        policy_score = policy_scores.get(r.tool_name, 0.0)
+                        r.score = alpha * policy_score + (1 - alpha) * r.score
+                    rankings.sort(key=lambda r: r.score, reverse=True)
             top_tools = [r for r in rankings if r.score > 0.6][:3]
         
         # Record guidance suggestions in metrics

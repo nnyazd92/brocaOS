@@ -1,0 +1,22 @@
+{
+  "terminal": {
+    "count": 53,
+    "success_rate": 0.8301886792452831,
+    "epistemic_avg": null
+  },
+  "web_search": {
+    "count": 3,
+    "success_rate": 1.0,
+    "epistemic_avg": null
+  },
+  "store_memory": {
+    "count": 5,
+    "success_rate": 1.0,
+    "epistemic_avg": null
+  },
+  "planning": {
+    "count": 5,
+    "success_rate": 1.0,
+    "epistemic_avg": null
+  }
+}

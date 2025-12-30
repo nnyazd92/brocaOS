@@ -254,7 +254,10 @@ class MetacognitiveEngine:
             knowledge_id: ID of knowledge item
             
         Returns:
-            Dictionary with epistemic context
+            Dictionary with epistemic context including:
+            - importance: How critical this knowledge is (0.0-1.0)
+            - usage_frequency: How often this knowledge is accessed
+            These are used for REAL information gain calculation.
         """
         source = self.epistemic_layer.get_knowledge_source(knowledge_id)
         metrics = self.epistemic_layer.get_confidence_metrics(knowledge_id)
@@ -270,12 +273,19 @@ class MetacognitiveEngine:
                 contradictory_count=sum(1 for h in history if h.result == "refuted")
             )
         
+        # Get importance and usage_frequency for REAL information gain
+        importance = self.epistemic_layer.get_importance(knowledge_id)
+        usage_frequency = self.epistemic_layer.get_usage_frequency(knowledge_id)
+        
         return {
             "knowledge_id": knowledge_id,
             "source": source.model_dump() if source else None,
             "confidence_metrics": metrics.model_dump() if metrics else None,
             "verification_count": len(history),
             "uncertainty": uncertainty,
-            "has_evolution": evolution is not None
+            "has_evolution": evolution is not None,
+            # NEW: Expose for real information gain calculation
+            "importance": importance,
+            "usage_frequency": usage_frequency,
         }
 

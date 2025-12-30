@@ -120,7 +120,7 @@ class Runner:
             success = bool(task.get('expected_output'))
             final_output = task.get('expected_output') if success else ''
 
-            duration = round(time.time() - start, 3)
+            duration = round(time.time() - start_ts, 3)
             result = {
                 'task_id': task_id,
                 'success': success,

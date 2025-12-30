@@ -55,6 +55,8 @@ from typing import Dict, Any, Optional, TYPE_CHECKING, Protocol
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from ..internal_sensing.data_quality import measurement_uncertainty_from_quality
+
 if TYPE_CHECKING:
     from .cognitive_dissonance import CognitiveDissonanceMonitor, DissonanceMetrics
     from ..internal_sensing.affective_state import ComputationalAffectMonitor
@@ -85,7 +87,7 @@ class RLSignalMetrics:
     # --- Raw / intermediate signals (for debugging + learning) ---
     # Convention: raw_* are in "signal space" where higher means "more of the thing".
     # Rewards are typically in "reward space" where higher means "better".
-    schema_version: int = 3
+    schema_version: int = 4
     dissonance_raw: Optional[float] = None  # overall_dissonance (0..1); higher = more dissonance
     has_dissonance_data: Optional[bool] = None
     dissonance_estimator: Optional[str] = None  # "measured" | "estimated_llm" | "unavailable"
@@ -118,6 +120,15 @@ class RLSignalMetrics:
     info_gain_has_data: Optional[bool] = None
     info_gain_estimator: Optional[str] = None  # "epistemic_bridge" | "provided" | "estimated_llm" | "unavailable"
     info_gain_uncertainty: Optional[float] = None  # 0..1
+
+    # --- Epistemic uncertainty (separate from measurement uncertainty) ---
+    epistemic_uncertainty_total: Optional[float] = None
+    epistemic_uncertainty_epistemic: Optional[float] = None
+    epistemic_uncertainty_aleatoric: Optional[float] = None
+    epistemic_uncertainty_model: Optional[float] = None
+    epistemic_uncertainty_data_quality: Optional[str] = None
+    epistemic_uncertainty_sample_size: Optional[int] = None
+    epistemic_uncertainty_has_data: Optional[bool] = None
     
     def compute_composite(self) -> float:
         """
@@ -211,25 +222,69 @@ class RLSignalMetrics:
     
     def get_exploration_exploitation_balance(self) -> float:
         """
-        Compute exploration-exploitation balance.
+        Compute exploration-exploitation balance based on Active Inference theory.
+        
+        Based on Expected Free Energy decomposition:
+        G = G_epistemic + G_pragmatic
+        
+        Exploration (epistemic value) is driven by:
+        - Curiosity: intrinsic motivation to learn
+        - Information gain: expected learning opportunity  
+        - Prediction error: world model needs updating
+        - Surprise: unexpected events trigger exploration
+        - Dissonance: inconsistent beliefs require exploration
+        
+        Exploitation (pragmatic value) is driven by:
+        - Coherence: world model is accurate
+        - Low surprise: predictable environment
+        - Low dissonance: consistent beliefs
+        
+        IMPORTANT: Uses RAW signal values, not inverted reward values.
         
         Returns:
             Balance score (0.0 = pure exploitation, 1.0 = pure exploration)
-        """
-        # Exploration: curiosity + info_gain
-        exploration = (self.curiosity_reward + self.information_gain_reward) / 2.0
         
-        # Exploitation: coherence + (1 - surprise) + (1 - dissonance)
-        exploitation = (
-            self.coherence_reward +
-            self.surprise_reward +
-            self.dissonance_reward
-        ) / 3.0
+        References:
+        - Friston, K. (2010). The free-energy principle
+        - Schwartenbeck et al. (2019). Computational mechanisms of curiosity
+        """
+        # Get raw values, falling back to derived values if unavailable
+        curiosity = self.curiosity_raw if self.curiosity_raw is not None else self.curiosity_reward
+        info_gain = self.info_gain_raw if self.info_gain_raw is not None else self.information_gain_reward
+        prediction_error = self.prediction_error_raw if self.prediction_error_raw is not None else 0.0
+        raw_surprise = self.raw_surprise if self.raw_surprise is not None else (1.0 - self.surprise_reward)
+        coherence = self.coherence_raw if self.coherence_raw is not None else self.coherence_reward
+        dissonance = self.dissonance_raw if self.dissonance_raw is not None else (1.0 - self.dissonance_reward)
+        
+        # ================================================================
+        # EXPLORATION DRIVE (epistemic value - information seeking)
+        # High values = should explore more
+        # ================================================================
+        exploration_signals = [
+            curiosity,          # Intrinsic motivation
+            info_gain,          # Expected learning
+            prediction_error,   # World model errors → explore to fix
+            raw_surprise,       # Unexpected → explore to understand
+            dissonance,         # Inconsistent beliefs → explore to resolve
+        ]
+        exploration = sum(exploration_signals) / len(exploration_signals)
+        
+        # ================================================================
+        # EXPLOITATION DRIVE (pragmatic value - goal directed)
+        # High values = should exploit more
+        # ================================================================
+        exploitation_signals = [
+            coherence,              # World model is good
+            1.0 - raw_surprise,     # Predictable environment
+            1.0 - dissonance,       # Consistent beliefs
+            1.0 - prediction_error, # Low prediction error
+        ]
+        exploitation = sum(exploitation_signals) / len(exploitation_signals)
         
         # Balance: exploration / (exploration + exploitation)
         total = exploration + exploitation
         if total == 0.0:
-            return 0.5  # Balanced
+            return 0.5  # Default to balanced
         
         balance = exploration / total
         return max(0.0, min(1.0, balance))
@@ -332,15 +387,57 @@ class RLSignalAggregator:
                 return True
             qn = str(q).strip().lower()
             return qn not in ("missing", "insufficient")
+
+        def _meas_unc(q: Optional[str], sample_size: Optional[int] = None) -> float:
+            return measurement_uncertainty_from_quality(q, sample_size=sample_size)
         
         # 1. Dissonance reward: 1.0 - dissonance (minimize dissonance = maximize reward)
         if dissonance_metrics:
-            overall_dissonance = dissonance_metrics.overall_dissonance
-            metrics.has_dissonance_data = True
-            metrics.dissonance_raw = overall_dissonance
-            metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
-            metrics.dissonance_estimator = "measured"
-            metrics.dissonance_uncertainty = 0.0
+            # IMPORTANT: dissonance_metrics can represent an "estimated/insufficient" measurement
+            # (e.g., when response=None and most components are unavailable). In that case we must
+            # not allow the default numeric values to create strong reward gradients.
+            has_sufficient = bool(getattr(dissonance_metrics, "has_sufficient_data", True))
+            component_availability = getattr(dissonance_metrics, "component_availability", None)
+            any_component = True
+            if isinstance(component_availability, dict):
+                any_component = any(bool(v) for v in component_availability.values())
+            if not has_sufficient or not any_component:
+                metrics.has_dissonance_data = False
+                metrics.dissonance_raw = None
+                metrics.dissonance_reward = 0.5  # neutral when insufficient
+                metrics.dissonance_estimator = "unavailable"
+                metrics.dissonance_uncertainty = 1.0
+            else:
+                overall_dissonance = float(getattr(dissonance_metrics, "overall_dissonance", 0.0))
+                overall_dissonance = max(0.0, min(1.0, overall_dissonance))
+                metrics.has_dissonance_data = True
+                metrics.dissonance_raw = overall_dissonance
+                metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
+                metrics.dissonance_estimator = "measured"
+                # Measurement uncertainty: increase when fewer components are available / low history.
+                comp_av = getattr(dissonance_metrics, "component_availability", {}) or {}
+                try:
+                    available = sum(1 for v in comp_av.values() if v)
+                    total = max(1, len(comp_av))
+                    comp_factor = 1.0 - (available / total)
+                except Exception:
+                    comp_factor = 0.3
+                try:
+                    history_size = int(getattr(dissonance_metrics, "history_size", 0) or 0)
+                except Exception:
+                    history_size = 0
+                # Approximate quality from history size
+                if history_size >= 20:
+                    q = "high"
+                elif history_size >= 10:
+                    q = "medium"
+                elif history_size >= 5:
+                    q = "low"
+                elif history_size > 0:
+                    q = "insufficient"
+                else:
+                    q = "missing"
+                metrics.dissonance_uncertainty = max(0.0, min(1.0, _meas_unc(q, sample_size=history_size) + comp_factor * 0.3))
         elif self.cognitive_dissonance_monitor:
             try:
                 dissonance_data = self.cognitive_dissonance_monitor.get_aggregated_dissonance()
@@ -377,7 +474,28 @@ class RLSignalAggregator:
                     metrics.dissonance_raw = overall_dissonance
                     metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
                     metrics.dissonance_estimator = "measured"
-                    metrics.dissonance_uncertainty = 0.0
+                    comp_av = dissonance_data.get("component_availability", {}) or {}
+                    try:
+                        available = sum(1 for v in comp_av.values() if v)
+                        total = max(1, len(comp_av))
+                        comp_factor = 1.0 - (available / total)
+                    except Exception:
+                        comp_factor = 0.3
+                    try:
+                        history_size = int(dissonance_data.get("history_size", 0) or 0)
+                    except Exception:
+                        history_size = 0
+                    if history_size >= 20:
+                        q = "high"
+                    elif history_size >= 10:
+                        q = "medium"
+                    elif history_size >= 5:
+                        q = "low"
+                    elif history_size > 0:
+                        q = "insufficient"
+                    else:
+                        q = "missing"
+                    metrics.dissonance_uncertainty = max(0.0, min(1.0, _meas_unc(q, sample_size=history_size) + comp_factor * 0.3))
             except Exception as e:
                 logger.debug(f"Error getting dissonance signal: {e}")
                 metrics.has_dissonance_data = None
@@ -404,6 +522,7 @@ class RLSignalAggregator:
             metrics.surprise_data_quality = q
             metrics.surprise_has_data = _quality_is_usable(q)
             metrics.surprise_estimator = "affective" if metrics.surprise_has_data else None
+            metrics.surprise_uncertainty = _meas_unc(q)
         elif self.affective_monitor:
             try:
                 affective = self.affective_monitor.sample_affective_state()
@@ -421,7 +540,7 @@ class RLSignalAggregator:
                     metrics.surprise_reward = max(0.0, min(1.0, 1.0 - surprise))
                     surprise_source = "affective"
                     metrics.surprise_estimator = "affective"
-                    metrics.surprise_uncertainty = 0.0
+                    metrics.surprise_uncertainty = _meas_unc(q)
                 else:
                     # Low-quality/missing affective surprise: estimate if possible
                     if self.estimator and hasattr(self.estimator, "estimate_surprise"):
@@ -505,6 +624,7 @@ class RLSignalAggregator:
             metrics.curiosity_data_quality = q
             metrics.curiosity_has_data = _quality_is_usable(q)
             metrics.curiosity_estimator = "affective" if metrics.curiosity_has_data else None
+            metrics.curiosity_uncertainty = _meas_unc(q)
         elif self.affective_monitor:
             try:
                 affective = self.affective_monitor.sample_affective_state()
@@ -519,7 +639,7 @@ class RLSignalAggregator:
                 if metrics.curiosity_has_data:
                     metrics.curiosity_reward = max(0.0, min(1.0, curiosity))
                     metrics.curiosity_estimator = "affective"
-                    metrics.curiosity_uncertainty = 0.0
+                    metrics.curiosity_uncertainty = _meas_unc(q)
                 else:
                     if self.estimator and hasattr(self.estimator, "estimate_curiosity"):
                         try:
@@ -554,7 +674,7 @@ class RLSignalAggregator:
             metrics.information_gain_reward = max(0.0, min(1.0, information_gain))
             metrics.info_gain_has_data = True
             metrics.info_gain_estimator = "provided"
-            metrics.info_gain_uncertainty = 0.0
+            metrics.info_gain_uncertainty = _meas_unc("high")
         elif self.epistemic_bridge:
             try:
                 info = None
@@ -564,6 +684,11 @@ class RLSignalAggregator:
                     metrics.info_gain_source = "epistemic_bridge"
                     metrics.info_gain_has_data = bool(info.get("has_data", False))
                     metrics.info_gain_estimator = str(info.get("estimator", "epistemic_bridge"))
+                    sample_size = info.get("sample_size")
+                    try:
+                        sample_size_i = int(sample_size) if sample_size is not None else None
+                    except Exception:
+                        sample_size_i = None
                     val = info.get("value")
                     if metrics.info_gain_has_data and val is not None:
                         try:
@@ -571,7 +696,12 @@ class RLSignalAggregator:
                         except Exception:
                             metrics.info_gain_raw = None
                         metrics.information_gain_reward = max(0.0, min(1.0, float(metrics.info_gain_raw or 0.0)))
-                        metrics.info_gain_uncertainty = 0.0
+                        # Measurement uncertainty for info gain depends on sample size and estimator quality.
+                        est = str(metrics.info_gain_estimator or "")
+                        q = "high"
+                        if est == "estimated_inputs":
+                            q = "low"
+                        metrics.info_gain_uncertainty = _meas_unc(q, sample_size=sample_size_i)
                     else:
                         # Missing/low-quality epistemic info gain -> estimate if possible.
                         if self.estimator and hasattr(self.estimator, "estimate_information_gain"):
@@ -601,7 +731,7 @@ class RLSignalAggregator:
                     metrics.information_gain_reward = max(0.0, min(1.0, float(info_gain)))
                     metrics.info_gain_has_data = True
                     metrics.info_gain_estimator = "epistemic_bridge"
-                    metrics.info_gain_uncertainty = 0.0
+                    metrics.info_gain_uncertainty = _meas_unc("medium")
             except Exception as e:
                 logger.debug(f"Error getting information gain signal: {e}")
                 metrics.info_gain_source = "error"
@@ -626,6 +756,7 @@ class RLSignalAggregator:
             metrics.coherence_data_quality = q
             metrics.coherence_has_data = _quality_is_usable(q)
             metrics.coherence_estimator = "affective" if metrics.coherence_has_data else None
+            metrics.coherence_uncertainty = _meas_unc(q)
         elif self.affective_monitor:
             try:
                 affective = self.affective_monitor.sample_affective_state()
@@ -640,7 +771,7 @@ class RLSignalAggregator:
                 if metrics.coherence_has_data:
                     metrics.coherence_reward = max(0.0, min(1.0, coherence))
                     metrics.coherence_estimator = "affective"
-                    metrics.coherence_uncertainty = 0.0
+                    metrics.coherence_uncertainty = _meas_unc(q)
                 else:
                     if self.estimator and hasattr(self.estimator, "estimate_coherence"):
                         try:
@@ -667,6 +798,27 @@ class RLSignalAggregator:
         
         # Compute composite reward
         metrics.compute_composite()
+
+        # Epistemic uncertainty (separate from measurement uncertainty)
+        if self.epistemic_bridge and hasattr(self.epistemic_bridge, "get_aggregated_uncertainty"):
+            try:
+                eu = self.epistemic_bridge.get_aggregated_uncertainty()
+                if isinstance(eu, dict):
+                    metrics.epistemic_uncertainty_total = eu.get("total")
+                    metrics.epistemic_uncertainty_epistemic = eu.get("epistemic")
+                    metrics.epistemic_uncertainty_aleatoric = eu.get("aleatoric")
+                    metrics.epistemic_uncertainty_model = eu.get("model")
+                    metrics.epistemic_uncertainty_data_quality = eu.get("data_quality")
+                    try:
+                        metrics.epistemic_uncertainty_sample_size = int(eu.get("sample_size", 0) or 0)
+                    except Exception:
+                        metrics.epistemic_uncertainty_sample_size = None
+                    try:
+                        metrics.epistemic_uncertainty_has_data = bool(eu.get("has_data", False))
+                    except Exception:
+                        metrics.epistemic_uncertainty_has_data = None
+            except Exception:
+                pass
         
         logger.info(
             f"RL signals computed: composite={metrics.composite_reward:.4f}, "

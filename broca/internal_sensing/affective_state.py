@@ -1036,12 +1036,17 @@ class ComputationalAffectMonitor:
                     f"semantic={semantic_surprise}, context={contextual_weight}, "
                     f"short_term={short_term:.3f}, long_term={long_term:.3f}, final={overall_surprise:.3f}")
 
-    def update_from_cognitive(self, cognitive_monitor: "CognitiveStateMonitor") -> None:
+    def update_from_cognitive(
+        self,
+        cognitive_monitor: "CognitiveStateMonitor",
+        prediction_error: Optional[float] = None,
+    ) -> None:
         """
         Update affective states from cognitive monitor.
         
         Args:
             cognitive_monitor: CognitiveStateMonitor instance
+            prediction_error: Optional prediction error from PredictiveInteroception (0.0-1.0)
         """
         # Update certainty affect from confidence (always update, using defaults if None)
         confidence = cognitive_monitor.states.get("confidence_level")
@@ -1062,11 +1067,10 @@ class ComputationalAffectMonitor:
         attention_total = sum(attention_allocation.values())
         interest = min(attention_total, 1.0) if attention_total > 0 else 0.0
         
-        # Get prediction error if available from predictive interoception
-        # (This would need to be passed in or accessed via a reference)
-        prediction_error = None  # Will be set by integrated_interoception if available
-        
-        logger.debug(f"update_from_cognitive: updating curiosity_drive from uncertainty={uncertainty:.3f}, interest={interest:.3f}")
+        logger.debug(
+            f"update_from_cognitive: updating curiosity_drive from uncertainty={uncertainty:.3f}, "
+            f"interest={interest:.3f}, prediction_error={prediction_error}"
+        )
         self.compute_curiosity_drive(uncertainty, interest, prediction_error=prediction_error)
     
     def record_motivational_drive(self, drive_type: str, level: float) -> None:

@@ -2018,6 +2018,20 @@ Return JSON only:
         # Extract filtered/ranked memories
         filtered_memories = [mem for mem, _ in memory_confidence_pairs[:limit]]
         
+        # ================================================================
+        # REAL INFO GAIN: Record knowledge accesses for retrieved memories
+        # This tracks usage_frequency which feeds into:
+        # info_gain = importance × uncertainty × (1 + usage_frequency)
+        # ================================================================
+        for memory in filtered_memories:
+            if memory.id:
+                knowledge_id = epistemic_engine.epistemic_layer.get_knowledge_id_for_memory(memory.id)
+                if knowledge_id:
+                    # Increment usage counter - more accesses = higher info gain
+                    epistemic_engine.epistemic_layer.record_knowledge_access(knowledge_id)
+                    # Also update importance based on usage patterns
+                    epistemic_engine.epistemic_layer.update_importance_from_usage(knowledge_id)
+        
         # Build epistemic context
         epistemic_context = {
             "source_breakdown": dict(source_breakdown),
@@ -2151,6 +2165,17 @@ Return JSON only:
                 # Store memory-knowledge ID mapping in epistemic layer
                 if epistemic_engine.epistemic_layer:
                     epistemic_engine.epistemic_layer.add_memory_knowledge_mapping(memory_id, knowledge_id)
+                    
+                    # ============================================================
+                    # REAL INFO GAIN: Set initial importance from memory importance
+                    # This enables real information gain calculation:
+                    # info_gain = importance × uncertainty × (1 + usage_frequency)
+                    # ============================================================
+                    epistemic_engine.epistemic_layer.set_importance(knowledge_id, importance)
+                    logger.debug(
+                        f"Set initial importance for {knowledge_id}: {importance}"
+                    )
+                    
                     logger.debug(
                         f"Created memory-knowledge mapping: memory_id={memory_id} -> knowledge_id={knowledge_id}"
                     )

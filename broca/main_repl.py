@@ -1013,6 +1013,10 @@ def _initialize_reasoning_system(
             # Wire goal_manager to cognitive dissonance monitor now that reasoning_tool exists
             if reasoning_tool.goal_manager:
                 cognitive_dissonance_monitor.goal_manager = reasoning_tool.goal_manager
+            # Wire affective monitor for dissonance→coherence coupling
+            if affective_monitor:
+                cognitive_dissonance_monitor.set_affective_monitor(affective_monitor)
+                logger.info("✓ Wired dissonance→coherence coupling via affective monitor")
         if self_model_feedback_loop:
             reasoning_tool.self_model_feedback_loop = self_model_feedback_loop
         if affect_monitor:

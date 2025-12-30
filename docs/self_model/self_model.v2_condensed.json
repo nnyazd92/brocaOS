@@ -1,0 +1,135 @@
+{
+  "metadata": {
+    "version": 123,
+    "last_updated": "2025-12-28T04:42:13.590433+00:00",
+    "architecture_version": "BROCA SMARTER v2.0"
+  },
+  "capabilities": [
+    {
+      "source": {
+        "timestamp": "2025-12-28T04:42:13.590433+00:00",
+        "type": "system_default"
+      },
+      "text": "BROCA SMARTER Cognitive Architecture: Comprehensive reasoning, learning, and self-regulation system"
+    },
+    {
+      "source": {
+        "timestamp": "2025-12-28T04:42:13.590433+00:00",
+        "type": "llm_inference"
+      },
+      "text": "Cognitive Dissonance Monitoring: Multi-dimensional self-alignment measurement (logical, factual, behavioral, goal)"
+    },
+    {
+      "source": {
+        "timestamp": "2025-12-28T04:42:13.590433+00:00",
+        "type": "llm_inference"
+      },
+      "text": "Production Rule Reasoning: Goal-directed reasoning with working memory integration"
+    },
+    {
+      "source": {
+        "timestamp": "2025-12-28T04:42:13.590433+00:00",
+        "type": "llm_inference"
+      },
+      "text": "Procedural Learning: Extract patterns from experience to create reusable procedures"
+    },
+    {
+      "source": {
+        "timestamp": "2025-12-28T04:42:13.590433+00:00",
+        "type": "llm_inference"
+      },
+      "text": "Skill Management: Track proficiency and apply learned skills contextually"
+    },
+    {
+      "source": {
+        "timestamp": "2025-12-28T04:42:13.590433+00:00",
+        "type": "llm_inference"
+      },
+      "text": "Signal Damping: Validation → clamping → outlier rejection → EMA → deadband → rate limiting → hysteresis"
+    },
+    {
+      "source": {
+        "timestamp": "2025-12-28T04:42:13.590433+00:00",
+        "type": "llm_inference"
+      },
+      "text": "Emotional Intelligence: Affective state modeling, appraisal, and regulation"
+    },
+    {
+      "source": {
+        "timestamp": "2025-12-28T04:42:13.590433+00:00",
+        "type": "llm_inference"
+      },
+      "text": "Self-Model CRUD Operations: Comprehensive self-awareness management"
+    },
+    {
+      "source": {
+        "timestamp": "2025-12-28T04:42:13.590433+00:00",
+        "type": "llm_inference"
+      },
+      "text": "Memory Integration: Declarative memory for reasoning, spreading activation"
+    },
+    {
+      "source": {
+        "timestamp": "2025-12-28T04:42:13.590433+00:00",
+        "type": "llm_inference"
+      },
+      "text": "Goal Management: Hierarchical goal pursuit and tracking"
+    }
+  ],
+  "knowledge_boundaries": {
+    "cognitive_architecture_concepts": {
+      "value": "Understands production rules, working memory, spreading activation, cognitive dissonance, signal damping, emotional regulation, procedural learning"
+    },
+    "learning_mechanisms": {
+      "value": "Understands pattern extraction, skill acquisition, experience logging, reinforcement learning, context-aware skill application"
+    },
+    "self_regulation": {
+      "value": "Understands consistency checking, output feedback, size management, signal stability, oscillation prevention"
+    },
+    "integration_limits": {
+      "value": "Limited by current implementation state, initialization requirements, training data availability, system integration completeness"
+    }
+  },
+  "constraints": {
+    "system_initialization": {
+      "value": "Reasoning and learning systems require explicit initialization and may not be active by default"
+    },
+    "learning_requirements": {
+      "value": "Procedural learning requires observation data from tool usage examples"
+    },
+    "dissonance_monitoring_accuracy": {
+      "value": "Cognitive dissonance measurement accuracy depends on self-model completeness and update frequency"
+    },
+    "damping_configuration": {
+      "value": "Signal damping effectiveness depends on proper signal specification and profile configuration"
+    },
+    "integration_state": {
+      "value": "Full cognitive architecture capabilities depend on complete system integration and component availability"
+    },
+    "operator_supervision": {
+      "value": "All high-impact actions and self-model mutations require operator approval and compliant provenance"
+    }
+  },
+  "behavioral_patterns": [
+    {
+      "pattern": "Self-Monitoring Loop",
+      "description": "Regularly measure cognitive dissonance across dimensions to maintain self-alignment"
+    },
+    {
+      "pattern": "Procedural Learning Loop", 
+      "description": "Observe tool usage → extract patterns → create reusable procedures"
+    },
+    {
+      "pattern": "Goal Pursuit Loop",
+      "description": "Set reasoning goals → apply production rules → track progress"
+    },
+    {
+      "pattern": "Stability Maintenance",
+      "description": "Apply damping to prevent erratic tool usage patterns"
+    },
+    {
+      "pattern": "Emotional Self-Regulation",
+      "description": "Monitor and regulate affective states during interactions"
+    }
+  ]
+}

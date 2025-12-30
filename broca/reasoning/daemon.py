@@ -130,7 +130,8 @@ class ReasoningDaemon:
                     self.state_manager.load_state(
                         rule_system=self.reasoning_tool.rule_system,
                         goal_manager=self.reasoning_tool.goal_manager,
-                        working_memory=self.reasoning_tool.rule_system.working_memory
+                        working_memory=self.reasoning_tool.rule_system.working_memory,
+                        dissonance_monitor=getattr(self.reasoning_tool, "cognitive_dissonance_monitor", None),
                     )
                     logger.info("Loaded state from state manager")
                 except Exception as e:
@@ -179,6 +180,7 @@ class ReasoningDaemon:
                         rule_system=self.reasoning_tool.rule_system,
                         goal_manager=self.reasoning_tool.goal_manager,
                         working_memory=self.reasoning_tool.rule_system.working_memory,
+                        dissonance_monitor=getattr(self.reasoning_tool, "cognitive_dissonance_monitor", None),
                         force=True
                     )
                     logger.info("Saved state before stopping")
@@ -475,7 +477,8 @@ class ReasoningDaemon:
                     self.state_manager.save_state(
                         rule_system=self.reasoning_tool.rule_system,
                         goal_manager=self.reasoning_tool.goal_manager,
-                        working_memory=self.reasoning_tool.rule_system.working_memory
+                        working_memory=self.reasoning_tool.rule_system.working_memory,
+                        dissonance_monitor=getattr(self.reasoning_tool, "cognitive_dissonance_monitor", None),
                     )
                 except Exception as e:
                     logger.error(f"Error saving state: {e}", exc_info=True)

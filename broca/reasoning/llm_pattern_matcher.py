@@ -11,6 +11,7 @@ import logging
 import json
 import hashlib
 import time
+import uuid
 from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
 from collections import deque
 
@@ -61,6 +62,29 @@ class LLMPatternMatcher:
 
         # Optional logger (PatternMatchLogger-style). Keep as attribute to avoid AttributeError.
         self.logger = None
+        
+        # CSV logging for training data collection
+        self._pm_logger = None
+        self._pm_logging_enabled = False
+        try:
+            from .config import ReasoningConfig
+            cfg = ReasoningConfig()
+            self._pm_logging_enabled = bool(getattr(cfg, "llm_pattern_logging_enabled", False))
+            if self._pm_logging_enabled:
+                from .pattern_match_logger import PatternMatchLogger, PatternMatchLogConfig
+                from pathlib import Path
+                self._pm_logger = PatternMatchLogger(
+                    PatternMatchLogConfig(
+                        enabled=True,
+                        base_path=Path(getattr(cfg, "llm_pattern_log_path", "data/llm_pattern_matching_log.csv")),
+                        rotation=str(getattr(cfg, "llm_pattern_log_rotation", "none")),
+                        max_size_mb=int(getattr(cfg, "llm_pattern_log_max_size_mb", 100)),
+                        max_content_chars=20_000,
+                    )
+                )
+                logger.info("LLMPatternMatcher CSV logging enabled")
+        except Exception as e:
+            logger.debug(f"LLMPatternMatcher CSV logging init failed (non-fatal): {e}")
         
     def match(
         self,
@@ -237,6 +261,8 @@ class LLMPatternMatcher:
         """
         # Build prompt for LLM
         prompt = self._build_matching_prompt(batch)
+        batch_id = str(uuid.uuid4())
+        t0 = time.time()
         
         try:
             # Call LLM
@@ -253,13 +279,47 @@ class LLMPatternMatcher:
             
             response = self.llm.chat(messages, temperature=0.0)
             content = self.llm.extract_assistant_content(response)
+            latency_ms = (time.time() - t0) * 1000.0
             
             if not content:
                 logger.warning("LLM returned empty content for pattern matching")
+                # Log empty response error
+                if self._pm_logger:
+                    try:
+                        self._pm_logger.log_batch(
+                            batch_id=batch_id,
+                            model=str(self.model),
+                            num_pairs=len(batch),
+                            prompt_text=prompt,
+                            response_text="",
+                            latency_ms=latency_ms,
+                            cache_hits=0,
+                            fallback_used=False,
+                            parse_ok=False,
+                            error_type="empty_response",
+                        )
+                        for pair_idx, (orig_idx, p, c) in enumerate(batch):
+                            self._pm_logger.log_pair(
+                                batch_id=batch_id,
+                                pair_index=pair_idx,
+                                pattern=p,
+                                item=c,
+                                match_label=False,
+                                confidence=0.0,
+                                cache_hit=False,
+                                fallback_used=False,
+                                llm_used=True,
+                                parse_ok=False,
+                                error_type="empty_response",
+                                context="llm_batch",
+                            )
+                    except Exception:
+                        pass
                 return [(False, 0.0)] * len(batch)
             
             # Parse JSON response
             try:
+                response_text_raw = content  # Keep original for logging
                 # Try to extract JSON from response (might have markdown code blocks)
                 if "```json" in content:
                     json_start = content.find("```json") + 7
@@ -279,6 +339,38 @@ class LLMPatternMatcher:
                     matches = result["matches"]
                 else:
                     logger.warning(f"Unexpected LLM response format: {result}")
+                    # Log unexpected format error
+                    if self._pm_logger:
+                        try:
+                            self._pm_logger.log_batch(
+                                batch_id=batch_id,
+                                model=str(self.model),
+                                num_pairs=len(batch),
+                                prompt_text=prompt,
+                                response_text=response_text_raw,
+                                latency_ms=latency_ms,
+                                cache_hits=0,
+                                fallback_used=False,
+                                parse_ok=False,
+                                error_type="unexpected_format",
+                            )
+                            for pair_idx, (orig_idx, p, c) in enumerate(batch):
+                                self._pm_logger.log_pair(
+                                    batch_id=batch_id,
+                                    pair_index=pair_idx,
+                                    pattern=p,
+                                    item=c,
+                                    match_label=False,
+                                    confidence=0.0,
+                                    cache_hit=False,
+                                    fallback_used=False,
+                                    llm_used=True,
+                                    parse_ok=False,
+                                    error_type="unexpected_format",
+                                    context="llm_batch",
+                                )
+                        except Exception:
+                            pass
                     return [(False, 0.0)] * len(batch)
                 
                 # Convert to (match, confidence) tuples
@@ -306,14 +398,112 @@ class LLMPatternMatcher:
                         results.append((False, 0.0))
                     results = results[:len(batch)]
                 
+                # Log successful batch and pairs to CSV
+                if self._pm_logger:
+                    try:
+                        self._pm_logger.log_batch(
+                            batch_id=batch_id,
+                            model=str(self.model),
+                            num_pairs=len(batch),
+                            prompt_text=prompt,
+                            response_text=response_text_raw,
+                            latency_ms=latency_ms,
+                            cache_hits=0,
+                            fallback_used=False,
+                            parse_ok=True,
+                            error_type=None,
+                        )
+                        for pair_idx, ((orig_idx, p, c), (m, conf)) in enumerate(zip(batch, results)):
+                            self._pm_logger.log_pair(
+                                batch_id=batch_id,
+                                pair_index=pair_idx,
+                                pattern=p,
+                                item=c,
+                                match_label=bool(m),
+                                confidence=float(conf),
+                                cache_hit=False,
+                                fallback_used=False,
+                                llm_used=True,
+                                parse_ok=True,
+                                error_type=None,
+                                context="llm_batch",
+                            )
+                    except Exception as log_err:
+                        logger.debug(f"CSV logging failed (non-fatal): {log_err}")
+                
                 return results
                 
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse LLM JSON response: {e}. Content: {content[:200]}")
+                # Log JSON decode error
+                if self._pm_logger:
+                    try:
+                        self._pm_logger.log_batch(
+                            batch_id=batch_id,
+                            model=str(self.model),
+                            num_pairs=len(batch),
+                            prompt_text=prompt,
+                            response_text=content,
+                            latency_ms=latency_ms,
+                            cache_hits=0,
+                            fallback_used=False,
+                            parse_ok=False,
+                            error_type="json_decode_error",
+                        )
+                        for pair_idx, (orig_idx, p, c) in enumerate(batch):
+                            self._pm_logger.log_pair(
+                                batch_id=batch_id,
+                                pair_index=pair_idx,
+                                pattern=p,
+                                item=c,
+                                match_label=False,
+                                confidence=0.0,
+                                cache_hit=False,
+                                fallback_used=False,
+                                llm_used=True,
+                                parse_ok=False,
+                                error_type="json_decode_error",
+                                context="llm_batch",
+                            )
+                    except Exception:
+                        pass
                 return [(False, 0.0)] * len(batch)
                 
         except Exception as e:
             logger.error(f"Error calling LLM for pattern matching: {e}", exc_info=True)
+            latency_ms = (time.time() - t0) * 1000.0
+            # Log general error
+            if self._pm_logger:
+                try:
+                    self._pm_logger.log_batch(
+                        batch_id=batch_id,
+                        model=str(self.model),
+                        num_pairs=len(batch),
+                        prompt_text=prompt,
+                        response_text="",
+                        latency_ms=latency_ms,
+                        cache_hits=0,
+                        fallback_used=False,
+                        parse_ok=False,
+                        error_type=type(e).__name__,
+                    )
+                    for pair_idx, (orig_idx, p, c) in enumerate(batch):
+                        self._pm_logger.log_pair(
+                            batch_id=batch_id,
+                            pair_index=pair_idx,
+                            pattern=p,
+                            item=c,
+                            match_label=False,
+                            confidence=0.0,
+                            cache_hit=False,
+                            fallback_used=False,
+                            llm_used=True,
+                            parse_ok=False,
+                            error_type=type(e).__name__,
+                            context="llm_batch",
+                        )
+                except Exception:
+                    pass
             return [(False, 0.0)] * len(batch)
     
     def _build_matching_prompt(
@@ -330,34 +520,53 @@ class LLMPatternMatcher:
             Prompt string
         """
         prompt_parts = [
-            "You are a pattern matching assistant. Determine if each pattern matches its corresponding content.",
+            "You are a pattern matching assistant for a cognitive AI system's working memory.",
             "",
-            "Patterns can contain:",
-            "- Exact field matches (pattern.field == content.field)",
-            "- Variables/wildcards (pattern.field can match any value in content)",
-            "- Negation (pattern.field != value means content.field must not equal value)",
-            "- Existential patterns (if pattern contains 'exists X such that...', check if such X exists in content)",
-            "- Semantic similarity (similar meanings should match even if wording differs)",
-            "- Contradiction detection (if pattern.type is 'contradiction_check', determine if the texts contradict each other)",
+            "## CRITICAL: What Pattern Matching Means",
             "",
-            "Special handling for contradiction_check:",
-            "- If pattern.type is 'contradiction_check', check if pattern.text contradicts content.text",
-            "- Consider semantic contradictions, not just exact word matches",
-            "- Return match=true if texts contradict, false if they align or are unrelated",
-            "- Confidence should reflect how strongly the texts contradict (higher = stronger contradiction)",
+            "A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.",
+            "This is SUBSET matching, NOT exact matching:",
+            "- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them",
+            "- Only check fields that ARE in the pattern",
+            "- If pattern has {\"goal_type\": \"achieve\"}, match=true if content has goal_type=\"achieve\" (ignore all other fields)",
             "",
-            "For each pattern-content pair, return:",
-            "- 'match': boolean indicating if pattern matches",
-            "- 'confidence': float 0.0-1.0 indicating confidence in the match",
+            "## The 'type' Field is a Semantic Hint",
             "",
-            "Return a JSON array with one object per pattern-content pair:",
-            "[",
-            "  {",
-            "    \"match\": true/false,",
-            "    \"confidence\": 0.0-1.0",
-            "  },",
-            "  ...",
-            "]",
+            "When pattern has \"type\": \"goal\" or \"type\": \"task\", this indicates WHAT KIND of thing we expect:",
+            "- \"type\": \"goal\" means content should represent a goal (has goal_type, priority, status, etc.)",
+            "- \"type\": \"task\" means content should represent a task/action item",
+            "- Content does NOT need a literal \"type\" field! Infer from context.",
+            "",
+            "## Matching Rules",
+            "",
+            "1. For each field in pattern, check if content satisfies it:",
+            "   - Exact value: pattern.field == content.field",
+            "   - Semantic similarity: \"high priority\" matches priority=0.9",
+            "   - Type inference: pattern.type=\"goal\" matches content with goal_type, priority, etc.",
+            "",
+            "2. Special patterns:",
+            "   - \"needs_information\": true - match if content seems to require more info",
+            "   - \"complexity\": \"high\" - match if content description suggests complexity",
+            "   - \"domain\": \"X\" - match if content is related to domain X",
+            "",
+            "3. Contradiction check (pattern.type == 'contradiction_check'):",
+            "   - Check if pattern.text semantically contradicts content.text",
+            "   - match=true means they CONTRADICT, match=false means they align or are unrelated",
+            "",
+            "## Examples",
+            "",
+            "Pattern: {\"type\": \"goal\", \"goal_type\": \"achieve\"}",
+            "Content: {\"name\": \"implement_feature\", \"goal_type\": \"achieve\", \"priority\": 0.9, ...}",
+            "Result: match=true (content has goal_type=\"achieve\", and looks like a goal)",
+            "",
+            "Pattern: {\"type\": \"task\", \"domain\": \"code_analysis\"}",
+            "Content: {\"name\": \"be_helpful_assistant\", \"goal_type\": \"maintain\", ...}",
+            "Result: match=false (not related to code_analysis domain)",
+            "",
+            "## Output Format",
+            "",
+            "Return a JSON array with one object per pair:",
+            "[{\"match\": true/false, \"confidence\": 0.0-1.0}, ...]",
             "",
             "Pattern-Content pairs to evaluate:",
             ""

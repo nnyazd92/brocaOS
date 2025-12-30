@@ -229,15 +229,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -295,15 +307,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -361,15 +385,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -427,15 +463,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -493,15 +541,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -559,15 +619,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -625,15 +697,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -691,15 +775,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -757,15 +853,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -823,15 +931,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -889,15 +1009,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -955,15 +1087,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1021,15 +1165,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1085,7 +1241,7 @@ class Summarizer:
             # Call LLM
             messages = None
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1143,15 +1299,27 @@ class Summarizer:
                 {
                     "XXroleXX": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1209,15 +1377,27 @@ class Summarizer:
                 {
                     "ROLE": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1275,15 +1455,27 @@ class Summarizer:
                 {
                     "role": "XXsystemXX",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1341,15 +1533,27 @@ class Summarizer:
                 {
                     "role": "SYSTEM",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1407,15 +1611,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "XXcontentXX": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1473,15 +1689,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "CONTENT": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1539,15 +1767,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "XXYou are a conversation summarizer. Generate structured summaries XX"
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "XXYou are a conversation summarizer that maintains accurate task and goal tracking. XX"
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1605,15 +1845,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "you are a conversation summarizer. generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "you are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1671,15 +1923,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "YOU ARE A CONVERSATION SUMMARIZER. GENERATE STRUCTURED SUMMARIES "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "YOU ARE A CONVERSATION SUMMARIZER THAT MAINTAINS ACCURATE TASK AND GOAL TRACKING. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1737,15 +2001,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "XXwith evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, XX"
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "XXCRITICAL: When a task is completed (evidence shows it was finished), you MUST:\nXX"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1803,15 +2079,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. respond only with valid json, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "critical: when a task is completed (evidence shows it was finished), you must:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1869,15 +2157,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "WITH EVIDENCE POINTERS. RESPOND ONLY WITH VALID JSON, NO MARKDOWN CODE BLOCKS, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: WHEN A TASK IS COMPLETED (EVIDENCE SHOWS IT WAS FINISHED), YOU MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -1935,15 +2235,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "XXno explanations. Your response must match the required schema exactly.XX"
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "XX1. Add it to 'tasks_updated' with status='completed'\nXX"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2001,15 +2313,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2067,15 +2391,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "NO EXPLANATIONS. YOUR RESPONSE MUST MATCH THE REQUIRED SCHEMA EXACTLY."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. ADD IT TO 'TASKS_UPDATED' WITH STATUS='COMPLETED'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2133,15 +2469,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "XX2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\nXX"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"XXroleXX": "user", "content": prompt}
+                {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2199,15 +2547,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"ROLE": "user", "content": prompt}
+                {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2265,15 +2625,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. REMOVE IT FROM 'NEXT_STEPS' (ONLY INCLUDE STEPS THAT ARE STILL PENDING/IN-PROGRESS)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"role": "XXuserXX", "content": prompt}
+                {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2331,15 +2703,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "XX3. Move completed work to 'what_we_built' if it represents completed deliverables\n\nXX"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"role": "USER", "content": prompt}
+                {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2397,15 +2781,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"role": "user", "XXcontentXX": prompt}
+                {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2463,15 +2859,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. MOVE COMPLETED WORK TO 'WHAT_WE_BUILT' IF IT REPRESENTS COMPLETED DELIVERABLES\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"role": "user", "CONTENT": prompt}
+                {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2529,15 +2937,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "XXDo NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely XX"
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = None
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2595,15 +3015,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "do not include completed tasks in 'next_steps'. only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(None, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2661,15 +3093,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "DO NOT INCLUDE COMPLETED TASKS IN 'NEXT_STEPS'. ONLY LIST TASKS THAT ARE GENUINELY "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=None)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2727,15 +3171,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "XXstill pending or in progress. If events show a task was completed, mark it complete XX"
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(temperature=1.0)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2793,15 +3249,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. if events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, )
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2859,15 +3327,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "STILL PENDING OR IN PROGRESS. IF EVENTS SHOW A TASK WAS COMPLETED, MARK IT COMPLETE "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=1.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -2925,16 +3405,28 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "XXand remove it from next steps immediately.\n\nXX"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
-            content = None
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
             
             if not content:
                 logger.error("Empty response from LLM")
@@ -2991,16 +3483,28 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "AND REMOVE IT FROM NEXT STEPS IMMEDIATELY.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
-            content = self.llm.extract_assistant_content(None)
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
             
             if not content:
                 logger.error("Empty response from LLM")
@@ -3057,18 +3561,30 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "XXGOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. XX"
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
-            if content:
+            if not content:
                 logger.error("Empty response from LLM")
                 return None
             
@@ -3123,19 +3639,31 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "goal management: goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
-                logger.error(None)
+                logger.error("Empty response from LLM")
                 return None
             
             # Parse JSON response
@@ -3189,19 +3717,31 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: GOALS CAN BE COMPLETED, ABANDONED, OR SUPERSEDED BY NEW GOALS. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
-                logger.error("XXEmpty response from LLMXX")
+                logger.error("Empty response from LLM")
                 return None
             
             # Parse JSON response
@@ -3255,19 +3795,31 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "XXIf events show a goal was achieved, abandoned, or replaced by a new goal, update XX"
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
-                logger.error("empty response from llm")
+                logger.error("Empty response from LLM")
                 return None
             
             # Parse JSON response
@@ -3321,19 +3873,31 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "if events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
-                logger.error("EMPTY RESPONSE FROM LLM")
+                logger.error("Empty response from LLM")
                 return None
             
             # Parse JSON response
@@ -3387,15 +3951,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "IF EVENTS SHOW A GOAL WAS ACHIEVED, ABANDONED, OR REPLACED BY A NEW GOAL, UPDATE "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -3403,7 +3979,7 @@ class Summarizer:
                 return None
             
             # Parse JSON response
-            result = None
+            result = self._parse_json_response(content)
             if not result:
                 return None
             
@@ -3453,15 +4029,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "XX'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to XX"
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -3469,7 +4057,7 @@ class Summarizer:
                 return None
             
             # Parse JSON response
-            result = self._parse_json_response(None)
+            result = self._parse_json_response(content)
             if not result:
                 return None
             
@@ -3519,15 +4107,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. do not keep outdated goals. if the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -3536,7 +4136,7 @@ class Summarizer:
             
             # Parse JSON response
             result = self._parse_json_response(content)
-            if result:
+            if not result:
                 return None
             
             # Validate result
@@ -3585,15 +4185,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'CURRENT_GOAL' ACCORDINGLY. DO NOT KEEP OUTDATED GOALS. IF THE USER HAS MOVED ON TO "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -3606,7 +4218,7 @@ class Summarizer:
                 return None
             
             # Validate result
-            validation_result = None
+            validation_result = self._validate_summarization_result(result, events)
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
@@ -3651,15 +4263,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "XXa new topic or goal, reflect that in the summary. Goals are not permanent - they XX"
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -3672,7 +4296,7 @@ class Summarizer:
                 return None
             
             # Validate result
-            validation_result = self._validate_summarization_result(None, events)
+            validation_result = self._validate_summarization_result(result, events)
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
@@ -3717,15 +4341,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -3738,7 +4374,7 @@ class Summarizer:
                 return None
             
             # Validate result
-            validation_result = self._validate_summarization_result(result, None)
+            validation_result = self._validate_summarization_result(result, events)
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
@@ -3783,15 +4419,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "A NEW TOPIC OR GOAL, REFLECT THAT IN THE SUMMARY. GOALS ARE NOT PERMANENT - THEY "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -3804,7 +4452,7 @@ class Summarizer:
                 return None
             
             # Validate result
-            validation_result = self._validate_summarization_result(events)
+            validation_result = self._validate_summarization_result(result, events)
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
@@ -3849,15 +4497,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "XXshould evolve with the conversation.\n\nXX"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -3870,7 +4530,7 @@ class Summarizer:
                 return None
             
             # Validate result
-            validation_result = self._validate_summarization_result(result, )
+            validation_result = self._validate_summarization_result(result, events)
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
@@ -3915,15 +4575,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "SHOULD EVOLVE WITH THE CONVERSATION.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -3937,7 +4609,7 @@ class Summarizer:
             
             # Validate result
             validation_result = self._validate_summarization_result(result, events)
-            if validation_result["valid"]:
+            if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
                 return self._retry_with_feedback(result, validation_result, prompt, messages, events)
@@ -3981,15 +4653,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "XXGenerate structured summaries with evidence pointers. Respond ONLY with valid JSON, XX"
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4003,7 +4687,7 @@ class Summarizer:
             
             # Validate result
             validation_result = self._validate_summarization_result(result, events)
-            if not validation_result["XXvalidXX"]:
+            if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
                 return self._retry_with_feedback(result, validation_result, prompt, messages, events)
@@ -4047,15 +4731,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "generate structured summaries with evidence pointers. respond only with valid json, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4069,7 +4765,7 @@ class Summarizer:
             
             # Validate result
             validation_result = self._validate_summarization_result(result, events)
-            if not validation_result["VALID"]:
+            if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
                 return self._retry_with_feedback(result, validation_result, prompt, messages, events)
@@ -4113,15 +4809,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "GENERATE STRUCTURED SUMMARIES WITH EVIDENCE POINTERS. RESPOND ONLY WITH VALID JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4136,7 +4844,7 @@ class Summarizer:
             # Validate result
             validation_result = self._validate_summarization_result(result, events)
             if not validation_result["valid"]:
-                logger.warning(None)
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
                 return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
@@ -4179,15 +4887,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "XXno markdown code blocks, no explanations. Your response must match the required schema exactly.XX"
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4202,7 +4922,7 @@ class Summarizer:
             # Validate result
             validation_result = self._validate_summarization_result(result, events)
             if not validation_result["valid"]:
-                logger.warning(f"Validation failed: {validation_result.get(None)}")
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
                 return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
@@ -4245,15 +4965,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4268,7 +5000,7 @@ class Summarizer:
             # Validate result
             validation_result = self._validate_summarization_result(result, events)
             if not validation_result["valid"]:
-                logger.warning(f"Validation failed: {validation_result.get('XXerrorsXX')}")
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
                 return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
@@ -4311,15 +5043,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "NO MARKDOWN CODE BLOCKS, NO EXPLANATIONS. YOUR RESPONSE MUST MATCH THE REQUIRED SCHEMA EXACTLY."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4334,7 +5078,7 @@ class Summarizer:
             # Validate result
             validation_result = self._validate_summarization_result(result, events)
             if not validation_result["valid"]:
-                logger.warning(f"Validation failed: {validation_result.get('ERRORS')}")
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
                 return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
@@ -4377,15 +5121,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"role": "user", "content": prompt}
+                {"XXroleXX": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4402,7 +5158,7 @@ class Summarizer:
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
-                return self._retry_with_feedback(None, validation_result, prompt, messages, events)
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
             result = self._enforce_size_limits(result)
@@ -4443,15 +5199,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"role": "user", "content": prompt}
+                {"ROLE": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4468,7 +5236,7 @@ class Summarizer:
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
-                return self._retry_with_feedback(result, None, prompt, messages, events)
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
             result = self._enforce_size_limits(result)
@@ -4509,15 +5277,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"role": "user", "content": prompt}
+                {"role": "XXuserXX", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4534,7 +5314,7 @@ class Summarizer:
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
-                return self._retry_with_feedback(result, validation_result, None, messages, events)
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
             result = self._enforce_size_limits(result)
@@ -4575,15 +5355,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"role": "user", "content": prompt}
+                {"role": "USER", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4600,7 +5392,7 @@ class Summarizer:
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
-                return self._retry_with_feedback(result, validation_result, prompt, None, events)
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
             result = self._enforce_size_limits(result)
@@ -4641,15 +5433,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"role": "user", "content": prompt}
+                {"role": "user", "XXcontentXX": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4666,7 +5470,7 @@ class Summarizer:
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
-                return self._retry_with_feedback(result, validation_result, prompt, messages, None)
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
             result = self._enforce_size_limits(result)
@@ -4707,15 +5511,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
-                {"role": "user", "content": prompt}
+                {"role": "user", "CONTENT": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4732,7 +5548,7 @@ class Summarizer:
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
-                return self._retry_with_feedback(validation_result, prompt, messages, events)
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
             result = self._enforce_size_limits(result)
@@ -4773,15 +5589,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = None
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4798,7 +5626,7 @@ class Summarizer:
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
-                return self._retry_with_feedback(result, prompt, messages, events)
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
             result = self._enforce_size_limits(result)
@@ -4839,15 +5667,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(None, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4864,7 +5704,7 @@ class Summarizer:
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
-                return self._retry_with_feedback(result, validation_result, messages, events)
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
             result = self._enforce_size_limits(result)
@@ -4905,15 +5745,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=None)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4930,7 +5782,7 @@ class Summarizer:
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
-                return self._retry_with_feedback(result, validation_result, prompt, events)
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
             result = self._enforce_size_limits(result)
@@ -4971,15 +5823,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -4996,7 +5860,7 @@ class Summarizer:
             if not validation_result["valid"]:
                 logger.warning(f"Validation failed: {validation_result.get('errors')}")
                 # Try once more with error feedback
-                return self._retry_with_feedback(result, validation_result, prompt, messages, )
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
             result = self._enforce_size_limits(result)
@@ -5037,15 +5901,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, )
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -5065,7 +5941,7 @@ class Summarizer:
                 return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
-            result = None
+            result = self._enforce_size_limits(result)
             
             return result
             
@@ -5103,15 +5979,27 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=2.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -5131,7 +6019,7 @@ class Summarizer:
                 return self._retry_with_feedback(result, validation_result, prompt, messages, events)
             
             # Enforce size limits
-            result = self._enforce_size_limits(None)
+            result = self._enforce_size_limits(result)
             
             return result
             
@@ -5169,16 +6057,28 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
-            content = self.llm.extract_assistant_content(response)
+            response = self.llm.chat(messages, temperature=1.0)
+            content = None
             
             if not content:
                 logger.error("Empty response from LLM")
@@ -5202,7 +6102,7 @@ class Summarizer:
             return result
             
         except Exception as e:
-            logger.error(None, exc_info=True)
+            logger.error(f"Error during summarization: {e}", exc_info=True)
             return None
     
     def xǁSummarizerǁsummarize_delta__mutmut_76(
@@ -5235,16 +6135,28 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
-            content = self.llm.extract_assistant_content(response)
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(None)
             
             if not content:
                 logger.error("Empty response from LLM")
@@ -5268,7 +6180,7 @@ class Summarizer:
             return result
             
         except Exception as e:
-            logger.error(f"Error during summarization: {e}", exc_info=None)
+            logger.error(f"Error during summarization: {e}", exc_info=True)
             return None
     
     def xǁSummarizerǁsummarize_delta__mutmut_77(
@@ -5301,18 +6213,30 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
-            if not content:
+            if content:
                 logger.error("Empty response from LLM")
                 return None
             
@@ -5334,7 +6258,7 @@ class Summarizer:
             return result
             
         except Exception as e:
-            logger.error(exc_info=True)
+            logger.error(f"Error during summarization: {e}", exc_info=True)
             return None
     
     def xǁSummarizerǁsummarize_delta__mutmut_78(
@@ -5367,19 +6291,31 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
-                logger.error("Empty response from LLM")
+                logger.error(None)
                 return None
             
             # Parse JSON response
@@ -5400,7 +6336,7 @@ class Summarizer:
             return result
             
         except Exception as e:
-            logger.error(f"Error during summarization: {e}", )
+            logger.error(f"Error during summarization: {e}", exc_info=True)
             return None
     
     def xǁSummarizerǁsummarize_delta__mutmut_79(
@@ -5433,15 +6369,2679 @@ class Summarizer:
                 {
                     "role": "system",
                     "content": (
-                        "You are a conversation summarizer. Generate structured summaries "
-                        "with evidence pointers. Respond ONLY with valid JSON, no markdown code blocks, "
-                        "no explanations. Your response must match the required schema exactly."
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
                     )
                 },
                 {"role": "user", "content": prompt}
             ]
             
-            response = self.llm.chat(messages, temperature=0.3)
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("XXEmpty response from LLMXX")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_80(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("empty response from llm")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_81(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("EMPTY RESPONSE FROM LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_82(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = None
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_83(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(None)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_84(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_85(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = None
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_86(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(None, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_87(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, None)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_88(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_89(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, )
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_90(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_91(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["XXvalidXX"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_92(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["VALID"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_93(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(None)
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_94(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get(None)}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_95(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('XXerrorsXX')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_96(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('ERRORS')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_97(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(None, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_98(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, None, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_99(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, None, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_100(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, None, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_101(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, None)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_102(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_103(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_104(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_105(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_106(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, )
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_107(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = None
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_108(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(None)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_109(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(None, exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_110(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", exc_info=None)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_111(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(exc_info=True)
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_112(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
+            content = self.llm.extract_assistant_content(response)
+            
+            if not content:
+                logger.error("Empty response from LLM")
+                return None
+            
+            # Parse JSON response
+            result = self._parse_json_response(content)
+            if not result:
+                return None
+            
+            # Validate result
+            validation_result = self._validate_summarization_result(result, events)
+            if not validation_result["valid"]:
+                logger.warning(f"Validation failed: {validation_result.get('errors')}")
+                # Try once more with error feedback
+                return self._retry_with_feedback(result, validation_result, prompt, messages, events)
+            
+            # Enforce size limits
+            result = self._enforce_size_limits(result)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}", )
+            return None
+    
+    def xǁSummarizerǁsummarize_delta__mutmut_113(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a delta of events into structured summary updates.
+        
+        Args:
+            session_id: Session identifier
+            events: List of events to summarize
+            previous_summary: Optional previous summary for context
+            
+        Returns:
+            Dictionary with summary updates and extracted items, or None on failure
+        """
+        if not events:
+            logger.debug("No events to summarize")
+            return None
+        
+        try:
+            # Build prompt
+            prompt = self._build_summarization_prompt(session_id, events, previous_summary)
+            
+            # Call LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a conversation summarizer that maintains accurate task and goal tracking. "
+                        "CRITICAL: When a task is completed (evidence shows it was finished), you MUST:\n"
+                        "1. Add it to 'tasks_updated' with status='completed'\n"
+                        "2. Remove it from 'next_steps' (only include steps that are still pending/in-progress)\n"
+                        "3. Move completed work to 'what_we_built' if it represents completed deliverables\n\n"
+                        "Do NOT include completed tasks in 'next_steps'. Only list tasks that are genuinely "
+                        "still pending or in progress. If events show a task was completed, mark it complete "
+                        "and remove it from next steps immediately.\n\n"
+                        "GOAL MANAGEMENT: Goals can be completed, abandoned, or superseded by new goals. "
+                        "If events show a goal was achieved, abandoned, or replaced by a new goal, update "
+                        "'current_goal' accordingly. Do not keep outdated goals. If the user has moved on to "
+                        "a new topic or goal, reflect that in the summary. Goals are not permanent - they "
+                        "should evolve with the conversation.\n\n"
+                        "Generate structured summaries with evidence pointers. Respond ONLY with valid JSON, "
+                        "no markdown code blocks, no explanations. Your response must match the required schema exactly."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = self.llm.chat(messages, temperature=1.0)
             content = self.llm.extract_assistant_content(response)
             
             if not content:
@@ -5548,7 +9148,41 @@ class Summarizer:
         'xǁSummarizerǁsummarize_delta__mutmut_76': xǁSummarizerǁsummarize_delta__mutmut_76, 
         'xǁSummarizerǁsummarize_delta__mutmut_77': xǁSummarizerǁsummarize_delta__mutmut_77, 
         'xǁSummarizerǁsummarize_delta__mutmut_78': xǁSummarizerǁsummarize_delta__mutmut_78, 
-        'xǁSummarizerǁsummarize_delta__mutmut_79': xǁSummarizerǁsummarize_delta__mutmut_79
+        'xǁSummarizerǁsummarize_delta__mutmut_79': xǁSummarizerǁsummarize_delta__mutmut_79, 
+        'xǁSummarizerǁsummarize_delta__mutmut_80': xǁSummarizerǁsummarize_delta__mutmut_80, 
+        'xǁSummarizerǁsummarize_delta__mutmut_81': xǁSummarizerǁsummarize_delta__mutmut_81, 
+        'xǁSummarizerǁsummarize_delta__mutmut_82': xǁSummarizerǁsummarize_delta__mutmut_82, 
+        'xǁSummarizerǁsummarize_delta__mutmut_83': xǁSummarizerǁsummarize_delta__mutmut_83, 
+        'xǁSummarizerǁsummarize_delta__mutmut_84': xǁSummarizerǁsummarize_delta__mutmut_84, 
+        'xǁSummarizerǁsummarize_delta__mutmut_85': xǁSummarizerǁsummarize_delta__mutmut_85, 
+        'xǁSummarizerǁsummarize_delta__mutmut_86': xǁSummarizerǁsummarize_delta__mutmut_86, 
+        'xǁSummarizerǁsummarize_delta__mutmut_87': xǁSummarizerǁsummarize_delta__mutmut_87, 
+        'xǁSummarizerǁsummarize_delta__mutmut_88': xǁSummarizerǁsummarize_delta__mutmut_88, 
+        'xǁSummarizerǁsummarize_delta__mutmut_89': xǁSummarizerǁsummarize_delta__mutmut_89, 
+        'xǁSummarizerǁsummarize_delta__mutmut_90': xǁSummarizerǁsummarize_delta__mutmut_90, 
+        'xǁSummarizerǁsummarize_delta__mutmut_91': xǁSummarizerǁsummarize_delta__mutmut_91, 
+        'xǁSummarizerǁsummarize_delta__mutmut_92': xǁSummarizerǁsummarize_delta__mutmut_92, 
+        'xǁSummarizerǁsummarize_delta__mutmut_93': xǁSummarizerǁsummarize_delta__mutmut_93, 
+        'xǁSummarizerǁsummarize_delta__mutmut_94': xǁSummarizerǁsummarize_delta__mutmut_94, 
+        'xǁSummarizerǁsummarize_delta__mutmut_95': xǁSummarizerǁsummarize_delta__mutmut_95, 
+        'xǁSummarizerǁsummarize_delta__mutmut_96': xǁSummarizerǁsummarize_delta__mutmut_96, 
+        'xǁSummarizerǁsummarize_delta__mutmut_97': xǁSummarizerǁsummarize_delta__mutmut_97, 
+        'xǁSummarizerǁsummarize_delta__mutmut_98': xǁSummarizerǁsummarize_delta__mutmut_98, 
+        'xǁSummarizerǁsummarize_delta__mutmut_99': xǁSummarizerǁsummarize_delta__mutmut_99, 
+        'xǁSummarizerǁsummarize_delta__mutmut_100': xǁSummarizerǁsummarize_delta__mutmut_100, 
+        'xǁSummarizerǁsummarize_delta__mutmut_101': xǁSummarizerǁsummarize_delta__mutmut_101, 
+        'xǁSummarizerǁsummarize_delta__mutmut_102': xǁSummarizerǁsummarize_delta__mutmut_102, 
+        'xǁSummarizerǁsummarize_delta__mutmut_103': xǁSummarizerǁsummarize_delta__mutmut_103, 
+        'xǁSummarizerǁsummarize_delta__mutmut_104': xǁSummarizerǁsummarize_delta__mutmut_104, 
+        'xǁSummarizerǁsummarize_delta__mutmut_105': xǁSummarizerǁsummarize_delta__mutmut_105, 
+        'xǁSummarizerǁsummarize_delta__mutmut_106': xǁSummarizerǁsummarize_delta__mutmut_106, 
+        'xǁSummarizerǁsummarize_delta__mutmut_107': xǁSummarizerǁsummarize_delta__mutmut_107, 
+        'xǁSummarizerǁsummarize_delta__mutmut_108': xǁSummarizerǁsummarize_delta__mutmut_108, 
+        'xǁSummarizerǁsummarize_delta__mutmut_109': xǁSummarizerǁsummarize_delta__mutmut_109, 
+        'xǁSummarizerǁsummarize_delta__mutmut_110': xǁSummarizerǁsummarize_delta__mutmut_110, 
+        'xǁSummarizerǁsummarize_delta__mutmut_111': xǁSummarizerǁsummarize_delta__mutmut_111, 
+        'xǁSummarizerǁsummarize_delta__mutmut_112': xǁSummarizerǁsummarize_delta__mutmut_112, 
+        'xǁSummarizerǁsummarize_delta__mutmut_113': xǁSummarizerǁsummarize_delta__mutmut_113
     }
     
     def summarize_delta(self, *args, **kwargs):
@@ -5592,11 +9226,13 @@ class Summarizer:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -5634,7 +9270,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -5672,11 +9333,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -5714,7 +9377,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -5752,11 +9440,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -5794,7 +9484,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -5832,11 +9547,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -5874,7 +9591,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -5912,11 +9654,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -5954,7 +9698,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -5992,11 +9761,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6034,7 +9805,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6072,11 +9868,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6114,7 +9912,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6152,11 +9975,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6194,7 +10019,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6232,11 +10082,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6274,7 +10126,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6312,11 +10189,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6354,7 +10233,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6392,11 +10296,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6434,7 +10340,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6472,11 +10403,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6514,7 +10447,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6552,11 +10510,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6594,7 +10554,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6632,11 +10617,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6674,7 +10661,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6712,11 +10724,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6754,7 +10768,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6792,11 +10831,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6834,7 +10875,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6872,11 +10938,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6914,7 +10982,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -6952,11 +11045,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -6994,7 +11089,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7032,11 +11152,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7074,7 +11196,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7112,11 +11259,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7154,7 +11303,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7192,11 +11366,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7234,7 +11410,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7272,11 +11473,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7314,7 +11517,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7352,11 +11580,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7394,7 +11624,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7432,11 +11687,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7474,7 +11731,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7512,11 +11794,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7554,7 +11838,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7592,11 +11901,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7634,7 +11945,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7672,11 +12008,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7714,7 +12052,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7752,11 +12115,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7794,7 +12159,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7832,11 +12222,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7874,7 +12266,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7912,11 +12329,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -7954,7 +12373,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -7992,11 +12436,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8034,7 +12480,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8072,11 +12543,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8114,7 +12587,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8152,11 +12650,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8194,7 +12694,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8232,11 +12757,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8274,7 +12801,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8312,11 +12864,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8354,7 +12908,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8392,11 +12971,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8434,7 +13015,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8472,11 +13078,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8514,7 +13122,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8552,11 +13185,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8594,7 +13229,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8632,11 +13292,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8674,7 +13336,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8712,11 +13399,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8754,7 +13443,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8792,11 +13506,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8834,7 +13550,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8872,11 +13613,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8914,7 +13657,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -8952,11 +13720,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -8994,7 +13764,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9032,11 +13827,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9074,7 +13871,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9112,11 +13934,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9154,7 +13978,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9192,11 +14041,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9234,7 +14085,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9272,11 +14148,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9314,7 +14192,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9352,11 +14255,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9394,7 +14299,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9432,11 +14362,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9474,7 +14406,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9512,11 +14469,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9554,7 +14513,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9592,11 +14576,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9634,7 +14620,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9672,11 +14683,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9714,7 +14727,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9752,11 +14790,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9794,7 +14834,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9832,11 +14897,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9874,7 +14941,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9912,11 +15004,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -9954,7 +15048,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -9992,11 +15111,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10034,7 +15155,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10072,11 +15218,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10114,7 +15262,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10152,11 +15325,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10194,7 +15369,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10232,11 +15432,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10274,7 +15476,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10312,11 +15539,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10354,7 +15583,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10392,11 +15646,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10434,7 +15690,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10472,11 +15753,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10514,7 +15797,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10552,11 +15860,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10594,7 +15904,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10632,11 +15967,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10674,7 +16011,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10712,11 +16074,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10754,7 +16118,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10792,11 +16181,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10834,7 +16225,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10872,11 +16288,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10914,7 +16332,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -10952,11 +16395,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -10994,7 +16439,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11032,11 +16502,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11074,7 +16546,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11112,11 +16609,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11154,7 +16653,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11192,11 +16716,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11234,7 +16760,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11272,11 +16823,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11314,7 +16867,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11352,11 +16930,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11394,7 +16974,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11432,11 +17037,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11474,7 +17081,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11512,11 +17144,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11554,7 +17188,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11592,11 +17251,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11634,7 +17295,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11672,11 +17358,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11714,7 +17402,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11752,11 +17465,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11794,7 +17509,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11832,11 +17572,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11874,7 +17616,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11912,11 +17679,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -11954,7 +17723,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -11992,11 +17786,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12034,7 +17830,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12072,11 +17893,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12114,7 +17937,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12152,11 +18000,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12194,7 +18044,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12232,11 +18107,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12274,7 +18151,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12312,11 +18214,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12354,7 +18258,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12392,11 +18321,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12434,7 +18365,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12472,11 +18428,13 @@ Requirements:
         previous_context = None
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12514,7 +18472,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12552,11 +18535,13 @@ Requirements:
         previous_context = "XXXX"
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12594,7 +18579,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12632,11 +18642,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = None
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12674,7 +18686,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12712,7 +18749,14 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
-            previous_context = None
+            next_steps_str = None
+            previous_context = (
+                f"\n\nPrevious summary context:\n"
+                f"Current goal: {prev_blocks.current_goal}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
+            )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
 
@@ -12749,7 +18793,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12787,11 +18856,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(None) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
-                f"What we built: {', '.join(None)}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12829,7 +18900,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12867,11 +18963,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = 'XX, XX'.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
-                f"What we built: {'XX, XX'.join(prev_blocks.what_we_built[:3])}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12909,7 +19007,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -12947,11 +19070,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:6]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
-                f"What we built: {', '.join(prev_blocks.what_we_built[:4])}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -12989,7 +19114,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13027,11 +19177,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "XXNoneXX"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
-                f"Open questions: {', '.join(None)}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13069,7 +19221,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13107,11 +19284,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "none"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
-                f"Open questions: {'XX, XX'.join(prev_blocks.open_questions[:3])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13149,7 +19328,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13187,11 +19391,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "NONE"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
-                f"Open questions: {', '.join(prev_blocks.open_questions[:4])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13229,7 +19435,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13267,14 +19498,70 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
-            previous_context = (
-                f"\n\nPrevious summary context:\n"
-                f"Current goal: {prev_blocks.current_goal}\n"
-                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
-                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
-            )
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
+            previous_context = None
         
-        prompt = None
+        prompt = f"""Summarize the following conversation events and generate structured updates.
+
+Events to summarize:
+{events_block}
+{previous_context}
+
+Generate a JSON response with this exact structure:
+{{
+  "summary_patch": {{
+    "current_goal": "1-3 sentence update to current goal",
+    "what_we_built": ["bullet point 1", "bullet point 2"],
+    "open_questions": ["question 1", "question 2"],
+    "constraints": ["constraint 1"],
+    "next_steps": ["step 1", "step 2"]
+  }},
+  "extracted": {{
+    "facts_added": [{{"text": "fact", "confidence": "high|medium|low", "event_ids": ["evt_..."]}}],
+    "facts_deprecated": [{{"text": "old fact", "event_ids": ["evt_..."]}}],
+    "decisions_added": [{{"text": "decision", "reasoning": "...", "event_ids": ["evt_..."]}}],
+    "decisions_deprecated": [{{"text": "old decision", "event_ids": ["evt_..."]}}],
+    "tasks_added": [{{"id": "task_...", "description": "...", "event_ids": ["evt_..."]}}],
+    "tasks_updated": [{{"id": "task_...", "status": "completed|in_progress|cancelled", "event_ids": ["evt_..."]}}]
+  }},
+  "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
+  "bookkeeping": {{
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
+  }}
+}}
+
+Requirements:
+- Each item in extracted must have at least one event_id from the events above
+- Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
+- Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
+- List conflicts when new info contradicts old info
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13312,11 +19599,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
-                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"What we built: {', '.join(None)}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13344,7 +19633,7 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get(None, '') if events else ''}",
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
     "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
@@ -13354,7 +19643,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13392,11 +19706,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
-                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"What we built: {'XX, XX'.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13424,7 +19740,7 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', None) if events else ''}",
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
     "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
@@ -13434,7 +19750,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13472,11 +19813,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
-                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:4])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13504,7 +19847,7 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('') if events else ''}",
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
     "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
@@ -13514,7 +19857,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13552,11 +19920,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
-                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Open questions: {', '.join(None)}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13584,7 +19954,7 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', ) if events else ''}",
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
     "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
@@ -13594,7 +19964,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13632,11 +20027,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
-                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Open questions: {'XX, XX'.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13664,7 +20061,7 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[+1].get('event_id', '') if events else ''}",
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
     "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
@@ -13674,7 +20071,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13712,11 +20134,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
-                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:4])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13744,7 +20168,7 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-2].get('event_id', '') if events else ''}",
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
     "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
@@ -13754,7 +20178,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13792,49 +20241,16 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
-        prompt = f"""Summarize the following conversation events and generate structured updates.
-
-Events to summarize:
-{events_block}
-{previous_context}
-
-Generate a JSON response with this exact structure:
-{{
-  "summary_patch": {{
-    "current_goal": "1-3 sentence update to current goal",
-    "what_we_built": ["bullet point 1", "bullet point 2"],
-    "open_questions": ["question 1", "question 2"],
-    "constraints": ["constraint 1"],
-    "next_steps": ["step 1", "step 2"]
-  }},
-  "extracted": {{
-    "facts_added": [{{"text": "fact", "confidence": "high|medium|low", "event_ids": ["evt_..."]}}],
-    "facts_deprecated": [{{"text": "old fact", "event_ids": ["evt_..."]}}],
-    "decisions_added": [{{"text": "decision", "reasoning": "...", "event_ids": ["evt_..."]}}],
-    "decisions_deprecated": [{{"text": "old decision", "event_ids": ["evt_..."]}}],
-    "tasks_added": [{{"id": "task_...", "description": "...", "event_ids": ["evt_..."]}}],
-    "tasks_updated": [{{"id": "task_...", "status": "completed|in_progress|cancelled", "event_ids": ["evt_..."]}}]
-  }},
-  "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
-  "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('XXevent_idXX', '') if events else ''}",
-    "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
-  }}
-}}
-
-Requirements:
-- Each item in extracted must have at least one event_id from the events above
-- Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
-- Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
-- List conflicts when new info contradicts old info
-- Be factual and specific"""
+        prompt = None
         
         return prompt
     
@@ -13872,11 +20288,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13904,7 +20322,7 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('EVENT_ID', '') if events else ''}",
+    "last_summarized_event_id": "{events[-1].get(None, '') if events else ''}",
     "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
@@ -13914,7 +20332,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -13952,11 +20395,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -13984,7 +20429,7 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', 'XXXX') if events else ''}",
+    "last_summarized_event_id": "{events[-1].get('event_id', None) if events else ''}",
     "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
@@ -13994,7 +20439,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14032,11 +20502,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14064,7 +20536,7 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else 'XXXX'}",
+    "last_summarized_event_id": "{events[-1].get('') if events else ''}",
     "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
@@ -14074,7 +20546,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14112,11 +20609,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14144,8 +20643,8 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
-    "new_last_summarized_event_id": "{events[-1].get(None, '') if events else ''}"
+    "last_summarized_event_id": "{events[-1].get('event_id', ) if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
 
@@ -14154,7 +20653,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14192,11 +20716,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14224,8 +20750,8 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
-    "new_last_summarized_event_id": "{events[-1].get('event_id', None) if events else ''}"
+    "last_summarized_event_id": "{events[+1].get('event_id', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
 
@@ -14234,7 +20760,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14272,11 +20823,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14304,8 +20857,8 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
-    "new_last_summarized_event_id": "{events[-1].get('') if events else ''}"
+    "last_summarized_event_id": "{events[-2].get('event_id', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
 
@@ -14314,7 +20867,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14352,11 +20930,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14384,8 +20964,8 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
-    "new_last_summarized_event_id": "{events[-1].get('event_id', ) if events else ''}"
+    "last_summarized_event_id": "{events[-1].get('XXevent_idXX', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
 
@@ -14394,7 +20974,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14432,11 +21037,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14464,8 +21071,8 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
-    "new_last_summarized_event_id": "{events[+1].get('event_id', '') if events else ''}"
+    "last_summarized_event_id": "{events[-1].get('EVENT_ID', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
 
@@ -14474,7 +21081,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14512,11 +21144,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14544,8 +21178,8 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
-    "new_last_summarized_event_id": "{events[-2].get('event_id', '') if events else ''}"
+    "last_summarized_event_id": "{events[-1].get('event_id', 'XXXX') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
 
@@ -14554,7 +21188,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14592,11 +21251,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14624,8 +21285,8 @@ Generate a JSON response with this exact structure:
   }},
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
-    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
-    "new_last_summarized_event_id": "{events[-1].get('XXevent_idXX', '') if events else ''}"
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else 'XXXX'}",
+    "new_last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}"
   }}
 }}
 
@@ -14634,7 +21295,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14672,11 +21358,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14705,7 +21393,7 @@ Generate a JSON response with this exact structure:
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
     "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
-    "new_last_summarized_event_id": "{events[-1].get('EVENT_ID', '') if events else ''}"
+    "new_last_summarized_event_id": "{events[-1].get(None, '') if events else ''}"
   }}
 }}
 
@@ -14714,7 +21402,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14752,11 +21465,13 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14785,7 +21500,7 @@ Generate a JSON response with this exact structure:
   "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
   "bookkeeping": {{
     "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
-    "new_last_summarized_event_id": "{events[-1].get('event_id', 'XXXX') if events else ''}"
+    "new_last_summarized_event_id": "{events[-1].get('event_id', None) if events else ''}"
   }}
 }}
 
@@ -14794,7 +21509,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14832,11 +21572,762 @@ Requirements:
         previous_context = ""
         if previous_summary:
             prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
             previous_context = (
                 f"\n\nPrevious summary context:\n"
                 f"Current goal: {prev_blocks.current_goal}\n"
                 f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
                 f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
+            )
+        
+        prompt = f"""Summarize the following conversation events and generate structured updates.
+
+Events to summarize:
+{events_block}
+{previous_context}
+
+Generate a JSON response with this exact structure:
+{{
+  "summary_patch": {{
+    "current_goal": "1-3 sentence update to current goal",
+    "what_we_built": ["bullet point 1", "bullet point 2"],
+    "open_questions": ["question 1", "question 2"],
+    "constraints": ["constraint 1"],
+    "next_steps": ["step 1", "step 2"]
+  }},
+  "extracted": {{
+    "facts_added": [{{"text": "fact", "confidence": "high|medium|low", "event_ids": ["evt_..."]}}],
+    "facts_deprecated": [{{"text": "old fact", "event_ids": ["evt_..."]}}],
+    "decisions_added": [{{"text": "decision", "reasoning": "...", "event_ids": ["evt_..."]}}],
+    "decisions_deprecated": [{{"text": "old decision", "event_ids": ["evt_..."]}}],
+    "tasks_added": [{{"id": "task_...", "description": "...", "event_ids": ["evt_..."]}}],
+    "tasks_updated": [{{"id": "task_...", "status": "completed|in_progress|cancelled", "event_ids": ["evt_..."]}}]
+  }},
+  "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
+  "bookkeeping": {{
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('') if events else ''}"
+  }}
+}}
+
+Requirements:
+- Each item in extracted must have at least one event_id from the events above
+- Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
+- Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
+- List conflicts when new info contradicts old info
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
+        
+        return prompt
+    
+    def xǁSummarizerǁ_build_summarization_prompt__mutmut_117(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary]
+    ) -> str:
+        """Build the prompt for summarization."""
+        # Format events for prompt
+        events_text = []
+        for event in events:
+            event_type = event.get("type", "unknown")
+            event_id = event.get("event_id", "")
+            
+            if event_type == "user_message":
+                events_text.append(f"[{event_id}] USER: {event.get('content', '')}")
+            elif event_type == "assistant_message":
+                events_text.append(f"[{event_id}] ASSISTANT: {event.get('content', '')}")
+            elif event_type == "tool_call":
+                tool_name = event.get("tool_name", "")
+                tool_args = event.get("tool_args", {})
+                events_text.append(f"[{event_id}] TOOL_CALL: {tool_name}({json.dumps(tool_args)})")
+            elif event_type == "tool_result":
+                tool_name = event.get("tool_name", "")
+                # Truncate large tool results
+                tool_result = event.get("tool_result", {})
+                result_str = json.dumps(tool_result)[:500]  # Limit size
+                events_text.append(f"[{event_id}] TOOL_RESULT: {tool_name} -> {result_str}")
+        
+        events_block = "\n".join(events_text)
+        
+        # Include previous summary context if available
+        previous_context = ""
+        if previous_summary:
+            prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
+            previous_context = (
+                f"\n\nPrevious summary context:\n"
+                f"Current goal: {prev_blocks.current_goal}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
+            )
+        
+        prompt = f"""Summarize the following conversation events and generate structured updates.
+
+Events to summarize:
+{events_block}
+{previous_context}
+
+Generate a JSON response with this exact structure:
+{{
+  "summary_patch": {{
+    "current_goal": "1-3 sentence update to current goal",
+    "what_we_built": ["bullet point 1", "bullet point 2"],
+    "open_questions": ["question 1", "question 2"],
+    "constraints": ["constraint 1"],
+    "next_steps": ["step 1", "step 2"]
+  }},
+  "extracted": {{
+    "facts_added": [{{"text": "fact", "confidence": "high|medium|low", "event_ids": ["evt_..."]}}],
+    "facts_deprecated": [{{"text": "old fact", "event_ids": ["evt_..."]}}],
+    "decisions_added": [{{"text": "decision", "reasoning": "...", "event_ids": ["evt_..."]}}],
+    "decisions_deprecated": [{{"text": "old decision", "event_ids": ["evt_..."]}}],
+    "tasks_added": [{{"id": "task_...", "description": "...", "event_ids": ["evt_..."]}}],
+    "tasks_updated": [{{"id": "task_...", "status": "completed|in_progress|cancelled", "event_ids": ["evt_..."]}}]
+  }},
+  "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
+  "bookkeeping": {{
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('event_id', ) if events else ''}"
+  }}
+}}
+
+Requirements:
+- Each item in extracted must have at least one event_id from the events above
+- Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
+- Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
+- List conflicts when new info contradicts old info
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
+        
+        return prompt
+    
+    def xǁSummarizerǁ_build_summarization_prompt__mutmut_118(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary]
+    ) -> str:
+        """Build the prompt for summarization."""
+        # Format events for prompt
+        events_text = []
+        for event in events:
+            event_type = event.get("type", "unknown")
+            event_id = event.get("event_id", "")
+            
+            if event_type == "user_message":
+                events_text.append(f"[{event_id}] USER: {event.get('content', '')}")
+            elif event_type == "assistant_message":
+                events_text.append(f"[{event_id}] ASSISTANT: {event.get('content', '')}")
+            elif event_type == "tool_call":
+                tool_name = event.get("tool_name", "")
+                tool_args = event.get("tool_args", {})
+                events_text.append(f"[{event_id}] TOOL_CALL: {tool_name}({json.dumps(tool_args)})")
+            elif event_type == "tool_result":
+                tool_name = event.get("tool_name", "")
+                # Truncate large tool results
+                tool_result = event.get("tool_result", {})
+                result_str = json.dumps(tool_result)[:500]  # Limit size
+                events_text.append(f"[{event_id}] TOOL_RESULT: {tool_name} -> {result_str}")
+        
+        events_block = "\n".join(events_text)
+        
+        # Include previous summary context if available
+        previous_context = ""
+        if previous_summary:
+            prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
+            previous_context = (
+                f"\n\nPrevious summary context:\n"
+                f"Current goal: {prev_blocks.current_goal}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
+            )
+        
+        prompt = f"""Summarize the following conversation events and generate structured updates.
+
+Events to summarize:
+{events_block}
+{previous_context}
+
+Generate a JSON response with this exact structure:
+{{
+  "summary_patch": {{
+    "current_goal": "1-3 sentence update to current goal",
+    "what_we_built": ["bullet point 1", "bullet point 2"],
+    "open_questions": ["question 1", "question 2"],
+    "constraints": ["constraint 1"],
+    "next_steps": ["step 1", "step 2"]
+  }},
+  "extracted": {{
+    "facts_added": [{{"text": "fact", "confidence": "high|medium|low", "event_ids": ["evt_..."]}}],
+    "facts_deprecated": [{{"text": "old fact", "event_ids": ["evt_..."]}}],
+    "decisions_added": [{{"text": "decision", "reasoning": "...", "event_ids": ["evt_..."]}}],
+    "decisions_deprecated": [{{"text": "old decision", "event_ids": ["evt_..."]}}],
+    "tasks_added": [{{"id": "task_...", "description": "...", "event_ids": ["evt_..."]}}],
+    "tasks_updated": [{{"id": "task_...", "status": "completed|in_progress|cancelled", "event_ids": ["evt_..."]}}]
+  }},
+  "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
+  "bookkeeping": {{
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[+1].get('event_id', '') if events else ''}"
+  }}
+}}
+
+Requirements:
+- Each item in extracted must have at least one event_id from the events above
+- Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
+- Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
+- List conflicts when new info contradicts old info
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
+        
+        return prompt
+    
+    def xǁSummarizerǁ_build_summarization_prompt__mutmut_119(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary]
+    ) -> str:
+        """Build the prompt for summarization."""
+        # Format events for prompt
+        events_text = []
+        for event in events:
+            event_type = event.get("type", "unknown")
+            event_id = event.get("event_id", "")
+            
+            if event_type == "user_message":
+                events_text.append(f"[{event_id}] USER: {event.get('content', '')}")
+            elif event_type == "assistant_message":
+                events_text.append(f"[{event_id}] ASSISTANT: {event.get('content', '')}")
+            elif event_type == "tool_call":
+                tool_name = event.get("tool_name", "")
+                tool_args = event.get("tool_args", {})
+                events_text.append(f"[{event_id}] TOOL_CALL: {tool_name}({json.dumps(tool_args)})")
+            elif event_type == "tool_result":
+                tool_name = event.get("tool_name", "")
+                # Truncate large tool results
+                tool_result = event.get("tool_result", {})
+                result_str = json.dumps(tool_result)[:500]  # Limit size
+                events_text.append(f"[{event_id}] TOOL_RESULT: {tool_name} -> {result_str}")
+        
+        events_block = "\n".join(events_text)
+        
+        # Include previous summary context if available
+        previous_context = ""
+        if previous_summary:
+            prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
+            previous_context = (
+                f"\n\nPrevious summary context:\n"
+                f"Current goal: {prev_blocks.current_goal}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
+            )
+        
+        prompt = f"""Summarize the following conversation events and generate structured updates.
+
+Events to summarize:
+{events_block}
+{previous_context}
+
+Generate a JSON response with this exact structure:
+{{
+  "summary_patch": {{
+    "current_goal": "1-3 sentence update to current goal",
+    "what_we_built": ["bullet point 1", "bullet point 2"],
+    "open_questions": ["question 1", "question 2"],
+    "constraints": ["constraint 1"],
+    "next_steps": ["step 1", "step 2"]
+  }},
+  "extracted": {{
+    "facts_added": [{{"text": "fact", "confidence": "high|medium|low", "event_ids": ["evt_..."]}}],
+    "facts_deprecated": [{{"text": "old fact", "event_ids": ["evt_..."]}}],
+    "decisions_added": [{{"text": "decision", "reasoning": "...", "event_ids": ["evt_..."]}}],
+    "decisions_deprecated": [{{"text": "old decision", "event_ids": ["evt_..."]}}],
+    "tasks_added": [{{"id": "task_...", "description": "...", "event_ids": ["evt_..."]}}],
+    "tasks_updated": [{{"id": "task_...", "status": "completed|in_progress|cancelled", "event_ids": ["evt_..."]}}]
+  }},
+  "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
+  "bookkeeping": {{
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-2].get('event_id', '') if events else ''}"
+  }}
+}}
+
+Requirements:
+- Each item in extracted must have at least one event_id from the events above
+- Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
+- Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
+- List conflicts when new info contradicts old info
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
+        
+        return prompt
+    
+    def xǁSummarizerǁ_build_summarization_prompt__mutmut_120(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary]
+    ) -> str:
+        """Build the prompt for summarization."""
+        # Format events for prompt
+        events_text = []
+        for event in events:
+            event_type = event.get("type", "unknown")
+            event_id = event.get("event_id", "")
+            
+            if event_type == "user_message":
+                events_text.append(f"[{event_id}] USER: {event.get('content', '')}")
+            elif event_type == "assistant_message":
+                events_text.append(f"[{event_id}] ASSISTANT: {event.get('content', '')}")
+            elif event_type == "tool_call":
+                tool_name = event.get("tool_name", "")
+                tool_args = event.get("tool_args", {})
+                events_text.append(f"[{event_id}] TOOL_CALL: {tool_name}({json.dumps(tool_args)})")
+            elif event_type == "tool_result":
+                tool_name = event.get("tool_name", "")
+                # Truncate large tool results
+                tool_result = event.get("tool_result", {})
+                result_str = json.dumps(tool_result)[:500]  # Limit size
+                events_text.append(f"[{event_id}] TOOL_RESULT: {tool_name} -> {result_str}")
+        
+        events_block = "\n".join(events_text)
+        
+        # Include previous summary context if available
+        previous_context = ""
+        if previous_summary:
+            prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
+            previous_context = (
+                f"\n\nPrevious summary context:\n"
+                f"Current goal: {prev_blocks.current_goal}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
+            )
+        
+        prompt = f"""Summarize the following conversation events and generate structured updates.
+
+Events to summarize:
+{events_block}
+{previous_context}
+
+Generate a JSON response with this exact structure:
+{{
+  "summary_patch": {{
+    "current_goal": "1-3 sentence update to current goal",
+    "what_we_built": ["bullet point 1", "bullet point 2"],
+    "open_questions": ["question 1", "question 2"],
+    "constraints": ["constraint 1"],
+    "next_steps": ["step 1", "step 2"]
+  }},
+  "extracted": {{
+    "facts_added": [{{"text": "fact", "confidence": "high|medium|low", "event_ids": ["evt_..."]}}],
+    "facts_deprecated": [{{"text": "old fact", "event_ids": ["evt_..."]}}],
+    "decisions_added": [{{"text": "decision", "reasoning": "...", "event_ids": ["evt_..."]}}],
+    "decisions_deprecated": [{{"text": "old decision", "event_ids": ["evt_..."]}}],
+    "tasks_added": [{{"id": "task_...", "description": "...", "event_ids": ["evt_..."]}}],
+    "tasks_updated": [{{"id": "task_...", "status": "completed|in_progress|cancelled", "event_ids": ["evt_..."]}}]
+  }},
+  "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
+  "bookkeeping": {{
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('XXevent_idXX', '') if events else ''}"
+  }}
+}}
+
+Requirements:
+- Each item in extracted must have at least one event_id from the events above
+- Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
+- Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
+- List conflicts when new info contradicts old info
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
+        
+        return prompt
+    
+    def xǁSummarizerǁ_build_summarization_prompt__mutmut_121(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary]
+    ) -> str:
+        """Build the prompt for summarization."""
+        # Format events for prompt
+        events_text = []
+        for event in events:
+            event_type = event.get("type", "unknown")
+            event_id = event.get("event_id", "")
+            
+            if event_type == "user_message":
+                events_text.append(f"[{event_id}] USER: {event.get('content', '')}")
+            elif event_type == "assistant_message":
+                events_text.append(f"[{event_id}] ASSISTANT: {event.get('content', '')}")
+            elif event_type == "tool_call":
+                tool_name = event.get("tool_name", "")
+                tool_args = event.get("tool_args", {})
+                events_text.append(f"[{event_id}] TOOL_CALL: {tool_name}({json.dumps(tool_args)})")
+            elif event_type == "tool_result":
+                tool_name = event.get("tool_name", "")
+                # Truncate large tool results
+                tool_result = event.get("tool_result", {})
+                result_str = json.dumps(tool_result)[:500]  # Limit size
+                events_text.append(f"[{event_id}] TOOL_RESULT: {tool_name} -> {result_str}")
+        
+        events_block = "\n".join(events_text)
+        
+        # Include previous summary context if available
+        previous_context = ""
+        if previous_summary:
+            prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
+            previous_context = (
+                f"\n\nPrevious summary context:\n"
+                f"Current goal: {prev_blocks.current_goal}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
+            )
+        
+        prompt = f"""Summarize the following conversation events and generate structured updates.
+
+Events to summarize:
+{events_block}
+{previous_context}
+
+Generate a JSON response with this exact structure:
+{{
+  "summary_patch": {{
+    "current_goal": "1-3 sentence update to current goal",
+    "what_we_built": ["bullet point 1", "bullet point 2"],
+    "open_questions": ["question 1", "question 2"],
+    "constraints": ["constraint 1"],
+    "next_steps": ["step 1", "step 2"]
+  }},
+  "extracted": {{
+    "facts_added": [{{"text": "fact", "confidence": "high|medium|low", "event_ids": ["evt_..."]}}],
+    "facts_deprecated": [{{"text": "old fact", "event_ids": ["evt_..."]}}],
+    "decisions_added": [{{"text": "decision", "reasoning": "...", "event_ids": ["evt_..."]}}],
+    "decisions_deprecated": [{{"text": "old decision", "event_ids": ["evt_..."]}}],
+    "tasks_added": [{{"id": "task_...", "description": "...", "event_ids": ["evt_..."]}}],
+    "tasks_updated": [{{"id": "task_...", "status": "completed|in_progress|cancelled", "event_ids": ["evt_..."]}}]
+  }},
+  "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
+  "bookkeeping": {{
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('EVENT_ID', '') if events else ''}"
+  }}
+}}
+
+Requirements:
+- Each item in extracted must have at least one event_id from the events above
+- Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
+- Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
+- List conflicts when new info contradicts old info
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
+        
+        return prompt
+    
+    def xǁSummarizerǁ_build_summarization_prompt__mutmut_122(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary]
+    ) -> str:
+        """Build the prompt for summarization."""
+        # Format events for prompt
+        events_text = []
+        for event in events:
+            event_type = event.get("type", "unknown")
+            event_id = event.get("event_id", "")
+            
+            if event_type == "user_message":
+                events_text.append(f"[{event_id}] USER: {event.get('content', '')}")
+            elif event_type == "assistant_message":
+                events_text.append(f"[{event_id}] ASSISTANT: {event.get('content', '')}")
+            elif event_type == "tool_call":
+                tool_name = event.get("tool_name", "")
+                tool_args = event.get("tool_args", {})
+                events_text.append(f"[{event_id}] TOOL_CALL: {tool_name}({json.dumps(tool_args)})")
+            elif event_type == "tool_result":
+                tool_name = event.get("tool_name", "")
+                # Truncate large tool results
+                tool_result = event.get("tool_result", {})
+                result_str = json.dumps(tool_result)[:500]  # Limit size
+                events_text.append(f"[{event_id}] TOOL_RESULT: {tool_name} -> {result_str}")
+        
+        events_block = "\n".join(events_text)
+        
+        # Include previous summary context if available
+        previous_context = ""
+        if previous_summary:
+            prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
+            previous_context = (
+                f"\n\nPrevious summary context:\n"
+                f"Current goal: {prev_blocks.current_goal}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
+            )
+        
+        prompt = f"""Summarize the following conversation events and generate structured updates.
+
+Events to summarize:
+{events_block}
+{previous_context}
+
+Generate a JSON response with this exact structure:
+{{
+  "summary_patch": {{
+    "current_goal": "1-3 sentence update to current goal",
+    "what_we_built": ["bullet point 1", "bullet point 2"],
+    "open_questions": ["question 1", "question 2"],
+    "constraints": ["constraint 1"],
+    "next_steps": ["step 1", "step 2"]
+  }},
+  "extracted": {{
+    "facts_added": [{{"text": "fact", "confidence": "high|medium|low", "event_ids": ["evt_..."]}}],
+    "facts_deprecated": [{{"text": "old fact", "event_ids": ["evt_..."]}}],
+    "decisions_added": [{{"text": "decision", "reasoning": "...", "event_ids": ["evt_..."]}}],
+    "decisions_deprecated": [{{"text": "old decision", "event_ids": ["evt_..."]}}],
+    "tasks_added": [{{"id": "task_...", "description": "...", "event_ids": ["evt_..."]}}],
+    "tasks_updated": [{{"id": "task_...", "status": "completed|in_progress|cancelled", "event_ids": ["evt_..."]}}]
+  }},
+  "conflicts": [{{"old_item_id": "...", "new_statement": "...", "resolution": "..."}}],
+  "bookkeeping": {{
+    "last_summarized_event_id": "{events[-1].get('event_id', '') if events else ''}",
+    "new_last_summarized_event_id": "{events[-1].get('event_id', 'XXXX') if events else ''}"
+  }}
+}}
+
+Requirements:
+- Each item in extracted must have at least one event_id from the events above
+- Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
+- Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
+- List conflicts when new info contradicts old info
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
+        
+        return prompt
+    
+    def xǁSummarizerǁ_build_summarization_prompt__mutmut_123(
+        self,
+        session_id: str,
+        events: List[Dict[str, Any]],
+        previous_summary: Optional[SessionSummary]
+    ) -> str:
+        """Build the prompt for summarization."""
+        # Format events for prompt
+        events_text = []
+        for event in events:
+            event_type = event.get("type", "unknown")
+            event_id = event.get("event_id", "")
+            
+            if event_type == "user_message":
+                events_text.append(f"[{event_id}] USER: {event.get('content', '')}")
+            elif event_type == "assistant_message":
+                events_text.append(f"[{event_id}] ASSISTANT: {event.get('content', '')}")
+            elif event_type == "tool_call":
+                tool_name = event.get("tool_name", "")
+                tool_args = event.get("tool_args", {})
+                events_text.append(f"[{event_id}] TOOL_CALL: {tool_name}({json.dumps(tool_args)})")
+            elif event_type == "tool_result":
+                tool_name = event.get("tool_name", "")
+                # Truncate large tool results
+                tool_result = event.get("tool_result", {})
+                result_str = json.dumps(tool_result)[:500]  # Limit size
+                events_text.append(f"[{event_id}] TOOL_RESULT: {tool_name} -> {result_str}")
+        
+        events_block = "\n".join(events_text)
+        
+        # Include previous summary context if available
+        previous_context = ""
+        if previous_summary:
+            prev_blocks = previous_summary.summary_blocks
+            next_steps_str = ', '.join(prev_blocks.next_steps[:5]) if prev_blocks.next_steps else "None"
+            previous_context = (
+                f"\n\nPrevious summary context:\n"
+                f"Current goal: {prev_blocks.current_goal}\n"
+                f"What we built: {', '.join(prev_blocks.what_we_built[:3])}\n"
+                f"Open questions: {', '.join(prev_blocks.open_questions[:3])}\n"
+                f"Next steps (from previous summary - REMOVE completed ones): {next_steps_str}\n"
             )
         
         prompt = f"""Summarize the following conversation events and generate structured updates.
@@ -14874,7 +22365,32 @@ Requirements:
 - Keep summaries concise (current_goal <= 200 tokens, each bullet <= 50 tokens)
 - Mark confidence as "high" only if strongly supported by events, "medium" for inferred, "low" for uncertain
 - List conflicts when new info contradicts old info
-- Be factual and specific"""
+- Be factual and specific
+
+CRITICAL TASK MANAGEMENT RULES:
+1. TASK COMPLETION: If events show a task was completed (user confirms, tool succeeds, goal achieved):
+   - Add to "tasks_updated" with status="completed" and relevant event_ids
+   - DO NOT include it in "next_steps" (only pending/in-progress tasks belong there)
+   - If it represents a deliverable, add to "what_we_built"
+
+2. NEXT_STEPS CURATION: The "next_steps" field should ONLY contain:
+   - Tasks that are genuinely still pending (not started or in progress)
+   - Steps that need to be done next
+   - DO NOT include steps that were completed in the events you're summarizing
+
+3. PREVIOUS CONTEXT: Review the "Next steps" from previous summary above. For each:
+   - If events show it was completed: mark it in "tasks_updated" as completed, remove from "next_steps"
+   - If events show it's still pending: keep it in "next_steps" (or update if status changed)
+   - If events show it was cancelled: mark it in "tasks_updated" as cancelled, remove from "next_steps"
+
+4. TASK TRACKING: When you see task completion indicators (success messages, "done", "completed", 
+   successful tool results, user confirmation), explicitly mark those tasks as completed in "tasks_updated".
+
+5. GOAL EVOLUTION: Goals are not permanent. Update "current_goal" when:
+   - A goal is achieved (mark as completed, move to "what_we_built" if applicable)
+   - A goal is abandoned or superseded by a new goal (update to reflect the new goal)
+   - The conversation has moved to a different topic (update goal to match current focus)
+   - Do NOT keep outdated goals that no longer reflect the conversation direction"""
         
         return prompt
     
@@ -14994,7 +22510,14 @@ Requirements:
         'xǁSummarizerǁ_build_summarization_prompt__mutmut_113': xǁSummarizerǁ_build_summarization_prompt__mutmut_113, 
         'xǁSummarizerǁ_build_summarization_prompt__mutmut_114': xǁSummarizerǁ_build_summarization_prompt__mutmut_114, 
         'xǁSummarizerǁ_build_summarization_prompt__mutmut_115': xǁSummarizerǁ_build_summarization_prompt__mutmut_115, 
-        'xǁSummarizerǁ_build_summarization_prompt__mutmut_116': xǁSummarizerǁ_build_summarization_prompt__mutmut_116
+        'xǁSummarizerǁ_build_summarization_prompt__mutmut_116': xǁSummarizerǁ_build_summarization_prompt__mutmut_116, 
+        'xǁSummarizerǁ_build_summarization_prompt__mutmut_117': xǁSummarizerǁ_build_summarization_prompt__mutmut_117, 
+        'xǁSummarizerǁ_build_summarization_prompt__mutmut_118': xǁSummarizerǁ_build_summarization_prompt__mutmut_118, 
+        'xǁSummarizerǁ_build_summarization_prompt__mutmut_119': xǁSummarizerǁ_build_summarization_prompt__mutmut_119, 
+        'xǁSummarizerǁ_build_summarization_prompt__mutmut_120': xǁSummarizerǁ_build_summarization_prompt__mutmut_120, 
+        'xǁSummarizerǁ_build_summarization_prompt__mutmut_121': xǁSummarizerǁ_build_summarization_prompt__mutmut_121, 
+        'xǁSummarizerǁ_build_summarization_prompt__mutmut_122': xǁSummarizerǁ_build_summarization_prompt__mutmut_122, 
+        'xǁSummarizerǁ_build_summarization_prompt__mutmut_123': xǁSummarizerǁ_build_summarization_prompt__mutmut_123
     }
     
     def _build_summarization_prompt(self, *args, **kwargs):

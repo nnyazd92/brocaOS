@@ -424,6 +424,7 @@ class EpistemicBridge:
         try:
             # If caller doesn't supply, attempt to build from recent knowledge items
             estimated_inputs = False
+            any_real_data = False
             if knowledge_items is None:
                 epistemic_layer = self.epistemic_engine.epistemic_layer
                 knowledge_ids = list(epistemic_layer.knowledge_sources.keys())
@@ -438,16 +439,35 @@ class EpistemicBridge:
                             conf_val = conf_mean
                             estimated_inputs = True
 
-                        # importance/usage_frequency are currently not tracked in epistemic layer;
-                        # keep conservative defaults but mark as estimated inputs.
-                        knowledge_items[kid] = {
-                            "confidence": float(conf_val),
-                            "importance": 0.25,
-                            "usage_frequency": 0.0,
-                        }
-                        estimated_inputs = True
+                        # Check if importance/usage_frequency are available in context
+                        # If present, use them; if not, mark as estimated.
+                        importance = context.get("importance")
+                        usage_frequency = context.get("usage_frequency")
+
+                        if importance is not None and usage_frequency is not None:
+                            # Real data available!
+                            any_real_data = True
+                            knowledge_items[kid] = {
+                                "confidence": float(conf_val),
+                                "importance": float(importance),
+                                "usage_frequency": float(usage_frequency),
+                            }
+                        else:
+                            # No real importance/usage data - use defaults
+                            estimated_inputs = True
+                            knowledge_items[kid] = {
+                                "confidence": float(conf_val),
+                                "importance": 0.25,
+                                "usage_frequency": 0.0,
+                            }
                     except Exception:
                         continue
+            else:
+                # Caller supplied knowledge_items - check if they have real data
+                for kid, item in knowledge_items.items():
+                    if item.get("importance") is not None and item.get("usage_frequency") is not None:
+                        any_real_data = True
+                        break
 
             if not knowledge_items:
                 return {"value": 0.0, "has_data": False, "sample_size": 0, "estimator": "measured"}
@@ -457,11 +477,20 @@ class EpistemicBridge:
 
             if gains:
                 avg_gain = sum(gain for _, gain in gains) / len(gains)
+                # Determine estimator: "measured" if we have any real importance/usage data
+                # "estimated_inputs" if we only used defaults
+                if any_real_data and not estimated_inputs:
+                    estimator = "measured"
+                elif any_real_data:
+                    # Some real, some estimated
+                    estimator = "partially_measured"
+                else:
+                    estimator = "estimated_inputs"
                 return {
                     "value": min(1.0, float(avg_gain)),
                     "has_data": True,
                     "sample_size": len(gains),
-                    "estimator": "estimated_inputs" if estimated_inputs else "measured",
+                    "estimator": estimator,
                 }
 
             return {"value": 0.0, "has_data": False, "sample_size": 0, "estimator": "measured"}
