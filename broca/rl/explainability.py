@@ -44,11 +44,11 @@ def append_explanation(uid, context, feature_names, feature_vector, model, tool_
         if hasattr(model, 'coef_'):
             entry['explanation'] = explain_linear(model, feature_vector, feature_names)
         else:
-            # Fallback: permutation importance (fast, model-agnostic)
+            # Fallback: permutation importance (model-agnostic) using a small sample if available
             try:
                 from sklearn.inspection import permutation_importance
-                # need X and y for permutation importance; we do a cheap approximate by using current feature vector
-                entry['explanation'] = {'note':'non-linear model; permutation importance not computed in smoke mode'}
+                # If a dataset is available, we could compute permutation importance; here we return placeholder
+                entry['explanation'] = {'note':'non-linear model; consider computing permutation_importance with a holdout set for robust explanations'}
             except Exception:
                 entry['explanation'] = {'note': 'non-linear model; no coefficients; explain via surrogate or permutation'}
     except Exception as e:

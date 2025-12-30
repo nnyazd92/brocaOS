@@ -11,6 +11,7 @@ import time
 import logging
 from typing import Dict, Any, List, Optional
 from collections import deque, defaultdict
+from pathlib import Path
 
 from .integrated_interoception import IntegratedInteroception
 from .storage import InternalSensingStorage
@@ -46,7 +47,12 @@ class InternalSensingFramework:
         self.history_window = history_window or config.internal_sensing.history_window
         
         # Initialize storage for persistence
-        self.storage = InternalSensingStorage(config.internal_sensing.state_path)
+        # Resolve state path to an absolute path to avoid CWD-dependent resets (e.g., web server restarts).
+        state_path = Path(config.internal_sensing.state_path)
+        if not state_path.is_absolute():
+            workspace_root = Path(__file__).resolve().parents[2]
+            state_path = (workspace_root / state_path).resolve()
+        self.storage = InternalSensingStorage(str(state_path))
         
         # Initialize integrated interoception with epistemic engine
         self.interoception = IntegratedInteroception(
@@ -275,12 +281,21 @@ class InternalSensingFramework:
             
             if self.interoception.physiology:
                 physiology_histories = self.interoception.physiology.serialize_histories()
+
+            predictive_state = {}
+            if hasattr(self.interoception, "prediction") and self.interoception.prediction:
+                try:
+                    if hasattr(self.interoception.prediction, "serialize_state"):
+                        predictive_state = self.interoception.prediction.serialize_state()
+                except Exception:
+                    predictive_state = {}
             
             # Save to disk
             self.storage.save_state(
                 cognitive_histories=cognitive_histories,
                 affective_histories=affective_histories,
                 physiology_histories=physiology_histories,
+                predictive_state=predictive_state,
             )
             
             logger.debug("Saved internal sensing state to disk")
@@ -311,6 +326,14 @@ class InternalSensingFramework:
             # Restore physiology histories
             if self.interoception.physiology and "physiology" in state_data:
                 self.interoception.physiology.deserialize_histories(state_data["physiology"])
+
+            # Restore predictive interoception state (calibrated surprise, error distribution, etc.)
+            if hasattr(self.interoception, "prediction") and self.interoception.prediction and "predictive" in state_data:
+                try:
+                    if hasattr(self.interoception.prediction, "deserialize_state"):
+                        self.interoception.prediction.deserialize_state(state_data.get("predictive") or {})
+                except Exception as e:
+                    logger.debug(f"Failed to restore predictive interoception state: {e}")
             
             logger.info("Loaded persisted internal sensing state from disk")
             

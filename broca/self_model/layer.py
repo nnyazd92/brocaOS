@@ -43,6 +43,7 @@ class ConsistencyLayer:
         max_iterations: int = 3,
         action_gate: Optional["ActionGate"] = None,
         signal_manager: Optional["SignalManager"] = None,
+        dissonance_monitor: Optional[Any] = None,
     ) -> None:
         """
         Initialize consistency layer.
@@ -67,6 +68,7 @@ class ConsistencyLayer:
         self.max_iterations = max_iterations
         self._action_gate = action_gate
         self._signal_manager = signal_manager
+        self._dissonance_monitor = dissonance_monitor
         
         logger.info(
             f"Initialized ConsistencyLayer (strict_mode={strict_mode}, "
@@ -80,6 +82,10 @@ class ConsistencyLayer:
     def set_signal_manager(self, signal_manager: Optional["SignalManager"]) -> None:
         """Set the signal manager for getting trigger signals."""
         self._signal_manager = signal_manager
+
+    def set_dissonance_monitor(self, dissonance_monitor: Optional[Any]) -> None:
+        """Set a CognitiveDissonanceMonitor-like object to ingest consistency violations."""
+        self._dissonance_monitor = dissonance_monitor
     
     def check_response(
         self,
@@ -117,6 +123,20 @@ class ConsistencyLayer:
                 self.self_model,
                 conversation_context,
             )
+
+            # Publish into dissonance monitor if provided. This couples consistency checking
+            # directly into cognitive dissonance so logical/factual/behavioral drift signals
+            # remain available outside of response-time measurement.
+            try:
+                if self._dissonance_monitor is not None and hasattr(self._dissonance_monitor, "observe_consistency_result"):
+                    self._dissonance_monitor.observe_consistency_result(
+                        consistency_result=consistency_result,
+                        response=current_response,
+                        conversation_context=conversation_context,
+                        source="consistency_layer",
+                    )
+            except Exception:
+                pass
             
             # If consistent, we're done
             if consistency_result.is_consistent:

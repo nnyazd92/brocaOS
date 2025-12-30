@@ -27,17 +27,24 @@ class TestSurpriseCalibrationProperties:
         # Compute calibrated surprise for a typical point vs an outlier-ish point
         # Pick typical as the mean of baseline, and outlier as provided.
         typical = sum(baseline_errors) / len(baseline_errors)
-        nll_typical = pi._negative_log_likelihood(typical)
-        nll_outlier = pi._negative_log_likelihood(outlier)
+        # Use deviation-only surprisal (always nonnegative) to avoid degeneracy for low-variance regimes.
+        dev_typical = pi._deviation_surprisal(typical)
+        dev_outlier = pi._deviation_surprisal(outlier)
 
-        s_typical = pi._normalize_surprise(nll_typical)
-        s_outlier = pi._normalize_surprise(nll_outlier)
+        s_typical = pi._normalize_surprise(dev_typical)
+        s_outlier = pi._normalize_surprise(dev_outlier)
 
         assert 0.0 <= s_typical <= 1.0
         assert 0.0 <= s_outlier <= 1.0
 
+        # Ensure the signal is not degenerate: a moderate deviation from mu should yield > 0.
+        mu = float(pi._error_stats["mean"])
+        moderate = mu + 0.1 if mu <= 0.9 else mu - 0.1
+        moderate = max(0.0, min(1.0, float(moderate)))
+        s_moderate = pi._normalize_surprise(pi._deviation_surprisal(moderate))
+        assert s_moderate > 1e-9
+
         # If outlier is farther from the current mean than typical, its surprise should be >= typical.
-        mu = pi._error_stats["mean"]
         if abs(outlier - mu) >= abs(typical - mu):
             assert s_outlier >= s_typical
 

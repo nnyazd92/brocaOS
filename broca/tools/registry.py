@@ -3,11 +3,17 @@ Tool registry for managing and executing LLM tools.
 
 The registry maintains a collection of available tools and provides
 methods to convert them to OpenAI function calling format and execute tool calls.
+
+RL-Primary Tool Selection:
+- OnlinePolicyRanker provides confidence-gated tool selection
+- ≥85% confidence: RL forces tool selection (LLM bypassed)
+- 30-85% confidence: RL suggests top-K tools (LLM picks from subset)
+- <30% confidence: LLM has full choice (failsafe mode)
 """
 
 from __future__ import annotations
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 import logging
 import time
 import hashlib
@@ -22,10 +28,41 @@ from .logging_utils import (
 )
 from .json_repair import attempt_json_repair
 
+if TYPE_CHECKING:
+    from ..rl.online_policy import OnlinePolicyRanker, ToolSelection
+
 logger = logging.getLogger(__name__)
+
+# Import tool selection logger from rl module (uses same dedicated log file)
+_tool_selection_logger = None
+
+def _get_tool_selection_logger():
+    """Get tool selection logger from RL module."""
+    global _tool_selection_logger
+    if _tool_selection_logger is None:
+        try:
+            from ..rl.online_policy import tool_selection_logger
+            _tool_selection_logger = tool_selection_logger
+        except ImportError:
+            # Fallback to main logger if RL module not available
+            _tool_selection_logger = logger
+    return _tool_selection_logger
 
 # Lazy import to avoid circular dependency
 ToolSelectionGuidance = None
+_OnlinePolicyRanker = None
+
+def _get_online_policy_ranker():
+    """Lazy import OnlinePolicyRanker to avoid circular imports."""
+    global _OnlinePolicyRanker
+    if _OnlinePolicyRanker is None:
+        try:
+            from ..rl.online_policy import OnlinePolicyRanker
+            _OnlinePolicyRanker = OnlinePolicyRanker
+        except ImportError as e:
+            logger.debug(f"OnlinePolicyRanker not available: {e}")
+            _OnlinePolicyRanker = False  # Sentinel to avoid re-import
+    return _OnlinePolicyRanker if _OnlinePolicyRanker is not False else None
 
 
 class ToolRegistry:
@@ -43,7 +80,8 @@ class ToolRegistry:
         epistemic_engine: Optional[Any] = None,
         internal_sensing_framework: Optional["InternalSensingFramework"] = None,
         tool_selection_guidance: Optional[Any] = None,
-        learning_tool: Optional[Any] = None
+        learning_tool: Optional[Any] = None,
+        online_policy_ranker: Optional["OnlinePolicyRanker"] = None,
     ) -> None:
         """
         Initialize an empty tool registry.
@@ -53,15 +91,22 @@ class ToolRegistry:
             internal_sensing_framework: Optional InternalSensingFramework for tool usage tracking
             tool_selection_guidance: Optional ToolSelectionGuidance for intelligent tool selection
             learning_tool: Optional LearningTool for automatic learning observation
+            online_policy_ranker: Optional OnlinePolicyRanker for RL-primary tool selection
         """
         self._tools: Dict[str, Tool] = {}
         self.epistemic_engine = epistemic_engine
         self.internal_sensing_framework = internal_sensing_framework
         self.tool_selection_guidance = tool_selection_guidance
         self.learning_tool = learning_tool
+        self.online_policy_ranker = online_policy_ranker
+        
         # Policy mode (read-only)
         # Read from env first (to support tests patching os.environ), fallback to config
         self._policy_mode = os.getenv("BROCA_TOOLS_MODE", getattr(config.tools, "tools_mode", "normal"))
+        
+        # Cache last RL selection for outcome recording
+        self._last_rl_selection: Optional["ToolSelection"] = None
+        self._last_rl_context: Optional[Dict[str, Any]] = None
 
         logger.debug("Initialized ToolRegistry")
 
@@ -82,6 +127,104 @@ class ToolRegistry:
             logger.debug("Learning tool set on ToolRegistry for automatic observation")
         else:
             logger.debug("Learning tool removed from ToolRegistry")
+    
+    def set_online_policy_ranker(self, ranker: Optional["OnlinePolicyRanker"]) -> None:
+        """
+        Set the online policy ranker for RL-primary tool selection.
+        
+        Args:
+            ranker: OnlinePolicyRanker instance or None to disable
+        """
+        self.online_policy_ranker = ranker
+        if ranker:
+            logger.info("OnlinePolicyRanker set on ToolRegistry for RL-primary selection")
+        else:
+            logger.debug("OnlinePolicyRanker removed from ToolRegistry")
+    
+    def get_rl_selection(
+        self,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Optional["ToolSelection"]:
+        """
+        Get RL-based tool selection with confidence-gated modes.
+        
+        Args:
+            context: Optional context dictionary with rl_signals, active_goals, etc.
+            
+        Returns:
+            ToolSelection with mode indicating how to proceed:
+            - "forced": RL forces this tool (LLM should not choose)
+            - "suggested": RL suggests top-K (LLM picks from subset)
+            - "fallback": RL uncertain (LLM has full choice)
+            - None if RL is disabled or not available
+        """
+        ts_logger = _get_tool_selection_logger()
+        
+        if not config.rl.enabled:
+            ts_logger.debug("REGISTRY_RL | status=disabled | reason=config.rl.enabled=False")
+            return None
+            
+        if self.online_policy_ranker is None:
+            ts_logger.debug("REGISTRY_RL | status=unavailable | reason=no_policy_ranker")
+            return None
+        
+        tools = self.list_tools()
+        if not tools:
+            ts_logger.debug("REGISTRY_RL | status=no_tools | reason=empty_tool_registry")
+            return None
+        
+        ctx = context or {}
+        tool_names = [t.name for t in tools]
+        
+        ts_logger.debug(
+            f"REGISTRY_RL_START | n_tools={len(tools)} | tools={tool_names} | "
+            f"context_keys={list(ctx.keys())}"
+        )
+        
+        # Get RL selection
+        selection = self.online_policy_ranker.select_tool(tools, ctx)
+        
+        # Cache for outcome recording
+        self._last_rl_selection = selection
+        self._last_rl_context = ctx
+        
+        ts_logger.info(
+            f"REGISTRY_RL_RESULT | mode={selection.mode} | confidence={selection.confidence:.2%} | "
+            f"selected_tool={selection.tool_name} | score={selection.score:.4f} | "
+            f"n_alternatives={len(selection.alternatives)}"
+        )
+        
+        return selection
+    
+    def record_rl_outcome(
+        self,
+        tool_name: str,
+        success: bool,
+        execution_time_ms: float = 0.0,
+        result_quality: float = 0.5,
+    ) -> None:
+        """
+        Record tool execution outcome for online RL learning.
+        
+        Args:
+            tool_name: Name of executed tool
+            success: Whether execution succeeded
+            execution_time_ms: Execution time in milliseconds
+            result_quality: Quality score of result (0.0-1.0)
+        """
+        if self.online_policy_ranker is None:
+            return
+        
+        try:
+            self.online_policy_ranker.record_outcome(
+                tool_name=tool_name,
+                context=self._last_rl_context,
+                success=success,
+                execution_time_ms=execution_time_ms,
+                result_quality=result_quality,
+            )
+        except Exception as e:
+            logger.debug(f"Error recording RL outcome: {e}", exc_info=True)
     
     def _validate_tool_arguments(self, tool: Tool, arguments: Dict[str, Any]) -> Optional[str]:
         """
@@ -257,26 +400,118 @@ class ToolRegistry:
         hash_str = self.get_registry_hash()
         return f"v{hash_str[:8]}"
     
-    def to_openai_format(self, context: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def to_openai_format(
+        self,
+        context: Optional[Dict[str, Any]] = None,
+        rl_selection: Optional["ToolSelection"] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Convert registered tools to OpenAI function calling format.
 
         Optionally filters and ranks tools based on context if tool selection
         guidance is enabled and available.
+        
+        RL-Primary Selection:
+        - If rl_selection.mode == "forced": Returns only the forced tool
+        - If rl_selection.mode == "suggested": Returns top-K suggested tools
+        - If rl_selection.mode == "fallback" or None: Returns all tools
 
         Args:
             context: Optional context dictionary for tool filtering/ranking
+            rl_selection: Optional RL selection result for filtering
 
         Returns:
             List of tool definitions in OpenAI format
         """
+        ts_logger = _get_tool_selection_logger()
+        
         # Get all tools
         all_tools = list(self._tools.values())
+        original_tool_names = [t.name for t in all_tools]
         
-        # Apply filtering/ranking if enabled and guidance is available
-        # Use module-level config (imported at top of file)
+        ts_logger.debug(
+            f"OPENAI_FORMAT_START | n_tools={len(all_tools)} | "
+            f"tools={original_tool_names} | "
+            f"rl_selection_provided={rl_selection is not None}"
+        )
+        
+        # RL-primary selection: filter tools based on RL mode
+        rl_mode = None
+        filtered_out = []
+        if rl_selection is not None:
+            rl_mode = rl_selection.mode
+            
+            if rl_mode == "forced":
+                # RL forces a single tool - filter to only that tool
+                forced_name = rl_selection.tool_name
+                filtered_out = [t.name for t in all_tools if t.name != forced_name]
+                all_tools = [t for t in all_tools if t.name == forced_name]
+                
+                ts_logger.info(
+                    f"REGISTRY_FILTER | mode=forced | forced_tool={forced_name} | "
+                    f"confidence={rl_selection.confidence:.2%} | "
+                    f"tools_before={len(original_tool_names)} | tools_after={len(all_tools)} | "
+                    f"filtered_out={filtered_out}"
+                )
+                
+                logger.info(
+                    f"RL forced tool selection: {forced_name} (confidence: {rl_selection.confidence:.1%})",
+                    extra={
+                        "event": "rl_forced_selection",
+                        "tool_name": forced_name,
+                        "confidence": rl_selection.confidence,
+                    }
+                )
+            elif rl_mode == "suggested":
+                # RL suggests top-K tools - filter to those tools
+                suggested_names = {rl_selection.tool_name}
+                for alt_name, _ in rl_selection.alternatives:
+                    suggested_names.add(alt_name)
+                filtered_out = [t.name for t in all_tools if t.name not in suggested_names]
+                all_tools = [t for t in all_tools if t.name in suggested_names]
+                
+                ts_logger.info(
+                    f"REGISTRY_FILTER | mode=suggested | suggested_tools={sorted(suggested_names)} | "
+                    f"confidence={rl_selection.confidence:.2%} | "
+                    f"tools_before={len(original_tool_names)} | tools_after={len(all_tools)} | "
+                    f"filtered_out={filtered_out}"
+                )
+                
+                logger.info(
+                    f"RL suggested tools: {sorted(suggested_names)} (confidence: {rl_selection.confidence:.1%})",
+                    extra={
+                        "event": "rl_suggested_selection",
+                        "tool_names": list(suggested_names),
+                        "confidence": rl_selection.confidence,
+                    }
+                )
+            else:
+                # fallback mode - LLM has full choice
+                ts_logger.info(
+                    f"REGISTRY_FILTER | mode=fallback | confidence={rl_selection.confidence:.2%} | "
+                    f"reason={rl_selection.reason} | "
+                    f"tools_count={len(all_tools)} | LLM_has_full_choice=True"
+                )
+                
+                logger.info(
+                    f"RL fallback mode: LLM has full choice (confidence: {rl_selection.confidence:.1%})",
+                    extra={
+                        "event": "rl_fallback_selection",
+                        "confidence": rl_selection.confidence,
+                        "reason": rl_selection.reason,
+                    }
+                )
+        else:
+            ts_logger.debug(
+                f"REGISTRY_FILTER | mode=none | reason=no_rl_selection | "
+                f"tools_count={len(all_tools)}"
+            )
+        
+        # Apply additional filtering/ranking if enabled and guidance is available
+        # (This runs after RL selection, so it further refines the RL-filtered list)
         if (config.tools.pre_filtering_enabled and
-            self.tool_selection_guidance is not None):
+            self.tool_selection_guidance is not None and
+            rl_mode != "forced"):  # Don't further filter forced selections
             try:
                 all_tools = self.tool_selection_guidance.filter_and_rank_tools(
                     all_tools, context=context
@@ -314,7 +549,8 @@ class ToolRegistry:
             extra={
                 "event": "tools_converted_to_openai_format",
                 "tool_count": len(tools),
-                "tool_names": tool_names
+                "tool_names": tool_names,
+                "rl_mode": rl_mode,
             }
         )
         
@@ -329,18 +565,28 @@ class ToolRegistry:
                 }
             )
         
-        # Try to reorder tools using PolicyRanker if available (post-conversion)
-        try:
-            from broca.rl.policy import PolicyRanker
-            pr = PolicyRanker()
-            pr.load_model(None)
-            # Build tool objects map
-            tool_objs = all_tools
-            probs = pr.predict_distribution(context or {}, tool_objs)
-            # reorder tools list by probs
-            tools.sort(key=lambda t: probs.get(t['function']['name'], 0.0), reverse=True)
-        except Exception:
-            pass
+        # Reorder tools using RL scores if we have them and not in forced mode
+        if rl_selection is not None and rl_selection.all_scores and rl_mode != "forced":
+            try:
+                tools.sort(
+                    key=lambda t: rl_selection.all_scores.get(t['function']['name'], 0.0),
+                    reverse=True
+                )
+            except Exception:
+                pass
+        else:
+            # Fallback: Try to reorder tools using PolicyRanker if available (post-conversion)
+            try:
+                from broca.rl.policy import PolicyRanker
+                pr = PolicyRanker()
+                pr.load_model(None)
+                # Build tool objects map
+                tool_objs = all_tools
+                probs = pr.predict_distribution(context or {}, tool_objs)
+                # reorder tools list by probs
+                tools.sort(key=lambda t: probs.get(t['function']['name'], 0.0), reverse=True)
+            except Exception:
+                pass
 
         return tools
     
@@ -714,6 +960,24 @@ class ToolRegistry:
                     self.tool_selection_guidance.record_tool_outcome(tool_name, success)
                 except Exception as e:
                     logger.debug(f"Error recording tool outcome: {e}", exc_info=True)
+            
+            # Record outcome for RL online learning
+            if self.online_policy_ranker is not None:
+                try:
+                    success = result.get("success", True) if isinstance(result, dict) else True
+                    # Estimate result quality from epistemic impact if available
+                    result_quality = 0.5
+                    if epistemic_impact and "confidence_metrics" in epistemic_impact:
+                        result_quality = epistemic_impact["confidence_metrics"].get("evidence_strength", 0.5)
+                    
+                    self.record_rl_outcome(
+                        tool_name=tool_name,
+                        success=success,
+                        execution_time_ms=execution_time_ms,
+                        result_quality=result_quality,
+                    )
+                except Exception as e:
+                    logger.debug(f"Error recording RL outcome: {e}", exc_info=True)
             
             # Automatically observe tool call for learning if learning_tool is available
             # and runtime config allows auto-observation (to avoid unapproved persistent writes)

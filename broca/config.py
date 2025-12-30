@@ -437,6 +437,58 @@ class ControlConfig(BaseModel):
     mpc_control_horizon: int = int(os.getenv("BROCA_CONTROL_MPC_CONTROL_HORIZON", "3"))
 
 
+class RLConfig(BaseModel):
+    """Configuration for RL-primary tool selection with PyTorch neural policy.
+    
+    Confidence-gated selection modes:
+    - ≥force_threshold (85%): RL forces tool selection (LLM bypassed)
+    - suggest_threshold to force_threshold (30-85%): RL suggests top-K (LLM picks from subset)
+    - <suggest_threshold (30%): LLM has full choice (failsafe mode)
+    """
+    # Enable/disable RL-primary tool selection
+    enabled: bool = os.getenv("BROCA_RL_ENABLED", "true").lower() == "true"
+    
+    # Confidence thresholds for selection modes
+    force_threshold: float = float(os.getenv("BROCA_RL_FORCE_THRESHOLD", "0.85"))
+    suggest_threshold: float = float(os.getenv("BROCA_RL_SUGGEST_THRESHOLD", "0.30"))
+    top_k_suggest: int = int(os.getenv("BROCA_RL_TOP_K_SUGGEST", "3"))
+    
+    # Neural network architecture
+    hidden_dims: List[int] = [
+        int(x) for x in os.getenv("BROCA_RL_HIDDEN_DIMS", "128,64").split(",")
+    ]
+    learning_rate: float = float(os.getenv("BROCA_RL_LEARNING_RATE", "0.001"))
+    dropout_rate: float = float(os.getenv("BROCA_RL_DROPOUT_RATE", "0.3"))
+    mc_samples: int = int(os.getenv("BROCA_RL_MC_SAMPLES", "20"))
+    
+    # Experience replay
+    replay_buffer_size: int = int(os.getenv("BROCA_RL_REPLAY_BUFFER_SIZE", "10000"))
+    batch_size: int = int(os.getenv("BROCA_RL_BATCH_SIZE", "32"))
+    update_frequency: int = int(os.getenv("BROCA_RL_UPDATE_FREQUENCY", "1"))
+    
+    # Model persistence
+    model_path: str = os.getenv("BROCA_RL_MODEL_PATH", "models/rl/online_policy.pt")
+    buffer_path: str = os.getenv("BROCA_RL_BUFFER_PATH", "data/rl/replay_buffer.json")
+    
+    # Outcome recording
+    reward_success: float = float(os.getenv("BROCA_RL_REWARD_SUCCESS", "0.8"))
+    reward_failure: float = float(os.getenv("BROCA_RL_REWARD_FAILURE", "0.2"))
+    time_penalty_factor: float = float(os.getenv("BROCA_RL_TIME_PENALTY_FACTOR", "0.00002"))
+    quality_bonus_factor: float = float(os.getenv("BROCA_RL_QUALITY_BONUS_FACTOR", "0.2"))
+    
+    # Exploration/exploitation
+    initial_exploration_rate: float = float(os.getenv("BROCA_RL_INITIAL_EXPLORATION_RATE", "0.1"))
+    min_exploration_rate: float = float(os.getenv("BROCA_RL_MIN_EXPLORATION_RATE", "0.01"))
+    exploration_decay: float = float(os.getenv("BROCA_RL_EXPLORATION_DECAY", "0.999"))
+    
+    # Warm-up period (use fallback mode until N experiences)
+    warmup_experiences: int = int(os.getenv("BROCA_RL_WARMUP_EXPERIENCES", "50"))
+    
+    # Logging
+    log_selections: bool = os.getenv("BROCA_RL_LOG_SELECTIONS", "true").lower() == "true"
+    log_file: str = os.getenv("BROCA_RL_LOG_FILE", "data/rl/selections.jsonl")
+
+
 class LearningConfig(BaseModel):
     """Configuration for learning system."""
     
@@ -507,6 +559,7 @@ class BrocaConfig(BaseModel):
     damping: DampingConfig = DampingConfig()
     systems: SystemsConfig = SystemsConfig()
     control: ControlConfig = ControlConfig()
+    rl: RLConfig = RLConfig()
 
 
 config = BrocaConfig()

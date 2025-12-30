@@ -13,8 +13,8 @@ from broca.reasoning.rl_reward_logger import RLRewardLogger
 
 
 class DummyMetrics:
-    # minimal v1-ish metrics
-    schema_version = 3
+    # minimal v4-ish metrics
+    schema_version = 4
     dissonance_reward = 0.1
     surprise_reward = 0.2
     curiosity_reward = 0.3
@@ -26,6 +26,11 @@ class DummyMetrics:
     weight_curiosity = 0.2
     weight_info_gain = 0.15
     weight_coherence = 0.15
+
+    # New epistemic uncertainty fields (v4)
+    epistemic_uncertainty_total = 0.4
+    epistemic_uncertainty_data_quality = "medium"
+    epistemic_uncertainty_sample_size = 50
 
     def get_exploration_exploitation_balance(self):
         return 0.5
@@ -63,108 +68,41 @@ def test_rl_rewards_inplace_migration_preserves_rows(tmp_path):
     assert rows[1]["context"] == "new"
 
 
-def test_rl_rewards_repairs_headerless_v3_file(tmp_path):
+def test_rl_rewards_repairs_headerless_v4_file(tmp_path):
     p = Path(tmp_path) / "rl_rewards.csv"
 
-    # Create a headerless file that matches the current v3 schema positionally.
+    # Create a headerless file that matches the current v4 schema positionally (52 columns).
     # (This mirrors what the user observed in data/rl_rewards.csv.)
-    logger = RLRewardLogger(log_file=str(p), enabled=True, append=True)
-    # Write two rows without header, in v3 positional order
+    _ = RLRewardLogger(log_file=str(p), enabled=True, append=True)
+
+    # Get fieldnames from logger to ensure correct count
+    from broca.reasoning.rl_reward_logger import RLRewardLogger as RRL
+    expected_cols = len(RRL(log_file=str(p), enabled=False)._fieldnames_v4)
+
+    # Build two rows positionally (all 52 columns)
+    def make_row(ctx: str, diss: str, ts: str) -> list:
+        # Fill with blanks, set specific positions
+        row = [""] * expected_cols
+        row[0] = ts  # timestamp
+        row[1] = diss  # dissonance_reward
+        row[2] = "0.2"  # surprise_reward
+        row[3] = "0.3"  # curiosity_reward
+        row[4] = "0.4"  # information_gain_reward
+        row[5] = "0.5"  # coherence_reward
+        row[6] = "0.6"  # composite_reward
+        row[7] = "0.7"  # exploration_balance
+        row[8] = "0.3"  # weight_dissonance
+        row[9] = "0.2"  # weight_surprise
+        row[10] = "0.2"  # weight_curiosity
+        row[11] = "0.15"  # weight_info_gain
+        row[12] = "0.15"  # weight_coherence
+        row[13] = ctx  # context
+        row[14] = "4"  # schema_version
+        return row
+
     rows = [
-        [
-            "2025-12-30T00:16:41.892143+00:00",
-            "0.1",
-            "0.2",
-            "0.3",
-            "0.4",
-            "0.5",
-            "0.6",
-            "0.7",
-            "0.3",
-            "0.2",
-            "0.2",
-            "0.15",
-            "0.15",
-            "ctx",
-            "3",
-            "0.0",
-            "False",
-            "",
-            "",
-            "0.0",
-            "0.0",
-            "0.0",
-            "0.0",
-            "0.0",
-            "0.0",
-            "",
-            "True",
-            "high",
-            "",
-            "0.0",
-            "0.0",
-            "True",
-            "high",
-            "",
-            "0.0",
-            "0.0",
-            "True",
-            "high",
-            "",
-            "0.0",
-            "0.0",
-            "",
-            "True",
-            "",
-            "0.0",
-        ],
-        [
-            "2025-12-30T00:28:39.108258+00:00",
-            "0.11",
-            "0.21",
-            "0.31",
-            "0.41",
-            "0.51",
-            "0.61",
-            "0.71",
-            "0.3",
-            "0.2",
-            "0.2",
-            "0.15",
-            "0.15",
-            "ctx2",
-            "3",
-            "0.0",
-            "False",
-            "",
-            "",
-            "0.0",
-            "0.0",
-            "0.0",
-            "0.0",
-            "0.0",
-            "0.0",
-            "",
-            "True",
-            "high",
-            "",
-            "0.0",
-            "0.0",
-            "True",
-            "high",
-            "",
-            "0.0",
-            "0.0",
-            "True",
-            "high",
-            "",
-            "0.0",
-            "0.0",
-            "",
-            "True",
-            "",
-            "0.0",
-        ],
+        make_row("ctx", "0.1", "2025-12-30T00:16:41.892143+00:00"),
+        make_row("ctx2", "0.11", "2025-12-30T00:28:39.108258+00:00"),
     ]
 
     with p.open("w", newline="", encoding="utf-8") as f:

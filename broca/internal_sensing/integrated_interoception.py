@@ -92,37 +92,44 @@ class IntegratedInteroception:
             self.cognition.update_from_epistemic()
             self.affect.update_from_epistemic()
         
-        # Update affective states from cognitive states automatically
-        # This ensures certainty_affect, coherence_pleasure, and curiosity_drive are computed
-        # when cognitive data is available
-        # This is called before sampling affective state to ensure all derived states are computed
-        self.affect.update_from_cognitive(self.cognition)
-        
-        # Log if states were computed (for debugging state transitions)
-        if self.affect.affective_states.get("certainty_affect") is not None:
-            logger.debug("Affective states updated from cognitive: certainty_affect computed")
-        if self.affect.affective_states.get("curiosity_drive") is not None:
-            logger.debug("Affective states updated from cognitive: curiosity_drive computed")
-        if self.affect.affective_states.get("coherence_pleasure") is not None:
-            logger.debug("Affective states updated from cognitive: coherence_pleasure computed")
-        
         # Calculate Surprise (Prediction Error) from PREVIOUS turn's prediction vs CURRENT reality
+        # Do this BEFORE update_from_cognitive so we can pass prediction_error to curiosity calculation
+        prediction_error: Optional[float] = None
         if hasattr(self, '_last_prediction') and self._last_prediction:
             error = self.prediction.compute_prediction_error(self._last_prediction, computational)
-            calibrated = None
-            if hasattr(self.prediction, "get_rl_surprise_signal"):
-                try:
-                    calibrated = float(self.prediction.get_rl_surprise_signal())
-                except Exception:
-                    calibrated = None
-            self.affect.update_surprise(error, calibrated_surprise=calibrated)
+            prediction_error = error  # Store for curiosity drive
             # Record prediction for accuracy tracking
             self.prediction.record_prediction(
                 f"pred_{int(time.time())}",
                 self._last_prediction,
                 computational
             )
+            calibrated = None
+            if hasattr(self.prediction, "get_rl_surprise_signal"):
+                try:
+                    # After record_prediction(), the calibrated history has been updated for this error.
+                    calibrated = float(self.prediction.get_rl_surprise_signal())
+                except Exception:
+                    calibrated = None
+            self.affect.update_surprise(error, calibrated_surprise=calibrated)
             logger.debug(f"Recorded prediction for accuracy tracking (error: {error:.3f})")
+        
+        # Update affective states from cognitive states automatically
+        # This ensures certainty_affect, coherence_pleasure, and curiosity_drive are computed
+        # when cognitive data is available
+        # Now includes prediction_error for curiosity calculation!
+        self.affect.update_from_cognitive(self.cognition, prediction_error=prediction_error)
+        
+        # Log if states were computed (for debugging state transitions)
+        if self.affect.affective_states.get("certainty_affect") is not None:
+            logger.debug("Affective states updated from cognitive: certainty_affect computed")
+        if self.affect.affective_states.get("curiosity_drive") is not None:
+            logger.debug(
+                f"Affective states updated from cognitive: curiosity_drive computed "
+                f"(prediction_error={prediction_error})"
+            )
+        if self.affect.affective_states.get("coherence_pleasure") is not None:
+            logger.debug("Affective states updated from cognitive: coherence_pleasure computed")
 
         affective = self.affect.sample_affective_state()
         

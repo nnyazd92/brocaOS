@@ -23,6 +23,21 @@ from .memory import SourceType, RelationType
 # RL Reward Logger
 _rl_reward_logger = None
 
+# Tool selection logger (shared with rl.online_policy)
+_tool_selection_logger = None
+
+def _get_tool_selection_logger():
+    """Get tool selection logger from RL module."""
+    global _tool_selection_logger
+    if _tool_selection_logger is None:
+        try:
+            from .rl.online_policy import tool_selection_logger
+            _tool_selection_logger = tool_selection_logger
+        except ImportError:
+            # Fallback to main logger if RL module not available
+            _tool_selection_logger = logger
+    return _tool_selection_logger
+
 def _get_rl_reward_logger():
     """Get or initialize RL reward logger."""
     global _rl_reward_logger
@@ -269,6 +284,11 @@ def _log_tool_call_rl_reward(
 
 # Global runtime components (shared)
 _runtime: Optional[BrocaRuntime] = None
+_runtime_status: str = "not_started"  # not_started | initializing | ready | error
+_runtime_lock = threading.Lock()
+_runtime_init_started_at: Optional[float] = None
+_runtime_ready_at: Optional[float] = None
+_runtime_init_error: Optional[str] = None
 PROJECT_ROOT: Path = Path(__file__).parent.parent.resolve()
 
 app = FastAPI(title="BrocaOS Web API")
@@ -278,6 +298,74 @@ app = FastAPI(title="BrocaOS Web API")
 async def _startup_metrics_sampler() -> None:
     # Start sampler early so the first metrics request is instant.
     _start_metrics_sampler_thread(interval_sec=0.5)
+    # Start heavy runtime initialization off the event loop to avoid blocking the web server.
+    _ensure_runtime_initializing()
+
+
+def _ensure_runtime_initializing() -> None:
+    """
+    Ensure the BrocaRuntime initialization is in progress in a background thread.
+
+    This prevents the first request from blocking the event loop while we load the memory index,
+    self-model, reasoning daemon, etc.
+    """
+    global _runtime_status, _runtime_init_started_at, _runtime_init_error
+    with _runtime_lock:
+        if _runtime_status in ("initializing", "ready"):
+            return
+        if _runtime_status == "error":
+            # Do not auto-retry; surface the error via /api/healthz.
+            return
+
+        _runtime_status = "initializing"
+        _runtime_init_started_at = time.time()
+        _runtime_init_error = None
+
+        def _init() -> None:
+            global _runtime, _runtime_status, _runtime_ready_at, _runtime_init_error
+            try:
+                rt = initialize_runtime()
+                with _runtime_lock:
+                    _runtime = rt
+                    _runtime_status = "ready"
+                    _runtime_ready_at = time.time()
+                    _runtime_init_error = None
+                logger.info("Web API runtime initialized (ready)")
+            except Exception as e:
+                with _runtime_lock:
+                    _runtime = None
+                    _runtime_status = "error"
+                    _runtime_init_error = str(e)
+                logger.error(f"Web API runtime initialization failed: {e}", exc_info=True)
+
+        t = threading.Thread(target=_init, daemon=True, name="broca-runtime-init")
+        t.start()
+
+
+@app.get("/api/healthz")
+async def healthz() -> Dict[str, Any]:
+    """
+    Lightweight readiness endpoint.
+
+    - Always responds quickly (no runtime init side-effects)
+    - Exposes runtime init state for the frontend and operational debugging
+    """
+    with _runtime_lock:
+        status = _runtime_status
+        started_at = _runtime_init_started_at
+        ready_at = _runtime_ready_at
+        err = _runtime_init_error
+
+    now = time.time()
+    init_age = (now - started_at) if started_at else None
+    return {
+        "status": status,
+        "init_started_at": started_at,
+        "init_ready_at": ready_at,
+        "init_age_sec": init_age,
+        "error": err,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 class RequestState:
@@ -443,9 +531,15 @@ class TitleUpdate(BaseModel):
 
 def get_runtime() -> BrocaRuntime:
     global _runtime
-    if _runtime is None:
-        _runtime = initialize_runtime()
-    return _runtime
+    # Never initialize runtime synchronously on the request path.
+    _ensure_runtime_initializing()
+    with _runtime_lock:
+        if _runtime_status == "ready" and _runtime is not None:
+            return _runtime
+        if _runtime_status == "error":
+            raise HTTPException(status_code=500, detail=f"Runtime initialization failed: {_runtime_init_error}")
+        # initializing / not_started
+        raise HTTPException(status_code=503, detail="Runtime initializing, try again shortly")
 
 def get_storage():
     rt = get_runtime()
@@ -1109,7 +1203,56 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
             except Exception as e:
                 logger.debug(f"Error gathering context for tool filtering in web_api: {e}", exc_info=True)
         
-        tools = rt.tool_registry.to_openai_format(context=context) if rt.tool_registry else None
+        # Get RL-based tool selection with confidence gating
+        rl_selection = None
+        ts_logger = _get_tool_selection_logger()
+        
+        ts_logger.info(
+            f"API_REQUEST | conversation_id={conversation_id} | "
+            f"rl_enabled={app_config.rl.enabled if app_config else False} | "
+            f"user_message_length={len(user_message)}"
+        )
+        
+        if rt.tool_registry and app_config and app_config.rl.enabled:
+            try:
+                rl_selection = rt.tool_registry.get_rl_selection(context=context)
+                if rl_selection:
+                    ts_logger.info(
+                        f"API_RL_SELECTION | conversation_id={conversation_id} | "
+                        f"mode={rl_selection.mode} | confidence={rl_selection.confidence:.2%} | "
+                        f"tool={rl_selection.tool_name} | score={rl_selection.score:.4f} | "
+                        f"alternatives={[(t, f'{s:.4f}') for t, s in rl_selection.alternatives]} | "
+                        f"reason={rl_selection.reason}"
+                    )
+                    
+                    logger.info(
+                        f"RL selection: mode={rl_selection.mode}, tool={rl_selection.tool_name}, "
+                        f"confidence={rl_selection.confidence:.1%}",
+                        extra={
+                            "event": "web_api_rl_selection",
+                            "mode": rl_selection.mode,
+                            "tool": rl_selection.tool_name,
+                            "confidence": rl_selection.confidence,
+                            "reason": rl_selection.reason,
+                        }
+                    )
+                else:
+                    ts_logger.debug(
+                        f"API_RL_SELECTION | conversation_id={conversation_id} | "
+                        f"result=none | reason=ranker_returned_none"
+                    )
+            except Exception as e:
+                ts_logger.warning(
+                    f"API_RL_ERROR | conversation_id={conversation_id} | error={str(e)}"
+                )
+                logger.debug(f"Error getting RL selection in web_api: {e}", exc_info=True)
+        else:
+            ts_logger.debug(
+                f"API_RL_SKIP | conversation_id={conversation_id} | "
+                f"reason={'no_registry' if not rt.tool_registry else 'rl_disabled'}"
+            )
+        
+        tools = rt.tool_registry.to_openai_format(context=context, rl_selection=rl_selection) if rt.tool_registry else None
         
         if tools and not web_search_enabled:
             tools = [t for t in tools if t["function"]["name"] != "web_search"]

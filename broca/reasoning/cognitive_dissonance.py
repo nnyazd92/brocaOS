@@ -203,6 +203,9 @@ class CognitiveDissonanceMonitor:
         self.logical_violations: deque = deque(maxlen=history_window)
         self.factual_errors: deque = deque(maxlen=history_window)
         self.behavioral_deviations: deque = deque(maxlen=history_window)
+        # Behavioral inconsistencies detected from consistency checking of responses
+        # (separate from behavioral deviations inferred from tool usage).
+        self.behavioral_inconsistencies: deque = deque(maxlen=history_window)
         self.goal_conflicts: deque = deque(maxlen=history_window)
         
         # Measurement tracking (for diagnostics)
@@ -215,13 +218,91 @@ class CognitiveDissonanceMonitor:
         self._commitment_strength: Dict[str, float] = {}  # cognition_id -> commitment (0.0-1.0)
         self._commitment_history: deque = deque(maxlen=history_window)
         
+        # Affective monitor reference for dissonance→coherence coupling
+        # When dissonance is reduced, we update coherence_pleasure (resolution_satisfaction)
+        self._affective_monitor: Optional[Any] = None
+        self._previous_dissonance: Optional[float] = None
+        
         # Dissonance reduction strategies tracking
         self._reduction_strategies: deque = deque(maxlen=history_window)
         
         # Signal manager for damping (optional)
         self._signal_manager: Optional[Any] = None
+
+        # Lightweight telemetry: last ingested consistency result (if any)
+        self._last_consistency_ingest: Optional[Dict[str, Any]] = None
         
         logger.info("Initialized CognitiveDissonanceMonitor (with commitment tracking)")
+
+    def observe_consistency_result(
+        self,
+        *,
+        consistency_result: Any,
+        response: Optional[str],
+        conversation_context: Optional[List[Dict[str, Any]]] = None,
+        source: str = "unknown",
+    ) -> None:
+        """
+        Ingest a ConsistencyChecker result into dissonance component histories.
+
+        Motivation:
+        - Consistency checks can be executed outside this monitor (e.g., self-model feedback loop,
+          consistency middleware). If we don't ingest those violations, the dissonance monitor may
+          report logical/factual as unavailable even though a consistency violation occurred.
+
+        This method updates component histories (logical_violations, factual_errors,
+        behavioral_inconsistencies) so subsequent dissonance measurements can rely on history
+        even when response=None.
+        """
+        try:
+            ts = datetime.now(timezone.utc)
+
+            is_consistent = bool(getattr(consistency_result, "is_consistent", True))
+            severity = float(getattr(consistency_result, "severity", 0.0) or 0.0)
+            violations = getattr(consistency_result, "violations", []) or []
+            if not isinstance(violations, list):
+                violations = []
+
+            # Record lightweight telemetry
+            self._last_consistency_ingest = {
+                "timestamp": ts.isoformat(),
+                "source": str(source),
+                "is_consistent": is_consistent,
+                "severity": max(0.0, min(1.0, severity)),
+                "violations_count": len(violations),
+                "types": [v.get("type") for v in violations if isinstance(v, dict)],
+            }
+
+            # Split violations and append to the appropriate histories
+            for v in violations:
+                if not isinstance(v, dict):
+                    continue
+                vtype = str(v.get("type", "unknown")).lower().strip()
+                vsev = v.get("severity", severity)
+                try:
+                    vsev_f = max(0.0, min(1.0, float(vsev)))
+                except Exception:
+                    vsev_f = max(0.0, min(1.0, float(severity)))
+
+                record = {
+                    "timestamp": ts,
+                    "source": str(source),
+                    "severity": vsev_f,
+                    "violation": v,
+                    "evidence": v.get("evidence", ""),
+                    # We store only a short prefix to avoid ballooning memory.
+                    "response_preview": (response or "")[:500],
+                }
+
+                if vtype == "logical":
+                    self.logical_violations.append(record)
+                elif vtype == "factual":
+                    self.factual_errors.append(record)
+                elif vtype == "behavioral":
+                    self.behavioral_inconsistencies.append(record)
+
+        except Exception as e:
+            logger.debug(f"Failed to observe consistency result: {e}", exc_info=True)
     
     def track_commitment(
         self,
@@ -475,6 +556,29 @@ class CognitiveDissonanceMonitor:
                 "measurement_success_count": self._measurement_success_count,
             }
         )
+        
+        # Dissonance→Coherence coupling:
+        # When dissonance is reduced (resolution), update coherence_pleasure
+        if self._affective_monitor is not None and self._previous_dissonance is not None:
+            resolution_delta = self._previous_dissonance - metrics.overall_dissonance
+            if resolution_delta > 0.0:
+                # Dissonance was reduced - this is a resolution
+                try:
+                    # Coherence increases with dissonance resolution
+                    base_coherence = 1.0 - metrics.overall_dissonance
+                    self._affective_monitor.update_coherence_pleasure(
+                        coherence=base_coherence,
+                        resolution_satisfaction=resolution_delta,
+                    )
+                    logger.debug(
+                        f"Dissonance→coherence coupling: delta={resolution_delta:.4f}, "
+                        f"base_coherence={base_coherence:.4f}"
+                    )
+                except Exception as e:
+                    logger.debug(f"Error updating coherence from dissonance: {e}")
+        
+        # Track for next comparison
+        self._previous_dissonance = metrics.overall_dissonance
         
         return metrics
     
@@ -1292,6 +1396,19 @@ Respond with JSON only:
     def set_fact_checker(self, fact_checker: Any) -> None:
         """Set fact checker for web search fact-checking."""
         self.fact_checker = fact_checker
+    
+    def set_affective_monitor(self, affective_monitor: Any) -> None:
+        """
+        Set affective monitor for dissonance→coherence coupling.
+        
+        When dissonance is reduced (contradiction resolved), coherence_pleasure
+        is automatically updated with the resolution_satisfaction delta.
+        
+        Args:
+            affective_monitor: ComputationalAffectMonitor instance
+        """
+        self._affective_monitor = affective_monitor
+        logger.info("Set affective monitor for dissonance→coherence coupling")
     
     def get_aggregated_dissonance(self) -> Dict[str, Any]:
         """

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 import logging
 
 from .logging_config import setup_logging
@@ -23,6 +23,49 @@ from .main_repl import (
     _initialize_reasoning_system,
 )
 
+
+def _initialize_online_policy_ranker() -> Optional[Any]:
+    """
+    Initialize OnlinePolicyRanker for RL-primary tool selection.
+    
+    Returns:
+        OnlinePolicyRanker instance if successfully initialized, None otherwise.
+    """
+    if not config.rl.enabled:
+        logger.debug("RL-primary tool selection is disabled (BROCA_RL_ENABLED=false)")
+        return None
+    
+    try:
+        from .rl.online_policy import OnlinePolicyRanker
+        
+        ranker = OnlinePolicyRanker(
+            model_path=config.rl.model_path,
+            buffer_path=config.rl.buffer_path,
+            force_threshold=config.rl.force_threshold,
+            suggest_threshold=config.rl.suggest_threshold,
+            top_k_suggest=config.rl.top_k_suggest,
+            replay_buffer_size=config.rl.replay_buffer_size,
+            batch_size=config.rl.batch_size,
+            update_frequency=config.rl.update_frequency,
+            learning_rate=config.rl.learning_rate,
+            hidden_dims=tuple(config.rl.hidden_dims),
+            dropout_rate=config.rl.dropout_rate,
+            mc_samples=config.rl.mc_samples,
+        )
+        logger.info(
+            f"✓ OnlinePolicyRanker initialized: "
+            f"force>={config.rl.force_threshold:.0%}, "
+            f"suggest>={config.rl.suggest_threshold:.0%}, "
+            f"<{config.rl.suggest_threshold:.0%}=LLM full choice"
+        )
+        return ranker
+    except ImportError as e:
+        logger.warning(f"PyTorch not available, RL-primary tool selection disabled: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to initialize OnlinePolicyRanker: {e}", exc_info=True)
+        return None
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +80,7 @@ class BrocaRuntime:
     tool_registry: ToolRegistry | None
     environment_system: Any | None
     reasoning_tool: ReasoningTool | None = None
+    online_policy_ranker: Any | None = None  # OnlinePolicyRanker for RL-primary tool selection
     # Cognitive architecture components
     hierarchical_controller: Any | None = None
     recursive_reasoning_engine: Any | None = None
@@ -278,6 +322,15 @@ def initialize_runtime() -> BrocaRuntime:
             logger.warning(f"Failed to initialize reasoning system: {e}", exc_info=True)
             reasoning_tool = None
     
+    # Initialize OnlinePolicyRanker for RL-primary tool selection
+    online_policy_ranker = _initialize_online_policy_ranker()
+    if online_policy_ranker and tool_registry:
+        try:
+            tool_registry.set_online_policy_ranker(online_policy_ranker)
+            logger.info("✓ OnlinePolicyRanker wired to tool registry")
+        except Exception as e:
+            logger.warning(f"Failed to wire OnlinePolicyRanker to tool registry: {e}", exc_info=True)
+    
     # Initialize learning tool independently if enabled (regardless of reasoning integration)
     learning_tool_standalone = None
     if config.learning.enabled:
@@ -419,6 +472,7 @@ def initialize_runtime() -> BrocaRuntime:
         tool_registry=tool_registry,
         environment_system=environment_system,
         reasoning_tool=reasoning_tool,
+        online_policy_ranker=online_policy_ranker,
         hierarchical_controller=hierarchical_controller,
         recursive_reasoning_engine=recursive_reasoning_engine,
         metacognitive_loop=metacognitive_loop,

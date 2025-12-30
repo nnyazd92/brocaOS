@@ -151,11 +151,15 @@ class EmbeddingService:
         Returns:
             Truncated text if needed, otherwise original text
         """
-        # Estimate tokens using character-based approximation
-        estimated_tokens = estimate_tokens(text)
+        # Estimate tokens using character-based approximation.
+        # IMPORTANT: for embeddings, tokenization can be more compact than our generic estimator,
+        # so use a conservative estimate to avoid overlength API errors.
+        estimated_tokens_generic = estimate_tokens(text)
+        estimated_tokens_conservative = (len(text) + 2) // 3  # ~3 chars/token
+        estimated_tokens = max(estimated_tokens_generic, estimated_tokens_conservative)
         
-        # Safety margin to account for estimation errors
-        safety_margin = 100  # tokens
+        # Larger safety margin to account for estimation errors / tokenization variance
+        safety_margin = 500  # tokens
         target_max_tokens = self.max_tokens - safety_margin
         
         if estimated_tokens <= target_max_tokens:
@@ -168,7 +172,10 @@ class EmbeddingService:
         # Re-validate tokens after truncation and truncate further if needed
         MAX_TRUNCATION_ITERATIONS = 5
         for iteration in range(MAX_TRUNCATION_ITERATIONS):
-            estimated_tokens_after = estimate_tokens(truncated_text)
+            estimated_tokens_after = max(
+                estimate_tokens(truncated_text),
+                (len(truncated_text) + 2) // 3,
+            )
             if estimated_tokens_after <= target_max_tokens:
                 break
             
@@ -180,7 +187,10 @@ class EmbeddingService:
             truncated_text = text[:target_chars]
         
         # Final token check
-        final_estimated_tokens = estimate_tokens(truncated_text)
+        final_estimated_tokens = max(
+            estimate_tokens(truncated_text),
+            (len(truncated_text) + 2) // 3,
+        )
         
         logger.warning(
             f"Text exceeds embedding token limit ({estimated_tokens} > {target_max_tokens} tokens). "
@@ -199,6 +209,11 @@ class EmbeddingService:
         )
         
         return truncated_text
+
+    @staticmethod
+    def _is_overlength_error(exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return "maximum context length" in msg or ("requested" in msg and "tokens" in msg)
     
     def generate_embedding(self, text: str) -> List[float]:
         """
@@ -220,23 +235,32 @@ class EmbeddingService:
         # Truncate text if it exceeds token limits
         text_to_embed = self._truncate_text_for_embedding(text.strip())
         
-        try:
-            logger.debug(f"Generating embedding for text (length: {len(text_to_embed)})")
-            
-            response = self._client.embeddings.create(
-                model=self.model,
-                input=text_to_embed
-            )
-            
-            # Extract embedding vector
-            embedding = response.data[0].embedding
-            
-            logger.debug(f"Generated embedding with dimension: {len(embedding)}")
-            return embedding
-            
-        except Exception as e:
-            logger.error(f"Error generating embedding: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to generate embedding: {e}") from e
+        last_exc: Optional[Exception] = None
+        for attempt in range(2):
+            try:
+                logger.debug(f"Generating embedding for text (length: {len(text_to_embed)})")
+                response = self._client.embeddings.create(
+                    model=self.model,
+                    input=text_to_embed
+                )
+                # Extract embedding vector
+                embedding = response.data[0].embedding
+                logger.debug(f"Generated embedding with dimension: {len(embedding)}")
+                return embedding
+            except Exception as e:
+                last_exc = e
+                if attempt == 0 and self._is_overlength_error(e):
+                    # Aggressively truncate and retry once
+                    old_len = len(text_to_embed)
+                    text_to_embed = text_to_embed[: max(1, int(old_len * 0.7))]
+                    logger.warning(
+                        f"Embedding overlength error despite truncation; retrying with shorter input "
+                        f"({old_len} -> {len(text_to_embed)} chars)."
+                    )
+                    continue
+                logger.error(f"Error generating embedding: {e}", exc_info=True)
+                raise RuntimeError(f"Failed to generate embedding: {e}") from e
+        raise RuntimeError(f"Failed to generate embedding: {last_exc}") from last_exc
     
     def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         """
@@ -260,21 +284,25 @@ class EmbeddingService:
         if not valid_texts:
             raise ValueError("No valid texts provided")
         
-        try:
-            logger.debug(f"Generating embeddings for {len(valid_texts)} texts")
-            
-            response = self._client.embeddings.create(
-                model=self.model,
-                input=valid_texts
-            )
-            
-            # Extract all embeddings
-            embeddings = [item.embedding for item in response.data]
-            
-            logger.debug(f"Generated {len(embeddings)} embeddings")
-            return embeddings
-            
-        except Exception as e:
-            logger.error(f"Error generating batch embeddings: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to generate batch embeddings: {e}") from e
+        last_exc: Optional[Exception] = None
+        for attempt in range(2):
+            try:
+                logger.debug(f"Generating embeddings for {len(valid_texts)} texts")
+                response = self._client.embeddings.create(
+                    model=self.model,
+                    input=valid_texts
+                )
+                embeddings = [item.embedding for item in response.data]
+                logger.debug(f"Generated {len(embeddings)} embeddings")
+                return embeddings
+            except Exception as e:
+                last_exc = e
+                if attempt == 0 and self._is_overlength_error(e):
+                    # Aggressively truncate and retry once.
+                    valid_texts = [t[: max(1, int(len(t) * 0.7))] for t in valid_texts]
+                    logger.warning("Embedding batch overlength; retrying with more aggressive truncation.")
+                    continue
+                logger.error(f"Error generating batch embeddings: {e}", exc_info=True)
+                raise RuntimeError(f"Failed to generate batch embeddings: {e}") from e
+        raise RuntimeError(f"Failed to generate batch embeddings: {last_exc}") from last_exc
 
