@@ -329,6 +329,19 @@ class ToolRegistry:
                 }
             )
         
+        # Try to reorder tools using PolicyRanker if available (post-conversion)
+        try:
+            from broca.rl.policy import PolicyRanker
+            pr = PolicyRanker()
+            pr.load_model(None)
+            # Build tool objects map
+            tool_objs = all_tools
+            probs = pr.predict_distribution(context or {}, tool_objs)
+            # reorder tools list by probs
+            tools.sort(key=lambda t: probs.get(t['function']['name'], 0.0), reverse=True)
+        except Exception:
+            pass
+
         return tools
     
     def execute_tool_call(self, tool_call: Dict[str, Any]) -> Dict[str, Any]:
