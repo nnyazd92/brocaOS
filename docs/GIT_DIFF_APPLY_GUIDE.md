@@ -41,3 +41,31 @@ Git diff/patch guide for creating and applying patches
 - Keep patches small and self-contained; include a descriptive commit message if using git format-patch.
 - Use git status and git diff to validate repository state before and after applying patches.
 
+
+
+Unified diff example (mailbox-style patch header used by git format-patch):
+
+From 4c2a4addd4b7f3a1234567890abcdef Mon Sep 17 00:00:00 2001
+From: Author Name <author.email@example.com>
+Date: Tue, 30 Dec 2025 12:45:00 +1000
+Subject: [PATCH 0001/1] Add description of the change
+
+---
+ filename.txt | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/filename.txt b/filename.txt
+index 4c2a4ad..d4b7f3a 100644
+--- a/filename.txt
++++ b/filename.txt
+@@ -1,3 +1,4 @@
+-This is the original line.
++This is the new line.
++Another new line added.
+ This line remains unchanged.
+
+Notes:
+- On Fedora, the 'applypatch' helper may not be present. Use 'git apply' or the 'patch' utility instead:
+  - git apply --check my.patch
+  - git apply --index my.patch
+  - patch -p1 < my.patch
