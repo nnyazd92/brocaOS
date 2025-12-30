@@ -75,11 +75,16 @@ class GuidanceAggregator:
         rl_signal_aggregator: Optional["RLSignalAggregator"] = None,
         skill_manager: Optional["SkillManager"] = None,
         goal_manager: Optional["GoalManager"] = None,
+        policy_ranker: Optional[Any] = None,
     ):
         self.reasoning_tool = reasoning_tool
         self.rl_signal_aggregator = rl_signal_aggregator
         self.skill_manager = skill_manager
         self.goal_manager = goal_manager
+        self.policy_ranker = policy_ranker
+        # TTL cache for policy predictions
+        self._policy_cache = {}
+        self._policy_cache_ttl = 2.0  # seconds
     
     def gather_context(self) -> Dict[str, Any]:
         """
@@ -158,6 +163,39 @@ class GuidanceAggregator:
             except Exception as e:
                 logger.debug(f"Error getting production rules: {e}")
         
+
+    def get_policy_rankings(self, tools: List["Tool"], context: Dict[str, Any]) -> List[ToolRanking]:
+        """Use PolicyRanker to produce ToolRanking list sorted by predicted probability.
+
+        Returns empty list if no policy_ranker is configured.
+        """
+        if not self.policy_ranker:
+            return []
+
+        # Simple cache key based on tools names and a short-time window
+        key = hashlib.sha256(("|".join([t.name for t in tools]) + str(int(time.time()//self._policy_cache_ttl))).encode()).hexdigest()
+        now = time.time()
+        if key in self._policy_cache:
+            val, ts = self._policy_cache[key]
+            if now - ts < self._policy_cache_ttl:
+                return val
+
+        try:
+            probs = self.policy_ranker.predict_distribution(context, tools)
+            rankings: List[ToolRanking] = []
+            for t in tools:
+                name = t.name
+                score = float(probs.get(name, 0.0))
+                rankings.append(ToolRanking(tool_name=name, score=score, expected_reward=score))
+
+            rankings.sort(key=lambda r: r.score, reverse=True)
+            self._policy_cache[key] = (rankings, now)
+            return rankings
+        except Exception as e:
+            logger.debug(f"PolicyRanker error: {e}")
+            return []
+
+
         return context
 
 
