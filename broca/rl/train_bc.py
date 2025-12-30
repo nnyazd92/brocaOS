@@ -3,7 +3,7 @@
 import numpy as np
 from pathlib import Path
 
-base = Path('data/rl/expanded')
+base = Path('data/rl/expanded_live') if Path('data/rl/expanded_live').exists() else Path('data/rl/expanded_rich')
 if not base.exists():
     print('no expanded data, run preprocess_expanded')
     raise SystemExit(1)

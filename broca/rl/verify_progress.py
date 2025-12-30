@@ -21,9 +21,10 @@ clf = joblib.load(model_path)
 
 # prepare X and y
 from numpy import array
-X = np.load('data/rl/expanded_rich/observations.npy')
-y = np.load('data/rl/expanded_rich/actions.npy')
-rews = np.load('data/rl/expanded_rich/rewards.npy')
+base = Path('data/rl/expanded_live') if Path('data/rl/expanded_live').exists() else Path('data/rl/expanded_rich')
+X = np.load(base/'observations.npy')
+y = np.load(base/'actions.npy')
+rews = np.load(base/'rewards.npy')
 
 # frequency baseline: pick most frequent action
 from collections import Counter
@@ -31,9 +32,13 @@ most=Counter(y).most_common(1)[0][0]
 
 # evaluate: model expected reward = average reward of predicted action per sample
 from pathlib import Path
-scaler_path = Path('data/rl/expanded_rich/scaler.joblib')
-if scaler_path.exists():
-    scaler = joblib.load(scaler_path)
+scaler_path_live = Path('data/rl/expanded_live/scaler.joblib')
+scaler_path_rich = Path('data/rl/expanded_rich/scaler.joblib')
+if scaler_path_live.exists():
+    scaler = joblib.load(scaler_path_live)
+    Xs = scaler.transform(X)
+elif scaler_path_rich.exists():
+    scaler = joblib.load(scaler_path_rich)
     Xs = scaler.transform(X)
 else:
     Xs = X
