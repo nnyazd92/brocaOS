@@ -23,3 +23,5 @@ SHUTDOWN_SUMMARY*
 broca_repl.log*
 env.bak
 MagicMock/
+htmlcov/
+.coverage
