@@ -411,6 +411,23 @@ class RLRewardLogger:
                 f"Migrated RL rewards CSV schema in place (preserved rows). "
                 f"Backup: {backup_path.absolute()} Current: {self.log_file.absolute()}"
             )
+                # Also expose composite reward helper and write to rewards JSONL
+                try:
+                    from broca.rl.experiences import append_reward
+                    reward_record = {
+                        "timestamp": row["timestamp"],
+                        "composite_reward": row.get("composite_reward"),
+                        "dissonance_reward": row.get("dissonance_reward"),
+                        "surprise_reward": row.get("surprise_reward"),
+                        "curiosity_reward": row.get("curiosity_reward"),
+                        "info_gain": row.get("information_gain_reward"),
+                        "context": context,
+                    }
+                    append_reward(reward_record)
+                except Exception:
+                    pass
+
+
         except Exception as e:
             logger.warning(f"Failed RL rewards CSV in-place schema migration: {e}", exc_info=True)
     
@@ -446,19 +463,3 @@ class RLRewardLogger:
             }
         )
 
-
-            # Also expose composite reward helper and write to rewards JSONL
-            try:
-                from broca.rl.experiences import append_reward
-                reward_record = {
-                    "timestamp": row["timestamp"],
-                    "composite_reward": row.get("composite_reward"),
-                    "dissonance_reward": row.get("dissonance_reward"),
-                    "surprise_reward": row.get("surprise_reward"),
-                    "curiosity_reward": row.get("curiosity_reward"),
-                    "info_gain": row.get("information_gain_reward"),
-                    "context": context,
-                }
-                append_reward(reward_record)
-            except Exception:
-                pass
