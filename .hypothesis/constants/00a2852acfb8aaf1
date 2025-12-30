@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/memory/storage.py
-# hypothesis_version: 6.148.7
-
-[86400, ' AND ', ' OR ', ',', '1=1', '?', 'UNIQUE constraint', 'average_age_days', 'bidirectional', 'both', 'created_at', 'embedding', 'id', 'importance', 'incoming', 'last_used_at', 'metadata', 'namespace', 'namespace LIKE ?', 'newest_age_days', 'oldest_age_days', 'outgoing', 'relation_type', 'relation_type = ?', 'source_id', 'source_id = ?', 'source_metadata', 'source_type', 'strength', 'tags', 'tags LIKE ?', 'target_id', 'target_id = ?', 'temporal_scope', 'text', 'total_memories', 'v0.1', 'valid_from', 'valid_until']

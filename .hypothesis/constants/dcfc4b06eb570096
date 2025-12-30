@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/memory/temporal_consistency.py
-# hypothesis_version: 6.148.7
-
-['consistent', 'contradictions', 'cycles', 'issue', 'memory1_id', 'memory2_id', 'ordering_issues', 'relation_type', 'relationships', 'source_id', 'target_id', 'total_issues']

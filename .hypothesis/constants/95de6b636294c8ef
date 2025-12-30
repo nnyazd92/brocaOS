@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/epistemic/layer.py
-# hypothesis_version: 6.148.7
-
-['EpistemicLayer', 'creation_event', 'dependencies', 'dependents', 'inference_chains', 'json', 'knowledge_sources', 'model_dump', 'temporal_dynamics', 'timestamp', 'verification_history']

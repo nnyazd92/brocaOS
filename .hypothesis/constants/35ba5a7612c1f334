@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/layer.py
-# hypothesis_version: 6.148.7
-
-[0.05, 0.9, 1.0, 'confirmed', 'consistency_check', 'description', 'response_consistent', 'unknown', 'version']

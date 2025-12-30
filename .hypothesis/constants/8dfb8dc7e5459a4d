@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/llm/deepseek_client.py
-# hypothesis_version: 6.148.7
-
-[10.0, 100, 200, '...', '/chat/completions', 'Authorization', 'Content-Type', 'NOT_PRESENT', 'POST', 'Sending chat request', '[DONE]', 'api_error', 'application/json', 'assistant', 'choices', 'choices_count', 'content', 'data: ', 'deepseek-reasoner', 'delta', 'event', 'has_tool_calls', 'index', 'is_reasoner', 'llm_request', 'llm_request_stream', 'llm_response', 'message', 'messages', 'messages_count', 'model', 'reasoning_content', 'reasoning_length', 'reasoning_value', 'role', 'status_code', 'stream', 'system', 'temperature', 'tool', 'tool_calls', 'tools', 'tools_count', 'usage', 'user']

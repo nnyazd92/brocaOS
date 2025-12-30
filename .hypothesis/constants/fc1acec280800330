@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/token_auth/defaults.py
-# hypothesis_version: 6.148.7
-
-[300, '.', 'BROCA_PROFILE.json', 'Nick Yazdani', 'config', 'email', 'filesystem:write', 'git', 'memory:write', 'name', 'nick.yazdani', 'project:write', 'r', 'sub', 'user.email', 'user.name', 'utf-8']

@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/memory/conflict/strategies.py
-# hypothesis_version: 6.148.7
-
-[0.0, 0.5, 100, ' | ', 'consensus', 'different_periods', 'keep_both', 'keep_important', 'keep_new', 'merge', 'system.architecture', 'system.critical', 'test', 'user.health', 'user.interests', 'user.personal_info', 'user.preferences']

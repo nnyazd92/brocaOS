@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/epistemic/__init__.py
-# hypothesis_version: 6.148.7
-
-['ConfidenceCalibrator', 'ConfidenceMetrics', 'EpistemicLayer', 'InferenceNode', 'InferenceTracker', 'KnowledgeEvolution', 'KnowledgeID', 'KnowledgeIntegrator', 'MetacognitiveEngine', 'SourceMetadata', 'SourceType', 'SourceValidator', 'UncertaintyManager', 'VerificationRecord']

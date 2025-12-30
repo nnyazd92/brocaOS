@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/tools/logging_utils.py
-# hypothesis_version: 6.148.7
-
-[0.0, 100, 200, 1000, '...', '... (truncated)', 'DEBUG', 'arguments', 'event', 'execution_time_ms', 'formatted_result', 'function', 'id', 'name', 'raw_tool_call', 'result', 'tool_call_executing', 'tool_call_id', 'tool_call_received', 'tool_call_result', 'tool_name', 'unknown', '{}']

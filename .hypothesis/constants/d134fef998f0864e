@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/actuators/safety.py
-# hypothesis_version: 6.148.7
-
-[0.0, 1.0, '0s', 'max_on_time', 'motion_limits', 'power', 'power_limit', 'temperature_limit', 'temporal_limits', 'x', 'y', 'z']

@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/model.py
-# hypothesis_version: 6.148.7
-
-[0.5, 'Capabilities:', 'Constraints:', 'EpistemicLayer', 'Self-Model Summary:', 'append', 'capabilities', 'confidence', 'constraints', 'created_at', 'description', 'epistemic_layer', 'knowledge_boundaries', 'last_updated', 'memory', 'memory_id', 'merge', 'metadata', 'name', 'real_time_info', 'source', 'text', 'to_dict', 'training_cutoff', 'type', 'unknown', 'update', 'value', 'version']

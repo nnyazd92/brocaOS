@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/tools/self_model_tool.py
-# hypothesis_version: 6.148.7
-
-['Behavioral Patterns:', 'Capabilities:', 'Constraints:', 'Metadata:', 'Preferences:', 'additionalProperties', 'all', 'array', 'aspect', 'behavioral_patterns', 'capabilities', 'constraints', 'default', 'description', 'enum', 'epistemic', 'epistemic_context', 'epistemic_layer', 'error', 'has_epistemic_layer', 'items', 'knowledge_boundaries', 'knowledge_contexts', 'last_updated', 'load', 'manual_update', 'message', 'metadata', 'object', 'preferences', 'properties', 'query_self_model', 'rationale', 'required', 'self_model', 'string', 'success', 'summary', 'text', 'type', 'unknown', 'update_rationale', 'update_reason', 'update_self_model', 'updated_aspects', 'updates', 'version']

@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/epistemic/inference.py
-# hypothesis_version: 6.148.7
-
-[0.0, 0.5, 0.7, 1.0, 'EpistemicLayer', 'affected_count', 'affected_nodes', 'assumption', 'contradicts_with', 'high', 'impact', 'knowledge_id', 'low', 'medium', 'none', 'severity', 'strength']
