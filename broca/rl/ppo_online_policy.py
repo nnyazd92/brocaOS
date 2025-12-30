@@ -26,48 +26,14 @@ import numpy as np
 from .ppo_policy import PPOConfig, PPOPolicy
 from .features import RL_SIGNAL_KEYS, extract_state_features
 from .reward import RewardWeights, compute_reward_from_outcome
+from .tool_selection_logging import get_tool_selection_logger
 
 logger = logging.getLogger(__name__)
 
-# Dedicated logger for tool selection debug output (same file as online_policy.py)
-tool_selection_logger = logging.getLogger("broca.rl.tool_selection")
-_tool_selection_logging_initialized = False
-
-
-def _setup_tool_selection_logging() -> None:
-    """Configure dedicated file handler for tool selection logging."""
-    global _tool_selection_logging_initialized
-    if _tool_selection_logging_initialized:
-        return
-
-    try:
-        log_path = Path("data/rl/tool_selection.log")
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
-        file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
-        file_handler.setLevel(logging.DEBUG)
-        formatter = logging.Formatter(
-            "%(asctime)s | %(levelname)-5s | %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        file_handler.setFormatter(formatter)
-
-        # Prevent duplicate handlers if both online_policy and ppo_online_policy get imported
-        if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == str(log_path) for h in tool_selection_logger.handlers):
-            tool_selection_logger.addHandler(file_handler)
-
-        tool_selection_logger.setLevel(logging.DEBUG)
-        tool_selection_logger.propagate = False
-
-        _tool_selection_logging_initialized = True
-        tool_selection_logger.info("=" * 80)
-        tool_selection_logger.info("TOOL SELECTION LOGGING INITIALIZED (PPO)")
-        tool_selection_logger.info("=" * 80)
-    except Exception as e:
-        logger.warning(f"Failed to setup tool selection logging: {e}")
-
-
-_setup_tool_selection_logging()
+tool_selection_logger = get_tool_selection_logger()
+tool_selection_logger.info("=" * 80)
+tool_selection_logger.info("TOOL SELECTION LOGGING INITIALIZED (PPO)")
+tool_selection_logger.info("=" * 80)
 
  # RL signal key order is shared across all policies/dataset builders.
 

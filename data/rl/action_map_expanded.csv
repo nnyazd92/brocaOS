@@ -1,0 +1,15 @@
+tool_name,action_id
+terminal,0
+web_search,1
+store_memory,2
+planning,3
+reasoning,4
+retrieve_memories,5
+delete_memory,6
+update_memory,7
+link_memories,8
+get_related_memories,9
+memory_graph,10
+self_model_crud,11
+environment_access,12
+learning,13

@@ -1017,6 +1017,25 @@ def _initialize_reasoning_system(
             if affective_monitor:
                 cognitive_dissonance_monitor.set_affective_monitor(affective_monitor)
                 logger.info("✓ Wired dissonance→coherence coupling via affective monitor")
+            # Critical: persist dissonance state on updates (not only on daemon cycle)
+            if state_manager:
+                try:
+                    def _persist_dissonance_state() -> None:
+                        try:
+                            state_manager.mark_changed()
+                            state_manager.save_state(
+                                rule_system=reasoning_tool.rule_system,
+                                goal_manager=reasoning_tool.goal_manager,
+                                working_memory=reasoning_tool.rule_system.working_memory,
+                                dissonance_monitor=cognitive_dissonance_monitor,
+                            )
+                        except Exception:
+                            return
+
+                    cognitive_dissonance_monitor.set_persistence_hook(_persist_dissonance_state, min_interval_seconds=5.0)
+                    logger.info("✓ Wired dissonance persistence hook (state manager)")
+                except Exception as e:
+                    logger.warning(f"Failed to wire dissonance persistence hook: {e}", exc_info=True)
         if self_model_feedback_loop:
             reasoning_tool.self_model_feedback_loop = self_model_feedback_loop
         if affect_monitor:

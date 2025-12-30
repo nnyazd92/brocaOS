@@ -12,6 +12,7 @@ import logging
 import os
 import threading
 import time
+import tempfile
 from pathlib import Path
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from datetime import datetime, timezone
@@ -159,9 +160,13 @@ class ReasoningStateManager:
             current_time = time.time()
             time_since_save = current_time - self._last_save_time
             
-            if not force and not self._pending_changes:
+            if not force:
+                # Always respect auto-save interval (even if pending changes) to avoid
+                # thrashing disk writes on frequent small updates.
                 if time_since_save < self.auto_save_interval:
-                    return True  # No changes and too soon for auto-save
+                    return True
+                if not self._pending_changes:
+                    return True  # No changes, nothing to do
             
             try:
                 # Create backup if enabled
@@ -193,12 +198,22 @@ class ReasoningStateManager:
                 if dissonance_monitor:
                     state_data["dissonance_monitor"] = self._serialize_dissonance_monitor(dissonance_monitor)
                 
-                # Atomic write: write to temp file, then rename
-                temp_path = f"{self.state_file_path}.tmp"
-                with open(temp_path, "w") as f:
+                # Atomic write: write to a uniquely named temp file in the same directory, fsync, then rename.
+                state_path = Path(self.state_file_path)
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=str(state_path.parent),
+                    prefix=state_path.name + ".",
+                    suffix=".tmp",
+                    delete=False,
+                ) as f:
+                    temp_path = f.name
                     json.dump(state_data, f, indent=2)
-                
-                # Atomic rename
+                    f.flush()
+                    os.fsync(f.fileno())
+
                 os.replace(temp_path, self.state_file_path)
                 
                 self._state_version = state_data["state_version"]
@@ -527,4 +542,3 @@ class ReasoningStateManager:
             working_memory.associations = state["associations"]
         
         logger.debug(f"Restored {len(working_memory.items)} items to working memory")
-
