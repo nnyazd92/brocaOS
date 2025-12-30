@@ -1,0 +1,75 @@
+{
+  "memories": [
+    {
+      "namespace": "projects.memory",
+      "text": "Collect dataset for training",
+      "importance": 0.65,
+      "tags": ["data", "ingest"]
+    },
+    {
+      "namespace": "projects.memory",
+      "text": "Train model on curated dataset",
+      "importance": 0.75,
+      "tags": ["model", "train"]
+    },
+    {
+      "namespace": "projects.memory.deployment",
+      "text": "Deploy model to staging",
+      "importance": 0.85,
+      "tags": ["deploy", "staging"]
+    }
+  ],
+  "relationships": [
+    {
+      "source": 0,
+      "target": 1,
+      "type": "precedes",
+      "strength": 0.9
+    },
+    {
+      "source": 1,
+      "target": 2,
+      "type": "precedes",
+      "strength": 0.9
+    },
+    {
+      "source": 0,
+      "target": 1,
+      "type": "supports",
+      "strength": 0.6
+    }
+  ],
+  "queries": [
+    {
+      "description": "temporal chain across namespaces",
+      "params": {
+        "query": "model",
+        "namespaces": ["projects.memory", "projects.memory.deployment"],
+        "limit": 5,
+        "order_by_temporal": true
+      },
+      "expected_order": [
+        "Collect dataset for training",
+        "Train model on curated dataset",
+        "Deploy model to staging"
+      ]
+    },
+    {
+      "description": "namespace filtered retrieval",
+      "params": {
+        "query": "dataset",
+        "namespaces": ["projects.memory"],
+        "limit": 3,
+        "order_by_temporal": true
+      },
+      "expected_order": [
+        "Collect dataset for training",
+        "Train model on curated dataset"
+      ],
+      "expected_relationships": {
+        "memory_index": 1,
+        "relation_types": ["supports", "precedes"]
+      }
+    }
+  ]
+}

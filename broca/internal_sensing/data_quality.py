@@ -27,6 +27,39 @@ class DataQuality(str, Enum):
     MISSING = "missing"  # No data available, maximum uncertainty
 
 
+def measurement_uncertainty_from_quality(
+    q: Optional[str],
+    sample_size: Optional[int] = None,
+) -> float:
+    """
+    Map a data-quality label (+ optional sample size) to a measurement uncertainty scalar in [0, 1].
+
+    This is intentionally *not* epistemic uncertainty. It answers: \"how confident are we that this
+    measured signal value is stable/reliable\", based on how much data supports it.
+    """
+    qn = str(q).strip().lower() if q is not None else "missing"
+
+    base_map = {
+        DataQuality.HIGH.value: 0.05,
+        DataQuality.MEDIUM.value: 0.15,
+        DataQuality.LOW.value: 0.30,
+        DataQuality.INSUFFICIENT.value: 0.60,
+        DataQuality.MISSING.value: 0.90,
+        "unknown": 0.90,
+    }
+    base = float(base_map.get(qn, 0.90))
+
+    # If we have a sample size, tighten uncertainty as sample size grows.
+    # This is a light heuristic, not a full Bayesian measurement model.
+    if isinstance(sample_size, int) and sample_size > 0:
+        # By ~100 samples we should be near the base; by ~10 we allow higher.
+        # Multiplicative decay keeps ordering but provides nuance.
+        # clamp factor to [0.5, 1.5]
+        factor = max(0.5, min(1.5, 10.0 / float(min(sample_size, 100))))
+        base = max(0.0, min(1.0, base * factor))
+
+    return max(0.0, min(1.0, float(base)))
+
 def beta_posterior_mean(alpha: float, beta: float) -> float:
     """
     Calculate mean of Beta distribution.

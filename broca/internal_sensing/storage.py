@@ -41,6 +41,7 @@ class InternalSensingStorage:
         cognitive_histories: Dict[str, List[Dict[str, Any]]],
         affective_histories: Dict[str, List[float]],
         physiology_histories: Dict[str, List[float]],
+        predictive_state: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Save moving average histories to disk.
@@ -56,6 +57,7 @@ class InternalSensingStorage:
                 "cognitive": cognitive_histories,
                 "affective": affective_histories,
                 "physiology": physiology_histories,
+                "predictive": predictive_state or {},
                 "last_saved": datetime.utcnow().isoformat() + "Z",
             }
             
@@ -113,6 +115,7 @@ class InternalSensingStorage:
                 "cognitive": data.get("cognitive", {}),
                 "affective": data.get("affective", {}),
                 "physiology": data.get("physiology", {}),
+                "predictive": data.get("predictive", {}),
             }
             
             logger.info(f"Loaded internal sensing state from {self.state_path}")

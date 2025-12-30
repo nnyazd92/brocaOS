@@ -157,12 +157,18 @@ class HierarchicalController:
         
         # Enrich with goal manager state if available
         if self.goal_manager:
-            active_goals = self.goal_manager.get_active_goals()
-            context["active_goals_count"] = len(active_goals)
-            if active_goals:
-                context["max_goal_priority"] = max(g.priority for g in active_goals)
-                context["avg_goal_priority"] = sum(g.priority for g in active_goals) / len(active_goals)
-            else:
+            try:
+                active_goals = self.goal_manager.get_active_goals()
+                context["active_goals_count"] = len(active_goals)
+                if active_goals:
+                    context["max_goal_priority"] = max(g.priority for g in active_goals)
+                    context["avg_goal_priority"] = sum(g.priority for g in active_goals) / len(active_goals)
+                else:
+                    context["max_goal_priority"] = 0.0
+                    context["avg_goal_priority"] = 0.0
+            except Exception as e:
+                logger.warning(f"Error reading active goals from goal_manager: {e}", exc_info=True)
+                context["active_goals_count"] = 0
                 context["max_goal_priority"] = 0.0
                 context["avg_goal_priority"] = 0.0
         
@@ -217,6 +223,37 @@ class HierarchicalController:
         )
         
         return decision
+
+    # Backward-compatible API (tests + older callers)
+    def make_decision(self, goal_name: str, context: Dict[str, Any]) -> ControlDecision:
+        """
+        Backward-compatible wrapper around `route_decision`.
+
+        The unit tests (and older code) call `make_decision(goal_name, context)`.
+        We map that into the richer routing context expected by `route_decision`.
+        """
+        ctx = dict(context or {})
+        ctx["goal_name"] = goal_name
+
+        # Normalize priority inputs
+        priority = ctx.get("goal_priority", ctx.get("priority", 0.0))
+        try:
+            priority_f = float(priority) if priority is not None else 0.0
+        except Exception:
+            priority_f = 0.0
+        priority_f = max(0.0, min(1.0, priority_f))
+        ctx["goal_priority"] = priority_f
+
+        # If no explicit action_type is provided, infer one from priority so default policies apply.
+        if not ctx.get("action_type"):
+            if priority_f >= max(0.0, float(self.strategic_threshold)):
+                ctx["action_type"] = "modify_goal"
+            elif priority_f >= max(0.0, float(self.tactical_threshold)):
+                ctx["action_type"] = "decompose_goal"
+            else:
+                ctx["action_type"] = "execute_rule"
+
+        return self.route_decision(ctx)
     
     def _compute_confidence(
         self,
@@ -267,6 +304,7 @@ class HierarchicalController:
         )
         
         return {
+            "status": "ok",
             "total_decisions": len(self.decision_history),
             "decisions_by_level": level_counts,
             "avg_confidence_by_level": level_confidence,

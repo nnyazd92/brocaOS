@@ -960,10 +960,14 @@ class ComputationalAffectMonitor:
 
     
     
-    def update_surprise(self, prediction_error: float,
-                       kl_divergence: Optional[float] = None,
-                       semantic_surprise: Optional[float] = None,
-                       contextual_weight: Optional[float] = None) -> None:
+    def update_surprise(
+        self,
+        prediction_error: float,
+        kl_divergence: Optional[float] = None,
+        semantic_surprise: Optional[float] = None,
+        contextual_weight: Optional[float] = None,
+        calibrated_surprise: Optional[float] = None,
+    ) -> None:
         """
         Update surprise with multi-scale and information-theoretic measures.
         
@@ -973,7 +977,11 @@ class ComputationalAffectMonitor:
             semantic_surprise: Optional semantic surprise from embeddings (0.0-1.0)
             contextual_weight: Optional importance/relevance weight (0.0-1.0)
         """
-        base_surprise = max(0.0, min(1.0, prediction_error))
+        # Prefer calibrated surprise if provided (already bounded 0..1)
+        if calibrated_surprise is not None:
+            base_surprise = max(0.0, min(1.0, float(calibrated_surprise)))
+        else:
+            base_surprise = max(0.0, min(1.0, float(prediction_error)))
         
         # Use KL divergence if available (more principled than simple difference)
         if kl_divergence is not None:
@@ -1028,12 +1036,17 @@ class ComputationalAffectMonitor:
                     f"semantic={semantic_surprise}, context={contextual_weight}, "
                     f"short_term={short_term:.3f}, long_term={long_term:.3f}, final={overall_surprise:.3f}")
 
-    def update_from_cognitive(self, cognitive_monitor: "CognitiveStateMonitor") -> None:
+    def update_from_cognitive(
+        self,
+        cognitive_monitor: "CognitiveStateMonitor",
+        prediction_error: Optional[float] = None,
+    ) -> None:
         """
         Update affective states from cognitive monitor.
         
         Args:
             cognitive_monitor: CognitiveStateMonitor instance
+            prediction_error: Optional prediction error from PredictiveInteroception (0.0-1.0)
         """
         # Update certainty affect from confidence (always update, using defaults if None)
         confidence = cognitive_monitor.states.get("confidence_level")
@@ -1054,11 +1067,10 @@ class ComputationalAffectMonitor:
         attention_total = sum(attention_allocation.values())
         interest = min(attention_total, 1.0) if attention_total > 0 else 0.0
         
-        # Get prediction error if available from predictive interoception
-        # (This would need to be passed in or accessed via a reference)
-        prediction_error = None  # Will be set by integrated_interoception if available
-        
-        logger.debug(f"update_from_cognitive: updating curiosity_drive from uncertainty={uncertainty:.3f}, interest={interest:.3f}")
+        logger.debug(
+            f"update_from_cognitive: updating curiosity_drive from uncertainty={uncertainty:.3f}, "
+            f"interest={interest:.3f}, prediction_error={prediction_error}"
+        )
         self.compute_curiosity_drive(uncertainty, interest, prediction_error=prediction_error)
     
     def record_motivational_drive(self, drive_type: str, level: float) -> None:

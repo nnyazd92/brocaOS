@@ -344,4 +344,67 @@ except Exception as e:
     print("===Z3_RESULT_END===")
 """
         return script
+    
+    def format_result(self, result: Dict[str, Any]) -> str:
+        """
+        Format Z3 validation result for LLM consumption.
+        
+        Args:
+            result: Tool execution result dictionary
+            
+        Returns:
+            Formatted string representation of the Z3 validation result
+        """
+        if not isinstance(result, dict):
+            return str(result)
+        
+        result_type = result.get("result", "unknown")
+        z3_available = result.get("z3_available", False)
+        
+        if not z3_available:
+            return f"Z3 Validation Error: {result.get('error', 'Z3 is not available')}"
+        
+        if result_type == "error":
+            error_msg = result.get("error", "Unknown error")
+            output = result.get("output", "")
+            if output:
+                return f"Z3 Validation Error: {error_msg}\n\nOutput:\n{output}"
+            return f"Z3 Validation Error: {error_msg}"
+        
+        lines = [f"Z3 Validation Result: {result_type.upper()}"]
+        
+        if result_type == "sat":
+            model = result.get("model")
+            if model:
+                lines.append("\nSatisfying Assignment:")
+                for var, value in model.items():
+                    lines.append(f"  {var} = {value}")
+            else:
+                lines.append("\nPlan is satisfiable (satisfying assignment not captured)")
+        
+        elif result_type == "unsat":
+            unsat_core = result.get("unsat_core")
+            if unsat_core:
+                lines.append("\nUnsatisfiable Core (conflicting constraints):")
+                for constraint in unsat_core:
+                    lines.append(f"  - {constraint}")
+            else:
+                lines.append("\nPlan is unsatisfiable (unsat core not captured)")
+        
+        elif result_type == "unknown":
+            lines.append("\nZ3 could not determine satisfiability (timeout or incomplete)")
+        
+        # Add output if available
+        output = result.get("output", "")
+        if output and len(output) < 500:  # Only include short output
+            lines.append(f"\nExecution Output:\n{output}")
+        elif output:
+            lines.append(f"\nExecution Output (truncated):\n{output[:500]}...")
+        
+        # Add note if present
+        note = result.get("note")
+        if note:
+            lines.append(f"\nNote: {note}")
+        
+        return "\n".join(lines)
 

@@ -67,13 +67,42 @@ class DissonanceMetrics:
     })
     
     def compute_overall(self) -> float:
-        """Compute overall dissonance from component scores."""
-        self.overall_dissonance = (
-            self.logical_dissonance * self.weight_logical +
-            self.factual_dissonance * self.weight_factual +
-            self.behavioral_dissonance * self.weight_behavioral +
-            self.goal_dissonance * self.weight_goal
-        )
+        """
+        Compute overall dissonance from component scores.
+
+        Missingness semantics (reward-shaping safety):
+        - If a component is unavailable, it is DROPPED from the aggregation.
+        - We renormalize weights over available components.
+        - If no components are available, overall dissonance is neutral (0.5) and
+          has_sufficient_data is set False.
+        """
+        components = [
+            ("logical", float(self.logical_dissonance), float(self.weight_logical)),
+            ("factual", float(self.factual_dissonance), float(self.weight_factual)),
+            ("behavioral", float(self.behavioral_dissonance), float(self.weight_behavioral)),
+            ("goal", float(self.goal_dissonance), float(self.weight_goal)),
+        ]
+
+        num = 0.0
+        den = 0.0
+        for name, value, w in components:
+            if not self.component_availability.get(name, False):
+                continue
+            # Defensive clamps
+            value = max(0.0, min(1.0, float(value)))
+            w = max(0.0, float(w))
+            num += value * w
+            den += w
+
+        if den <= 0.0:
+            # No usable components => neutral overall dissonance
+            self.overall_dissonance = 0.5
+            self.has_sufficient_data = False
+            return self.overall_dissonance
+
+        self.overall_dissonance = max(0.0, min(1.0, num / den))
+        # At least one component contributed
+        self.has_sufficient_data = True
         return self.overall_dissonance
 
 
@@ -99,7 +128,6 @@ class CognitiveDissonanceMonitor:
         weight_behavioral: float = 0.2,
         weight_goal: float = 0.2,
         memory_manager: Optional[Any] = None,
-        z3_validator: Optional[Any] = None,
         fact_checker: Optional[Any] = None,
         goal_manager: Optional[Any] = None,
         llm_client: Optional["LLMClient"] = None
@@ -117,7 +145,6 @@ class CognitiveDissonanceMonitor:
             weight_behavioral: Weight for behavioral dissonance in overall score
             weight_goal: Weight for goal dissonance in overall score
             memory_manager: Optional MemoryManager for memory conflict detection
-            z3_validator: Optional Z3LogicalValidator for logical validation
             fact_checker: Optional FactChecker for web search fact-checking
             goal_manager: Optional GoalManager for extracting active reasoning goals
             llm_client: Optional LLMClient for LLM-based goal conflict detection
@@ -127,7 +154,7 @@ class CognitiveDissonanceMonitor:
         self.epistemic_engine = epistemic_engine
         self.history_window = history_window
         self.memory_manager = memory_manager
-        self.z3_validator = z3_validator
+        # Note: z3_validator has been removed. Use the z3_validate tool instead.
         self.fact_checker = fact_checker
         self.goal_manager = goal_manager
         
@@ -176,6 +203,9 @@ class CognitiveDissonanceMonitor:
         self.logical_violations: deque = deque(maxlen=history_window)
         self.factual_errors: deque = deque(maxlen=history_window)
         self.behavioral_deviations: deque = deque(maxlen=history_window)
+        # Behavioral inconsistencies detected from consistency checking of responses
+        # (separate from behavioral deviations inferred from tool usage).
+        self.behavioral_inconsistencies: deque = deque(maxlen=history_window)
         self.goal_conflicts: deque = deque(maxlen=history_window)
         
         # Measurement tracking (for diagnostics)
@@ -188,13 +218,91 @@ class CognitiveDissonanceMonitor:
         self._commitment_strength: Dict[str, float] = {}  # cognition_id -> commitment (0.0-1.0)
         self._commitment_history: deque = deque(maxlen=history_window)
         
+        # Affective monitor reference for dissonance→coherence coupling
+        # When dissonance is reduced, we update coherence_pleasure (resolution_satisfaction)
+        self._affective_monitor: Optional[Any] = None
+        self._previous_dissonance: Optional[float] = None
+        
         # Dissonance reduction strategies tracking
         self._reduction_strategies: deque = deque(maxlen=history_window)
         
         # Signal manager for damping (optional)
         self._signal_manager: Optional[Any] = None
+
+        # Lightweight telemetry: last ingested consistency result (if any)
+        self._last_consistency_ingest: Optional[Dict[str, Any]] = None
         
         logger.info("Initialized CognitiveDissonanceMonitor (with commitment tracking)")
+
+    def observe_consistency_result(
+        self,
+        *,
+        consistency_result: Any,
+        response: Optional[str],
+        conversation_context: Optional[List[Dict[str, Any]]] = None,
+        source: str = "unknown",
+    ) -> None:
+        """
+        Ingest a ConsistencyChecker result into dissonance component histories.
+
+        Motivation:
+        - Consistency checks can be executed outside this monitor (e.g., self-model feedback loop,
+          consistency middleware). If we don't ingest those violations, the dissonance monitor may
+          report logical/factual as unavailable even though a consistency violation occurred.
+
+        This method updates component histories (logical_violations, factual_errors,
+        behavioral_inconsistencies) so subsequent dissonance measurements can rely on history
+        even when response=None.
+        """
+        try:
+            ts = datetime.now(timezone.utc)
+
+            is_consistent = bool(getattr(consistency_result, "is_consistent", True))
+            severity = float(getattr(consistency_result, "severity", 0.0) or 0.0)
+            violations = getattr(consistency_result, "violations", []) or []
+            if not isinstance(violations, list):
+                violations = []
+
+            # Record lightweight telemetry
+            self._last_consistency_ingest = {
+                "timestamp": ts.isoformat(),
+                "source": str(source),
+                "is_consistent": is_consistent,
+                "severity": max(0.0, min(1.0, severity)),
+                "violations_count": len(violations),
+                "types": [v.get("type") for v in violations if isinstance(v, dict)],
+            }
+
+            # Split violations and append to the appropriate histories
+            for v in violations:
+                if not isinstance(v, dict):
+                    continue
+                vtype = str(v.get("type", "unknown")).lower().strip()
+                vsev = v.get("severity", severity)
+                try:
+                    vsev_f = max(0.0, min(1.0, float(vsev)))
+                except Exception:
+                    vsev_f = max(0.0, min(1.0, float(severity)))
+
+                record = {
+                    "timestamp": ts,
+                    "source": str(source),
+                    "severity": vsev_f,
+                    "violation": v,
+                    "evidence": v.get("evidence", ""),
+                    # We store only a short prefix to avoid ballooning memory.
+                    "response_preview": (response or "")[:500],
+                }
+
+                if vtype == "logical":
+                    self.logical_violations.append(record)
+                elif vtype == "factual":
+                    self.factual_errors.append(record)
+                elif vtype == "behavioral":
+                    self.behavioral_inconsistencies.append(record)
+
+        except Exception as e:
+            logger.debug(f"Failed to observe consistency result: {e}", exc_info=True)
     
     def track_commitment(
         self,
@@ -297,7 +405,6 @@ class CognitiveDissonanceMonitor:
             f"goals={len(reasoning_goals) if reasoning_goals else 0}, "
             f"components: consistency_checker={self.consistency_checker is not None}, "
             f"fact_checker={self.fact_checker is not None}, "
-            f"z3_validator={self.z3_validator is not None if self.z3_validator else False}, "
             f"memory_manager={self.memory_manager is not None}"
         )
         
@@ -323,14 +430,12 @@ class CognitiveDissonanceMonitor:
                 metrics.component_availability["logical"] = len(self.logical_violations) > 0
                 if not metrics.component_availability["logical"]:
                     metrics.measurement_quality = "error"
-                    metrics.has_sufficient_data = False
         else:
             # Use historical average if no current measurement
             metrics.logical_dissonance = self._get_average_logical_dissonance()
             metrics.component_availability["logical"] = len(self.logical_violations) > 0
             if not metrics.component_availability["logical"]:
                 metrics.measurement_quality = "estimated"
-                metrics.has_sufficient_data = False
         
         # Measure factual dissonance
         if response:
@@ -344,13 +449,11 @@ class CognitiveDissonanceMonitor:
                 metrics.component_availability["factual"] = len(self.factual_errors) > 0
                 if not metrics.component_availability["factual"]:
                     metrics.measurement_quality = "error"
-                    metrics.has_sufficient_data = False
         else:
             metrics.factual_dissonance = self._get_average_factual_dissonance()
             metrics.component_availability["factual"] = len(self.factual_errors) > 0
             if not metrics.component_availability["factual"]:
                 metrics.measurement_quality = "estimated"
-                metrics.has_sufficient_data = False
         
         # Measure behavioral dissonance
         # Try to extract tool_usage from conversation_context if not provided
@@ -393,13 +496,11 @@ class CognitiveDissonanceMonitor:
                 metrics.component_availability["goal"] = len(self.goal_conflicts) > 0
                 if not metrics.component_availability["goal"]:
                     metrics.measurement_quality = "error"
-                    metrics.has_sufficient_data = False
         else:
             metrics.goal_dissonance = self._get_average_goal_dissonance()
             metrics.component_availability["goal"] = len(self.goal_conflicts) > 0
             if not metrics.component_availability["goal"]:
                 metrics.measurement_quality = "estimated"
-                metrics.has_sufficient_data = False
         
         # If no components have data, mark as unavailable
         if not any(metrics.component_availability.values()):
@@ -434,22 +535,50 @@ class CognitiveDissonanceMonitor:
         self.dissonance_history.append(metrics)
         self._measurement_success_count += 1
         
-        # Log measurement results (info level for non-zero values, debug for zero)
-        if metrics.overall_dissonance > 0.0:
-            logger.info(
-                f"Cognitive dissonance measured: overall={metrics.overall_dissonance:.3f}, "
-                f"logical={metrics.logical_dissonance:.3f}, factual={metrics.factual_dissonance:.3f}, "
-                f"behavioral={metrics.behavioral_dissonance:.3f}, goal={metrics.goal_dissonance:.3f}, "
-                f"quality={metrics.measurement_quality}, has_sufficient_data={metrics.has_sufficient_data}"
-            )
-        else:
-            logger.debug(
-                f"Measured dissonance: overall={metrics.overall_dissonance:.3f}, "
-                f"logical={metrics.logical_dissonance:.3f}, factual={metrics.factual_dissonance:.3f}, "
-                f"behavioral={metrics.behavioral_dissonance:.3f}, goal={metrics.goal_dissonance:.3f}, "
-                f"quality={metrics.measurement_quality}, has_sufficient_data={metrics.has_sufficient_data}, "
-                f"components_available={metrics.component_availability}"
-            )
+        # Log measurement results (info level for all measurements with detailed metadata)
+        logger.info(
+            f"Cognitive dissonance measured: overall={metrics.overall_dissonance:.4f}, "
+            f"logical={metrics.logical_dissonance:.4f}, factual={metrics.factual_dissonance:.4f}, "
+            f"behavioral={metrics.behavioral_dissonance:.4f}, goal={metrics.goal_dissonance:.4f}, "
+            f"quality={metrics.measurement_quality}, has_sufficient_data={metrics.has_sufficient_data}, "
+            f"components_available={metrics.component_availability}, history_size={len(self.dissonance_history)}",
+            extra={
+                "event": "cognitive_dissonance_measured",
+                "overall_dissonance": metrics.overall_dissonance,
+                "logical_dissonance": metrics.logical_dissonance,
+                "factual_dissonance": metrics.factual_dissonance,
+                "behavioral_dissonance": metrics.behavioral_dissonance,
+                "goal_dissonance": metrics.goal_dissonance,
+                "measurement_quality": metrics.measurement_quality,
+                "has_sufficient_data": metrics.has_sufficient_data,
+                "component_availability": metrics.component_availability,
+                "history_size": len(self.dissonance_history),
+                "measurement_success_count": self._measurement_success_count,
+            }
+        )
+        
+        # Dissonance→Coherence coupling:
+        # When dissonance is reduced (resolution), update coherence_pleasure
+        if self._affective_monitor is not None and self._previous_dissonance is not None:
+            resolution_delta = self._previous_dissonance - metrics.overall_dissonance
+            if resolution_delta > 0.0:
+                # Dissonance was reduced - this is a resolution
+                try:
+                    # Coherence increases with dissonance resolution
+                    base_coherence = 1.0 - metrics.overall_dissonance
+                    self._affective_monitor.update_coherence_pleasure(
+                        coherence=base_coherence,
+                        resolution_satisfaction=resolution_delta,
+                    )
+                    logger.debug(
+                        f"Dissonance→coherence coupling: delta={resolution_delta:.4f}, "
+                        f"base_coherence={base_coherence:.4f}"
+                    )
+                except Exception as e:
+                    logger.debug(f"Error updating coherence from dissonance: {e}")
+        
+        # Track for next comparison
+        self._previous_dissonance = metrics.overall_dissonance
         
         return metrics
     
@@ -631,41 +760,8 @@ class CognitiveDissonanceMonitor:
                 except Exception as e:
                     logger.debug(f"Error checking knowledge boundaries: {e}")
             
-            # 3. Use Z3 to check logical consistency of claims
-            if self.z3_validator and self.z3_validator.enabled:
-                try:
-                    # Get existing memories for Z3 validation
-                    existing_memories = []
-                    if self.memory_manager:
-                        try:
-                            existing_memories = self.memory_manager.storage.get_all_memories()
-                        except Exception:
-                            pass
-                    
-                    z3_result = self.z3_validator.detect_comprehensive_contradictions(
-                        response,
-                        existing_memories,
-                        memory_manager=self.memory_manager,
-                        use_web_search=False,  # Already did web search above
-                        fact_checker=None  # Already did fact-checking above
-                    )
-                    
-                    z3_contradiction_score = z3_result.get("overall_contradiction_score", 0.0)
-                    if z3_contradiction_score > 0.0:
-                        dissonance_score = max(dissonance_score, z3_contradiction_score)
-                        z3_contradictions = z3_result.get("total_contradictions", 0)
-                        dissonant_elements += z3_contradictions
-                        # Z3 checks logical consistency - count total statements checked
-                        total_statements = z3_result.get("total_statements_checked", z3_contradictions)
-                        consonant_elements += max(0, total_statements - z3_contradictions)
-                        violations.append({
-                            "type": "z3_logical",
-                            "severity": z3_contradiction_score,
-                            "contradictions_count": z3_contradictions,
-                            "description": f"Z3 validation found {z3_contradictions} logical contradictions"
-                        })
-                except Exception as e:
-                    logger.debug(f"Error in Z3 validation: {e}")
+            # 3. Note: Z3 validation has been removed. Use the z3_validate tool instead
+            # for LLM-driven logical validation when needed.
             
             # 4. Weight by epistemic confidence if available
             if self.epistemic_engine and self.self_model.epistemic_layer and knowledge_boundaries:
@@ -1006,32 +1102,8 @@ class CognitiveDissonanceMonitor:
                     f"Behavioral dissonance is 0.0 with {total_actions} actions - all tools match capabilities/constraints"
                 )
             
-            # Use Z3 to validate tool usage chains for logical consistency
-            if self.z3_validator and self.z3_validator.enabled and len(tool_usage) > 1:
-                try:
-                    # Extract tool sequence
-                    tool_sequence = [
-                        {
-                            "tool_name": tc.get("function", {}).get("name", "") if isinstance(tc, dict) else str(tc),
-                            "arguments": tc.get("function", {}).get("arguments", {}) if isinstance(tc, dict) else {}
-                        }
-                        for tc in tool_usage
-                    ]
-                    
-                    # Check for logical inconsistencies in tool sequence
-                    # This is simplified - in practice would have more sophisticated validation
-                    # For now, check if tools conflict with each other
-                    tool_names = [ts["tool_name"] for ts in tool_sequence if ts["tool_name"]]
-                    
-                    # Check for contradictory tool patterns (e.g., read then write same file)
-                    # This is a simplified check
-                    if len(set(tool_names)) < len(tool_names):
-                        # Duplicate tools might indicate inefficiency but not necessarily contradiction
-                        pass
-                    
-                    # Could add more sophisticated Z3 validation here
-                except Exception as e:
-                    logger.debug(f"Error in Z3 tool usage validation: {e}")
+            # Note: Z3 validation has been removed. Use the z3_validate tool instead
+            # for LLM-driven logical validation when needed.
             
             # Track deviations (only if there were violations, or if we have a non-zero score)
             if violations or deviation_score > 0.0:
@@ -1126,41 +1198,8 @@ class CognitiveDissonanceMonitor:
             dependency_conflict_severity = 0.0
             violations: List[Dict[str, Any]] = []
             
-            if self.z3_validator and self.z3_validator.enabled and goals_to_check:
-                try:
-                    from .goal_manager import Goal, GoalType, GoalStatus
-                    
-                    # Convert to Goal objects for Z3 validation
-                    goal_objects: List[Goal] = []
-                    for goal_dict in goals_to_check:
-                        try:
-                            goal = Goal(
-                                name=goal_dict.get("name", "unknown"),
-                                description=goal_dict.get("description", str(goal_dict)),
-                                goal_type=GoalType(goal_dict.get("goal_type", "achieve")),
-                                status=GoalStatus(goal_dict.get("status", "active")),
-                                priority=goal_dict.get("priority", 0.5),
-                                dependencies=goal_dict.get("dependencies", [])
-                            )
-                            goal_objects.append(goal)
-                        except Exception:
-                            continue
-                    
-                    if goal_objects:
-                        # Validate goal dependencies
-                        is_valid, error, warnings = self.z3_validator.validate_goal_dependencies(goal_objects)
-                        
-                        if not is_valid:
-                            has_goal_dependency_conflict = True
-                            dependency_conflict_severity = 0.7  # High conflict for unsatisfiable goals
-                            violations.append({
-                                "type": "goal_dependency_conflict",
-                                "severity": dependency_conflict_severity,
-                                "error": error,
-                                "description": f"Goal dependencies are unsatisfiable: {error}"
-                            })
-                except Exception as e:
-                    logger.debug(f"Error in Z3 goal validation: {e}")
+            # Note: Z3 validation has been removed. Use the z3_validate tool instead
+            # for LLM-driven logical validation when needed.
             
             # If Z3 found dependency conflict, return high score immediately
             if has_goal_dependency_conflict:
@@ -1351,13 +1390,25 @@ Respond with JSON only:
         """Set memory manager for factual dissonance measurement."""
         self.memory_manager = memory_manager
     
-    def set_z3_validator(self, z3_validator: Any) -> None:
-        """Set Z3 validator for logical validation."""
-        self.z3_validator = z3_validator
+    # Note: set_z3_validator has been removed. Use the z3_validate tool instead
+    # for LLM-driven logical validation when needed.
     
     def set_fact_checker(self, fact_checker: Any) -> None:
         """Set fact checker for web search fact-checking."""
         self.fact_checker = fact_checker
+    
+    def set_affective_monitor(self, affective_monitor: Any) -> None:
+        """
+        Set affective monitor for dissonance→coherence coupling.
+        
+        When dissonance is reduced (contradiction resolved), coherence_pleasure
+        is automatically updated with the resolution_satisfaction delta.
+        
+        Args:
+            affective_monitor: ComputationalAffectMonitor instance
+        """
+        self._affective_monitor = affective_monitor
+        logger.info("Set affective monitor for dissonance→coherence coupling")
     
     def get_aggregated_dissonance(self) -> Dict[str, Any]:
         """
@@ -1484,7 +1535,6 @@ Respond with JSON only:
             "dependencies": {
                 "consistency_checker": self.consistency_checker is not None,
                 "fact_checker": self.fact_checker is not None,
-                "z3_validator": self.z3_validator is not None and (self.z3_validator.enabled if hasattr(self.z3_validator, 'enabled') else False),
                 "memory_manager": self.memory_manager is not None,
                 "epistemic_engine": self.epistemic_engine is not None
             }

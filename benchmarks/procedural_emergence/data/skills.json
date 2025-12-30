@@ -1,0 +1,97 @@
+{
+  "skills": {
+    "code_analysis": {
+      "name": "code_analysis",
+      "skill_type": "technical",
+      "description": "Analyze codebase structure and files",
+      "proficiency_level": 0.7,
+      "confidence": 0.8,
+      "experience_points": 0,
+      "success_count": 0,
+      "failure_count": 0,
+      "total_applications": 0,
+      "trigger_patterns": [
+        {
+          "type": "goal",
+          "name": "analyze_codebase"
+        },
+        {
+          "type": "task",
+          "domain": "code_analysis"
+        }
+      ],
+      "required_context": [],
+      "excluded_context": [],
+      "learning_rate": 0.1,
+      "decay_rate": 0.01,
+      "created_at": "2025-12-29T09:51:50.649591+00:00",
+      "last_used": null,
+      "last_improved": null,
+      "average_dissonance_impact": 0.0,
+      "dissonance_impact_count": 0
+    },
+    "information_retrieval": {
+      "name": "information_retrieval",
+      "skill_type": "analytical",
+      "description": "Retrieve and synthesize information from memories",
+      "proficiency_level": 0.8,
+      "confidence": 0.9,
+      "experience_points": 0,
+      "success_count": 0,
+      "failure_count": 0,
+      "total_applications": 0,
+      "trigger_patterns": [
+        {
+          "type": "task",
+          "needs_information": true
+        },
+        {
+          "type": "goal",
+          "goal_type": "learn"
+        }
+      ],
+      "required_context": [],
+      "excluded_context": [],
+      "learning_rate": 0.1,
+      "decay_rate": 0.01,
+      "created_at": "2025-12-29T09:51:50.649600+00:00",
+      "last_used": null,
+      "last_improved": null,
+      "average_dissonance_impact": 0.0,
+      "dissonance_impact_count": 0
+    },
+    "problem_solving": {
+      "name": "problem_solving",
+      "skill_type": "analytical",
+      "description": "Solve complex problems through decomposition and analysis",
+      "proficiency_level": 0.6,
+      "confidence": 0.7,
+      "experience_points": 0,
+      "success_count": 0,
+      "failure_count": 0,
+      "total_applications": 0,
+      "trigger_patterns": [
+        {
+          "type": "task",
+          "complexity": "high"
+        },
+        {
+          "type": "goal",
+          "goal_type": "achieve",
+          "difficulty": "high"
+        }
+      ],
+      "required_context": [],
+      "excluded_context": [],
+      "learning_rate": 0.1,
+      "decay_rate": 0.01,
+      "created_at": "2025-12-29T09:51:50.649604+00:00",
+      "last_used": null,
+      "last_improved": null,
+      "average_dissonance_impact": 0.0,
+      "dissonance_impact_count": 0
+    }
+  },
+  "max_skills": 50,
+  "last_saved": "2025-12-29T09:51:50.649635+00:00"
+}

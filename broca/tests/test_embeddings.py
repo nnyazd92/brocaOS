@@ -521,3 +521,29 @@ class TestEmbeddingServiceTruncation:
             
             assert len(embeddings) == 4
 
+    @patch('broca.memory.embeddings.OpenAI')
+    def test_generate_embedding_retries_on_overlength_error(self, mock_openai_class):
+        """
+        Regression: if the embedding API returns a maximum-context-length error, we retry once
+        with more aggressive truncation instead of failing immediately.
+        """
+        mock_response = Mock()
+        mock_response.data = [Mock(embedding=[0.1] * 1536)]
+
+        mock_client = Mock()
+
+        overlength_exc = Exception(
+            "Error code: 400 - {'error': {'message': \"This model's maximum context length is 8192 tokens, "
+            "however you requested 9526 tokens (9526 in your prompt; 0 for the completion).\"}}"
+        )
+        mock_client.embeddings.create.side_effect = [overlength_exc, mock_response]
+        mock_openai_class.return_value = mock_client
+
+        service = EmbeddingService(api_key="test-key", dimension=1536)
+        # Use a long text to ensure we trigger truncation paths
+        text = "x" * 30000
+
+        embedding = service.generate_embedding(text)
+        assert len(embedding) == 1536
+        assert mock_client.embeddings.create.call_count == 2
+

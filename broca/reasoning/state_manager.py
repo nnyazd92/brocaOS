@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from datetime import datetime, timezone
+from collections import deque
 
 if TYPE_CHECKING:
     from .production_rules import ProductionRuleSystem
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # State schema version for evolution tracking
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 
 
 class ReasoningStateManager:
@@ -73,7 +74,8 @@ class ReasoningStateManager:
         self,
         rule_system: Optional["ProductionRuleSystem"] = None,
         goal_manager: Optional["GoalManager"] = None,
-        working_memory: Optional["WorkingMemory"] = None
+        working_memory: Optional["WorkingMemory"] = None,
+        dissonance_monitor: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Load state from file and restore to components.
@@ -115,6 +117,12 @@ class ReasoningStateManager:
                 
                 if working_memory and "working_memory" in state_data:
                     self._restore_working_memory(working_memory, state_data["working_memory"])
+
+                if dissonance_monitor and "dissonance_monitor" in state_data:
+                    try:
+                        self._restore_dissonance_monitor(dissonance_monitor, state_data["dissonance_monitor"])
+                    except Exception as e:
+                        logger.warning(f"Failed to restore dissonance monitor state: {e}", exc_info=True)
                 
                 logger.info(f"Loaded state from {self.state_file_path} (version {self._state_version})")
                 return state_data
@@ -131,6 +139,7 @@ class ReasoningStateManager:
         rule_system: Optional["ProductionRuleSystem"] = None,
         goal_manager: Optional["GoalManager"] = None,
         working_memory: Optional["WorkingMemory"] = None,
+        dissonance_monitor: Optional[Any] = None,
         force: bool = False
     ) -> bool:
         """
@@ -180,6 +189,9 @@ class ReasoningStateManager:
                 
                 if working_memory:
                     state_data["working_memory"] = self._serialize_working_memory(working_memory)
+
+                if dissonance_monitor:
+                    state_data["dissonance_monitor"] = self._serialize_dissonance_monitor(dissonance_monitor)
                 
                 # Atomic write: write to temp file, then rename
                 temp_path = f"{self.state_file_path}.tmp"
@@ -227,7 +239,16 @@ class ReasoningStateManager:
             "working_memory": {
                 "items": [],
                 "associations": {}
-            }
+            },
+            "dissonance_monitor": {
+                "dissonance_history": [],
+                "logical_violations": [],
+                "factual_errors": [],
+                "behavioral_deviations": [],
+                "behavioral_inconsistencies": [],
+                "goal_conflicts": [],
+                "commitment_strength": {},
+            },
         }
     
     def _migrate_state(self, state_data: Dict[str, Any], from_version: int) -> Dict[str, Any]:
@@ -241,11 +262,156 @@ class ReasoningStateManager:
         Returns:
             Migrated state data
         """
-        # For now, just update schema version
-        # In future, add migration logic for schema changes
+        # Minimal migrations for schema evolution.
+        if from_version < 2:
+            state_data.setdefault("dissonance_monitor", {
+                "dissonance_history": [],
+                "logical_violations": [],
+                "factual_errors": [],
+                "behavioral_deviations": [],
+                "behavioral_inconsistencies": [],
+                "goal_conflicts": [],
+                "commitment_strength": {},
+            })
+
         state_data["schema_version"] = self._schema_version
         logger.info(f"Migrated state from version {from_version} to {self._schema_version}")
         return state_data
+
+    def _serialize_dissonance_monitor(self, dissonance_monitor: Any) -> Dict[str, Any]:
+        """
+        Serialize CognitiveDissonanceMonitor state for persistence across restarts.
+
+        We keep this bounded and JSON-safe. This is critical for RL continuity so dissonance
+        does not reset to misleading defaults after a web server restart.
+        """
+        window = int(getattr(dissonance_monitor, "history_window", 100) or 100)
+
+        def _tail_list(obj: Any, max_items: int) -> List[Any]:
+            try:
+                xs = list(obj)  # works for deque/list
+                return xs[-max_items:]
+            except Exception:
+                return []
+
+        def _serialize_metrics(m: Any) -> Dict[str, Any]:
+            try:
+                ts = getattr(m, "timestamp", None)
+                if isinstance(ts, datetime):
+                    ts_s = ts.isoformat()
+                else:
+                    ts_s = datetime.now(timezone.utc).isoformat()
+                return {
+                    "timestamp": ts_s,
+                    "logical_dissonance": float(getattr(m, "logical_dissonance", 0.0) or 0.0),
+                    "factual_dissonance": float(getattr(m, "factual_dissonance", 0.0) or 0.0),
+                    "behavioral_dissonance": float(getattr(m, "behavioral_dissonance", 0.0) or 0.0),
+                    "goal_dissonance": float(getattr(m, "goal_dissonance", 0.0) or 0.0),
+                    "overall_dissonance": float(getattr(m, "overall_dissonance", 0.0) or 0.0),
+                    "measurement_quality": getattr(m, "measurement_quality", None),
+                    "has_sufficient_data": bool(getattr(m, "has_sufficient_data", True)),
+                    "component_availability": dict(getattr(m, "component_availability", {}) or {}),
+                }
+            except Exception:
+                return {}
+
+        # Commitment map can grow; bound to top-N by absolute strength.
+        commitment = {}
+        try:
+            raw_commitment = getattr(dissonance_monitor, "_commitment_strength", {}) or {}
+            if isinstance(raw_commitment, dict):
+                items = [(str(k), float(v)) for k, v in raw_commitment.items()]
+                items.sort(key=lambda kv: abs(kv[1]), reverse=True)
+                commitment = {k: float(max(0.0, min(1.0, v))) for k, v in items[:500]}
+        except Exception:
+            commitment = {}
+
+        history = _tail_list(getattr(dissonance_monitor, "dissonance_history", []), window)
+        return {
+            "history_window": window,
+            "dissonance_history": [_serialize_metrics(m) for m in history if m is not None],
+            "logical_violations": _tail_list(getattr(dissonance_monitor, "logical_violations", []), window),
+            "factual_errors": _tail_list(getattr(dissonance_monitor, "factual_errors", []), window),
+            "behavioral_deviations": _tail_list(getattr(dissonance_monitor, "behavioral_deviations", []), window),
+            "behavioral_inconsistencies": _tail_list(getattr(dissonance_monitor, "behavioral_inconsistencies", []), window),
+            "goal_conflicts": _tail_list(getattr(dissonance_monitor, "goal_conflicts", []), window),
+            "commitment_strength": commitment,
+        }
+
+    def _restore_dissonance_monitor(self, dissonance_monitor: Any, data: Dict[str, Any]) -> None:
+        """Restore CognitiveDissonanceMonitor state from a persisted snapshot."""
+        if not isinstance(data, dict):
+            return
+        window = int(data.get("history_window") or getattr(dissonance_monitor, "history_window", 100) or 100)
+
+        def _restore_deque(attr_name: str, values: Any) -> None:
+            try:
+                xs = values if isinstance(values, list) else []
+                d = getattr(dissonance_monitor, attr_name, None)
+                if isinstance(d, deque):
+                    d.clear()
+                    for v in xs[-d.maxlen:]:
+                        d.append(v)
+                else:
+                    setattr(dissonance_monitor, attr_name, deque(xs[-window:], maxlen=window))
+            except Exception:
+                return
+
+        # Restore component histories
+        _restore_deque("logical_violations", data.get("logical_violations"))
+        _restore_deque("factual_errors", data.get("factual_errors"))
+        _restore_deque("behavioral_deviations", data.get("behavioral_deviations"))
+        _restore_deque("behavioral_inconsistencies", data.get("behavioral_inconsistencies"))
+        _restore_deque("goal_conflicts", data.get("goal_conflicts"))
+
+        # Restore commitment map
+        try:
+            cs = data.get("commitment_strength", {})
+            if isinstance(cs, dict):
+                setattr(
+                    dissonance_monitor,
+                    "_commitment_strength",
+                    {str(k): max(0.0, min(1.0, float(v))) for k, v in cs.items()},
+                )
+        except Exception:
+            pass
+
+        # Restore dissonance_history as DissonanceMetrics objects if possible
+        try:
+            from .cognitive_dissonance import DissonanceMetrics
+            hist_items = data.get("dissonance_history") if isinstance(data.get("dissonance_history"), list) else []
+            restored = []
+            for item in hist_items[-window:]:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    ts_s = item.get("timestamp")
+                    ts = datetime.fromisoformat(ts_s) if isinstance(ts_s, str) else datetime.now(timezone.utc)
+                except Exception:
+                    ts = datetime.now(timezone.utc)
+                m = DissonanceMetrics(
+                    timestamp=ts,
+                    logical_dissonance=float(item.get("logical_dissonance", 0.0) or 0.0),
+                    factual_dissonance=float(item.get("factual_dissonance", 0.0) or 0.0),
+                    behavioral_dissonance=float(item.get("behavioral_dissonance", 0.0) or 0.0),
+                    goal_dissonance=float(item.get("goal_dissonance", 0.0) or 0.0),
+                    overall_dissonance=float(item.get("overall_dissonance", 0.0) or 0.0),
+                    measurement_quality=item.get("measurement_quality"),
+                    has_sufficient_data=bool(item.get("has_sufficient_data", True)),
+                    component_availability=dict(item.get("component_availability") or {}),
+                )
+                restored.append(m)
+
+            d = getattr(dissonance_monitor, "dissonance_history", None)
+            if isinstance(d, deque):
+                d.clear()
+                for m in restored[-d.maxlen:]:
+                    d.append(m)
+            else:
+                setattr(dissonance_monitor, "dissonance_history", deque(restored[-window:], maxlen=window))
+        except Exception:
+            # If we can't restore metrics objects, skip.
+            pass
     
     def _serialize_rule_system(self, rule_system: "ProductionRuleSystem") -> Dict[str, Any]:
         """Serialize rule system state."""

@@ -1,0 +1,14 @@
+{
+  "type": "reasoning_configuration",
+  "name": "priority_management_system",
+  "description": "Reasoning system configured for priority management (Nick's Priority #1)",
+  "timestamp": "2025-12-28T21:23:10.200597+00:00",
+  "user": "nick",
+  "components": {
+    "working_memory_items": 4,
+    "goals": 8,
+    "production_rules": 7,
+    "existing_rules": 4
+  },
+  "status": "active"
+}

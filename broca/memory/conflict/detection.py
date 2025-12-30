@@ -12,16 +12,19 @@ from __future__ import annotations
 import re
 import json
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
 
 from .. import MemoryRecord
 from .models import Conflict
 
+if TYPE_CHECKING:
+    from ...reasoning.llm_pattern_matcher import LLMPatternMatcher
+
 logger = logging.getLogger(__name__)
 
 
-# Rule-based contradiction patterns
+# Legacy regex patterns (kept for fallback only)
 CONTRADICTION_PATTERNS = [
     # Boolean contradictions
     (r'\b(prefers?|likes?|loves?|enjoys?)\b', r'\b(hates?|dislikes?|loathes?|despises?)\b'),
@@ -47,7 +50,8 @@ class ConflictDetector:
         memory_manager: Optional[Any] = None,
         similarity_threshold: float = 0.85,
         contradiction_threshold: float = 0.7,
-        llm_client: Optional[Any] = None
+        llm_client: Optional[Any] = None,
+        pattern_matcher: Optional["LLMPatternMatcher"] = None
     ) -> None:
         """
         Initialize conflict detector.
@@ -57,16 +61,35 @@ class ConflictDetector:
             similarity_threshold: Minimum similarity to consider for conflicts (0.0-1.0)
             contradiction_threshold: Minimum confidence for contradiction (0.0-1.0)
             llm_client: Optional LLM client for advanced analysis
+            pattern_matcher: Optional LLMPatternMatcher for semantic pattern matching
         """
         self.memory_manager = memory_manager
         self.similarity_threshold = similarity_threshold
         self.contradiction_threshold = contradiction_threshold
         self.llm_client = llm_client
+        self.pattern_matcher = pattern_matcher
+        
+        # Initialize pattern matcher if not provided but LLM client is available
+        if self.pattern_matcher is None and llm_client is not None:
+            try:
+                from ...reasoning.llm_pattern_matcher import LLMPatternMatcher
+                from ...config import config
+                
+                model = getattr(config.reasoning, 'llm_pattern_matching_model', 'gpt-5-nano')
+                self.pattern_matcher = LLMPatternMatcher(
+                    llm_client=llm_client,
+                    model=model
+                )
+                logger.info(f"Initialized LLM pattern matcher for conflict detection (model: {model})")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM pattern matcher: {e}. Will use fallback regex patterns.")
+                self.pattern_matcher = None
         
         logger.info(
             f"Initialized ConflictDetector "
             f"(similarity_threshold={similarity_threshold}, "
-            f"contradiction_threshold={contradiction_threshold})"
+            f"contradiction_threshold={contradiction_threshold}, "
+            f"llm_pattern_matching={self.pattern_matcher is not None})"
         )
     
     def detect_conflicts(
@@ -211,7 +234,9 @@ class ConflictDetector:
         memory2: Optional[MemoryRecord] = None
     ) -> Optional[Conflict]:
         """
-        Detect conflicts using rule-based pattern matching.
+        Detect conflicts using LLM-based semantic pattern matching.
+        
+        Falls back to regex patterns if LLM matcher is not available.
         
         Args:
             text1: First text to compare
@@ -222,15 +247,51 @@ class ConflictDetector:
         Returns:
             Conflict object if detected, None otherwise
         """
-        text1_lower = text1.lower()
-        text2_lower = text2.lower()
-        
-        # Check for numerical contradictions
+        # Check for numerical contradictions first (this is still useful)
         num_conflict = self._detect_numerical_contradiction(text1, text2, memory1, memory2)
         if num_conflict:
             return num_conflict
         
-        # Check for pattern-based contradictions
+        # Use LLM pattern matcher if available
+        if self.pattern_matcher is not None:
+            try:
+                # Create pattern for contradiction detection
+                pattern = {
+                    "type": "contradiction_check",
+                    "text": text1,
+                    "description": "Check if this statement contradicts another statement"
+                }
+                content = {
+                    "type": "text",
+                    "text": text2,
+                    "description": "Statement to check for contradiction"
+                }
+                
+                # Use LLM to detect contradiction
+                matches = self.pattern_matcher.match_batch([(pattern, content)])
+                if matches:
+                    match, confidence = matches[0]
+                    if match and confidence >= self.contradiction_threshold:
+                        # Use provided memories or create temporary ones
+                        mem1 = memory1 or MemoryRecord(namespace="temp", text=text1, importance=0.5)
+                        mem2 = memory2 or MemoryRecord(namespace="temp", text=text2, importance=0.5)
+                        
+                        return Conflict(
+                            memory1=mem1,
+                            memory2=mem2,
+                            conflict_type="contradiction",
+                            confidence=min(confidence, 0.95),  # Cap at 0.95
+                            evidence=f"LLM-based semantic contradiction detection (confidence: {confidence:.2f})",
+                            resolution_strategy="recency"
+                        )
+            except Exception as e:
+                logger.warning(f"Error in LLM pattern matching for conflict detection: {e}. Falling back to regex.")
+                # Fall through to regex fallback
+        
+        # Fallback to regex patterns (backward compatibility)
+        text1_lower = text1.lower()
+        text2_lower = text2.lower()
+        
         for pattern1, pattern2 in CONTRADICTION_PATTERNS:
             match1 = re.search(pattern1, text1_lower)
             match2 = re.search(pattern2, text2_lower)
@@ -252,7 +313,7 @@ class ConflictDetector:
                         memory2=mem2,
                         conflict_type="contradiction",
                         confidence=0.75,  # Medium confidence for rule-based
-                        evidence=f"Rule-based: {pattern1} vs {pattern2}",
+                        evidence=f"Regex fallback: {pattern1} vs {pattern2}",
                         resolution_strategy="recency"
                     )
         

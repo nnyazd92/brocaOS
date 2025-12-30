@@ -1,0 +1,55 @@
+{
+  "tasks": [
+    {
+      "id": "task_fix_ui_build",
+      "description": "Resolve TypeScript errors and Tailwind 4 build failures in the Broca UI.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_a8c5d3e240754808aaefa3b5b5344372",
+        "evt_c50003bfef5b48a1a705fb1be5644126",
+        "evt_84dba979349248f8afbc2c591c4e1ab7"
+      ],
+      "created_at": "2025-12-27T20:12:22.206368+00:00"
+    },
+    {
+      "id": "task_upgrade_ui_style",
+      "description": "Implement a 'serious' style upgrade including Glassmorphism and improved animations.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_a8c5d3e240754808aaefa3b5b5344372",
+        "evt_a66bb1e0f0d247059d9fa865b04395fb"
+      ],
+      "created_at": "2025-12-27T20:12:22.206566+00:00"
+    },
+    {
+      "id": "task_wire_backend",
+      "description": "Wire the UI components to the web_api.py backend and extend memory functionality.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_cb38cd8cee934c06a511faa627ad4a9b",
+        "evt_dad127f62ff54c34b5ef0e1210333ba5",
+        "evt_11fe20fce45e4d4580726457cbdd0eca"
+      ],
+      "created_at": "2025-12-27T20:12:22.206580+00:00"
+    },
+    {
+      "id": "task_graph_viewer",
+      "description": "Build a sub-graph viewer for memories via linkages in the workbench.",
+      "status": "completed",
+      "owner": "",
+      "due_date": null,
+      "evidence_event_ids": [
+        "evt_cb38cd8cee934c06a511faa627ad4a9b",
+        "evt_ab8b8dbfbc7049cba98dfc8d565c8c90",
+        "evt_11fe20fce45e4d4580726457cbdd0eca"
+      ],
+      "created_at": "2025-12-27T20:12:22.206603+00:00"
+    }
+  ]
+}

@@ -65,15 +65,9 @@ class EpistemicBridge:
             - noise: Uncertainty from noise
         """
         if not self.epistemic_engine:
-            return {
-                "epistemic": 0.0,
-                "aleatoric": 0.0,
-                "model": 0.0,
-                "total": 0.0,
-                "knowledge_gaps": 0.0,
-                "ambiguity": 0.0,
-                "noise": 0.0,
-            }
+            # Missing epistemic engine should return explicit "missing" uncertainty
+            # rather than zeros (zeros look like "perfect certainty" and pollute downstream).
+            return self._get_default_uncertainty()
         
         try:
             # Get recent knowledge items from epistemic layer
@@ -406,45 +400,103 @@ class EpistemicBridge:
         Returns:
             Information gain score (0.0-1.0)
         """
-        if not self.epistemic_engine or not hasattr(self.epistemic_engine, 'uncertainty_manager'):
-            return 0.0
-        
+        # Delegate to metadata-returning method to avoid hard-coded placeholder inputs.
+        info = self.get_information_gain_info(knowledge_items)
         try:
+            return max(0.0, min(1.0, float(info.get("value", 0.0))))
+        except Exception:
+            return 0.0
+
+    def get_information_gain_info(self, knowledge_items: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """
+        Information gain with metadata to avoid silent placeholders.
+
+        Returns:
+            Dict with:
+            - value: float in [0,1]
+            - has_data: bool
+            - sample_size: int
+            - estimator: str ("measured" | "missing_engine" | "error" | "estimated_inputs")
+        """
+        if not self.epistemic_engine or not hasattr(self.epistemic_engine, 'uncertainty_manager'):
+            return {"value": 0.0, "has_data": False, "sample_size": 0, "estimator": "missing_engine"}
+
+        try:
+            # If caller doesn't supply, attempt to build from recent knowledge items
+            estimated_inputs = False
+            any_real_data = False
             if knowledge_items is None:
-                # Get recent knowledge items
                 epistemic_layer = self.epistemic_engine.epistemic_layer
                 knowledge_ids = list(epistemic_layer.knowledge_sources.keys())
-                if knowledge_ids:
-                    knowledge_items = {}
-                    for kid in knowledge_ids[-20:]:
-                        try:
-                            context = self.epistemic_engine.get_epistemic_context(kid)
-                            metrics = context.get("confidence_metrics", {})
+                knowledge_items = {}
+                for kid in knowledge_ids[-20:]:
+                    try:
+                        context = self.epistemic_engine.get_epistemic_context(kid)
+                        metrics = context.get("confidence_metrics", {})
+                        conf_val = metrics.get("overall_confidence") if metrics else None
+                        if conf_val is None:
+                            conf_mean, _interval = confidence_for_missing_data()
+                            conf_val = conf_mean
+                            estimated_inputs = True
+
+                        # Check if importance/usage_frequency are available in context
+                        # If present, use them; if not, mark as estimated.
+                        importance = context.get("importance")
+                        usage_frequency = context.get("usage_frequency")
+
+                        if importance is not None and usage_frequency is not None:
+                            # Real data available!
+                            any_real_data = True
                             knowledge_items[kid] = {
-                                "confidence": metrics.get("overall_confidence", 0.5) if metrics else 0.5,
-                                "importance": 0.5,  # Default importance
-                                "usage_frequency": 0.0,  # Could track this
+                                "confidence": float(conf_val),
+                                "importance": float(importance),
+                                "usage_frequency": float(usage_frequency),
                             }
-                        except Exception:
-                            continue
-            
+                        else:
+                            # No real importance/usage data - use defaults
+                            estimated_inputs = True
+                            knowledge_items[kid] = {
+                                "confidence": float(conf_val),
+                                "importance": 0.25,
+                                "usage_frequency": 0.0,
+                            }
+                    except Exception:
+                        continue
+            else:
+                # Caller supplied knowledge_items - check if they have real data
+                for kid, item in knowledge_items.items():
+                    if item.get("importance") is not None and item.get("usage_frequency") is not None:
+                        any_real_data = True
+                        break
+
             if not knowledge_items:
-                return 0.0
-            
-            # Calculate information gain using uncertainty manager
+                return {"value": 0.0, "has_data": False, "sample_size": 0, "estimator": "measured"}
+
             uncertainty_manager = self.epistemic_engine.uncertainty_manager
             gains = uncertainty_manager.information_gain_calculation(knowledge_items)
-            
-            # Return average information gain
+
             if gains:
                 avg_gain = sum(gain for _, gain in gains) / len(gains)
-                return min(1.0, avg_gain)
-            
-            return 0.0
-            
+                # Determine estimator: "measured" if we have any real importance/usage data
+                # "estimated_inputs" if we only used defaults
+                if any_real_data and not estimated_inputs:
+                    estimator = "measured"
+                elif any_real_data:
+                    # Some real, some estimated
+                    estimator = "partially_measured"
+                else:
+                    estimator = "estimated_inputs"
+                return {
+                    "value": min(1.0, float(avg_gain)),
+                    "has_data": True,
+                    "sample_size": len(gains),
+                    "estimator": estimator,
+                }
+
+            return {"value": 0.0, "has_data": False, "sample_size": 0, "estimator": "measured"}
         except Exception as e:
-            logger.debug(f"Error calculating information gain: {e}")
-            return 0.0
+            logger.debug(f"Error calculating information gain (info): {e}", exc_info=True)
+            return {"value": 0.0, "has_data": False, "sample_size": 0, "estimator": "error"}
     
     def update_from_epistemic(self, 
                               cognitive_monitor: Any,

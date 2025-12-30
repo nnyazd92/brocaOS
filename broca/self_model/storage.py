@@ -230,15 +230,27 @@ class SelfModelSQLiteStorage:
         Initialize SQLite storage for self-model.
         
         Args:
-            db_path: Path to SQLite database file
+            db_path: Path to SQLite database file (relative or absolute)
         """
-        self.db_path = Path(db_path)
+        # Resolve to absolute path to ensure consistent persistence location
+        db_path_obj = Path(db_path)
+        if not db_path_obj.is_absolute():
+            # Resolve relative paths to absolute
+            self.db_path = db_path_obj.resolve()
+        else:
+            self.db_path = db_path_obj
+        
+        # Ensure parent directory exists
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        
         self._init_schema()
         logger.info(f"Initialized SelfModelSQLiteStorage at {self.db_path.absolute()}")
     
     def _get_connection(self) -> sqlite3.Connection:
-        """Get database connection."""
-        conn = sqlite3.connect(str(self.db_path))
+        """Get database connection using absolute path."""
+        # Use absolute path to ensure consistent database location
+        abs_path = self.db_path.absolute()
+        conn = sqlite3.connect(str(abs_path))
         conn.row_factory = sqlite3.Row
         return conn
     
@@ -620,7 +632,17 @@ class SelfModelSQLiteStorage:
         
         Args:
             model: SelfModel instance to save
+            
+        Raises:
+            Exception: If save operation fails
         """
+        # Ensure parent directory exists before attempting save
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Log the absolute path being used for persistence
+        abs_path = self.db_path.absolute()
+        logger.debug(f"Persisting self-model to database at: {abs_path}")
+        
         conn = self._get_connection()
         cursor = conn.cursor()
         
@@ -669,11 +691,25 @@ class SelfModelSQLiteStorage:
             """)
             
             conn.commit()
-            logger.info(f"Saved self-model version {current_version} to SQLite")
+            logger.info(
+                f"Successfully saved self-model version {current_version} to SQLite at {abs_path}"
+            )
             
+            # Verify the save by checking file exists and was updated
+            if not self.db_path.exists():
+                logger.warning(f"Database file not found after save at {abs_path}")
+            else:
+                logger.debug(f"Database file verified at {abs_path}")
+            
+        except sqlite3.OperationalError as e:
+            conn.rollback()
+            error_msg = f"Database operational error saving self-model to {abs_path}: {e}"
+            logger.error(error_msg, exc_info=True)
+            raise RuntimeError(error_msg) from e
         except Exception as e:
             conn.rollback()
-            logger.error(f"Failed to save self-model to SQLite: {e}", exc_info=True)
+            error_msg = f"Failed to save self-model to SQLite at {abs_path}: {e}"
+            logger.error(error_msg, exc_info=True)
             raise
         finally:
             conn.close()
@@ -910,6 +946,7 @@ def create_storage(storage_type: str = "sqlite", storage_path: Optional[str] = N
     else:
         # Default to SQLite
         path = storage_path or "self_model.db"
+        # Path resolution will be handled in SelfModelSQLiteStorage.__init__()
         storage = SelfModelSQLiteStorage(db_path=path)
         
         # Auto-migrate from JSON if JSON file exists and SQLite is empty

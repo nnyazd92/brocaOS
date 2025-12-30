@@ -216,6 +216,29 @@ class RecursiveReasoningEngine:
             # Limit history size
             if len(self.task_history) > 1000:
                 self.task_history = self.task_history[-1000:]
+
+    # Backward-compatible API (tests + older callers)
+    def reason_about(self, task: RecursiveReasoningTask, context: Optional[Dict[str, Any]] = None) -> Any:
+        """
+        Backward-compatible wrapper expected by unit tests.
+
+        Accepts a `RecursiveReasoningTask` and returns either the task (with `result` populated)
+        or a dict result.
+        """
+        result = self.reason_recursively(
+            question=task.question,
+            context=context,
+            depth=task.depth,
+            parent_task_id=task.parent_task_id,
+        )
+        task.result = result
+        try:
+            state_val = result.get("state") if isinstance(result, dict) else None
+            if state_val and isinstance(state_val, str):
+                task.state = RecursionState(state_val) if state_val in {s.value for s in RecursionState} else task.state
+        except Exception:
+            pass
+        return task
     
     def _perform_reasoning(
         self,
@@ -423,6 +446,7 @@ class RecursiveReasoningEngine:
         avg_depth = sum(t.depth for t in self.task_history) / len(self.task_history) if self.task_history else 0.0
         
         return {
+            "status": "ok",
             "total_tasks": len(self.task_history),
             "completed": len(completed),
             "failed": len(failed),

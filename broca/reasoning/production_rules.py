@@ -11,12 +11,15 @@ from __future__ import annotations
 import logging
 import json
 import threading
-from typing import Dict, Any, List, Optional, Union, Callable
+from typing import Dict, Any, List, Optional, Union, Callable, TYPE_CHECKING
 from enum import Enum
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 from .working_memory import WorkingMemory, WorkingMemoryItem
+
+if TYPE_CHECKING:
+    from .llm_pattern_matcher import LLMPatternMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,7 @@ class ProductionRule:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_fired: Optional[datetime] = None
     fire_count: int = 0
+    pattern_matcher: Optional["LLMPatternMatcher"] = None  # Optional LLM pattern matcher
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert rule to dictionary representation."""
@@ -99,6 +103,14 @@ class ProductionRule:
     
     def _pattern_matches(self, pattern: Union[Dict[str, Any], str], content: Union[Dict[str, Any], str]) -> bool:
         """Check if pattern matches memory content."""
+        # Use LLM pattern matcher if available
+        if self.pattern_matcher is not None:
+            # Convert to dict format for LLM matcher
+            pattern_dict = pattern if isinstance(pattern, dict) else {"text": pattern}
+            content_dict = content if isinstance(content, dict) else {"text": content}
+            return self.pattern_matcher.match(pattern_dict, content_dict)
+        
+        # Fallback to legacy dict subset/equality matching
         # Handle None values
         if pattern is None or content is None:
             return False
@@ -126,7 +138,6 @@ class ProductionRule:
             return False
         
         # Simple equality check for dict-to-dict matching
-        # TODO: Implement pattern matching with variables, wildcards, etc.
         for key, value in pattern.items():
             if key not in content:
                 return False
@@ -156,7 +167,21 @@ class ProductionRule:
         self.last_fired = datetime.now(timezone.utc)
         self.fire_count += 1
         
-        logger.debug(f"Rule '{self.name}' fired (count: {self.fire_count})")
+        logger.info(
+            f"Rule fired: name={self.name}, type={self.rule_type.value}, "
+            f"priority={self.priority:.3f}, strength={self.strength:.3f}, "
+            f"fire_count={self.fire_count}, actions_executed={len(results)}",
+            extra={
+                "event": "production_rule_fired",
+                "rule_name": self.name,
+                "rule_type": self.rule_type.value,
+                "priority": self.priority,
+                "strength": self.strength,
+                "fire_count": self.fire_count,
+                "actions_executed": len(results),
+                "last_fired": self.last_fired.isoformat(),
+            }
+        )
         return results
     
     def _execute_action(self, action_type: str, action: Dict[str, Any], 
@@ -185,7 +210,9 @@ class ProductionRule:
             # Trigger a tool call (queued for execution)
             tool_name = action.get("tool_name")
             parameters = action.get("parameters", {})
-            working_memory.queue_tool_call(tool_name, parameters)
+            # Get loop detector from context if available
+            loop_detector = context.get("loop_detector") if context else None
+            working_memory.queue_tool_call(tool_name, parameters, loop_detector=loop_detector)
             return {"type": "trigger_tool", "tool_name": tool_name, "parameters": parameters}
         
         elif action_type == "create_goal":
@@ -213,11 +240,16 @@ class ProductionRuleSystem:
     working memory, and executes rule actions.
     """
     
-    def __init__(self, working_memory: Optional[WorkingMemory] = None):
+    def __init__(
+        self, 
+        working_memory: Optional[WorkingMemory] = None,
+        pattern_matcher: Optional["LLMPatternMatcher"] = None
+    ):
         self.rules: List[ProductionRule] = []
         self.working_memory = working_memory or WorkingMemory()
         self.rule_history: List[Dict[str, Any]] = []
         self.learning_enabled: bool = True
+        self.pattern_matcher = pattern_matcher
         
         # Thread safety for state synchronization
         self._state_lock = threading.RLock()
@@ -331,27 +363,76 @@ class ProductionRuleSystem:
     def add_rule(self, rule: ProductionRule):
         """Add a rule to the system."""
         with self._state_lock:
+            # Set pattern matcher on rule if available
+            if self.pattern_matcher is not None:
+                rule.pattern_matcher = self.pattern_matcher
             self.rules.append(rule)
-            logger.debug(f"Added rule: {rule.name}")
+            logger.info(
+                f"Added production rule: name={rule.name}, type={rule.rule_type.value}, "
+                f"priority={rule.priority:.3f}, strength={rule.strength:.3f}, "
+                f"conditions={len(rule.conditions)}, actions={len(rule.actions)}, "
+                f"total_rules={len(self.rules)}",
+                extra={
+                    "event": "production_rule_added",
+                    "rule_name": rule.name,
+                    "rule_type": rule.rule_type.value,
+                    "priority": rule.priority,
+                    "strength": rule.strength,
+                    "conditions_count": len(rule.conditions),
+                    "actions_count": len(rule.actions),
+                    "total_rules": len(self.rules),
+                }
+            )
     
     def remove_rule(self, rule_name: str):
         """Remove a rule by name."""
         with self._state_lock:
+            removed_count = len(self.rules)
             self.rules = [r for r in self.rules if r.name != rule_name]
+            removed_count -= len(self.rules)
+            
+            if removed_count > 0:
+                logger.info(
+                    f"Removed production rule: name={rule_name}, "
+                    f"remaining_rules={len(self.rules)}",
+                    extra={
+                        "event": "production_rule_removed",
+                        "rule_name": rule_name,
+                        "remaining_rules": len(self.rules),
+                    }
+                )
     
     def match_rules(self) -> List[ProductionRule]:
         """Find rules whose conditions match current working memory."""
         matched_rules = []
+        evaluated_count = 0
         for rule in self.rules:
+            evaluated_count += 1
             try:
                 if rule.matches(self.working_memory):
                     matched_rules.append(rule)
             except Exception as e:
-                logger.error(f"Error matching rule '{rule.name}': {e}")
+                logger.error(f"Error matching rule '{rule.name}': {e}", exc_info=True)
                 continue
         
         # Sort by priority (highest first), then strength
         matched_rules.sort(key=lambda r: (r.priority, r.strength), reverse=True)
+        top_priority = matched_rules[0].priority if matched_rules else 0.0
+        
+        logger.info(
+            f"Rule matching complete: evaluated={evaluated_count}, matched={len(matched_rules)}, "
+            f"total_rules={len(self.rules)}, "
+            f"top_priority={top_priority:.3f}",
+            extra={
+                "event": "production_rules_matched",
+                "evaluated_count": evaluated_count,
+                "matched_count": len(matched_rules),
+                "total_rules": len(self.rules),
+                "matched_rule_names": [r.name for r in matched_rules],
+                "top_priority": top_priority,
+            }
+        )
+        
         return matched_rules
     
     def execute_cycle(self, max_rules: int = 5) -> List[Dict[str, Any]]:
@@ -362,16 +443,26 @@ class ProductionRuleSystem:
         """
         matched_rules = self.match_rules()
         if not matched_rules:
+            logger.debug(
+                "Rule cycle execution: no rules matched",
+                extra={
+                    "event": "rule_cycle_no_matches",
+                    "total_rules": len(self.rules),
+                }
+            )
             return []
         
         # Limit number of rules to fire
         rules_to_fire = matched_rules[:max_rules]
         all_results = []
+        fired_count = 0
+        error_count = 0
         
         for rule in rules_to_fire:
             try:
                 results = rule.execute(self.working_memory)
                 all_results.extend(results)
+                fired_count += 1
                 
                 # Record in history
                 self.rule_history.append({
@@ -385,8 +476,24 @@ class ProductionRuleSystem:
                     self.rule_history = self.rule_history[-100:]
                     
             except Exception as e:
-                logger.error(f"Error executing rule '{rule.name}': {e}")
+                error_count += 1
+                logger.error(f"Error executing rule '{rule.name}': {e}", exc_info=True)
                 continue
+        
+        logger.info(
+            f"Rule cycle execution complete: matched={len(matched_rules)}, "
+            f"fired={fired_count}/{len(rules_to_fire)}, errors={error_count}, "
+            f"results_generated={len(all_results)}",
+            extra={
+                "event": "production_rule_cycle_executed",
+                "matched_count": len(matched_rules),
+                "fired_count": fired_count,
+                "attempted_count": len(rules_to_fire),
+                "error_count": error_count,
+                "results_count": len(all_results),
+                "fired_rule_names": [r.name for r in rules_to_fire[:fired_count]],
+            }
+        )
         
         return all_results
     

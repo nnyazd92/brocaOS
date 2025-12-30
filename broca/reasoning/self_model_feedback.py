@@ -253,6 +253,18 @@ class SelfModelFeedbackLoop:
                         self_model=self.self_model,
                         conversation_context=conversation_context
                     )
+                    # Publish consistency violations into the dissonance monitor so logical/factual components
+                    # remain available even when later cycles call measure_dissonance(response=None).
+                    try:
+                        if hasattr(self.cognitive_dissonance_monitor, "observe_consistency_result"):
+                            self.cognitive_dissonance_monitor.observe_consistency_result(
+                                consistency_result=consistency_result,
+                                response=response,
+                                conversation_context=conversation_context,
+                                source="self_model_feedback.updater",
+                            )
+                    except Exception:
+                        pass
             
             # Apply update using self model updater
             if consistency_result and not consistency_result.is_consistent:
@@ -376,6 +388,17 @@ class SelfModelFeedbackLoop:
                         self_model=self.self_model,
                         conversation_context=conversation_context
                     )
+                    # Publish consistency violations into the dissonance monitor.
+                    try:
+                        if hasattr(self.cognitive_dissonance_monitor, "observe_consistency_result"):
+                            self.cognitive_dissonance_monitor.observe_consistency_result(
+                                consistency_result=consistency_result,
+                                response=response,
+                                conversation_context=conversation_context,
+                                source="self_model_feedback.crud",
+                            )
+                    except Exception:
+                        pass
                     if not consistency_result.is_consistent:
                         # Use updater for consistency violations (more reliable)
                         # CRUD tool would need specific entries which are harder to generate automatically

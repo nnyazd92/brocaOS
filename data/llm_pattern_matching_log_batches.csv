@@ -1,0 +1,41 @@
+timestamp,batch_id,model,num_pairs,latency_ms,cache_hits,fallback_used,parse_ok,error_type,prompt_chars,response_chars,prompt_hash,response_hash,prompt_text_trunc,response_text_trunc
+2025-12-30T00:27:40.220120+00:00,4ed7c2ec-b757-4ff5-8c7e-3fda33888552,gpt-5-nano,1,0.005,0,False,True,,1415,37,6c7161bbf42a2230544bde460dc68ca653cebd0fd629251ba97cf8998362e87f,1208859c08570e008beeb8767308ea415641c493ff13b6e243b07f6e89098cda,"You are a pattern matching assistant. Determine if each pattern matches its corresponding content.
+
+Patterns can contain:
+- Exact field matches (pattern.field == content.field)
+- Variables/wildcards (pattern.field can match any value in content)
+- Negation (pattern.field != value means content.field must not equal value)
+- Existential patterns (if pattern contains 'exists X such that...', check if such X exists in content)
+- Semantic similarity (similar meanings should match even if wording differs)
+- Contradiction detection (if pattern.type is 'contradiction_check', determine if the texts contradict each other)
+
+Special handling for contradiction_check:
+- If pattern.type is 'contradiction_check', check if pattern.text contradicts content.text
+- Consider semantic contradictions, not just exact word matches
+- Return match=true if texts contradict, false if they align or are unrelated
+- Confidence should reflect how strongly the texts contradict (higher = stronger contradiction)
+
+For each pattern-content pair, return:
+- 'match': boolean indicating if pattern matches
+- 'confidence': float 0.0-1.0 indicating confidence in the match
+
+Return a JSON array with one object per pattern-content pair:
+[
+  {
+    ""match"": true/false,
+    ""confidence"": 0.0-1.0
+  },
+  ...
+]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""contradiction_check"",
+  ""text"": ""A""
+}
+  Content: {
+  ""text"": ""A""
+}
+","[{""match"": false, ""confidence"": 0.1}]"

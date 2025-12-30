@@ -56,10 +56,13 @@ class OpenAIClient:
         """
         temp = temperature if temperature is not None else self.temperature
 
+        # Clean messages to remove orphaned tool messages (OpenAI API requirement)
+        cleaned_messages = self._clean_messages(messages)
+
         # Build request parameters
         request_params: Dict[str, Any] = {
             "model": self.model,
-            "messages": messages,
+            "messages": cleaned_messages,
         }
         
         # Some OpenAI models (like o1, o1-preview, o1-mini, gpt-5, gpt-5.2, etc.) only support temperature=1.0 (the default)
@@ -82,9 +85,10 @@ class OpenAIClient:
                 "event": "llm_request",
                 "model": self.model,
                 "temperature": temp,
-                "messages_count": len(messages),
+                "messages_count": len(cleaned_messages),
+                "original_messages_count": len(messages),
                 "tools_count": len(tools) if tools else 0,
-                "last_user_message_preview": self._last_user_preview(messages),
+                "last_user_message_preview": self._last_user_preview(cleaned_messages),
             },
         )
 
@@ -155,10 +159,13 @@ class OpenAIClient:
         """
         temp = temperature if temperature is not None else self.temperature
 
+        # Clean messages to remove orphaned tool messages (OpenAI API requirement)
+        cleaned_messages = self._clean_messages(messages)
+
         # Build request parameters
         request_params: Dict[str, Any] = {
             "model": self.model,
-            "messages": messages,
+            "messages": cleaned_messages,
             "stream": True,
         }
         
@@ -257,6 +264,68 @@ class OpenAIClient:
         except (KeyError, IndexError, AttributeError):
             return []
     
+    @staticmethod
+    def _clean_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Clean messages by removing orphaned tool messages.
+        
+        OpenAI API requires that tool messages must follow an assistant message
+        with matching tool_calls. This method filters out tool messages that
+        don't have a preceding assistant message with matching tool_calls.
+        
+        Args:
+            messages: List of message dictionaries (may contain orphaned tool messages)
+            
+        Returns:
+            New list of messages with orphaned tool messages removed
+        """
+        if not messages:
+            return messages
+        
+        cleaned = []
+        # Track tool_call_ids from the most recent assistant message with tool_calls
+        valid_tool_call_ids = set()
+        
+        for i, msg in enumerate(messages):
+            role = msg.get("role")
+            
+            # Always include system, user, and assistant messages
+            if role in ("system", "user", "assistant"):
+                cleaned.append(msg)
+                
+                # If this is an assistant message with tool_calls, update valid tool_call_ids
+                if role == "assistant":
+                    tool_calls = msg.get("tool_calls")
+                    if tool_calls and isinstance(tool_calls, list):
+                        valid_tool_call_ids = {
+                            tc.get("id") for tc in tool_calls 
+                            if isinstance(tc, dict) and tc.get("id")
+                        }
+                    else:
+                        # Assistant message without tool_calls - clear valid IDs
+                        valid_tool_call_ids = set()
+            
+            # Handle tool messages - only include if they have a valid tool_call_id
+            elif role == "tool":
+                tool_call_id = msg.get("tool_call_id")
+                if tool_call_id and tool_call_id in valid_tool_call_ids:
+                    cleaned.append(msg)
+                    # Remove this tool_call_id from valid set (each tool_call_id should only be responded to once)
+                    valid_tool_call_ids.discard(tool_call_id)
+                else:
+                    logger.warning(
+                        f"Removing orphaned tool message at index {i}: tool_call_id={tool_call_id}, "
+                        f"valid_ids={valid_tool_call_ids}",
+                        extra={
+                            "event": "orphaned_tool_message_removed",
+                            "message_index": i,
+                            "tool_call_id": tool_call_id,
+                            "valid_tool_call_ids": list(valid_tool_call_ids),
+                        }
+                    )
+        
+        return cleaned
+
     @staticmethod
     def _last_user_preview(messages: List[Dict[str, str]], max_len: int = 200) -> str:
         """

@@ -1,0 +1,77 @@
+{
+  "allowlist": {
+    "gov": {
+      "domains": ["*.gov", "*.gov.uk", "*.gov.au", "*.gc.ca"],
+      "score": 10,
+      "description": "Government websites"
+    },
+    "edu": {
+      "domains": ["*.edu", "*.ac.uk", "*.edu.au"],
+      "score": 9,
+      "description": "Educational institutions"
+    },
+    "official_docs": {
+      "domains": [
+        "docs.python.org",
+        "developer.mozilla.org",
+        "www.w3.org",
+        "github.com",
+        "stackoverflow.com"
+      ],
+      "score": 8,
+      "description": "Official documentation sites"
+    },
+    "reputable_news": {
+      "domains": [
+        "www.bbc.com",
+        "www.reuters.com",
+        "www.nytimes.com",
+        "www.theguardian.com",
+        "www.washingtonpost.com",
+        "www.npr.org"
+      ],
+      "score": 7,
+      "description": "Reputable news outlets"
+    },
+    "reputable_tech": {
+      "domains": [
+        "www.techcrunch.com",
+        "arstechnica.com",
+        "www.wired.com",
+        "www.theverge.com"
+      ],
+      "score": 6,
+      "description": "Reputable technology news"
+    },
+    "reputable_science": {
+      "domains": [
+        "www.nature.com",
+        "www.science.org",
+        "www.scientificamerican.com",
+        "www.newscientist.com"
+      ],
+      "score": 8,
+      "description": "Reputable science publications"
+    }
+  },
+  "denylist": {
+    "seo_farms": {
+      "domains": [
+        "*.content-farm.com",
+        "*.spam-site.net"
+      ],
+      "score": -10,
+      "description": "Known SEO content farms"
+    },
+    "scraped_aggregators": {
+      "domains": [
+        "*.aggregator-spam.com"
+      ],
+      "score": -5,
+      "description": "Scraped content aggregators without attribution"
+    }
+  },
+  "default_score": 0,
+  "version": "1.0"
+}
+

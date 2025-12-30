@@ -19,6 +19,7 @@ from contextlib import contextmanager
 if TYPE_CHECKING:
     from .declarative_memory import DeclarativeMemoryInterface
     from .spreading_activation import SpreadingActivation
+    from .llm_pattern_matcher import LLMPatternMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,8 @@ class WorkingMemory:
         capacity: int = 7,
         update_interval: float = 1.0,
         declarative_memory: Optional["DeclarativeMemoryInterface"] = None,
-        spreading_activation: Optional["SpreadingActivation"] = None
+        spreading_activation: Optional["SpreadingActivation"] = None,
+        pattern_matcher: Optional["LLMPatternMatcher"] = None
     ):
         """
         Initialize working memory.
@@ -105,6 +107,7 @@ class WorkingMemory:
             update_interval: How often to update activations (seconds)
             declarative_memory: Optional DeclarativeMemoryInterface for LTM integration
             spreading_activation: Optional SpreadingActivation for activation propagation
+            pattern_matcher: Optional LLMPatternMatcher for semantic pattern matching
         """
         self.capacity = capacity
         self.update_interval = update_interval
@@ -116,6 +119,7 @@ class WorkingMemory:
         # Declarative memory integration
         self.declarative_memory = declarative_memory
         self.spreading_activation = spreading_activation
+        self.pattern_matcher = pattern_matcher
         
         # Attention focus (what's currently being attended to)
         self.focus: Optional[Dict[str, Any]] = None
@@ -168,7 +172,20 @@ class WorkingMemory:
             # Update cognitive load
             self.state["cognitive_load"] = len(self.items) / self.capacity
             
-            logger.debug(f"Added item to working memory: {content.get('type', 'unknown')}")
+            logger.info(
+                f"Added item to working memory: type={content.get('type', 'unknown')}, "
+                f"activation={activation:.3f}, items_count={len(self.items)}/{self.capacity}, "
+                f"cognitive_load={self.state['cognitive_load']:.3f}",
+                extra={
+                    "event": "working_memory_item_added",
+                    "item_type": content.get('type', 'unknown'),
+                    "activation": activation,
+                    "items_count": len(self.items),
+                    "capacity": self.capacity,
+                    "cognitive_load": self.state["cognitive_load"],
+                    "utilization": len(self.items) / self.capacity,
+                }
+            )
             return True
     
     def _remove_lowest_activation(self) -> Optional[WorkingMemoryItem]:
@@ -179,12 +196,26 @@ class WorkingMemory:
         # Find item with lowest activation
         lowest_idx = min(range(len(self.items)), key=lambda i: self.items[i].activation)
         removed = self.items.pop(lowest_idx)
+        removed_activation = removed.activation
         
         # Store to declarative memory before eviction if it meets threshold
+        stored_count = 0
         if self.declarative_memory:
-            self.to_declarative_memory([removed])
+            stored_count = self.to_declarative_memory([removed])
         
-        logger.debug(f"Removed low-activation item: {removed.content.get('type', 'unknown')}")
+        logger.info(
+            f"Removed low-activation item from working memory: type={removed.content.get('type', 'unknown')}, "
+            f"activation={removed_activation:.3f}, stored_to_declarative={stored_count}, "
+            f"remaining_items={len(self.items)}/{self.capacity}",
+            extra={
+                "event": "working_memory_item_removed",
+                "item_type": removed.content.get('type', 'unknown'),
+                "activation": removed_activation,
+                "stored_to_declarative": stored_count,
+                "remaining_items": len(self.items),
+                "capacity": self.capacity,
+            }
+        )
         return removed
     
     def retrieve(self, pattern: Dict[str, Any] = None, 
@@ -197,7 +228,9 @@ class WorkingMemory:
         self._update_activations()
         
         matching_items = []
+        evaluated_count = 0
         for item in self.items:
+            evaluated_count += 1
             if item.activation < min_activation:
                 continue
             
@@ -208,12 +241,34 @@ class WorkingMemory:
         # Sort by activation (highest first)
         matching_items.sort(key=lambda x: x[0], reverse=True)
         
+        retrieved_content = [content for _, content in matching_items]
+        
+        logger.info(
+            f"Retrieved items from working memory: pattern={pattern is not None}, "
+            f"min_activation={min_activation:.3f}, evaluated={evaluated_count}, "
+            f"matched={len(retrieved_content)}, "
+            f"top_activation={matching_items[0][0]:.3f if matching_items else 0.0}",
+            extra={
+                "event": "working_memory_retrieve",
+                "has_pattern": pattern is not None,
+                "min_activation": min_activation,
+                "evaluated_count": evaluated_count,
+                "matched_count": len(retrieved_content),
+                "total_items": len(self.items),
+                "top_activation": matching_items[0][0] if matching_items else 0.0,
+            }
+        )
+        
         # Return just the content
-        return [content for _, content in matching_items]
+        return retrieved_content
     
     def _pattern_matches(self, pattern: Dict[str, Any], content: Dict[str, Any]) -> bool:
         """Check if pattern matches content."""
-        # Simple pattern matching for now
+        # Use LLM pattern matcher if available
+        if self.pattern_matcher is not None:
+            return self.pattern_matcher.match(pattern, content)
+        
+        # Fallback to legacy dict subset/equality matching
         for key, value in pattern.items():
             if key not in content:
                 return False
@@ -238,6 +293,23 @@ class WorkingMemory:
                     remaining_items.append(item)
             
             self.items = remaining_items
+            
+            # Update cognitive load after removal
+            self.state["cognitive_load"] = len(self.items) / self.capacity
+            
+            logger.info(
+                f"Removed matching items from working memory: pattern={pattern}, "
+                f"removed_count={removed_count}, remaining_items={len(self.items)}/{self.capacity}, "
+                f"cognitive_load={self.state['cognitive_load']:.3f}",
+                extra={
+                    "event": "working_memory_items_removed",
+                    "pattern": pattern,
+                    "removed_count": removed_count,
+                    "remaining_items": len(self.items),
+                    "capacity": self.capacity,
+                    "cognitive_load": self.state["cognitive_load"],
+                }
+            )
             return removed_count
     
     def modify_matching(self, pattern: Dict[str, Any], 
@@ -249,9 +321,22 @@ class WorkingMemory:
             for item in self.items:
                 if self._pattern_matches(pattern, item.content):
                     # Apply modification
+                    old_activation = item.activation
                     self._apply_modification(item.content, modification)
-                    modified_count += 1
                     item.strengthen(0.05)  # Slight strengthening on modification
+                    modified_count += 1
+            
+            if modified_count > 0:
+                logger.info(
+                    f"Modified items in working memory: pattern={pattern}, "
+                    f"modified_count={modified_count}, total_items={len(self.items)}",
+                    extra={
+                        "event": "working_memory_items_modified",
+                        "pattern": pattern,
+                        "modified_count": modified_count,
+                        "total_items": len(self.items),
+                    }
+                )
             
             return modified_count
     
@@ -268,14 +353,49 @@ class WorkingMemory:
     def add_goal(self, goal: Dict[str, Any]):
         """Add a goal to working memory."""
         self.goals.append(goal)
-        logger.debug(f"Added goal: {goal.get('name', 'unnamed')}")
+        logger.info(
+            f"Added goal to working memory: name={goal.get('name', 'unnamed')}, "
+            f"total_goals={len(self.goals)}",
+            extra={
+                "event": "working_memory_goal_added",
+                "goal_name": goal.get('name', 'unnamed'),
+                "goal_status": goal.get('status', 'unknown'),
+                "total_goals": len(self.goals),
+            }
+        )
     
     def get_active_goals(self) -> List[Dict[str, Any]]:
         """Get active goals."""
         return [g for g in self.goals if g.get("status") == "active"]
     
-    def queue_tool_call(self, tool_name: str, parameters: Dict[str, Any]):
-        """Queue a tool call for execution."""
+    def queue_tool_call(
+        self, 
+        tool_name: str, 
+        parameters: Dict[str, Any],
+        loop_detector: Optional[Any] = None
+    ):
+        """
+        Queue a tool call for execution.
+        
+        Args:
+            tool_name: Name of tool to call
+            parameters: Tool parameters
+            loop_detector: Optional LoopDetector to check for loops
+        """
+        # Check loop detector if provided
+        if loop_detector is not None:
+            # Check tool queue size
+            queue_allowed, queue_reason = loop_detector.check_tool_queue(self.tool_queue)
+            if not queue_allowed:
+                logger.error(f"Cannot queue tool call '{tool_name}': {queue_reason}")
+                raise ValueError(f"Tool queue blocked: {queue_reason}")
+            
+            # Check individual tool call retry limit
+            call_allowed, call_reason = loop_detector.check_tool_call(tool_name, parameters)
+            if not call_allowed:
+                logger.error(f"Cannot queue tool call '{tool_name}': {call_reason}")
+                raise ValueError(f"Tool call blocked: {call_reason}")
+        
         self.tool_queue.append({
             "tool_name": tool_name,
             "parameters": parameters,
@@ -293,14 +413,36 @@ class WorkingMemory:
     
     def set_focus(self, content: Dict[str, Any], strength: float = 1.0):
         """Set attention focus."""
+        old_focus = self.focus
+        old_strength = self.focus_strength
         self.focus = content
         self.focus_strength = strength
-        logger.debug(f"Set focus to: {content.get('type', 'unknown')}")
+        logger.info(
+            f"Set attention focus: type={content.get('type', 'unknown')}, "
+            f"strength={strength:.3f} (was {old_strength:.3f})",
+            extra={
+                "event": "working_memory_focus_set",
+                "focus_type": content.get('type', 'unknown'),
+                "focus_strength": strength,
+                "previous_strength": old_strength,
+                "had_focus": old_focus is not None,
+            }
+        )
     
     def clear_focus(self):
         """Clear attention focus."""
+        had_focus = self.focus is not None
+        old_strength = self.focus_strength
         self.focus = None
         self.focus_strength = 0.0
+        if had_focus:
+            logger.info(
+                f"Cleared attention focus (was {old_strength:.3f})",
+                extra={
+                    "event": "working_memory_focus_cleared",
+                    "previous_strength": old_strength,
+                }
+            )
     
     def _update_activations(self):
         """Update activation levels of all items."""
@@ -310,12 +452,43 @@ class WorkingMemory:
         if time_passed < self.update_interval:
             return
         
+        # Track activation changes
+        activation_changes = []
         for item in self.items:
+            old_activation = item.activation
             item.update_activation(time_passed)
+            if abs(item.activation - old_activation) > 0.01:  # Only log significant changes
+                activation_changes.append((old_activation, item.activation))
         
         # Trigger spreading activation if enabled
         if self.spreading_activation:
             self._trigger_spreading_activation()
+        
+        # Log periodic status if there were significant changes or enough time passed
+        if activation_changes or time_passed >= 60.0:  # Log every minute or on significant changes
+            avg_activation = sum(item.activation for item in self.items) / len(self.items) if self.items else 0.0
+            max_activation = max((item.activation for item in self.items), default=0.0)
+            min_activation = min((item.activation for item in self.items), default=0.0)
+            
+            logger.info(
+                f"Working memory activation update: items={len(self.items)}/{self.capacity}, "
+                f"time_passed={time_passed:.2f}s, avg_activation={avg_activation:.3f}, "
+                f"activation_range=[{min_activation:.3f}, {max_activation:.3f}], "
+                f"cognitive_load={self.state['cognitive_load']:.3f}, "
+                f"significant_changes={len(activation_changes)}",
+                extra={
+                    "event": "working_memory_activation_update",
+                    "items_count": len(self.items),
+                    "capacity": self.capacity,
+                    "time_passed_seconds": time_passed,
+                    "avg_activation": avg_activation,
+                    "min_activation": min_activation,
+                    "max_activation": max_activation,
+                    "cognitive_load": self.state["cognitive_load"],
+                    "significant_changes": len(activation_changes),
+                    "utilization": len(self.items) / self.capacity if self.capacity > 0 else 0.0,
+                }
+            )
         
         self.last_update = current_time
     

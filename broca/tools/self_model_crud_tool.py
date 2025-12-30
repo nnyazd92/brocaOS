@@ -50,7 +50,17 @@ class SelfModelCRUDTool:
         self.self_model = self_model
         self.storage = storage
         self.epistemic_engine = epistemic_engine
-        logger.info("Initialized SelfModelCRUDTool")
+        
+        # Log the database path being used for persistence
+        if hasattr(storage, 'db_path'):
+            db_path = storage.db_path
+            if hasattr(db_path, 'absolute'):
+                abs_path = db_path.absolute()
+                logger.info(f"Initialized SelfModelCRUDTool with database at: {abs_path}")
+            else:
+                logger.info(f"Initialized SelfModelCRUDTool with database at: {db_path}")
+        else:
+            logger.info("Initialized SelfModelCRUDTool")
     
     @property
     def name(self) -> str:
@@ -259,9 +269,20 @@ class SelfModelCRUDTool:
         if rationale:
             updated_model.metadata["update_rationale"] = rationale
         
-        # Save and update local reference
-        self.storage.save(updated_model)
-        self.self_model = updated_model
+        # Save and update local reference with error handling
+        try:
+            logger.info(f"Persisting create operation for {aspect} to self-model database")
+            self.storage.save(updated_model)
+            self.self_model = updated_model
+            logger.debug(
+                f"Successfully persisted create operation: version {updated_model.metadata.get('version')}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to persist create operation for {aspect}: {e}",
+                exc_info=True
+            )
+            raise
         
         return {
             "success": True,
@@ -331,9 +352,20 @@ class SelfModelCRUDTool:
         if rationale:
             updated_model.metadata["update_rationale"] = rationale
         
-        # Save and update local reference
-        self.storage.save(updated_model)
-        self.self_model = updated_model
+        # Save and update local reference with error handling
+        try:
+            logger.info(f"Persisting update operation for {aspect} to self-model database")
+            self.storage.save(updated_model)
+            self.self_model = updated_model
+            logger.debug(
+                f"Successfully persisted update operation: version {updated_model.metadata.get('version')}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to persist update operation for {aspect}: {e}",
+                exc_info=True
+            )
+            raise
         
         return {
             "success": True,
@@ -422,9 +454,20 @@ class SelfModelCRUDTool:
         if rationale:
             updated_model.metadata["update_rationale"] = rationale
         
-        # Save and update local reference
-        self.storage.save(updated_model)
-        self.self_model = updated_model
+        # Save and update local reference with error handling
+        try:
+            logger.info(f"Persisting delete operation for {aspect} to self-model database")
+            self.storage.save(updated_model)
+            self.self_model = updated_model
+            logger.debug(
+                f"Successfully persisted delete operation: version {updated_model.metadata.get('version')}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to persist delete operation for {aspect}: {e}",
+                exc_info=True
+            )
+            raise
         
         return {
             "success": True,
@@ -614,6 +657,20 @@ class SelfModelCRUDTool:
                 filtered = [(k, v) for k, v in filtered if pattern.lower() in k.lower()]
         
         return filtered
+    
+    def get_database_path(self) -> Optional[str]:
+        """
+        Get the absolute path to the database file for verification.
+        
+        Returns:
+            Absolute path to database file, or None if not available
+        """
+        if hasattr(self.storage, 'db_path'):
+            db_path = self.storage.db_path
+            if hasattr(db_path, 'absolute'):
+                return str(db_path.absolute())
+            return str(db_path)
+        return None
     
     def format_result(self, result: Dict[str, Any]) -> str:
         """

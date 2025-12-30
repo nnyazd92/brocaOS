@@ -1,0 +1,242 @@
+{
+  "schema_version": 1,
+  "state_version": 1609,
+  "saved_at": "2025-12-30T00:13:16.906998+00:00",
+  "rule_system": {
+    "rules": [
+      {
+        "name": "goal_to_analyze_codebase",
+        "conditions": [
+          {
+            "type": "goal",
+            "goal_type": "implementation",
+            "status": "active"
+          }
+        ],
+        "actions": [
+          {
+            "type": "create_goal",
+            "goal": {
+              "name": "analyze_codebase",
+              "description": "Analyze codebase structure for implementation",
+              "priority": 0.8,
+              "dependencies": [],
+              "status": "active"
+            }
+          }
+        ],
+        "rule_type": "goal",
+        "priority": 1.5,
+        "strength": 1.0,
+        "created_at": "2025-12-28T05:45:06.042324+00:00",
+        "last_fired": null,
+        "fire_count": 0
+      },
+      {
+        "name": "analyze_codebase_files",
+        "conditions": [
+          {
+            "type": "goal",
+            "name": "analyze_codebase",
+            "status": "active"
+          },
+          {
+            "type": "memory",
+            "content_type": "codebase_analysis",
+            "status": "not_started"
+          }
+        ],
+        "actions": [
+          {
+            "type": "create_goal",
+            "goal": {
+              "name": "examine_files",
+              "description": "Examine key files in codebase",
+              "priority": 0.9,
+              "dependencies": [
+                "analyze_codebase"
+              ],
+              "status": "active"
+            }
+          }
+        ],
+        "rule_type": "goal",
+        "priority": 1.2,
+        "strength": 1.0,
+        "created_at": "2025-12-28T05:45:06.042342+00:00",
+        "last_fired": null,
+        "fire_count": 0
+      },
+      {
+        "name": "examine_files_trigger",
+        "conditions": [
+          {
+            "type": "goal",
+            "name": "examine_files",
+            "status": "active"
+          },
+          {
+            "type": "state",
+            "files_examined": false
+          }
+        ],
+        "actions": [
+          {
+            "type": "trigger_tool",
+            "tool_name": "terminal",
+            "parameters": {
+              "command": "find . -name '*.py' -type f | head -20"
+            }
+          }
+        ],
+        "rule_type": "action",
+        "priority": 1.0,
+        "strength": 1.0,
+        "created_at": "2025-12-28T05:45:06.042350+00:00",
+        "last_fired": null,
+        "fire_count": 0
+      },
+      {
+        "name": "synthesize_related_memories",
+        "conditions": [
+          {
+            "type": "memory",
+            "tags": {
+              "contains": "related"
+            }
+          },
+          {
+            "type": "state",
+            "synthesis_created": false
+          }
+        ],
+        "actions": [
+          {
+            "type": "add_to_memory",
+            "content": {
+              "type": "synthesis",
+              "description": "Synthesis of related memories",
+              "source": "inference_rule",
+              "timestamp": "2025-12-28T05:45:06.042355+00:00"
+            }
+          }
+        ],
+        "rule_type": "inference",
+        "priority": 0.8,
+        "strength": 1.0,
+        "created_at": "2025-12-28T05:45:06.042372+00:00",
+        "last_fired": null,
+        "fire_count": 0
+      }
+    ],
+    "history": [],
+    "learning_enabled": true
+  },
+  "goal_manager": {
+    "goals": [
+      {
+        "name": "be_helpful_cognitive_assistant",
+        "description": "Be a helpful, capable cognitive assistant that can reason, learn, and solve problems",
+        "goal_type": "maintain",
+        "status": "active",
+        "priority": 1.0,
+        "created_at": "2025-12-28T05:45:06.042390+00:00",
+        "parent": null,
+        "children": [
+          "minimize_cognitive_dissonance",
+          "implement_cognitive_reasoning"
+        ],
+        "dependencies": [],
+        "success_conditions": [],
+        "failure_conditions": [],
+        "progress": 0.5,
+        "last_updated": "2025-12-28T13:10:18.860687+00:00",
+        "attempts": 0,
+        "max_attempts": 3,
+        "required_resources": [],
+        "allocated_resources": [],
+        "tags": [],
+        "metadata": {}
+      },
+      {
+        "name": "minimize_cognitive_dissonance",
+        "description": "Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)",
+        "goal_type": "maintain",
+        "status": "active",
+        "priority": 1.0,
+        "created_at": "2025-12-28T05:45:06.677470+00:00",
+        "parent": "be_helpful_cognitive_assistant",
+        "children": [],
+        "dependencies": [],
+        "success_conditions": [
+          {
+            "type": "overall_dissonance",
+            "operator": "<",
+            "value": 0.2
+          },
+          {
+            "type": "no_critical_dissonance",
+            "operator": "==",
+            "value": true
+          }
+        ],
+        "failure_conditions": [],
+        "progress": null,
+        "last_updated": "2025-12-28T05:45:06.677475+00:00",
+        "attempts": 0,
+        "max_attempts": 3,
+        "required_resources": [],
+        "allocated_resources": [],
+        "tags": [],
+        "metadata": {}
+      },
+      {
+        "name": "implement_cognitive_reasoning",
+        "description": "Implement production rule system and cognitive reasoning capabilities",
+        "goal_type": "achieve",
+        "status": "active",
+        "priority": 0.9,
+        "created_at": "2025-12-28T05:45:07.082149+00:00",
+        "parent": "be_helpful_cognitive_assistant",
+        "children": [],
+        "dependencies": [],
+        "success_conditions": [],
+        "failure_conditions": [],
+        "progress": 0.5,
+        "last_updated": "2025-12-28T13:05:14.009067+00:00",
+        "attempts": 0,
+        "max_attempts": 3,
+        "required_resources": [],
+        "allocated_resources": [],
+        "tags": [],
+        "metadata": {}
+      }
+    ],
+    "history": [
+      {
+        "timestamp": "2025-12-28T05:45:06.042403+00:00",
+        "action": "add",
+        "goal": "be_helpful_cognitive_assistant",
+        "description": "Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"
+      },
+      {
+        "timestamp": "2025-12-28T05:45:06.677484+00:00",
+        "action": "add",
+        "goal": "minimize_cognitive_dissonance",
+        "description": "Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"
+      },
+      {
+        "timestamp": "2025-12-28T05:45:07.082160+00:00",
+        "action": "add",
+        "goal": "implement_cognitive_reasoning",
+        "description": "Implement production rule system and cognitive reasoning capabilities"
+      }
+    ],
+    "next_goal_id": 1
+  },
+  "working_memory": {
+    "items": [],
+    "capacity": 7,
+    "associations": {}
+  }
+}

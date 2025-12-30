@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 import logging
+import math
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from collections import deque
 
@@ -55,8 +56,82 @@ class PredictiveInteroception:
         # Bayesian confidence tracking
         self._prediction_confidence: Dict[str, float] = {}  # Confidence per model type
         self._prediction_uncertainty: Dict[str, float] = {}  # Uncertainty per model type
+
+        # Calibrated surprise tracking (science-inspired):
+        # Maintain an online distribution over prediction errors and compute a normalized
+        # negative log-likelihood (Shannon surprise proxy) for the most recent error.
+        self._error_stats: Dict[str, float] = {
+            "count": 0.0,
+            "mean": 0.0,
+            "var": 0.05,  # non-zero prior variance to avoid division by zero
+        }
+        self._calibrated_surprise_history: deque = deque(maxlen=100)
         
         logger.info("Initialized PredictiveInteroception (predictive coding theory)")
+
+    def _update_error_distribution(self, error: float, alpha: float = 0.05) -> None:
+        """
+        Update running mean/variance of prediction error using EWMA.
+
+        Args:
+            error: Prediction error (0.0-1.0)
+            alpha: EWMA update rate
+        """
+        e = max(0.0, min(1.0, float(error)))
+        # EWMA mean/var update
+        mean = self._error_stats["mean"]
+        var = self._error_stats["var"]
+        mean_new = (1.0 - alpha) * mean + alpha * e
+        # variance of residuals around updated mean
+        resid = e - mean_new
+        var_new = (1.0 - alpha) * var + alpha * (resid * resid)
+
+        # clamp variance to a sane minimum/maximum
+        var_new = max(1e-6, min(0.25, var_new))
+        self._error_stats["mean"] = mean_new
+        self._error_stats["var"] = var_new
+        self._error_stats["count"] = self._error_stats["count"] + 1.0
+
+    def _negative_log_likelihood(self, error: float) -> float:
+        """
+        Negative log-likelihood of observing `error` under a Gaussian model of errors.
+
+        Note: This is a pragmatic proxy for Shannon surprise (-log p(o)).
+        """
+        e = max(0.0, min(1.0, float(error)))
+        mu = float(self._error_stats["mean"])
+        var = float(self._error_stats["var"])
+        # Gaussian NLL
+        return 0.5 * math.log(2.0 * math.pi * var) + ((e - mu) ** 2) / (2.0 * var)
+
+    def _deviation_surprisal(self, error: float) -> float:
+        """
+        A strictly-nonnegative, distribution-aware surprisal proxy.
+
+        We intentionally drop the constant term of Gaussian NLL and keep only the
+        deviation component:
+
+            s = (e - mu)^2 / (2 * var)
+
+        This avoids negative "NLL" values (which would be clamped to 0 and collapse
+        the calibrated signal in low-variance regimes).
+        """
+        e = max(0.0, min(1.0, float(error)))
+        mu = float(self._error_stats["mean"])
+        var = float(self._error_stats["var"])
+        var = max(1e-6, var)
+        return ((e - mu) ** 2) / (2.0 * var)
+
+    def _normalize_surprise(self, nll: float, tau: float = 2.0) -> float:
+        """
+        Map NLL (unbounded) -> [0,1] using a saturating nonlinearity.
+        """
+        if not isinstance(nll, (int, float)) or math.isnan(nll) or math.isinf(nll):
+            return 0.0
+        # Ensure non-negative
+        nll = max(0.0, float(nll))
+        # 1 - exp(-nll/tau) gives smooth saturation; tau controls sensitivity.
+        return max(0.0, min(1.0, 1.0 - math.exp(-nll / max(1e-6, tau))))
     
     def predict_resources(
         self,
@@ -368,6 +443,15 @@ class PredictiveInteroception:
         })
         
         self._prediction_errors.append(error)
+        try:
+            # Compute calibrated surprise under the *prior* error distribution (before update),
+            # then update the distribution with the new observation.
+            s = self._deviation_surprisal(error)
+            calibrated = self._normalize_surprise(s)
+            self._calibrated_surprise_history.append(calibrated)
+            self._update_error_distribution(error)
+        except Exception as e:
+            logger.debug(f"Failed to update calibrated surprise: {e}")
         
         # Update model (simple: store recent patterns)
         if model_type not in self.internal_models:
@@ -503,3 +587,115 @@ class PredictiveInteroception:
         
         # Ensure bounded [0, 1]
         return max(0.0, min(1.0, avg_error))
+
+    def get_rl_surprise_signal(self) -> float:
+        """
+        Get a calibrated surprise signal for RL (0.0-1.0).
+
+        This is NOT the same as prediction error. It is a normalized, information-theoretic
+        proxy (-log p(error)) under an online error distribution, which makes large
+        outliers much more salient and reduces sensitivity to tiny fluctuations.
+        """
+        if len(self._calibrated_surprise_history) == 0:
+            return 0.0
+
+        # Use mean of the last few for stability
+        if len(self._calibrated_surprise_history) >= 3:
+            recent = list(self._calibrated_surprise_history)[-3:]
+            val = sum(recent) / len(recent)
+        else:
+            val = self._calibrated_surprise_history[-1]
+
+        return max(0.0, min(1.0, float(val)))
+
+    def serialize_state(self) -> Dict[str, Any]:
+        """
+        Serialize predictive interoception state for persistence across restarts.
+
+        We persist only bounded, learning-relevant state so RL signals (especially calibrated surprise)
+        don't reset on web/API restart.
+        """
+        try:
+            return {
+                "error_stats": {
+                    "count": float(self._error_stats.get("count", 0.0)),
+                    "mean": float(self._error_stats.get("mean", 0.0)),
+                    "var": float(self._error_stats.get("var", 0.05)),
+                },
+                "calibrated_surprise_history": [float(x) for x in list(self._calibrated_surprise_history)],
+                "prediction_errors": [float(x) for x in list(self._prediction_errors)],
+                "prediction_confidence": {str(k): float(v) for k, v in (self._prediction_confidence or {}).items()},
+                "prediction_uncertainty": {str(k): float(v) for k, v in (self._prediction_uncertainty or {}).items()},
+            }
+        except Exception:
+            # Best-effort: never let persistence crash the system.
+            return {}
+
+    def deserialize_state(self, data: Dict[str, Any]) -> None:
+        """
+        Restore predictive interoception state from a persisted snapshot.
+
+        Backward compatible: missing keys are ignored.
+        """
+        if not isinstance(data, dict):
+            return
+
+        # Restore error distribution stats
+        stats = data.get("error_stats")
+        if isinstance(stats, dict):
+            try:
+                count = float(stats.get("count", self._error_stats.get("count", 0.0)))
+                mean = float(stats.get("mean", self._error_stats.get("mean", 0.0)))
+                var = float(stats.get("var", self._error_stats.get("var", 0.05)))
+                self._error_stats["count"] = max(0.0, count)
+                self._error_stats["mean"] = max(0.0, min(1.0, mean))
+                self._error_stats["var"] = max(1e-6, min(0.25, var))
+            except Exception:
+                pass
+
+        # Restore histories (bounded by deque maxlen)
+        try:
+            self._calibrated_surprise_history.clear()
+            for x in (data.get("calibrated_surprise_history") or []):
+                try:
+                    self._calibrated_surprise_history.append(max(0.0, min(1.0, float(x))))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        try:
+            self._prediction_errors.clear()
+            for x in (data.get("prediction_errors") or []):
+                try:
+                    self._prediction_errors.append(max(0.0, min(1.0, float(x))))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        # Rebuild hierarchical error windows from restored prediction error history
+        try:
+            self._short_term_errors.clear()
+            self._long_term_errors.clear()
+            errs = list(self._prediction_errors)
+            for e in errs[-self._short_term_errors.maxlen:]:
+                self._short_term_errors.append(e)
+            for e in errs[-self._long_term_errors.maxlen:]:
+                self._long_term_errors.append(e)
+        except Exception:
+            pass
+
+        # Restore confidence/uncertainty maps
+        conf = data.get("prediction_confidence")
+        if isinstance(conf, dict):
+            try:
+                self._prediction_confidence = {str(k): max(0.0, min(1.0, float(v))) for k, v in conf.items()}
+            except Exception:
+                pass
+        unc = data.get("prediction_uncertainty")
+        if isinstance(unc, dict):
+            try:
+                self._prediction_uncertainty = {str(k): max(0.0, min(1.0, float(v))) for k, v in unc.items()}
+            except Exception:
+                pass

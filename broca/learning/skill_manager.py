@@ -12,10 +12,13 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from enum import Enum
+
+if TYPE_CHECKING:
+    from ..reasoning.llm_pattern_matcher import LLMPatternMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +210,13 @@ class SkillManager:
     and handles skill improvement through experience.
     """
     
-    def __init__(self, max_skills: int = 50, storage_path: Optional[str] = None, auto_save: bool = True):
+    def __init__(
+        self, 
+        max_skills: int = 50, 
+        storage_path: Optional[str] = None, 
+        auto_save: bool = True,
+        pattern_matcher: Optional["LLMPatternMatcher"] = None
+    ):
         """
         Initialize SkillManager.
         
@@ -215,9 +224,31 @@ class SkillManager:
             max_skills: Maximum number of skills to maintain
             storage_path: Path to JSON file for persistence. If None, uses default from data/skills.json
             auto_save: If True, automatically save on skill updates
+            pattern_matcher: Optional LLMPatternMatcher for semantic pattern matching
         """
         self.max_skills = max_skills
         self.auto_save = auto_save
+        
+        # Initialize pattern matcher if not provided
+        if pattern_matcher is None:
+            try:
+                from ..reasoning.llm_pattern_matcher import LLMPatternMatcher
+                from ..llm import create_llm_client
+                from ..config import config
+                
+                llm_client = create_llm_client(
+                    model=getattr(config.reasoning, 'llm_pattern_matching_model', 'gpt-5-nano')
+                )
+                pattern_matcher = LLMPatternMatcher(
+                    llm_client=llm_client,
+                    model=getattr(config.reasoning, 'llm_pattern_matching_model', 'gpt-5-nano')
+                )
+                logger.info("Initialized LLM pattern matcher for SkillManager")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM pattern matcher for SkillManager: {e}. Will use legacy dict matching.")
+                pattern_matcher = None
+        
+        self.pattern_matcher = pattern_matcher
         
         # Set storage path
         if storage_path is None:
@@ -247,7 +278,7 @@ class SkillManager:
                 except Exception as e:
                     logger.warning(f"Failed to save default skills: {e}")
         
-        logger.info(f"Initialized SkillManager with {len(self.skills)} skills")
+        logger.info(f"Initialized SkillManager with {len(self.skills)} skills, llm_pattern_matching={self.pattern_matcher is not None}")
     
     def _add_default_skills(self):
         """Add default skills based on system capabilities."""
@@ -326,6 +357,8 @@ class SkillManager:
         """
         Get skills applicable to current context.
         
+        Uses batched pattern matching when LLM matcher is available.
+        
         Args:
             context: Current context with memory items, goals, state
             
@@ -334,9 +367,79 @@ class SkillManager:
         """
         applicable = []
         
-        for skill in self.skills.values():
-            if self._skill_applicable(skill, context):
-                applicable.append(skill)
+        # If we have LLM matcher, we can batch pattern matching across all skills
+        if self.pattern_matcher is not None:
+            # Collect all patterns to check
+            all_patterns_to_check: List[Tuple[Skill, Dict[str, Any], str]] = []  # (skill, pattern, pattern_type)
+            
+            for skill in self.skills.values():
+                # Collect trigger patterns
+                for pattern in skill.trigger_patterns:
+                    all_patterns_to_check.append((skill, pattern, "trigger"))
+                # Collect required context patterns
+                for pattern in skill.required_context:
+                    all_patterns_to_check.append((skill, pattern, "required"))
+                # Collect excluded context patterns
+                for pattern in skill.excluded_context:
+                    all_patterns_to_check.append((skill, pattern, "excluded"))
+            
+            # Batch match all patterns against context items
+            memory_items = context.get("memory_items", [])
+            active_goals = context.get("active_goals", [])
+            system_state = context.get("system_state", {})
+            all_context_items = memory_items + active_goals + [system_state]
+            
+            # Batch match patterns against context items
+            if all_patterns_to_check and all_context_items:
+                pattern_content_pairs = [
+                    (pattern, item)
+                    for skill, pattern, pattern_type in all_patterns_to_check
+                    for item in all_context_items
+                ]
+                if pattern_content_pairs:
+                    batch_results = self.pattern_matcher.match_batch(pattern_content_pairs)
+                    # Process results to determine skill applicability
+                    result_idx = 0
+                    skill_matches: Dict[str, Dict[str, bool]] = {}  # skill_name -> {trigger: bool, required: bool, excluded: bool}
+                    
+                    for skill, pattern, pattern_type in all_patterns_to_check:
+                        if skill.name not in skill_matches:
+                            skill_matches[skill.name] = {"trigger": False, "required": True, "excluded": False}
+                        
+                        # Check matches for this pattern against all context items
+                        matches_for_pattern = any(
+                            batch_results[result_idx + i][0]
+                            for i in range(len(all_context_items))
+                        )
+                        result_idx += len(all_context_items)
+                        
+                        if pattern_type == "trigger" and matches_for_pattern:
+                            skill_matches[skill.name]["trigger"] = True
+                        elif pattern_type == "required" and not matches_for_pattern:
+                            skill_matches[skill.name]["required"] = False
+                        elif pattern_type == "excluded" and matches_for_pattern:
+                            skill_matches[skill.name]["excluded"] = True
+                    
+                    # Determine applicable skills based on batch results
+                    for skill in self.skills.values():
+                        matches = skill_matches.get(skill.name, {"trigger": False, "required": True, "excluded": False})
+                        if matches["trigger"] and matches["required"] and not matches["excluded"]:
+                            applicable.append(skill)
+                else:
+                    # No patterns to check, use individual matching
+                    for skill in self.skills.values():
+                        if self._skill_applicable(skill, context):
+                            applicable.append(skill)
+            else:
+                # No patterns or context items, use individual matching
+                for skill in self.skills.values():
+                    if self._skill_applicable(skill, context):
+                        applicable.append(skill)
+        else:
+            # No LLM matcher, use individual matching
+            for skill in self.skills.values():
+                if self._skill_applicable(skill, context):
+                    applicable.append(skill)
         
         # Sort by combined score: proficiency, confidence, and dissonance impact
         # Skills that reduce dissonance get priority boost
@@ -404,6 +507,11 @@ class SkillManager:
     
     def _pattern_matches(self, pattern: Dict[str, Any], item: Dict[str, Any]) -> bool:
         """Check if pattern matches item."""
+        # Use LLM pattern matcher if available
+        if self.pattern_matcher is not None:
+            return self.pattern_matcher.match(pattern, item)
+        
+        # Fallback to legacy dict subset/equality matching
         for key, value in pattern.items():
             if key not in item:
                 return False
@@ -416,6 +524,14 @@ class SkillManager:
     
     def _pattern_matches_any(self, pattern: Dict[str, Any], items: List[Dict[str, Any]]) -> bool:
         """Check if pattern matches any item in list."""
+        # Use LLM pattern matcher with batching if available
+        if self.pattern_matcher is not None and items:
+            # Batch all pattern matches
+            pattern_content_pairs = [(pattern, item) for item in items]
+            results = self.pattern_matcher.match_batch(pattern_content_pairs)
+            return any(match for match, _ in results)
+        
+        # Fallback to individual matching
         for item in items:
             if self._pattern_matches(pattern, item):
                 return True

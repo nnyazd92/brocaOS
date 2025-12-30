@@ -1,0 +1,29 @@
+{
+  "provenance": {
+    "actuator_token_provenance": ".temporary_token.txt",
+    "token_exp": 1766926404,
+    "token_iat": 1766896404,
+    "token_jti": "fc6af33ee8114ae08ea3e2d2c96164b3",
+    "token_scopes": ["filesystem:write", "project:write", "memory:write"]
+  },
+  "repo_commit": "66f19eb",
+  "schema_version": "v0.2",
+  "session_summary": "/home/wizard/Documents/Code/BrocaOS/docs/protocols/SESSION_SUMMARY_2025-12-28T10:15:00Z.json",
+  "timestamp": "2025-12-28T05:01:27Z",
+  "architecture_version": "BROCA SMARTER v2.0",
+  "key_components": {
+    "memory_db": "memories.db",
+    "vector_index": "memories.faiss", 
+    "self_model_db": "self_model.db",
+    "self_model_json": "docs/self_model/self_model.v2.json",
+    "artifact_map": "docs/ARTIFACT_MAP.json",
+    "namespace_index": "docs/memory/memory_namespaces_index.md"
+  },
+  "cognitive_architecture": {
+    "reasoning": ["production_rules", "cognitive_dissonance", "working_memory"],
+    "learning": ["procedural_learning", "skill_management", "pattern_extraction"],
+    "self_regulation": ["signal_damping", "emotional_intelligence", "consistency_checking"],
+    "capabilities_count": 10,
+    "constraints_count": 6
+  }
+}

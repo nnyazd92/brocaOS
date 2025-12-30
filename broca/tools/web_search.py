@@ -98,6 +98,9 @@ class WebSearchTool:
             logger.warning(f"Failed to initialize Browse Orchestrator (fallback): {e}")
             self._browse_orchestrator = None
         
+        # Track if browser search has failed due to threading issues
+        self._browser_search_disabled = False
+        
         # At least one search method should be available
         if not self._tavily_client and not self._browse_orchestrator:
             logger.warning(
@@ -376,7 +379,7 @@ class WebSearchTool:
                     # Fall through to browser fallback
             
             # Fallback to browser-based search
-            if not self._browse_orchestrator:
+            if not self._browse_orchestrator or self._browser_search_disabled:
                 return {
                     "results": [],
                     "query": query,
@@ -418,14 +421,33 @@ class WebSearchTool:
                 return result
                 
             except Exception as e:
-                logger.error(f"Browser search also failed: {e}", exc_info=True)
-                return {
-                    "results": [],
-                    "query": query,
-                    "count": 0,
-                    "provider_used": "none",
-                    "error": f"Both Tavily and browser search failed. Last error: {str(e)}"
-                }
+                error_str = str(e)
+                # Check if this is a threading error - disable browser search permanently
+                if "cannot switch to a different thread" in error_str.lower() or "thread" in error_str.lower():
+                    logger.error(
+                        f"Browser search failed due to threading error - disabling browser search fallback: {e}",
+                        exc_info=True
+                    )
+                    self._browser_search_disabled = True
+                    return {
+                        "results": [],
+                        "query": query,
+                        "count": 0,
+                        "provider_used": "none",
+                        "error": (
+                            "Browser search unavailable due to threading error. "
+                            "Please set TAVILY_API_KEY for web search functionality."
+                        )
+                    }
+                else:
+                    logger.error(f"Browser search also failed: {e}", exc_info=True)
+                    return {
+                        "results": [],
+                        "query": query,
+                        "count": 0,
+                        "provider_used": "none",
+                        "error": f"Both Tavily and browser search failed. Last error: {str(e)}"
+                    }
             
         except Exception as e:
             logger.error(f"Error executing web search: {e}", exc_info=True)
