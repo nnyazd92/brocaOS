@@ -151,13 +151,38 @@ class Goal:
         self.last_updated = datetime.now(timezone.utc)
         
         old_str = f"{old_progress:.2f}" if old_progress is not None else "None"
-        logger.debug(f"Goal '{self.name}' progress: {old_str} -> {self.progress:.2f}" + 
-                    (f" ({reason})" if reason else ""))
+        progress_change = (self.progress - old_progress) if old_progress is not None else self.progress
+        
+        logger.info(
+            f"Goal progress updated: name={self.name}, progress={old_str} -> {self.progress:.3f} "
+            f"(change={progress_change:+.3f}), status={self.status.value}, "
+            f"reason={reason or 'none'}",
+            extra={
+                "event": "goal_progress_updated",
+                "goal_name": self.name,
+                "old_progress": old_progress,
+                "new_progress": self.progress,
+                "progress_change": progress_change,
+                "status": self.status.value,
+                "reason": reason or "",
+            }
+        )
         
         # Check if goal is completed
         if self.progress >= 1.0:
+            old_status = self.status
             self.status = GoalStatus.COMPLETED
-            logger.info(f"Goal '{self.name}' completed")
+            logger.info(
+                f"Goal completed: name={self.name}, final_progress={self.progress:.3f}, "
+                f"status_change={old_status.value} -> {self.status.value}",
+                extra={
+                    "event": "goal_completed",
+                    "goal_name": self.name,
+                    "final_progress": self.progress,
+                    "old_status": old_status.value,
+                    "new_status": self.status.value,
+                }
+            )
     
     def increment_attempts(self):
         """Increment attempt count and check for failure."""
@@ -165,8 +190,20 @@ class Goal:
         self.last_updated = datetime.now(timezone.utc)
         
         if self.attempts >= self.max_attempts:
+            old_status = self.status
             self.status = GoalStatus.FAILED
-            logger.warning(f"Goal '{self.name}' failed after {self.attempts} attempts")
+            logger.warning(
+                f"Goal failed: name={self.name}, attempts={self.attempts}/{self.max_attempts}, "
+                f"status_change={old_status.value} -> {self.status.value}",
+                extra={
+                    "event": "goal_failed",
+                    "goal_name": self.name,
+                    "attempts": self.attempts,
+                    "max_attempts": self.max_attempts,
+                    "old_status": old_status.value,
+                    "new_status": self.status.value,
+                }
+            )
     
     def is_ready(self, completed_goals: List[str]) -> bool:
         """Check if goal is ready to work on (dependencies satisfied)."""
@@ -223,19 +260,8 @@ class GoalManager:
         # Thread safety for state synchronization
         self._state_lock = threading.RLock()
         
-        # Initialize Z3 validator for goal dependency validation
-        self.z3_validator = None
-        try:
-            from .z3_validator import Z3LogicalValidator
-            from ..config import config
-            self.z3_validator = Z3LogicalValidator(
-                enable_z3=config.reasoning.z3_validation_enabled,
-                timeout=config.reasoning.z3_validation_timeout,
-                max_constraints=config.reasoning.z3_max_constraints
-            )
-        except Exception as e:
-            logger.warning(f"Failed to initialize Z3 validator for goal manager: {e}")
-            self.z3_validator = None
+        # Note: Z3 validator has been removed. Use the z3_validate tool instead
+        # for LLM-driven logical validation when needed.
         
         # Optional references for progress computation
         self._cognitive_dissonance_monitor = cognitive_dissonance_monitor
@@ -314,32 +340,8 @@ class GoalManager:
                 logger.warning(f"Goal '{goal.name}' already exists")
                 return False
             
-            # Validate goal dependencies with Z3 before adding
-            if self.z3_validator and self.z3_validator.enabled:
-                try:
-                    all_goals = list(self.goals.values()) + [goal]
-                    is_valid, error, warnings = self.z3_validator.validate_goal_dependencies(all_goals)
-                    
-                    if not is_valid:
-                        logger.error(f"Cannot add goal {goal.name}: {error}")
-                        # Update validation stats
-                        self.z3_validator.update_validation_stats(
-                            goal_dependencies_valid=False,
-                            warnings_count=len(warnings)
-                        )
-                        return False
-                    
-                    # Update validation stats
-                    self.z3_validator.update_validation_stats(
-                        goal_dependencies_valid=True,
-                        warnings_count=len(warnings)
-                    )
-                    
-                    for warning in warnings:
-                        logger.warning(f"Goal dependency warning: {warning}")
-                        
-                except Exception as e:
-                    logger.error(f"Error in Z3 goal dependency validation: {e}", exc_info=True)
+            # Note: Z3 validation has been removed. Use the z3_validate tool instead
+            # for LLM-driven logical validation when needed.
                     # Continue with goal addition even if validation fails
             
             self.goals[goal.name] = goal
@@ -361,7 +363,23 @@ class GoalManager:
                 except Exception as e:
                     logger.error(f"Error retrieving memories for goal {goal.name}: {e}", exc_info=True)
             
-            logger.info(f"Added goal: {goal.name}")
+            logger.info(
+                f"Added goal: name={goal.name}, type={goal.goal_type.value}, "
+                f"status={goal.status.value}, priority={goal.priority:.3f}, "
+                f"parent={goal.parent}, dependencies={len(goal.dependencies)}, "
+                f"children={len(goal.children)}, total_goals={len(self.goals)}",
+                extra={
+                    "event": "goal_added",
+                    "goal_name": goal.name,
+                    "goal_type": goal.goal_type.value,
+                    "status": goal.status.value,
+                    "priority": goal.priority,
+                    "parent": goal.parent,
+                    "dependencies_count": len(goal.dependencies),
+                    "children_count": len(goal.children),
+                    "total_goals": len(self.goals),
+                }
+            )
             return True
     
     def remove_goal(self, goal_name: str) -> bool:
@@ -380,9 +398,30 @@ class GoalManager:
                 if child_name in self.goals:
                     self.goals[child_name].parent = None
             
+            # Record removal in history
+            self.goal_history.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "action": "remove",
+                "goal": goal_name,
+                "status": goal.status.value,
+                "priority": goal.priority,
+            })
+            
             del self.goals[goal_name]
             
-            logger.info(f"Removed goal: {goal_name}")
+            logger.info(
+                f"Removed goal: name={goal_name}, had_parent={goal.parent is not None}, "
+                f"had_children={len(goal.children)}, remaining_goals={len(self.goals)}",
+                extra={
+                    "event": "goal_removed",
+                    "goal_name": goal_name,
+                    "goal_status": goal.status.value,
+                    "goal_priority": goal.priority,
+                    "had_parent": goal.parent is not None,
+                    "children_count": len(goal.children),
+                    "remaining_goals": len(self.goals),
+                }
+            )
             return True
     
     def get_goal(self, goal_name: str) -> Optional[Goal]:
@@ -467,7 +506,17 @@ class GoalManager:
                 parent_goal.add_child(subgoal_name)
                 created_subgoals.append(subgoal_name)
         
-        logger.info(f"Decomposed goal '{goal_name}' into {len(created_subgoals)} subgoals")
+        logger.info(
+            f"Decomposed goal: name={goal_name}, subgoals_created={len(created_subgoals)}, "
+            f"total_goals={len(self.goals)}",
+            extra={
+                "event": "goal_decomposed",
+                "goal_name": goal_name,
+                "subgoals_created": len(created_subgoals),
+                "subgoal_names": created_subgoals,
+                "total_goals": len(self.goals),
+            }
+        )
         return created_subgoals
     
     def update_goal_progress(self, goal_name: str, progress: float, reason: str = ""):
@@ -520,12 +569,37 @@ class GoalManager:
         reason = f"Dissonance: {overall_dissonance:.3f}"
         self.update_goal_progress(goal_name, progress, reason)
         
+        logger.info(
+            f"Dissonance goal progress updated: name={goal_name}, dissonance={overall_dissonance:.3f}, "
+            f"progress={progress:.3f}, critical_threshold={critical_threshold}",
+            extra={
+                "event": "dissonance_goal_progress_updated",
+                "goal_name": goal_name,
+                "overall_dissonance": overall_dissonance,
+                "progress": progress,
+                "critical_threshold": critical_threshold,
+            }
+        )
+        
         # Check if goal should be marked as failed (critical dissonance)
         if overall_dissonance > critical_threshold:
             goal = self.goals[goal_name]
             if goal.status != GoalStatus.FAILED:
+                old_status = goal.status
                 goal.status = GoalStatus.FAILED
-                logger.warning(f"Goal '{goal_name}' marked as failed due to critical dissonance ({overall_dissonance:.3f})")
+                logger.warning(
+                    f"Goal marked as failed due to critical dissonance: name={goal_name}, "
+                    f"dissonance={overall_dissonance:.3f} > threshold={critical_threshold}, "
+                    f"status_change={old_status.value} -> {goal.status.value}",
+                    extra={
+                        "event": "goal_failed_critical_dissonance",
+                        "goal_name": goal_name,
+                        "dissonance": overall_dissonance,
+                        "critical_threshold": critical_threshold,
+                        "old_status": old_status.value,
+                        "new_status": goal.status.value,
+                    }
+                )
     
     def _compute_goal_progress(
         self, 
@@ -660,7 +734,33 @@ class GoalManager:
                     if computed_progress is not None:
                         # Only update if progress was actually computed
                         if goal.progress != computed_progress:
+                            old_progress = goal.progress
                             goal.update_progress(computed_progress, "Computed from system state")
+                            logger.info(
+                                f"Goal progress refreshed: name={goal.name}, "
+                                f"progress={old_progress} -> {computed_progress:.3f}",
+                                extra={
+                                    "event": "goal_progress_refreshed",
+                                    "goal_name": goal.name,
+                                    "old_progress": old_progress,
+                                    "new_progress": computed_progress,
+                                }
+                            )
+        
+        # Log summary of active goals
+        active_goals = self.get_active_goals()
+        if active_goals:
+            avg_progress = sum(g.progress or 0.0 for g in active_goals) / len(active_goals)
+            logger.info(
+                f"Goal progress refresh complete: active_goals={len(active_goals)}, "
+                f"avg_progress={avg_progress:.3f}, total_goals={len(self.goals)}",
+                extra={
+                    "event": "goal_progress_refresh_complete",
+                    "active_goals_count": len(active_goals),
+                    "avg_progress": avg_progress,
+                    "total_goals": len(self.goals),
+                }
+            )
     
     def complete_goal(self, goal_name: str):
         """
@@ -668,22 +768,54 @@ class GoalManager:
         
         Stores completion to declarative memory.
         """
+        if goal_name not in self.goals:
+            logger.warning(f"Cannot complete non-existent goal: {goal_name}")
+            return
+        
+        goal = self.goals[goal_name]
+        old_status = goal.status
+        old_progress = goal.progress
+        
         self.update_goal_progress(goal_name, 1.0, "Goal completed")
         
+        # Record completion in history
+        self.goal_history.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": "complete",
+            "goal": goal_name,
+            "old_status": old_status.value if old_status else None,
+            "old_progress": old_progress,
+        })
+        
         # Store completion to declarative memory
+        stored_to_memory = False
         if self.declarative_memory:
             try:
-                goal = self.goals.get(goal_name)
-                if goal:
-                    self.declarative_memory.store_reasoning_result(
-                        content=f"Goal '{goal_name}' completed: {goal.description}",
-                        source="goal_completion",
-                        tags=[goal_name, "goal", "completed"],
-                        namespace=f"{self.declarative_memory.reasoning_namespace}/goals/{goal_name}",
-                        importance=0.9
-                    )
+                self.declarative_memory.store_reasoning_result(
+                    content=f"Goal '{goal_name}' completed: {goal.description}",
+                    source="goal_completion",
+                    tags=[goal_name, "goal", "completed"],
+                    namespace=f"{self.declarative_memory.reasoning_namespace}/goals/{goal_name}",
+                    importance=0.9
+                )
+                stored_to_memory = True
             except Exception as e:
                 logger.error(f"Error storing goal completion to declarative memory: {e}", exc_info=True)
+        
+        logger.info(
+            f"Goal completed: name={goal_name}, status_change={old_status.value if old_status else None} -> {goal.status.value}, "
+            f"final_progress={goal.progress:.3f}, stored_to_memory={stored_to_memory}, "
+            f"remaining_active_goals={len(self.get_active_goals())}",
+            extra={
+                "event": "goal_completed_manually",
+                "goal_name": goal_name,
+                "old_status": old_status.value if old_status else None,
+                "new_status": goal.status.value,
+                "final_progress": goal.progress,
+                "stored_to_memory": stored_to_memory,
+                "remaining_active_goals": len(self.get_active_goals()),
+            }
+        )
     
     def get_goal_tree(self, root_goal_name: str) -> Dict[str, Any]:
         """Get hierarchical tree structure for a goal."""

@@ -11,6 +11,8 @@ from .working_memory import WorkingMemory
 
 if TYPE_CHECKING:
     from .declarative_memory import DeclarativeMemoryInterface
+    from .llm_pattern_matcher import LLMPatternMatcher
+    from .loop_detector import LoopDetector
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,9 @@ class RuleEngine:
         self,
         rule_system: Optional[ProductionRuleSystem] = None,
         declarative_memory: Optional["DeclarativeMemoryInterface"] = None,
-        enable_z3_validation: bool = True
+        pattern_matcher: Optional["LLMPatternMatcher"] = None,
+        working_memory: Optional[WorkingMemory] = None,
+        loop_detector: Optional["LoopDetector"] = None
     ):
         """
         Initialize rule engine.
@@ -35,34 +39,90 @@ class RuleEngine:
         Args:
             rule_system: Optional ProductionRuleSystem instance
             declarative_memory: Optional DeclarativeMemoryInterface for memory integration
-            enable_z3_validation: Whether to enable Z3 validation (default: True)
+            pattern_matcher: Optional LLMPatternMatcher for semantic pattern matching
+            working_memory: Optional WorkingMemory instance (if None, uses rule_system's WM)
         """
-        self.rule_system = rule_system or ProductionRuleSystem()
+        # Initialize pattern matcher if not provided
+        if pattern_matcher is None:
+            try:
+                from .llm_pattern_matcher import LLMPatternMatcher
+                from ..llm import create_llm_client
+                from ..config import config
+                
+                llm_client = create_llm_client(
+                    model=config.reasoning.llm_pattern_matching_model
+                )
+                pattern_matcher = LLMPatternMatcher(
+                    llm_client=llm_client,
+                    model=config.reasoning.llm_pattern_matching_model
+                )
+                logger.info(f"Initialized LLM pattern matcher with model: {config.reasoning.llm_pattern_matching_model}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM pattern matcher: {e}. Pattern matching will use legacy dict matching.")
+                pattern_matcher = None
+        
+        self.pattern_matcher = pattern_matcher
+        
+        # Initialize rule system with pattern matcher
+        if rule_system is None:
+            rule_system = ProductionRuleSystem(pattern_matcher=pattern_matcher)
+        else:
+            # Set pattern matcher on existing rule system
+            rule_system.pattern_matcher = pattern_matcher
+            # Update all existing rules
+            for rule in rule_system.rules:
+                rule.pattern_matcher = pattern_matcher
+        
+        self.rule_system = rule_system
         self.declarative_memory = declarative_memory
         
-        # Initialize Z3 validator if enabled
-        self.z3_validator = None
-        if enable_z3_validation:
+        # Set pattern matcher on working memory if provided
+        if working_memory is not None:
+            working_memory.pattern_matcher = pattern_matcher
+        elif rule_system.working_memory is not None:
+            rule_system.working_memory.pattern_matcher = pattern_matcher
+        
+        # Initialize loop detector if not provided and enabled in config
+        if loop_detector is None:
             try:
-                from .z3_validator import Z3LogicalValidator
+                from .loop_detector import LoopDetector
                 from ..config import config
-                self.z3_validator = Z3LogicalValidator(
-                    enable_z3=config.reasoning.z3_validation_enabled,
-                    timeout=config.reasoning.z3_validation_timeout,
-                    max_constraints=config.reasoning.z3_max_constraints
-                )
+                
+                if config.reasoning.loop_detection_enabled:
+                    loop_detector = LoopDetector(
+                        history_window=config.reasoning.loop_detection_history_window,
+                        time_window_seconds=config.reasoning.loop_detection_time_window,
+                        max_tool_queue_size=config.reasoning.tool_queue_max_size,
+                        max_tool_retries=config.reasoning.tool_queue_max_retries
+                    )
+                    logger.info("Initialized loop detector")
+                else:
+                    logger.debug("Loop detection disabled in config")
+                    loop_detector = None
             except Exception as e:
-                logger.warning(f"Failed to initialize Z3 validator: {e}")
-                self.z3_validator = None
+                logger.warning(f"Failed to initialize loop detector: {e}. Loop detection disabled.")
+                loop_detector = None
+        
+        self.loop_detector = loop_detector
     
     def match_rules(self, working_memory: WorkingMemory) -> List[ProductionRule]:
         """
         Find rules whose conditions match working memory.
         
+        Uses batched pattern matching if LLM pattern matcher is available.
+        
         Returns sorted list of matching rules.
         """
+        # If we have an LLM pattern matcher, we can batch pattern matching
+        # However, the batching is handled internally by the pattern matcher
+        # when rules call _pattern_matches, so we just need to ensure
+        # the pattern matcher is set on all rules
         matched_rules = []
         for rule in self.rule_system.rules:
+            # Ensure pattern matcher is set on rule
+            if self.pattern_matcher is not None:
+                rule.pattern_matcher = self.pattern_matcher
+            
             try:
                 if rule.matches(working_memory):
                     matched_rules.append(rule)
@@ -72,6 +132,23 @@ class RuleEngine:
         
         # Sort by priority (highest first), then strength
         matched_rules.sort(key=lambda r: (r.priority, r.strength), reverse=True)
+        top_priority = matched_rules[0].priority if matched_rules else 0.0
+        
+        logger.info(
+            f"Rule engine matched rules: evaluated={len(self.rule_system.rules)}, "
+            f"matched={len(matched_rules)}, "
+            f"top_priority={top_priority:.3f}, "
+            f"llm_pattern_matching={self.pattern_matcher is not None}",
+            extra={
+                "event": "rule_engine_rules_matched",
+                "evaluated_count": len(self.rule_system.rules),
+                "matched_count": len(matched_rules),
+                "matched_rule_names": [r.name for r in matched_rules],
+                "top_priority": top_priority,
+                "llm_pattern_matching": self.pattern_matcher is not None,
+            }
+        )
+        
         return matched_rules
     
     def execute_rules(self, rules: List[ProductionRule], 
@@ -85,7 +162,9 @@ class RuleEngine:
         
         for rule in rules:
             try:
-                results = rule.execute(working_memory)
+                # Pass loop detector in context
+                context = {"loop_detector": self.loop_detector} if self.loop_detector else {}
+                results = rule.execute(working_memory, context=context)
                 all_results.extend(results)
                 
                 # Record in history
@@ -131,48 +210,63 @@ class RuleEngine:
         # Limit number of rules to fire
         rules_to_fire = matched_rules[:max_rules]
         
-        # Validate rule chain with Z3 before execution
-        if self.z3_validator and self.z3_validator.enabled:
-            try:
-                # Extract working memory facts for validation
-                wm_facts = []
-                for item in working_memory.items:
-                    prop_name = self.z3_validator._extract_proposition(item.content)
-                    if prop_name:
-                        wm_facts.append(prop_name)
-                
-                is_valid, error, warnings = self.z3_validator.validate_rule_chain(
-                    rules_to_fire,
-                    wm_facts
-                )
-                
-                if not is_valid:
-                    logger.error(f"Z3 validation failed for rule chain: {error}")
-                    # Update validation stats
-                    self.z3_validator.update_validation_stats(
-                        rule_chain_valid=False,
-                        warnings_count=len(warnings)
-                    )
-                    # Optionally skip execution or fire fewer rules
-                    # For now, we'll log the error but continue
+        # Check for loops before firing rules
+        if self.loop_detector is not None:
+            # Check tool queue first
+            queue_allowed, queue_reason = self.loop_detector.check_tool_queue(working_memory.tool_queue)
+            if not queue_allowed:
+                logger.error(f"Tool queue blocked by loop detector: {queue_reason}")
+                return []  # Don't fire any rules if queue is blocked
+            
+            # Filter out rules that would create loops
+            allowed_rules = []
+            for rule in rules_to_fire:
+                allowed, reason = self.loop_detector.check_rule_firing(rule, working_memory)
+                if allowed:
+                    allowed_rules.append(rule)
                 else:
-                    # Update validation stats
-                    self.z3_validator.update_validation_stats(
-                        rule_chain_valid=True,
-                        warnings_count=len(warnings)
-                    )
-                    for warning in warnings:
-                        logger.warning(f"Z3 validation warning: {warning}")
-                        
-            except Exception as e:
-                logger.error(f"Error in Z3 rule chain validation: {e}", exc_info=True)
-                # Continue execution even if validation fails
+                    logger.warning(f"Rule '{rule.name}' blocked by loop detector: {reason}")
+            
+            rules_to_fire = allowed_rules
+        
+        # Note: Z3 validation has been removed. Use the z3_validate tool instead
+        # for LLM-driven logical validation when needed.
         
         results = self.execute_rules(rules_to_fire, working_memory)
         
+        # Record rule firings for loop detection
+        if self.loop_detector is not None and rules_to_fire:
+            # Re-match rules to see which ones are now enabled
+            try:
+                enabled_rules = self.match_rules(working_memory)
+                for rule in rules_to_fire:
+                    self.loop_detector.record_rule_firing(rule, working_memory, enabled_rules)
+            except Exception as e:
+                logger.error(f"Error recording rule firing for loop detection: {e}", exc_info=True)
+        
         # Post-cycle: Store inference results to declarative memory
+        stored_count = 0
         if self.declarative_memory and results:
-            self._store_cycle_results(rules_to_fire, results)
+            try:
+                self._store_cycle_results(rules_to_fire, results)
+                stored_count = len(results)
+            except Exception as e:
+                logger.error(f"Error storing cycle results: {e}", exc_info=True)
+        
+        logger.info(
+            f"Rule engine cycle complete: matched={len(matched_rules)}, "
+            f"fired={len(rules_to_fire)}, results={len(results)}, "
+            f"stored_to_memory={stored_count}",
+            extra={
+                "event": "rule_engine_cycle_complete",
+                "matched_count": len(matched_rules),
+                "fired_count": len(rules_to_fire),
+                "results_count": len(results),
+                "stored_to_memory": stored_count,
+                "fired_rule_names": [r.name for r in rules_to_fire],
+                "llm_pattern_matching": self.pattern_matcher is not None,
+            }
+        )
         
         return results
     

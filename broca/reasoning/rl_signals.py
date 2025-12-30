@@ -51,7 +51,7 @@ Aggregates signals from:
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional, TYPE_CHECKING, Protocol
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -81,6 +81,43 @@ class RLSignalMetrics:
     weight_curiosity: float = 0.2
     weight_info_gain: float = 0.15
     weight_coherence: float = 0.15
+
+    # --- Raw / intermediate signals (for debugging + learning) ---
+    # Convention: raw_* are in "signal space" where higher means "more of the thing".
+    # Rewards are typically in "reward space" where higher means "better".
+    schema_version: int = 3
+    dissonance_raw: Optional[float] = None  # overall_dissonance (0..1); higher = more dissonance
+    has_dissonance_data: Optional[bool] = None
+    dissonance_estimator: Optional[str] = None  # "measured" | "estimated_llm" | "unavailable"
+    dissonance_uncertainty: Optional[float] = None  # 0..1
+
+    raw_surprise: Optional[float] = None  # higher = more surprising (0..1)
+    surprise_short_term: Optional[float] = None
+    surprise_long_term: Optional[float] = None
+    prediction_error_raw: Optional[float] = None  # 0..1
+    prediction_error_recent_avg: Optional[float] = None  # 0..1
+    calibrated_surprise: Optional[float] = None  # 0..1, calibrated (e.g., NLL-based)
+    surprise_source: Optional[str] = None  # e.g., "affective", "affective+prediction_error", "affective+calibrated_prediction"
+    surprise_has_data: Optional[bool] = None
+    surprise_data_quality: Optional[str] = None  # e.g., "high|medium|low|insufficient|missing"
+    surprise_estimator: Optional[str] = None  # "affective" | "estimated_llm" | "unavailable"
+    surprise_uncertainty: Optional[float] = None  # 0..1
+
+    curiosity_raw: Optional[float] = None  # curiosity_drive (0..1)
+    curiosity_has_data: Optional[bool] = None
+    curiosity_data_quality: Optional[str] = None
+    curiosity_estimator: Optional[str] = None
+    curiosity_uncertainty: Optional[float] = None  # 0..1
+    coherence_raw: Optional[float] = None  # coherence_pleasure (0..1)
+    coherence_has_data: Optional[bool] = None
+    coherence_data_quality: Optional[str] = None
+    coherence_estimator: Optional[str] = None
+    coherence_uncertainty: Optional[float] = None  # 0..1
+    info_gain_raw: Optional[float] = None  # info_gain (0..1)
+    info_gain_source: Optional[str] = None  # e.g., "epistemic_bridge", "provided", "unavailable"
+    info_gain_has_data: Optional[bool] = None
+    info_gain_estimator: Optional[str] = None  # "epistemic_bridge" | "provided" | "estimated_llm" | "unavailable"
+    info_gain_uncertainty: Optional[float] = None  # 0..1
     
     def compute_composite(self) -> float:
         """
@@ -89,6 +126,13 @@ class RLSignalMetrics:
         Returns:
             Composite reward (0.0-1.0)
         """
+        # Clamp component rewards to [0, 1] (defensive against out-of-range inputs)
+        self.dissonance_reward = max(0.0, min(1.0, float(self.dissonance_reward)))
+        self.surprise_reward = max(0.0, min(1.0, float(self.surprise_reward)))
+        self.curiosity_reward = max(0.0, min(1.0, float(self.curiosity_reward)))
+        self.information_gain_reward = max(0.0, min(1.0, float(self.information_gain_reward)))
+        self.coherence_reward = max(0.0, min(1.0, float(self.coherence_reward)))
+
         # Normalize weights to sum to 1.0
         total_weight = (
             self.weight_dissonance +
@@ -98,7 +142,9 @@ class RLSignalMetrics:
             self.weight_coherence
         )
         
-        if total_weight == 0.0:
+        # Treat extremely tiny totals as zero to avoid overflow when normalizing.
+        # (Hypothesis can generate denormal/near-zero floats that would otherwise produce inf weights.)
+        if total_weight == 0.0 or total_weight < 1e-12:
             logger.warning("All RL signal weights are zero, using equal weights")
             self.weight_dissonance = 0.2
             self.weight_surprise = 0.2
@@ -124,8 +170,42 @@ class RLSignalMetrics:
             self.coherence_reward * self.weight_coherence
         )
         
+        # Ensure composite is within convex hull of components (defensive vs float drift).
+        min_component = min(
+            self.dissonance_reward,
+            self.surprise_reward,
+            self.curiosity_reward,
+            self.information_gain_reward,
+            self.coherence_reward,
+        )
+        max_component = max(
+            self.dissonance_reward,
+            self.surprise_reward,
+            self.curiosity_reward,
+            self.information_gain_reward,
+            self.coherence_reward,
+        )
+        self.composite_reward = max(min_component, min(max_component, self.composite_reward))
+
         # Ensure bounded [0, 1]
-        self.composite_reward = max(0.0, min(1.0, self.composite_reward))
+        self.composite_reward = max(0.0, min(1.0, float(self.composite_reward)))
+        
+        logger.info(
+            f"RL signal metrics computed: composite={self.composite_reward:.4f}, "
+            f"dissonance={self.dissonance_reward:.4f}, surprise={self.surprise_reward:.4f}, "
+            f"curiosity={self.curiosity_reward:.4f}, info_gain={self.information_gain_reward:.4f}, "
+            f"coherence={self.coherence_reward:.4f}, exploration_balance={self.get_exploration_exploitation_balance():.4f}",
+            extra={
+                "event": "rl_signal_metrics_computed",
+                "composite_reward": self.composite_reward,
+                "dissonance_reward": self.dissonance_reward,
+                "surprise_reward": self.surprise_reward,
+                "curiosity_reward": self.curiosity_reward,
+                "information_gain_reward": self.information_gain_reward,
+                "coherence_reward": self.coherence_reward,
+                "exploration_balance": self.get_exploration_exploitation_balance(),
+            }
+        )
         
         return self.composite_reward
     
@@ -183,6 +263,7 @@ class RLSignalAggregator:
         affective_monitor: Optional["ComputationalAffectMonitor"] = None,
         predictive_interoception: Optional["PredictiveInteroception"] = None,
         epistemic_bridge: Optional[Any] = None,
+        estimator: Optional[Any] = None,
     ):
         """
         Initialize RL signal aggregator.
@@ -208,6 +289,7 @@ class RLSignalAggregator:
         self.affective_monitor = affective_monitor
         self.predictive_interoception = predictive_interoception
         self.epistemic_bridge = epistemic_bridge
+        self.estimator = estimator
         
         logger.info(
             f"Initialized RLSignalAggregator with weights: "
@@ -243,49 +325,136 @@ class RLSignalAggregator:
             weight_info_gain=self.weight_info_gain,
             weight_coherence=self.weight_coherence,
         )
+
+        def _quality_is_usable(q: Optional[str]) -> bool:
+            # We treat missing/insufficient as "not real" (should not drive reward without estimation).
+            if not q:
+                return True
+            qn = str(q).strip().lower()
+            return qn not in ("missing", "insufficient")
         
         # 1. Dissonance reward: 1.0 - dissonance (minimize dissonance = maximize reward)
         if dissonance_metrics:
             overall_dissonance = dissonance_metrics.overall_dissonance
+            metrics.has_dissonance_data = True
+            metrics.dissonance_raw = overall_dissonance
             metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
+            metrics.dissonance_estimator = "measured"
+            metrics.dissonance_uncertainty = 0.0
         elif self.cognitive_dissonance_monitor:
             try:
                 dissonance_data = self.cognitive_dissonance_monitor.get_aggregated_dissonance()
                 # Check if we have sufficient data
-                has_data = dissonance_data.get("has_data", True)  # Default to True for backward compatibility
-                if not has_data:
-                    # Insufficient data - use neutral reward (0.5) instead of assuming zero dissonance
-                    logger.debug("Insufficient dissonance data for RL signals, using neutral reward")
-                    metrics.dissonance_reward = 0.5
+                has_data = bool(dissonance_data.get("has_data", True))  # backward compatibility default
+                has_sufficient_data = bool(dissonance_data.get("has_sufficient_data", True))
+                metrics.has_dissonance_data = bool(has_data and has_sufficient_data)
+
+                if not (has_data and has_sufficient_data):
+                    # Missing/low-quality data: DO NOT interpret defaults as real measurements.
+                    # Use estimator if available, otherwise fall back to neutral.
+                    if self.estimator and hasattr(self.estimator, "estimate_dissonance"):
+                        try:
+                            est_dissonance, _est_uncertainty = self.estimator.estimate_dissonance(
+                                context={"dissonance_data": dissonance_data}
+                            )
+                            overall_dissonance = max(0.0, min(1.0, float(est_dissonance)))
+                            metrics.dissonance_raw = overall_dissonance
+                            metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
+                            metrics.dissonance_estimator = "estimated_llm"
+                            try:
+                                metrics.dissonance_uncertainty = max(0.0, min(1.0, float(_est_uncertainty)))
+                            except Exception:
+                                metrics.dissonance_uncertainty = None
+                        except Exception as e:
+                            logger.debug(f"Dissonance estimation failed, using neutral reward: {e}")
+                            metrics.dissonance_reward = 0.5
+                            metrics.dissonance_estimator = "unavailable"
+                    else:
+                        metrics.dissonance_reward = 0.5
+                        metrics.dissonance_estimator = "unavailable"
                 else:
                     overall_dissonance = dissonance_data.get("overall_dissonance", 0.0)
+                    metrics.dissonance_raw = overall_dissonance
                     metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
+                    metrics.dissonance_estimator = "measured"
+                    metrics.dissonance_uncertainty = 0.0
             except Exception as e:
                 logger.debug(f"Error getting dissonance signal: {e}")
+                metrics.has_dissonance_data = None
                 metrics.dissonance_reward = 0.5  # Default neutral
+                metrics.dissonance_estimator = "unavailable"
         else:
+            metrics.has_dissonance_data = None
             metrics.dissonance_reward = 0.5  # Default neutral if unavailable
+            metrics.dissonance_estimator = "unavailable"
         
         # 2. Surprise reward: 1.0 - surprise (minimize surprise = maximize reward)
+        surprise_source = "unavailable"
         if affective_state:
             surprise = affective_state.get("surprise", 0.0)
+            try:
+                metrics.raw_surprise = max(0.0, min(1.0, float(surprise)))
+            except Exception:
+                metrics.raw_surprise = None
+            metrics.surprise_short_term = affective_state.get("surprise_short_term")
+            metrics.surprise_long_term = affective_state.get("surprise_long_term")
             metrics.surprise_reward = max(0.0, min(1.0, 1.0 - surprise))
+            surprise_source = "affective"
+            q = (affective_state.get("data_quality") or {}).get("surprise") if isinstance(affective_state.get("data_quality"), dict) else None
+            metrics.surprise_data_quality = q
+            metrics.surprise_has_data = _quality_is_usable(q)
+            metrics.surprise_estimator = "affective" if metrics.surprise_has_data else None
         elif self.affective_monitor:
             try:
                 affective = self.affective_monitor.sample_affective_state()
                 surprise = affective.get("surprise", 0.0)
-                metrics.surprise_reward = max(0.0, min(1.0, 1.0 - surprise))
+                try:
+                    metrics.raw_surprise = max(0.0, min(1.0, float(surprise)))
+                except Exception:
+                    metrics.raw_surprise = None
+                metrics.surprise_short_term = affective.get("surprise_short_term")
+                metrics.surprise_long_term = affective.get("surprise_long_term")
+                q = (affective.get("data_quality") or {}).get("surprise") if isinstance(affective.get("data_quality"), dict) else None
+                metrics.surprise_data_quality = q
+                metrics.surprise_has_data = _quality_is_usable(q)
+                if metrics.surprise_has_data:
+                    metrics.surprise_reward = max(0.0, min(1.0, 1.0 - surprise))
+                    surprise_source = "affective"
+                    metrics.surprise_estimator = "affective"
+                    metrics.surprise_uncertainty = 0.0
+                else:
+                    # Low-quality/missing affective surprise: estimate if possible
+                    if self.estimator and hasattr(self.estimator, "estimate_surprise"):
+                        try:
+                            est_s, est_u = self.estimator.estimate_surprise(context={"affective_state": affective})
+                            est_s = max(0.0, min(1.0, float(est_s)))
+                            metrics.raw_surprise = est_s
+                            metrics.surprise_reward = max(0.0, min(1.0, 1.0 - est_s))
+                            surprise_source = "estimated_llm"
+                            metrics.surprise_estimator = "estimated_llm"
+                            metrics.surprise_uncertainty = max(0.0, min(1.0, float(est_u)))
+                        except Exception as e:
+                            logger.debug(f"Surprise estimation failed: {e}")
+                            metrics.surprise_reward = 0.5
+                            metrics.surprise_estimator = "unavailable"
+                    else:
+                        metrics.surprise_reward = 0.5
+                        metrics.surprise_estimator = "unavailable"
             except Exception as e:
                 logger.debug(f"Error getting surprise signal: {e}")
                 metrics.surprise_reward = 0.5  # Default neutral
+                metrics.surprise_estimator = "unavailable"
         else:
             metrics.surprise_reward = 0.5  # Default neutral if unavailable
+            metrics.surprise_estimator = "unavailable"
         
         # Also incorporate prediction error if available (as additional surprise signal)
         if prediction_error is not None:
             prediction_surprise = max(0.0, min(1.0, prediction_error))
+            metrics.prediction_error_raw = prediction_surprise
             # Blend with affective surprise (weighted average)
             metrics.surprise_reward = (metrics.surprise_reward * 0.7) + ((1.0 - prediction_surprise) * 0.3)
+            surprise_source = "affective+prediction_error" if surprise_source == "affective" else "prediction_error"
         elif self.predictive_interoception:
             try:
                 # Try to get recent prediction error from history
@@ -294,64 +463,230 @@ class RLSignalAggregator:
                     if errors:
                         recent_error = errors[-1] if errors else 0.0
                         prediction_surprise = max(0.0, min(1.0, recent_error))
-                        metrics.surprise_reward = (metrics.surprise_reward * 0.7) + ((1.0 - prediction_surprise) * 0.3)
+                        metrics.prediction_error_raw = prediction_surprise
+                        try:
+                            if len(errors) >= 3:
+                                metrics.prediction_error_recent_avg = float(sum(errors[-3:]) / 3.0)
+                            else:
+                                metrics.prediction_error_recent_avg = float(recent_error)
+                        except Exception:
+                            metrics.prediction_error_recent_avg = None
+
+                        # Prefer a calibrated surprise signal if available
+                        calibrated = None
+                        if hasattr(self.predictive_interoception, "get_rl_surprise_signal"):
+                            try:
+                                calibrated = float(self.predictive_interoception.get_rl_surprise_signal())
+                            except Exception:
+                                calibrated = None
+
+                        if calibrated is not None:
+                            calibrated = max(0.0, min(1.0, calibrated))
+                            metrics.calibrated_surprise = calibrated
+                            metrics.surprise_reward = (metrics.surprise_reward * 0.7) + ((1.0 - calibrated) * 0.3)
+                            surprise_source = "affective+calibrated_prediction" if surprise_source == "affective" else "calibrated_prediction"
+                        else:
+                            metrics.surprise_reward = (metrics.surprise_reward * 0.7) + ((1.0 - prediction_surprise) * 0.3)
+                            surprise_source = "affective+prediction_error" if surprise_source == "affective" else "prediction_error"
             except Exception as e:
                 logger.debug(f"Error getting prediction error signal: {e}")
+        
+        metrics.surprise_source = surprise_source
         
         # 3. Curiosity reward: curiosity_drive (maximize curiosity = maximize reward)
         if affective_state:
             curiosity = affective_state.get("curiosity_drive", 0.0)
+            try:
+                metrics.curiosity_raw = max(0.0, min(1.0, float(curiosity)))
+            except Exception:
+                metrics.curiosity_raw = None
             metrics.curiosity_reward = max(0.0, min(1.0, curiosity))
+            q = (affective_state.get("data_quality") or {}).get("curiosity_drive") if isinstance(affective_state.get("data_quality"), dict) else None
+            metrics.curiosity_data_quality = q
+            metrics.curiosity_has_data = _quality_is_usable(q)
+            metrics.curiosity_estimator = "affective" if metrics.curiosity_has_data else None
         elif self.affective_monitor:
             try:
                 affective = self.affective_monitor.sample_affective_state()
                 curiosity = affective.get("curiosity_drive", 0.0)
-                metrics.curiosity_reward = max(0.0, min(1.0, curiosity))
+                try:
+                    metrics.curiosity_raw = max(0.0, min(1.0, float(curiosity)))
+                except Exception:
+                    metrics.curiosity_raw = None
+                q = (affective.get("data_quality") or {}).get("curiosity_drive") if isinstance(affective.get("data_quality"), dict) else None
+                metrics.curiosity_data_quality = q
+                metrics.curiosity_has_data = _quality_is_usable(q)
+                if metrics.curiosity_has_data:
+                    metrics.curiosity_reward = max(0.0, min(1.0, curiosity))
+                    metrics.curiosity_estimator = "affective"
+                    metrics.curiosity_uncertainty = 0.0
+                else:
+                    if self.estimator and hasattr(self.estimator, "estimate_curiosity"):
+                        try:
+                            est_c, est_u = self.estimator.estimate_curiosity(context={"affective_state": affective})
+                            est_c = max(0.0, min(1.0, float(est_c)))
+                            metrics.curiosity_raw = est_c
+                            metrics.curiosity_reward = est_c
+                            metrics.curiosity_estimator = "estimated_llm"
+                            metrics.curiosity_uncertainty = max(0.0, min(1.0, float(est_u)))
+                        except Exception as e:
+                            logger.debug(f"Curiosity estimation failed: {e}")
+                            metrics.curiosity_reward = 0.5
+                            metrics.curiosity_estimator = "unavailable"
+                    else:
+                        metrics.curiosity_reward = 0.5
+                        metrics.curiosity_estimator = "unavailable"
             except Exception as e:
                 logger.debug(f"Error getting curiosity signal: {e}")
                 metrics.curiosity_reward = 0.5  # Default moderate
+                metrics.curiosity_estimator = "unavailable"
         else:
             metrics.curiosity_reward = 0.5  # Default moderate if unavailable
+            metrics.curiosity_estimator = "unavailable"
         
         # 4. Information gain reward: information_gain (maximize info gain = maximize reward)
         if information_gain is not None:
+            metrics.info_gain_source = "provided"
+            try:
+                metrics.info_gain_raw = max(0.0, min(1.0, float(information_gain)))
+            except Exception:
+                metrics.info_gain_raw = None
             metrics.information_gain_reward = max(0.0, min(1.0, information_gain))
+            metrics.info_gain_has_data = True
+            metrics.info_gain_estimator = "provided"
+            metrics.info_gain_uncertainty = 0.0
         elif self.epistemic_bridge:
             try:
-                info_gain = self.epistemic_bridge.get_information_gain()
-                if info_gain is not None:
-                    metrics.information_gain_reward = max(0.0, min(1.0, info_gain))
+                info = None
+                if hasattr(self.epistemic_bridge, "get_information_gain_info"):
+                    info = self.epistemic_bridge.get_information_gain_info()
+                if isinstance(info, dict):
+                    metrics.info_gain_source = "epistemic_bridge"
+                    metrics.info_gain_has_data = bool(info.get("has_data", False))
+                    metrics.info_gain_estimator = str(info.get("estimator", "epistemic_bridge"))
+                    val = info.get("value")
+                    if metrics.info_gain_has_data and val is not None:
+                        try:
+                            metrics.info_gain_raw = max(0.0, min(1.0, float(val)))
+                        except Exception:
+                            metrics.info_gain_raw = None
+                        metrics.information_gain_reward = max(0.0, min(1.0, float(metrics.info_gain_raw or 0.0)))
+                        metrics.info_gain_uncertainty = 0.0
+                    else:
+                        # Missing/low-quality epistemic info gain -> estimate if possible.
+                        if self.estimator and hasattr(self.estimator, "estimate_information_gain"):
+                            try:
+                                est_ig, est_u = self.estimator.estimate_information_gain(context={"epistemic_info": info})
+                                est_ig = max(0.0, min(1.0, float(est_ig)))
+                                metrics.info_gain_raw = est_ig
+                                metrics.information_gain_reward = est_ig
+                                metrics.info_gain_estimator = "estimated_llm"
+                                metrics.info_gain_uncertainty = max(0.0, min(1.0, float(est_u)))
+                            except Exception as e:
+                                logger.debug(f"Info gain estimation failed: {e}")
+                                metrics.info_gain_source = "unavailable"
+                                metrics.information_gain_reward = 0.0
+                                metrics.info_gain_estimator = "unavailable"
+                        else:
+                            metrics.info_gain_source = "unavailable"
+                            metrics.information_gain_reward = 0.0
+                            metrics.info_gain_estimator = "unavailable"
                 else:
-                    metrics.information_gain_reward = 0.0  # No information gain
+                    info_gain = self.epistemic_bridge.get_information_gain()
+                    metrics.info_gain_source = "epistemic_bridge"
+                    try:
+                        metrics.info_gain_raw = max(0.0, min(1.0, float(info_gain)))
+                    except Exception:
+                        metrics.info_gain_raw = None
+                    metrics.information_gain_reward = max(0.0, min(1.0, float(info_gain)))
+                    metrics.info_gain_has_data = True
+                    metrics.info_gain_estimator = "epistemic_bridge"
+                    metrics.info_gain_uncertainty = 0.0
             except Exception as e:
                 logger.debug(f"Error getting information gain signal: {e}")
+                metrics.info_gain_source = "error"
                 metrics.information_gain_reward = 0.0  # Default no gain
+                metrics.info_gain_has_data = None
+                metrics.info_gain_estimator = "unavailable"
         else:
+            metrics.info_gain_source = "unavailable"
             metrics.information_gain_reward = 0.0  # Default no gain if unavailable
+            metrics.info_gain_has_data = None
+            metrics.info_gain_estimator = "unavailable"
         
         # 5. Coherence reward: coherence_pleasure (maximize coherence = maximize reward)
         if affective_state:
             coherence = affective_state.get("coherence_pleasure", 0.0)
+            try:
+                metrics.coherence_raw = max(0.0, min(1.0, float(coherence)))
+            except Exception:
+                metrics.coherence_raw = None
             metrics.coherence_reward = max(0.0, min(1.0, coherence))
+            q = (affective_state.get("data_quality") or {}).get("coherence_pleasure") if isinstance(affective_state.get("data_quality"), dict) else None
+            metrics.coherence_data_quality = q
+            metrics.coherence_has_data = _quality_is_usable(q)
+            metrics.coherence_estimator = "affective" if metrics.coherence_has_data else None
         elif self.affective_monitor:
             try:
                 affective = self.affective_monitor.sample_affective_state()
                 coherence = affective.get("coherence_pleasure", 0.0)
-                metrics.coherence_reward = max(0.0, min(1.0, coherence))
+                try:
+                    metrics.coherence_raw = max(0.0, min(1.0, float(coherence)))
+                except Exception:
+                    metrics.coherence_raw = None
+                q = (affective.get("data_quality") or {}).get("coherence_pleasure") if isinstance(affective.get("data_quality"), dict) else None
+                metrics.coherence_data_quality = q
+                metrics.coherence_has_data = _quality_is_usable(q)
+                if metrics.coherence_has_data:
+                    metrics.coherence_reward = max(0.0, min(1.0, coherence))
+                    metrics.coherence_estimator = "affective"
+                    metrics.coherence_uncertainty = 0.0
+                else:
+                    if self.estimator and hasattr(self.estimator, "estimate_coherence"):
+                        try:
+                            est_coh, est_u = self.estimator.estimate_coherence(context={"affective_state": affective})
+                            est_coh = max(0.0, min(1.0, float(est_coh)))
+                            metrics.coherence_raw = est_coh
+                            metrics.coherence_reward = est_coh
+                            metrics.coherence_estimator = "estimated_llm"
+                            metrics.coherence_uncertainty = max(0.0, min(1.0, float(est_u)))
+                        except Exception as e:
+                            logger.debug(f"Coherence estimation failed: {e}")
+                            metrics.coherence_reward = 0.5
+                            metrics.coherence_estimator = "unavailable"
+                    else:
+                        metrics.coherence_reward = 0.5
+                        metrics.coherence_estimator = "unavailable"
             except Exception as e:
                 logger.debug(f"Error getting coherence signal: {e}")
                 metrics.coherence_reward = 0.5  # Default moderate
+                metrics.coherence_estimator = "unavailable"
         else:
             metrics.coherence_reward = 0.5  # Default moderate if unavailable
+            metrics.coherence_estimator = "unavailable"
         
         # Compute composite reward
         metrics.compute_composite()
         
-        logger.debug(
-            f"Computed RL signals: dissonance={metrics.dissonance_reward:.3f}, "
-            f"surprise={metrics.surprise_reward:.3f}, curiosity={metrics.curiosity_reward:.3f}, "
-            f"info_gain={metrics.information_gain_reward:.3f}, coherence={metrics.coherence_reward:.3f}, "
-            f"composite={metrics.composite_reward:.3f}"
+        logger.info(
+            f"RL signals computed: composite={metrics.composite_reward:.4f}, "
+            f"dissonance={metrics.dissonance_reward:.4f}, surprise={metrics.surprise_reward:.4f}, "
+            f"curiosity={metrics.curiosity_reward:.4f}, info_gain={metrics.information_gain_reward:.4f}, "
+            f"coherence={metrics.coherence_reward:.4f}, exploration_balance={metrics.get_exploration_exploitation_balance():.4f}",
+            extra={
+                "event": "rl_signals_computed",
+                "composite_reward": metrics.composite_reward,
+                "dissonance_reward": metrics.dissonance_reward,
+                "surprise_reward": metrics.surprise_reward,
+                "curiosity_reward": metrics.curiosity_reward,
+                "information_gain_reward": metrics.information_gain_reward,
+                "coherence_reward": metrics.coherence_reward,
+                "exploration_balance": metrics.get_exploration_exploitation_balance(),
+                "has_dissonance": dissonance_metrics is not None or self.cognitive_dissonance_monitor is not None,
+                "has_affective": affective_state is not None or self.affective_monitor is not None,
+                "has_prediction_error": prediction_error is not None or self.predictive_interoception is not None,
+                "has_info_gain": information_gain is not None or self.epistemic_bridge is not None,
+            }
         )
         
         return metrics
@@ -381,6 +716,15 @@ class RLSignalAggregator:
         Returns:
             True if should explore, False if should exploit
         """
+        # Primary driver: curiosity (intrinsic motivation)
+        try:
+            metrics = self.compute_signals()
+            if metrics.curiosity_reward >= threshold:
+                return True
+        except Exception:
+            pass
+
+        # Fallback: exploration/exploitation balance
         balance = self.get_exploration_exploitation_balance()
         return balance >= threshold
 

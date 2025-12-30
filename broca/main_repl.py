@@ -448,12 +448,25 @@ def _initialize_self_model(
     try:
         # Initialize storage using factory
         from .self_model.storage import create_storage
+        from pathlib import Path
+        
         storage_path = (
             storage_path_override or
             (app_config.self_model.sqlite_db_path 
              if app_config.self_model.storage_type == "sqlite" 
              else app_config.self_model.storage_path)
         )
+        
+        # Resolve to absolute path to ensure consistent persistence location
+        storage_path_obj = Path(storage_path)
+        if not storage_path_obj.is_absolute():
+            # Resolve relative paths to absolute (relative to workspace root)
+            storage_path = str(storage_path_obj.resolve())
+        else:
+            storage_path = str(storage_path_obj)
+        
+        logger.info(f"Initializing self-model storage at: {storage_path}")
+        
         storage = create_storage(
             storage_type=app_config.self_model.storage_type,
             storage_path=storage_path
@@ -687,19 +700,8 @@ def _initialize_reasoning_system(
                 except Exception:
                     pass
             
-            # Create Z3 validator if enabled
+            # Z3 validator removed - use z3_validate tool instead for explicit validation
             z3_validator = None
-            if reasoning_config.z3_enabled:
-                try:
-                    from .reasoning.z3_validator import Z3LogicalValidator
-                    z3_validator = Z3LogicalValidator(
-                        enable_z3=True,
-                        timeout=reasoning_config.z3_timeout_seconds,
-                        max_constraints=reasoning_config.z3_max_constraints
-                    )
-                    logger.info("✓ Z3 validator initialized for cognitive dissonance")
-                except Exception as e:
-                    logger.warning(f"Failed to initialize Z3 validator: {e}")
             
             # Create fact checker
             fact_checker = None
@@ -725,7 +727,6 @@ def _initialize_reasoning_system(
                 weight_behavioral=reasoning_config.dissonance_weight_behavioral,
                 weight_goal=reasoning_config.dissonance_weight_goal,
                 memory_manager=memory_manager,
-                z3_validator=z3_validator,
                 fact_checker=fact_checker,
                 goal_manager=None  # Will be wired after reasoning_tool is created
             )
@@ -770,10 +771,26 @@ def _initialize_reasoning_system(
                     if hasattr(internal_sensing, 'interoception') and internal_sensing.interoception:
                         if hasattr(internal_sensing.interoception, 'affect'):
                             affective_monitor = internal_sensing.interoception.affect
-                        if hasattr(internal_sensing.interoception, 'predictive'):
+                        # IntegratedInteroception uses .prediction (PredictiveInteroception).
+                        # Keep backward-compatibility with any older attribute names.
+                        if hasattr(internal_sensing.interoception, 'prediction'):
+                            predictive_interoception = internal_sensing.interoception.prediction
+                        elif hasattr(internal_sensing.interoception, 'predictive'):
                             predictive_interoception = internal_sensing.interoception.predictive
                         if hasattr(internal_sensing.interoception, 'epistemic_bridge'):
                             epistemic_bridge = internal_sensing.interoception.epistemic_bridge
+
+                # Optional: LLM-based estimator for missing/low-quality RL signals.
+                estimator = None
+                try:
+                    from .reasoning.rl_signal_estimators import LLMRLSignalEstimator
+                    estimator = LLMRLSignalEstimator(
+                        model=reasoning_config.llm_pattern_matching_model,
+                        batch_size=reasoning_config.llm_pattern_matching_batch_size,
+                        cache_size=reasoning_config.llm_pattern_matching_cache_size,
+                    )
+                except Exception:
+                    estimator = None
                 
                 rl_signal_aggregator = RLSignalAggregator(
                     weight_dissonance=reasoning_config.rl_weight_dissonance,
@@ -785,6 +802,7 @@ def _initialize_reasoning_system(
                     affective_monitor=affective_monitor,
                     predictive_interoception=predictive_interoception,
                     epistemic_bridge=epistemic_bridge,
+                    estimator=estimator,
                 )
                 logger.info("✓ RL signal aggregator initialized")
             except Exception as e:

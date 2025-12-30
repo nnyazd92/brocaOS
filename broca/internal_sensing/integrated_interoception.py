@@ -109,7 +109,13 @@ class IntegratedInteroception:
         # Calculate Surprise (Prediction Error) from PREVIOUS turn's prediction vs CURRENT reality
         if hasattr(self, '_last_prediction') and self._last_prediction:
             error = self.prediction.compute_prediction_error(self._last_prediction, computational)
-            self.affect.update_surprise(error)
+            calibrated = None
+            if hasattr(self.prediction, "get_rl_surprise_signal"):
+                try:
+                    calibrated = float(self.prediction.get_rl_surprise_signal())
+                except Exception:
+                    calibrated = None
+            self.affect.update_surprise(error, calibrated_surprise=calibrated)
             # Record prediction for accuracy tracking
             self.prediction.record_prediction(
                 f"pred_{int(time.time())}",

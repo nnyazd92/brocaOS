@@ -20,6 +20,35 @@ from .repl.session import ConversationSession
 # PEA/PFREA removed - planning is now handled via planning tool
 from .memory import SourceType, RelationType
 
+# RL Reward Logger
+_rl_reward_logger = None
+
+def _get_rl_reward_logger():
+    """Get or initialize RL reward logger."""
+    global _rl_reward_logger
+    if _rl_reward_logger is None:
+        try:
+            from .reasoning.rl_reward_logger import RLRewardLogger
+            from .reasoning.config import ReasoningConfig
+            config = ReasoningConfig()
+            _rl_reward_logger = RLRewardLogger(
+                log_file=config.rl_reward_log_file,
+                enabled=config.rl_reward_log_enabled,
+                append=config.rl_reward_log_append
+            )
+            if config.rl_reward_log_enabled:
+                logger.info(f"RL reward logger initialized: enabled=True, file={config.rl_reward_log_file}")
+            else:
+                logger.info("RL reward logger initialized but disabled by config")
+        except Exception as e:
+            logger.warning(f"Failed to initialize RL reward logger: {e}", exc_info=True)
+            # Return a dummy logger that does nothing
+            class DummyLogger:
+                def log_reward_signals(self, *args, **kwargs):
+                    pass
+            _rl_reward_logger = DummyLogger()
+    return _rl_reward_logger
+
 # Import ResponseAnalyzer for internal sensing integration
 try:
     from .internal_sensing.response_analyzer import ResponseAnalyzer
@@ -656,13 +685,8 @@ async def cognitive_query(req: CognitiveQueryRequest):
             "processing_time_ms": int((time.time() - start_time) * 1000)
         }
         
-        # Add Z3 validation if requested and available
-        if req.include_z3_validation and hasattr(rt, 'z3_validator') and rt.z3_validator:
-            try:
-                # This would be implemented in the Z3 validator
-                pass
-            except Exception as e:
-                logger.warning(f"Z3 validation failed: {e}")
+        # Note: Z3 validator has been removed. Use the z3_validate tool instead.
+        # Z3 validation is no longer available via this endpoint.
         
         # Add affective state if requested
         if req.include_affective_state and rt.internal_sensing:
@@ -719,6 +743,14 @@ async def cognitive_query(req: CognitiveQueryRequest):
                                 "coherence": rl_metrics.weight_coherence,
                             }
                         }
+                        
+                        # Log RL reward signals to CSV
+                        try:
+                            reward_logger = _get_rl_reward_logger()
+                            if reward_logger and hasattr(reward_logger, 'enabled') and reward_logger.enabled:
+                                reward_logger.log_reward_signals(rl_metrics, context="cognitive_query")
+                        except Exception as e:
+                            logger.warning(f"Failed to log RL reward signals: {e}", exc_info=True)
                         
                         # Apply RL feedback
                         try:
@@ -1234,6 +1266,17 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                                         }
                                     }
                                     
+                                    # Log RL reward signals to CSV
+                                    try:
+                                        reward_logger = _get_rl_reward_logger()
+                                        if reward_logger and hasattr(reward_logger, 'enabled') and reward_logger.enabled:
+                                            reward_logger.log_reward_signals(
+                                                rl_metrics, 
+                                                context=f"stream_response_{conversation_id}"
+                                            )
+                                    except Exception as e:
+                                        logger.warning(f"Failed to log RL reward signals: {e}", exc_info=True)
+                                    
                                     # Apply RL feedback if feedback loop manager is available
                                     if hasattr(feedback_loop_manager, '_apply_rl_feedback'):
                                         try:
@@ -1491,6 +1534,17 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                             }
                         }
                         
+                        # Log RL reward signals to CSV
+                        try:
+                            reward_logger = _get_rl_reward_logger()
+                            if reward_logger and hasattr(reward_logger, 'enabled') and reward_logger.enabled:
+                                reward_logger.log_reward_signals(
+                                    rl_metrics, 
+                                    context=f"stream_response_done_{conversation_id}"
+                                )
+                        except Exception as e:
+                            logger.warning(f"Failed to log RL reward signals: {e}", exc_info=True)
+                        
                         # Apply RL feedback
                         try:
                             from .reasoning.feedback_loop import FeedbackMetrics
@@ -1505,24 +1559,7 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     except Exception as e:
                         logger.warning(f"Error computing RL signals in stream_response: {e}", exc_info=True)
     
-    # Log PFREA completion in stream_response
-    if 'session' in locals() and session.pfrea_loop:
-        try:
-            current_phase = session.pfrea_loop.current_phase
-            if hasattr(session.pfrea_loop, 'pfrea_tracker'):
-                metrics = session.pfrea_loop.pfrea_tracker.get_current_metrics()
-                logger.info(
-                    f"PFREA: stream_response completed - Final phase: {current_phase}, "
-                    f"compliance_score={metrics.compliance_score:.3f}",
-                    extra={
-                        "event": "pfrea_stream_complete",
-                        "phase": str(current_phase),
-                        "conversation_id": conversation_id,
-                        "compliance_score": metrics.compliance_score,
-                    }
-                )
-        except Exception as e:
-            logger.debug(f"Error logging PFREA completion in stream_response: {e}", exc_info=True)
+    # PEA/PFREA removed - no completion logging needed
     
     yield json.dumps(done_data) + "\n"
 
@@ -1552,27 +1589,7 @@ async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
 
         session = create_session(req.conversation_id)
         
-        # Ensure PEA loop managers are wired (in case they weren't available during create_session)
-        rt = get_runtime()
-        if session.pea_loop and rt.reasoning_tool:
-            goal_manager = None
-            skill_manager = None
-            experience_logger = None
-            
-            if hasattr(rt.reasoning_tool, 'goal_manager'):
-                goal_manager = rt.reasoning_tool.goal_manager
-            if hasattr(rt.reasoning_tool, 'learning_tool') and rt.reasoning_tool.learning_tool:
-                if hasattr(rt.reasoning_tool.learning_tool, 'skill_manager'):
-                    skill_manager = rt.reasoning_tool.learning_tool.skill_manager
-                if hasattr(rt.reasoning_tool.learning_tool, 'experience_logger'):
-                    experience_logger = rt.reasoning_tool.learning_tool.experience_logger
-            
-            if goal_manager or skill_manager or experience_logger:
-                session.wire_pea_loop_managers(
-                    goal_manager=goal_manager,
-                    skill_manager=skill_manager,
-                    experience_logger=experience_logger,
-                )
+        # PEA/PFREA removed - no loop managers to wire
         
         reply_text = session.send(last.content, stream=False)
         
@@ -1625,6 +1642,17 @@ async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
                                     "coherence": rl_metrics.weight_coherence,
                                 }
                             }
+                            
+                            # Log RL reward signals to CSV
+                            try:
+                                reward_logger = _get_rl_reward_logger()
+                                if reward_logger and hasattr(reward_logger, 'enabled') and reward_logger.enabled:
+                                    reward_logger.log_reward_signals(
+                                        rl_metrics, 
+                                        context=f"chat_{req.conversation_id or 'unknown'}"
+                                    )
+                            except Exception as e:
+                                logger.warning(f"Failed to log RL reward signals: {e}", exc_info=True)
                             
                             # Apply RL feedback
                             try:
@@ -2049,66 +2077,6 @@ async def list_priorities():
     result = reasoning.execute("retrieve_from_memory", 
                              memory_pattern={"type": "priority"})
     return result
-
-@app.get("/api/pfrea/metrics")
-async def get_pfrea_metrics():
-    """Get PFREA compliance metrics and audit trail."""
-    try:
-        from .reasoning.pfrea_tracker import get_pfrea_tracker
-        tracker = get_pfrea_tracker()
-        
-        if not tracker:
-            return {
-                "enabled": False,
-                "error": "PFREA tracker not available"
-            }
-        
-        metrics = tracker.get_metrics()
-        compliance_report = tracker.get_compliance_report()
-        
-        return {
-            "metrics": metrics,
-            "compliance_report": compliance_report,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as e:
-        logger.error(f"Error getting PFREA metrics: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error retrieving PFREA metrics: {str(e)}")
-
-@app.get("/api/pfrea/audit-trail")
-async def get_pfrea_audit_trail(
-    session_id: Optional[str] = None,
-    plan_id: Optional[str] = None,
-    limit: int = 100
-):
-    """Get PFREA audit trail of events."""
-    try:
-        from .reasoning.pfrea_tracker import get_pfrea_tracker, PFREAEventType
-        tracker = get_pfrea_tracker()
-        
-        if not tracker:
-            raise HTTPException(status_code=503, detail="PFREA tracker not available")
-        
-        audit_trail = tracker.get_audit_trail(
-            session_id=session_id,
-            plan_id=plan_id,
-            limit=limit
-        )
-        
-        return {
-            "events": audit_trail,
-            "count": len(audit_trail),
-            "filters": {
-                "session_id": session_id,
-                "plan_id": plan_id,
-            },
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting PFREA audit trail: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error retrieving audit trail: {str(e)}")
 
 @app.get("/api/cognitive-architecture/status")
 async def get_cognitive_status():

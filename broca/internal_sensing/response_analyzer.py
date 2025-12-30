@@ -12,16 +12,46 @@ except ImportError:
     SentimentIntensityAnalyzer = None
 
 import re
+import json
 import logging
+import time
 import numpy as np
-from typing import List, Optional, Tuple, Dict
-from typing import Dict, Any, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
+# Import logger utility
+try:
+    from ..reasoning.llm_pattern_logger import get_logger, initialize_logger
+    HAS_LOGGER = True
+except ImportError:
+    HAS_LOGGER = False
+
 
 class ResponseAnalyzer:
-
+    """
+    Analyzes LLM responses to extract internal sensing metrics.
+    
+    Can use LLM-based semantic analysis (preferred) or regex patterns (fallback).
+    """
+    
+    # Class-level LLM client (can be set for all instances)
+    _llm_client: Optional["LLMClient"] = None
+    _llm_model: str = "gpt-5-nano"
+    _llm_enabled: bool = True
+    
+    @classmethod
+    def set_llm_client(cls, llm_client: Optional["LLMClient"], model: str = "gpt-5-nano", enabled: bool = True) -> None:
+        """Set LLM client for semantic analysis."""
+        cls._llm_client = llm_client
+        cls._llm_model = model
+        cls._llm_enabled = enabled
+        if llm_client:
+            logger.info(f"ResponseAnalyzer LLM client set (model: {model}, enabled: {enabled})")
+    
     @classmethod
     def calculate_semantic_distance(cls, embedding1: List[float], embedding2: List[float]) -> float:
         """
@@ -171,12 +201,15 @@ class ResponseAnalyzer:
     ]
     
     @classmethod
-    def estimate_confidence(cls, response: str) -> Optional[float]:
+    def estimate_confidence(cls, response: str, context: Optional[List[Dict[str, str]]] = None) -> Optional[float]:
         """
         Estimate confidence level from response text.
         
+        Uses LLM analysis if available, falls back to regex patterns.
+        
         Args:
             response: LLM response text
+            context: Optional conversation context
             
         Returns:
             Confidence estimate (0.0-1.0), or None if response is empty
@@ -184,6 +217,16 @@ class ResponseAnalyzer:
         if not response:
             return None
         
+        # Try comprehensive LLM analysis first
+        if cls._llm_enabled and cls._llm_client:
+            try:
+                analysis = cls.analyze_response_comprehensive(response, context)
+                if analysis and analysis.get("analysis_method") == "llm":
+                    return analysis.get("confidence")
+            except Exception:
+                pass  # Fall through to regex
+        
+        # Fallback to regex patterns
         response_lower = response.lower()
         
         # Count confidence indicators
@@ -213,12 +256,15 @@ class ResponseAnalyzer:
         return max(0.0, min(1.0, confidence))
     
     @classmethod
-    def detect_uncertainty(cls, response: str) -> Optional[float]:
+    def detect_uncertainty(cls, response: str, context: Optional[List[Dict[str, str]]] = None) -> Optional[float]:
         """
         Detect uncertainty level from response text.
         
+        Uses LLM analysis if available, falls back to regex patterns.
+        
         Args:
             response: LLM response text
+            context: Optional conversation context
             
         Returns:
             Uncertainty level (0.0-1.0), higher = more uncertain, or None if response is empty
@@ -226,6 +272,16 @@ class ResponseAnalyzer:
         if not response:
             return None
         
+        # Try comprehensive LLM analysis first
+        if cls._llm_enabled and cls._llm_client:
+            try:
+                analysis = cls.analyze_response_comprehensive(response, context)
+                if analysis and analysis.get("analysis_method") == "llm":
+                    return analysis.get("uncertainty")
+            except Exception:
+                pass  # Fall through to regex
+        
+        # Fallback to regex patterns
         response_lower = response.lower()
         
         # Count uncertainty indicators
@@ -254,6 +310,8 @@ class ResponseAnalyzer:
         """
         Compute valence (positive/negative) from response text with optional context awareness.
         
+        Uses LLM analysis if available, falls back to regex patterns.
+        
         Args:
             response: LLM response text
             context: Optional conversation context (recent messages)
@@ -264,6 +322,16 @@ class ResponseAnalyzer:
         if not response:
             return None
         
+        # Try comprehensive LLM analysis first
+        if cls._llm_enabled and cls._llm_client:
+            try:
+                analysis = cls.analyze_response_comprehensive(response, context)
+                if analysis and analysis.get("analysis_method") == "llm":
+                    return (analysis.get("valence_positive", 0.0), analysis.get("valence_negative", 0.0))
+            except Exception:
+                pass  # Fall through to regex
+        
+        # Fallback to regex patterns
         response_lower = response.lower()
         
         # Count positive indicators
@@ -302,12 +370,15 @@ class ResponseAnalyzer:
         return (positive_score, negative_score)
     
     @classmethod
-    def detect_emotion_categories(cls, response: str) -> Dict[str, float]:
+    def detect_emotion_categories(cls, response: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, float]:
         """
         Detect specific emotion categories from response text.
         
+        Uses LLM analysis if available, falls back to regex patterns.
+        
         Args:
             response: LLM response text
+            context: Optional conversation context
             
         Returns:
             Dictionary mapping emotion categories to intensity scores (0.0-1.0)
@@ -315,6 +386,16 @@ class ResponseAnalyzer:
         if not response:
             return {}
         
+        # Try comprehensive LLM analysis first
+        if cls._llm_enabled and cls._llm_client:
+            try:
+                analysis = cls.analyze_response_comprehensive(response, context)
+                if analysis and analysis.get("analysis_method") == "llm":
+                    return analysis.get("emotions", {})
+            except Exception:
+                pass  # Fall through to regex
+        
+        # Fallback to regex patterns
         response_lower = response.lower()
         
         emotions = {}
@@ -373,6 +454,8 @@ class ResponseAnalyzer:
         """
         Detect task urgency from response and context.
         
+        Uses LLM analysis if available, falls back to regex patterns.
+        
         Args:
             response: LLM response text
             context: Optional conversation context
@@ -383,6 +466,16 @@ class ResponseAnalyzer:
         if not response:
             return 0.0
         
+        # Try comprehensive LLM analysis first
+        if cls._llm_enabled and cls._llm_client:
+            try:
+                analysis = cls.analyze_response_comprehensive(response, context)
+                if analysis and analysis.get("analysis_method") == "llm":
+                    return analysis.get("urgency", 0.0)
+            except Exception:
+                pass  # Fall through to regex
+        
+        # Fallback to regex patterns
         response_lower = response.lower()
         
         # Count urgency indicators in response
@@ -405,6 +498,8 @@ class ResponseAnalyzer:
         """
         Measure user engagement level from conversation patterns.
         
+        Uses LLM analysis if available, falls back to regex patterns.
+        
         Args:
             response: LLM response text
             context: Optional conversation context
@@ -415,6 +510,16 @@ class ResponseAnalyzer:
         if not response:
             return 0.0
         
+        # Try comprehensive LLM analysis first
+        if cls._llm_enabled and cls._llm_client:
+            try:
+                analysis = cls.analyze_response_comprehensive(response, context)
+                if analysis and analysis.get("analysis_method") == "llm":
+                    return analysis.get("engagement", 0.5)
+            except Exception:
+                pass  # Fall through to regex
+        
+        # Fallback to regex patterns
         response_lower = response.lower()
         
         # Count engagement indicators
@@ -447,12 +552,15 @@ class ResponseAnalyzer:
         return engagement
     
     @classmethod
-    def compute_arousal(cls, response: str) -> Optional[float]:
+    def compute_arousal(cls, response: str, context: Optional[List[Dict[str, str]]] = None) -> Optional[float]:
         """
         Compute arousal (activation level) from response text.
         
+        Uses LLM analysis if available, falls back to regex patterns.
+        
         Args:
             response: LLM response text
+            context: Optional conversation context
             
         Returns:
             Arousal level (0.0-1.0), or None if response is empty
@@ -460,6 +568,16 @@ class ResponseAnalyzer:
         if not response:
             return None
         
+        # Try comprehensive LLM analysis first
+        if cls._llm_enabled and cls._llm_client:
+            try:
+                analysis = cls.analyze_response_comprehensive(response, context)
+                if analysis and analysis.get("analysis_method") == "llm":
+                    return analysis.get("arousal", 0.5)
+            except Exception:
+                pass  # Fall through to regex
+        
+        # Fallback to regex patterns
         response_lower = response.lower()
         
         # Count arousal indicators
@@ -615,4 +733,344 @@ class ResponseAnalyzer:
                 topics[topic] /= total
         
         return topics
+    
+    @classmethod
+    def analyze_response_comprehensive(
+        cls,
+        response: str,
+        context: Optional[List[Dict[str, str]]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Comprehensive LLM-based analysis of response in a single call.
+        
+        Returns all metrics: confidence, uncertainty, valence, emotions, engagement, arousal.
+        This is more efficient than calling individual methods separately.
+        
+        Args:
+            response: LLM response text to analyze
+            context: Optional conversation context
+            
+        Returns:
+            Dictionary with all metrics, or None if response is empty or LLM unavailable
+        """
+        if not response:
+            return None
+        
+        # Use LLM if available and enabled
+        if cls._llm_enabled and cls._llm_client:
+            try:
+                return cls._analyze_with_llm(response, context)
+            except Exception as e:
+                logger.warning(f"LLM analysis failed, falling back to regex: {e}")
+                # Fall through to regex fallback
+        
+        # Fallback to individual regex-based methods
+        return cls._analyze_with_regex(response, context)
+    
+    @classmethod
+    def _analyze_with_llm(
+        cls,
+        response: str,
+        context: Optional[List[Dict[str, str]]] = None
+    ) -> Dict[str, Any]:
+        """Analyze response using LLM in a single comprehensive call."""
+        start_time = time.time()
+        error_msg = None
+        
+        context_text = ""
+        if context:
+            context_text = "\n".join([
+                f"{msg.get('role', 'unknown')}: {msg.get('content', '')}"
+                for msg in context[-3:]
+            ])
+        
+        prompt = f"""Analyze this LLM response and extract all internal sensing metrics.
+
+Response to analyze:
+{response}
+
+{f'Conversation context:\n{context_text}' if context_text else ''}
+
+Extract and return the following metrics as a JSON object:
+- "confidence": float 0.0-1.0 (certainty level, higher = more confident)
+- "uncertainty": float 0.0-1.0 (uncertainty level, higher = more uncertain)
+- "valence_positive": float 0.0-1.0 (positive sentiment intensity)
+- "valence_negative": float 0.0-1.0 (negative sentiment intensity)
+- "emotions": object with keys: "joy", "frustration", "curiosity" (each float 0.0-1.0)
+- "engagement": float 0.0-1.0 (engagement level, higher = more engaged)
+- "arousal": float 0.0-1.0 (activation level, higher = more activated)
+- "urgency": float 0.0-1.0 (task urgency, higher = more urgent)
+
+Consider semantic meaning, not just keywords. Return JSON only."""
+        
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an internal sensing analyzer. Extract psychological and cognitive metrics from LLM responses. Return JSON only."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        try:
+            llm_response = cls._llm_client.chat(messages, temperature=0.0)
+            content = cls._llm_client.extract_assistant_content(llm_response)
+            
+            if not content:
+                raise ValueError("Empty LLM response")
+            
+            # Extract JSON from response
+            content = content.strip()
+            if "```json" in content:
+                json_start = content.find("```json") + 7
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+            elif "```" in content:
+                json_start = content.find("```") + 3
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+            
+            # Try to find JSON object
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+            else:
+                result = json.loads(content)
+            
+            # Ensure all required fields are present with defaults
+            analysis_result = {
+                "confidence": float(result.get("confidence", 0.5)),
+                "uncertainty": float(result.get("uncertainty", 0.0)),
+                "valence_positive": float(result.get("valence_positive", 0.0)),
+                "valence_negative": float(result.get("valence_negative", 0.0)),
+                "emotions": result.get("emotions", {"joy": 0.0, "frustration": 0.0, "curiosity": 0.0}),
+                "engagement": float(result.get("engagement", 0.5)),
+                "arousal": float(result.get("arousal", 0.5)),
+                "urgency": float(result.get("urgency", 0.0)),
+                "analysis_method": "llm"
+            }
+            
+            latency_ms = (time.time() - start_time) * 1000
+            
+            # Log the analysis
+            if HAS_LOGGER:
+                logger_instance = get_logger()
+                if logger_instance is None:
+                    try:
+                        from ..config import config
+                        logger_instance = initialize_logger(
+                            log_path=getattr(config.internal_sensing, 'llm_pattern_log_path', 'data/llm_pattern_matching_log.csv'),
+                            enabled=getattr(config.internal_sensing, 'llm_pattern_logging_enabled', True)
+                        )
+                    except Exception:
+                        logger_instance = None
+                
+                if logger_instance:
+                    logger_instance.log(
+                        component="ResponseAnalyzer",
+                        operation="analyze_comprehensive",
+                        model=cls._llm_model,
+                        input_text=response,
+                        input_context={"context": context} if context else None,
+                        output_metrics=analysis_result,
+                        latency_ms=latency_ms
+                    )
+            
+            return analysis_result
+            
+        except Exception as e:
+            error_msg = str(e)
+            latency_ms = (time.time() - start_time) * 1000
+            logger.error(f"Error in LLM comprehensive analysis: {e}", exc_info=True)
+            
+            # Log error
+            if HAS_LOGGER:
+                logger_instance = get_logger()
+                if logger_instance:
+                    logger_instance.log(
+                        component="ResponseAnalyzer",
+                        operation="analyze_comprehensive",
+                        model=cls._llm_model,
+                        input_text=response,
+                        input_context={"context": context} if context else None,
+                        latency_ms=latency_ms,
+                        error=error_msg
+                    )
+            
+            raise
+    
+    @classmethod
+    def _analyze_with_regex(
+        cls,
+        response: str,
+        context: Optional[List[Dict[str, str]]] = None
+    ) -> Dict[str, Any]:
+        """Fallback analysis using regex patterns (existing methods)."""
+        confidence = cls.estimate_confidence(response) or 0.5
+        uncertainty = cls.detect_uncertainty(response) or 0.0
+        valence = cls.compute_valence(response, context) or (0.0, 0.0)
+        emotions = cls.detect_emotion_categories(response)
+        engagement = cls.measure_engagement_level(response, context)
+        arousal = cls.compute_arousal(response) or 0.5
+        urgency = cls.detect_task_urgency(response, context)
+        
+        return {
+            "confidence": confidence,
+            "uncertainty": uncertainty,
+            "valence_positive": valence[0],
+            "valence_negative": valence[1],
+            "emotions": emotions,
+            "engagement": engagement,
+            "arousal": arousal,
+            "urgency": urgency,
+            "analysis_method": "regex"
+        }
+    
+    @classmethod
+    def analyze_responses_batch(
+        cls,
+        responses: List[str],
+        contexts: Optional[List[Optional[List[Dict[str, str]]]]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Batch analyze multiple responses efficiently.
+        
+        Args:
+            responses: List of response texts
+            contexts: Optional list of contexts (one per response)
+            
+        Returns:
+            List of analysis dictionaries
+        """
+        if not responses:
+            return []
+        
+        if contexts is None:
+            contexts = [None] * len(responses)
+        
+        # Use LLM batching if available
+        if cls._llm_enabled and cls._llm_client and len(responses) > 1:
+            try:
+                return cls._analyze_batch_with_llm(responses, contexts)
+            except Exception as e:
+                logger.warning(f"LLM batch analysis failed, falling back to individual: {e}")
+        
+        # Fallback: analyze individually
+        return [cls.analyze_response_comprehensive(resp, ctx) or {} for resp, ctx in zip(responses, contexts)]
+    
+    @classmethod
+    def _analyze_batch_with_llm(
+        cls,
+        responses: List[str],
+        contexts: List[Optional[List[Dict[str, str]]]]
+    ) -> List[Dict[str, Any]]:
+        """Batch analyze multiple responses in a single LLM call."""
+        prompt_parts = [
+            "Analyze multiple LLM responses and extract internal sensing metrics for each.",
+            "",
+            "For each response, extract:",
+            "- confidence: float 0.0-1.0",
+            "- uncertainty: float 0.0-1.0",
+            "- valence_positive: float 0.0-1.0",
+            "- valence_negative: float 0.0-1.0",
+            "- emotions: {{joy, frustration, curiosity}} (each float 0.0-1.0)",
+            "- engagement: float 0.0-1.0",
+            "- arousal: float 0.0-1.0",
+            "- urgency: float 0.0-1.0",
+            "",
+            "Return a JSON array with one object per response:",
+            "[",
+            "  {{",
+            "    \"confidence\": 0.0-1.0,",
+            "    \"uncertainty\": 0.0-1.0,",
+            "    \"valence_positive\": 0.0-1.0,",
+            "    \"valence_negative\": 0.0-1.0,",
+            "    \"emotions\": {{\"joy\": 0.0, \"frustration\": 0.0, \"curiosity\": 0.0}},",
+            "    \"engagement\": 0.0-1.0,",
+            "    \"arousal\": 0.0-1.0,",
+            "    \"urgency\": 0.0-1.0",
+            "  }},",
+            "  ...",
+            "]",
+            "",
+            "Responses to analyze:",
+            ""
+        ]
+        
+        for i, (response, context) in enumerate(zip(responses, contexts)):
+            prompt_parts.append(f"Response {i + 1}:")
+            prompt_parts.append(response)
+            if context:
+                context_text = "\n".join([
+                    f"{msg.get('role', 'unknown')}: {msg.get('content', '')}"
+                    for msg in context[-3:]
+                ])
+                prompt_parts.append(f"Context:\n{context_text}")
+            prompt_parts.append("")
+        
+        prompt = "\n".join(prompt_parts)
+        
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an internal sensing analyzer. Extract psychological and cognitive metrics from LLM responses. Return JSON array only."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        try:
+            llm_response = cls._llm_client.chat(messages, temperature=0.0)
+            content = cls._llm_client.extract_assistant_content(llm_response)
+            
+            if not content:
+                raise ValueError("Empty LLM response")
+            
+            # Extract JSON array
+            content = content.strip()
+            if "```json" in content:
+                json_start = content.find("```json") + 7
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+            elif "```" in content:
+                json_start = content.find("```") + 3
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+            
+            # Find JSON array
+            json_match = re.search(r'\[[^\]]*(?:\{[^{}]*\}[^\]]*)*\]', content, re.DOTALL)
+            if json_match:
+                results = json.loads(json_match.group())
+            else:
+                results = json.loads(content)
+            
+            # Ensure all results have required fields
+            normalized_results = []
+            for result in results:
+                normalized_results.append({
+                    "confidence": float(result.get("confidence", 0.5)),
+                    "uncertainty": float(result.get("uncertainty", 0.0)),
+                    "valence_positive": float(result.get("valence_positive", 0.0)),
+                    "valence_negative": float(result.get("valence_negative", 0.0)),
+                    "emotions": result.get("emotions", {"joy": 0.0, "frustration": 0.0, "curiosity": 0.0}),
+                    "engagement": float(result.get("engagement", 0.5)),
+                    "arousal": float(result.get("arousal", 0.5)),
+                    "urgency": float(result.get("urgency", 0.0)),
+                    "analysis_method": "llm_batch"
+                })
+            
+            # Ensure we have the right number of results
+            while len(normalized_results) < len(responses):
+                normalized_results.append(normalized_results[-1] if normalized_results else {})
+            normalized_results = normalized_results[:len(responses)]
+            
+            return normalized_results
+            
+        except Exception as e:
+            logger.error(f"Error in LLM batch analysis: {e}", exc_info=True)
+            raise
 

@@ -960,10 +960,14 @@ class ComputationalAffectMonitor:
 
     
     
-    def update_surprise(self, prediction_error: float,
-                       kl_divergence: Optional[float] = None,
-                       semantic_surprise: Optional[float] = None,
-                       contextual_weight: Optional[float] = None) -> None:
+    def update_surprise(
+        self,
+        prediction_error: float,
+        kl_divergence: Optional[float] = None,
+        semantic_surprise: Optional[float] = None,
+        contextual_weight: Optional[float] = None,
+        calibrated_surprise: Optional[float] = None,
+    ) -> None:
         """
         Update surprise with multi-scale and information-theoretic measures.
         
@@ -973,7 +977,11 @@ class ComputationalAffectMonitor:
             semantic_surprise: Optional semantic surprise from embeddings (0.0-1.0)
             contextual_weight: Optional importance/relevance weight (0.0-1.0)
         """
-        base_surprise = max(0.0, min(1.0, prediction_error))
+        # Prefer calibrated surprise if provided (already bounded 0..1)
+        if calibrated_surprise is not None:
+            base_surprise = max(0.0, min(1.0, float(calibrated_surprise)))
+        else:
+            base_surprise = max(0.0, min(1.0, float(prediction_error)))
         
         # Use KL divergence if available (more principled than simple difference)
         if kl_divergence is not None:

@@ -94,15 +94,28 @@ class ReasoningConfig(BaseModel):
     adaptive_control_enabled: bool = os.getenv("BROCA_REASONING_ADAPTIVE_CONTROL_ENABLED", "true").lower() == "true"
     skill_dissonance_threshold: float = float(os.getenv("BROCA_REASONING_SKILL_DISSONANCE_THRESHOLD", "-0.2"))
     
-    # Z3 logical validation
-    z3_enabled: bool = os.getenv("BROCA_REASONING_Z3_ENABLED", "false").lower() == "true"
-    z3_validation_enabled: bool = os.getenv("BROCA_REASONING_Z3_VALIDATION_ENABLED", "true").lower() == "true"
-    z3_validation_timeout: float = float(os.getenv("BROCA_REASONING_Z3_VALIDATION_TIMEOUT", "5.0"))
-    z3_max_constraints: int = int(os.getenv("BROCA_REASONING_Z3_MAX_CONSTRAINTS", "1000"))
-    
-    # Z3 tool for LLM-driven validation
+    # Z3 tool for LLM-driven validation (tool remains available, validator removed)
     z3_tool_enabled: bool = os.getenv("BROCA_REASONING_Z3_TOOL_ENABLED", "true").lower() == "true"
     z3_auto_validation_enabled: bool = os.getenv("BROCA_REASONING_Z3_AUTO_VALIDATION_ENABLED", "false").lower() == "true"
+    
+    # LLM pattern matching
+    llm_pattern_matching_enabled: bool = os.getenv("BROCA_REASONING_LLM_PATTERN_MATCHING_ENABLED", "true").lower() == "true"
+    llm_pattern_matching_model: str = os.getenv("BROCA_REASONING_LLM_PATTERN_MATCHING_MODEL", "gpt-5-nano")
+    llm_pattern_matching_cache_size: int = int(os.getenv("BROCA_REASONING_LLM_PATTERN_MATCHING_CACHE_SIZE", "100"))
+    llm_pattern_matching_batch_size: int = int(os.getenv("BROCA_REASONING_LLM_PATTERN_MATCHING_BATCH_SIZE", "10"))
+    
+    # LLM pattern matching logging
+    llm_pattern_logging_enabled: bool = os.getenv("BROCA_REASONING_LLM_PATTERN_LOGGING_ENABLED", "true").lower() == "true"
+    llm_pattern_log_path: str = os.getenv("BROCA_REASONING_LLM_PATTERN_LOG_PATH", "data/llm_pattern_matching_log.csv")
+    llm_pattern_log_rotation: str = os.getenv("BROCA_REASONING_LLM_PATTERN_LOG_ROTATION", "daily")  # "daily" | "size" | "none"
+    llm_pattern_log_max_size_mb: int = int(os.getenv("BROCA_REASONING_LLM_PATTERN_LOG_MAX_SIZE_MB", "100"))
+    
+    # Loop detection
+    loop_detection_enabled: bool = os.getenv("BROCA_REASONING_LOOP_DETECTION_ENABLED", "true").lower() == "true"
+    loop_detection_history_window: int = int(os.getenv("BROCA_REASONING_LOOP_DETECTION_HISTORY_WINDOW", "10"))
+    loop_detection_time_window: float = float(os.getenv("BROCA_REASONING_LOOP_DETECTION_TIME_WINDOW", "60.0"))
+    tool_queue_max_size: int = int(os.getenv("BROCA_REASONING_TOOL_QUEUE_MAX_SIZE", "50"))
+    tool_queue_max_retries: int = int(os.getenv("BROCA_REASONING_TOOL_QUEUE_MAX_RETRIES", "3"))
     
     # Hierarchical control
     hierarchical_control_enabled: bool = os.getenv("BROCA_REASONING_HIERARCHICAL_CONTROL_ENABLED", "true").lower() == "true"
@@ -124,6 +137,11 @@ class ReasoningConfig(BaseModel):
     rl_surprise_threshold: float = float(os.getenv("BROCA_REASONING_RL_SURPRISE_THRESHOLD", "0.3"))
     rl_curiosity_threshold: float = float(os.getenv("BROCA_REASONING_RL_CURIOSITY_THRESHOLD", "0.5"))
     rl_exploration_ratio: float = float(os.getenv("BROCA_REASONING_RL_EXPLORATION_RATIO", "0.6"))
+    
+    # RL Reward Logging
+    rl_reward_log_enabled: bool = os.getenv("BROCA_REASONING_RL_REWARD_LOG_ENABLED", "true").lower() == "true"
+    rl_reward_log_file: str = os.getenv("BROCA_REASONING_RL_REWARD_LOG_FILE", "data/rl_rewards.csv")
+    rl_reward_log_append: bool = os.getenv("BROCA_REASONING_RL_REWARD_LOG_APPEND", "true").lower() == "true"
     
     # PEA/PFREA removed - planning is now handled via planning tool
     

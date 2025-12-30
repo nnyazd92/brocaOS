@@ -344,6 +344,33 @@ class ReasoningDaemon:
             metrics = None
             if self.feedback_loop_manager:
                 try:
+                    # Ensure cognitive dissonance history is populated with "real" measurements.
+                    # Without this, consumers (RL signals, goal progress) will see has_data=False and
+                    # fall back to neutral defaults (e.g., dissonance_reward=0.5).
+                    if getattr(self.feedback_loop_manager, "cognitive_dissonance_monitor", None):
+                        try:
+                            # Best-effort: convert ready goals to dicts if needed.
+                            reasoning_goals = []
+                            for g in (ready_goals or []):
+                                if isinstance(g, dict):
+                                    reasoning_goals.append(g)
+                                else:
+                                    reasoning_goals.append({
+                                        "name": getattr(g, "name", str(g)),
+                                        "priority": getattr(g, "priority", None),
+                                        "description": getattr(g, "description", None),
+                                        "status": getattr(getattr(g, "status", None), "value", getattr(g, "status", None)),
+                                    })
+
+                            self.feedback_loop_manager.cognitive_dissonance_monitor.measure_dissonance(
+                                response=None,
+                                tool_usage=cycle_results if isinstance(cycle_results, list) else None,
+                                reasoning_goals=reasoning_goals if reasoning_goals else None,
+                                conversation_context=None,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to measure cognitive dissonance in daemon cycle: {e}", exc_info=True)
+
                     metrics = self.feedback_loop_manager.evaluate_cycle_outcomes(cycle_outcome)
                     self.feedback_loop_manager.apply_feedback(metrics)
                 except Exception as e:

@@ -417,19 +417,18 @@ class ProductionRuleSystem:
         
         # Sort by priority (highest first), then strength
         matched_rules.sort(key=lambda r: (r.priority, r.strength), reverse=True)
-        top_priority = matched_rules[0].priority if matched_rules else 0.0
         
         logger.info(
             f"Rule matching complete: evaluated={evaluated_count}, matched={len(matched_rules)}, "
             f"total_rules={len(self.rules)}, "
-            f"top_priority={top_priority:.3f}",
+            f"top_priority={matched_rules[0].priority:.3f if matched_rules else 0.0}",
             extra={
                 "event": "production_rules_matched",
                 "evaluated_count": evaluated_count,
                 "matched_count": len(matched_rules),
                 "total_rules": len(self.rules),
                 "matched_rule_names": [r.name for r in matched_rules],
-                "top_priority": top_priority,
+                "top_priority": matched_rules[0].priority if matched_rules else 0.0,
             }
         )
         

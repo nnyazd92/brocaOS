@@ -239,6 +239,10 @@ class InternalSensingConfig(BaseModel):
     pid_ki_arousal: float = float(os.getenv("BROCA_EMOTIONAL_PID_KI_AROUSAL", "0.08"))
     pid_kd_arousal: float = float(os.getenv("BROCA_EMOTIONAL_PID_KD_AROUSAL", "0.15"))
     dissonance_emotion_sensitivity: float = float(os.getenv("BROCA_DISSONANCE_EMOTION_SENSITIVITY", "1.0"))
+    
+    # LLM-based response analysis
+    llm_analysis_enabled: bool = os.getenv("BROCA_INTERNAL_SENSING_LLM_ANALYSIS_ENABLED", "true").lower() == "true"
+    llm_analysis_model: str = os.getenv("BROCA_INTERNAL_SENSING_LLM_ANALYSIS_MODEL", "gpt-5-nano")
 
 
 class EnvironmentConfig(BaseModel):
@@ -282,6 +286,8 @@ class ContextConfig(BaseModel):
     relevance_decay_factor: float = float(os.getenv("BROCA_CONTEXT_RELEVANCE_DECAY", "0.9"))
     main_thread_boost: float = float(os.getenv("BROCA_CONTEXT_MAIN_THREAD_BOOST", "2.0"))
     safety_margin: float = float(os.getenv("BROCA_CONTEXT_SAFETY_MARGIN", "0.95"))  # 95% of max tokens
+    selection_log_enabled: bool = os.getenv("BROCA_CONTEXT_SELECTION_LOG_ENABLED", "false").lower() == "true"
+    selection_log_file: str = os.getenv("BROCA_CONTEXT_SELECTION_LOG_FILE", "data/context_selection.csv")
 
 
 class CacheConfig(BaseModel):

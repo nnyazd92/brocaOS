@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import logging
 import json
-from typing import List, Optional, Tuple, Dict, Any
+import time
+from typing import List, Optional, Tuple, Dict, Any, TYPE_CHECKING
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
@@ -20,7 +21,17 @@ from .relationships import RelationshipManager
 from .namespace_index import NamespaceIndexGenerator
 from .temporal_consistency import TemporalConsistencyChecker
 
+if TYPE_CHECKING:
+    from ..llm import LLMClient
+
 logger = logging.getLogger(__name__)
+
+# Import logger utility
+try:
+    from ..reasoning.llm_pattern_logger import get_logger, initialize_logger
+    HAS_LOGGER = True
+except ImportError:
+    HAS_LOGGER = False
 
 
 class MemoryManager:
@@ -35,7 +46,8 @@ class MemoryManager:
         self,
         storage: MemoryStorage,
         vector_index: VectorIndex,
-        embedding_service: EmbeddingService
+        embedding_service: EmbeddingService,
+        llm_client: Optional["LLMClient"] = None
     ) -> None:
         """
         Initialize memory manager.
@@ -44,6 +56,7 @@ class MemoryManager:
             storage: MemoryStorage instance
             vector_index: VectorIndex instance
             embedding_service: EmbeddingService instance
+            llm_client: Optional LLM client for semantic query matching
         """
         self.storage = storage
         self.vector_index = vector_index
@@ -51,6 +64,8 @@ class MemoryManager:
         self.relationships = RelationshipManager(storage)
         self.namespace_index = NamespaceIndexGenerator(storage)
         self.temporal_consistency = TemporalConsistencyChecker(storage)
+        self.llm_client = llm_client
+        self._llm_enabled = llm_client is not None
         
         # Sync vector index with storage on startup
         self._sync_index()
@@ -58,7 +73,7 @@ class MemoryManager:
         # Create namespace index if it doesn't exist
         self._ensure_namespace_index()
         
-        logger.info("Initialized MemoryManager")
+        logger.info(f"Initialized MemoryManager (llm_semantic_queries={self._llm_enabled})")
     
     def _sync_index(self) -> None:
         """Sync vector index with storage (rebuild if needed)."""
@@ -1052,7 +1067,9 @@ class MemoryManager:
     
     def _apply_boolean_operators(self, memory: MemoryRecord, parsed_query: Dict[str, Any]) -> bool:
         """
-        Apply boolean operators to filter memory.
+        Apply boolean operators to filter memory using semantic matching.
+        
+        Uses LLM for semantic matching when available, falls back to substring matching.
         
         Args:
             memory: Memory record to check
@@ -1061,6 +1078,15 @@ class MemoryManager:
         Returns:
             True if memory matches boolean criteria, False otherwise
         """
+        # Use LLM for semantic matching if available
+        if self._llm_enabled and self.llm_client:
+            try:
+                return self._apply_boolean_operators_llm(memory, parsed_query)
+            except Exception as e:
+                logger.warning(f"LLM boolean operator matching failed, using substring fallback: {e}")
+                # Fall through to substring matching
+        
+        # Fallback to substring matching
         memory_text_lower = memory.text.lower()
         
         # Check AND terms (all must be present)
@@ -1093,6 +1119,183 @@ class MemoryManager:
                     return False
         
         return True
+    
+    def _apply_boolean_operators_llm(self, memory: MemoryRecord, parsed_query: Dict[str, Any]) -> bool:
+        """Apply boolean operators using LLM semantic matching."""
+        start_time = time.time()
+        error_msg = None
+        
+        and_terms = parsed_query.get("and_terms", [])
+        not_terms = parsed_query.get("not_terms", [])
+        or_terms = parsed_query.get("or_terms", [])
+        base_query = parsed_query.get("base_query", "").strip()
+        
+        # Build prompt for semantic matching
+        query_parts = []
+        if base_query:
+            query_parts.append(f"Base query: {base_query}")
+        if and_terms:
+            query_parts.append(f"AND terms (all must match): {', '.join(and_terms)}")
+        if or_terms:
+            query_parts.append(f"OR terms (at least one must match): {', '.join(or_terms)}")
+        if not_terms:
+            query_parts.append(f"NOT terms (none should match): {', '.join(not_terms)}")
+        
+        query_description = "\n".join(query_parts)
+        
+        prompt = f"""Determine if the memory text semantically matches the query criteria.
+
+Query criteria:
+{query_description}
+
+Memory text:
+{memory.text}
+
+Rules:
+- AND terms: ALL must semantically match (not just exact substring)
+- OR terms: AT LEAST ONE must semantically match
+- NOT terms: NONE should semantically match
+- Base query: Should semantically match if present
+- Consider semantic meaning, synonyms, and related concepts
+
+Return JSON only:
+{{
+  "matches": true/false,
+  "and_matches": [true/false for each AND term],
+  "or_matches": [true/false for each OR term],
+  "not_matches": [true/false for each NOT term],
+  "base_matches": true/false
+}}"""
+        
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a semantic query matcher. Determine if text matches query criteria semantically. Return JSON only."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        try:
+            response = self.llm_client.chat(messages, temperature=0.0)
+            content = self.llm_client.extract_assistant_content(response)
+            
+            if not content:
+                raise ValueError("Empty LLM response")
+            
+            # Extract JSON
+            content = content.strip()
+            if "```json" in content:
+                json_start = content.find("```json") + 7
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+            elif "```" in content:
+                json_start = content.find("```") + 3
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+            
+            import re
+            json_match = re.search(r'\{[^{}]+\}', content)
+            if json_match:
+                result = json.loads(json_match.group())
+            else:
+                result = json.loads(content)
+            
+            # Check AND terms (all must match)
+            and_matches = result.get("and_matches", [])
+            if and_terms and not all(and_matches):
+                final_match = False
+            else:
+                # Check NOT terms (none should match)
+                not_matches = result.get("not_matches", [])
+                if not_terms and any(not_matches):
+                    final_match = False
+                else:
+                    # Check OR terms and base query
+                    or_matches = result.get("or_matches", [])
+                    base_matches = result.get("base_matches", False)
+                    
+                    if or_terms:
+                        has_or_match = any(or_matches) if or_matches else False
+                        if not base_query:
+                            # Only OR terms - must match at least one
+                            final_match = has_or_match
+                        else:
+                            # Base query + OR terms - can match base query OR any OR term
+                            final_match = base_matches or has_or_match
+                    else:
+                        final_match = result.get("matches", False)
+            
+            latency_ms = (time.time() - start_time) * 1000
+            
+            # Log the matching
+            if HAS_LOGGER:
+                logger_instance = get_logger()
+                if logger_instance is None:
+                    try:
+                        from ..config import config
+                        logger_instance = initialize_logger(
+                            log_path=getattr(config.reasoning, 'llm_pattern_log_path', 'data/llm_pattern_matching_log.csv'),
+                            enabled=getattr(config.reasoning, 'llm_pattern_logging_enabled', True)
+                        )
+                    except Exception:
+                        logger_instance = None
+                
+                if logger_instance:
+                    model = getattr(self.llm_client, 'model', 'unknown')
+                    logger_instance.log(
+                        component="MemoryManager",
+                        operation="boolean_operators_llm",
+                        model=model,
+                        input_text=memory.text,
+                        input_context={
+                            "and_terms": and_terms,
+                            "or_terms": or_terms,
+                            "not_terms": not_terms,
+                            "base_query": base_query
+                        },
+                        output_match=final_match,
+                        output_metrics={
+                            "and_matches": and_matches,
+                            "or_matches": result.get("or_matches", []),
+                            "not_matches": result.get("not_matches", []),
+                            "base_matches": result.get("base_matches", False),
+                            "final_match": final_match
+                        },
+                        latency_ms=latency_ms,
+                        error=error_msg
+                    )
+            
+            return final_match
+            
+        except Exception as e:
+            error_msg = str(e)
+            latency_ms = (time.time() - start_time) * 1000
+            logger.error(f"Error in LLM boolean operator matching: {e}", exc_info=True)
+            
+            # Log error
+            if HAS_LOGGER:
+                logger_instance = get_logger()
+                if logger_instance:
+                    model = getattr(self.llm_client, 'model', 'unknown')
+                    logger_instance.log(
+                        component="MemoryManager",
+                        operation="boolean_operators_llm",
+                        model=model,
+                        input_text=memory.text,
+                        input_context={
+                            "and_terms": and_terms,
+                            "or_terms": or_terms,
+                            "not_terms": not_terms,
+                            "base_query": base_query
+                        },
+                        latency_ms=latency_ms,
+                        error=error_msg
+                    )
+            
+            raise
     
     def get_memory(self, memory_id: int) -> Optional[MemoryRecord]:
         """

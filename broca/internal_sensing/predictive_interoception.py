@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 import logging
+import math
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from collections import deque
 
@@ -55,8 +56,64 @@ class PredictiveInteroception:
         # Bayesian confidence tracking
         self._prediction_confidence: Dict[str, float] = {}  # Confidence per model type
         self._prediction_uncertainty: Dict[str, float] = {}  # Uncertainty per model type
+
+        # Calibrated surprise tracking (science-inspired):
+        # Maintain an online distribution over prediction errors and compute a normalized
+        # negative log-likelihood (Shannon surprise proxy) for the most recent error.
+        self._error_stats: Dict[str, float] = {
+            "count": 0.0,
+            "mean": 0.0,
+            "var": 0.05,  # non-zero prior variance to avoid division by zero
+        }
+        self._calibrated_surprise_history: deque = deque(maxlen=100)
         
         logger.info("Initialized PredictiveInteroception (predictive coding theory)")
+
+    def _update_error_distribution(self, error: float, alpha: float = 0.05) -> None:
+        """
+        Update running mean/variance of prediction error using EWMA.
+
+        Args:
+            error: Prediction error (0.0-1.0)
+            alpha: EWMA update rate
+        """
+        e = max(0.0, min(1.0, float(error)))
+        # EWMA mean/var update
+        mean = self._error_stats["mean"]
+        var = self._error_stats["var"]
+        mean_new = (1.0 - alpha) * mean + alpha * e
+        # variance of residuals around updated mean
+        resid = e - mean_new
+        var_new = (1.0 - alpha) * var + alpha * (resid * resid)
+
+        # clamp variance to a sane minimum/maximum
+        var_new = max(1e-6, min(0.25, var_new))
+        self._error_stats["mean"] = mean_new
+        self._error_stats["var"] = var_new
+        self._error_stats["count"] = self._error_stats["count"] + 1.0
+
+    def _negative_log_likelihood(self, error: float) -> float:
+        """
+        Negative log-likelihood of observing `error` under a Gaussian model of errors.
+
+        Note: This is a pragmatic proxy for Shannon surprise (-log p(o)).
+        """
+        e = max(0.0, min(1.0, float(error)))
+        mu = float(self._error_stats["mean"])
+        var = float(self._error_stats["var"])
+        # Gaussian NLL
+        return 0.5 * math.log(2.0 * math.pi * var) + ((e - mu) ** 2) / (2.0 * var)
+
+    def _normalize_surprise(self, nll: float, tau: float = 2.0) -> float:
+        """
+        Map NLL (unbounded) -> [0,1] using a saturating nonlinearity.
+        """
+        if not isinstance(nll, (int, float)) or math.isnan(nll) or math.isinf(nll):
+            return 0.0
+        # Ensure non-negative
+        nll = max(0.0, float(nll))
+        # 1 - exp(-nll/tau) gives smooth saturation; tau controls sensitivity.
+        return max(0.0, min(1.0, 1.0 - math.exp(-nll / max(1e-6, tau))))
     
     def predict_resources(
         self,
@@ -368,6 +425,13 @@ class PredictiveInteroception:
         })
         
         self._prediction_errors.append(error)
+        try:
+            self._update_error_distribution(error)
+            nll = self._negative_log_likelihood(error)
+            calibrated = self._normalize_surprise(nll)
+            self._calibrated_surprise_history.append(calibrated)
+        except Exception as e:
+            logger.debug(f"Failed to update calibrated surprise: {e}")
         
         # Update model (simple: store recent patterns)
         if model_type not in self.internal_models:
@@ -503,3 +567,23 @@ class PredictiveInteroception:
         
         # Ensure bounded [0, 1]
         return max(0.0, min(1.0, avg_error))
+
+    def get_rl_surprise_signal(self) -> float:
+        """
+        Get a calibrated surprise signal for RL (0.0-1.0).
+
+        This is NOT the same as prediction error. It is a normalized, information-theoretic
+        proxy (-log p(error)) under an online error distribution, which makes large
+        outliers much more salient and reduces sensitivity to tiny fluctuations.
+        """
+        if len(self._calibrated_surprise_history) == 0:
+            return 0.0
+
+        # Use mean of the last few for stability
+        if len(self._calibrated_surprise_history) >= 3:
+            recent = list(self._calibrated_surprise_history)[-3:]
+            val = sum(recent) / len(recent)
+        else:
+            val = self._calibrated_surprise_history[-1]
+
+        return max(0.0, min(1.0, float(val)))
