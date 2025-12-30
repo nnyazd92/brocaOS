@@ -15,11 +15,13 @@ Confidence Thresholds:
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import math
 import random
 import time
+import weakref
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +29,26 @@ from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
+
+from .features import RL_SIGNAL_KEYS, extract_state_features
+from .reward import RewardWeights, compute_reward_from_outcome
+
+# Registry of ranker instances for atexit cleanup
+_ranker_instances: List[weakref.ref] = []
+
+
+def _atexit_cleanup():
+    """Cleanup handler called on interpreter shutdown."""
+    for ref in _ranker_instances:
+        ranker = ref()
+        if ranker is not None:
+            try:
+                ranker.shutdown()
+            except Exception:
+                pass  # Ignore errors during shutdown
+
+
+atexit.register(_atexit_cleanup)
 
 if TYPE_CHECKING:
     from ..tools import Tool
@@ -74,17 +96,6 @@ def _setup_tool_selection_logging() -> None:
 
 # Initialize logging on module load
 _setup_tool_selection_logging()
-
-# Feature keys from RL signals (must match rl_signals.py)
-RL_SIGNAL_KEYS = [
-    'composite_reward',
-    'dissonance_reward',
-    'surprise_reward',
-    'curiosity_reward',
-    'information_gain_reward',
-    'coherence_reward',
-    'exploration_balance',
-]
 
 
 @dataclass
@@ -592,6 +603,9 @@ class OnlinePolicyRanker:
         # Load existing buffer
         self.replay_buffer.load(self.buffer_path)
 
+        # Register for atexit cleanup
+        _ranker_instances.append(weakref.ref(self))
+
         logger.info(
             f"Initialized OnlinePolicyRanker: "
             f"force_threshold={force_threshold:.0%}, "
@@ -631,47 +645,25 @@ class OnlinePolicyRanker:
 
     def _extract_features(self, context: Dict[str, Any]) -> np.ndarray:
         """Extract feature vector from context."""
-        features = []
-
-        # RL signals (7 features)
-        rl_signals = context.get('rl_signals', {}) or {}
-        for key in RL_SIGNAL_KEYS:
-            features.append(float(rl_signals.get(key, 0.5)))
-
-        # Goal features (3 features)
-        active_goals = context.get('active_goals', [])
-        features.append(min(len(active_goals), 5) / 5.0)  # Normalized count
-        features.append(max((g.get('priority', 0.5) for g in active_goals), default=0.5))
-        # Goal type encoding (simple hash)
-        goal_types = [g.get('goal_type', '') for g in active_goals]
-        features.append(hash(''.join(goal_types)) % 100 / 100.0)
-
-        # Skill features (3 features)
-        skills = context.get('applicable_skills', [])
-        features.append(min(len(skills), 5) / 5.0)
-        features.append(max((s.get('proficiency_level', 0.5) for s in skills), default=0.5))
-        features.append(sum(s.get('usage_count', 0) for s in skills[:3]) / 100.0)
-
-        # Working memory features (2 features)
-        wm_items = context.get('working_memory_items', [])
-        features.append(min(len(wm_items), 10) / 10.0)
-        # Recent tool usage (recency feature)
-        recent_tools = context.get('recent_tools', [])
-        features.append(min(len(recent_tools), 5) / 5.0)
-
-        # Production rules features (2 features)
-        rules = context.get('production_rules', [])
-        features.append(min(len(rules), 10) / 10.0)
-        active_rules = sum(1 for r in rules if r.get('active', False))
-        features.append(min(active_rules, 5) / 5.0)
-
-        # Pad/truncate to fixed size
-        while len(features) < self._input_dim:
-            features.append(0.0)
-
-        feature_array = np.array(features[:self._input_dim], dtype=np.float32)
+        feature_array = extract_state_features(context, input_dim=self._input_dim)
         
         # Log feature extraction details
+        rl_signals = (context.get("rl_signals", {}) or {}) if isinstance(context, dict) else {}
+        active_goals = context.get("active_goals", []) if isinstance(context, dict) else []
+        goal_types = []
+        try:
+            goal_types = [g.get("goal_type", "") for g in (active_goals or []) if isinstance(g, dict)]
+        except Exception:
+            goal_types = []
+        skills = context.get("applicable_skills", []) if isinstance(context, dict) else []
+        wm_items = context.get("working_memory_items", []) if isinstance(context, dict) else []
+        recent_tools = context.get("recent_tools", []) if isinstance(context, dict) else []
+        rules = context.get("production_rules", []) if isinstance(context, dict) else []
+        try:
+            active_rules = sum(1 for r in (rules or []) if isinstance(r, dict) and r.get("active", False))
+        except Exception:
+            active_rules = 0
+
         tool_selection_logger.debug(
             f"FEATURES | rl_signals={rl_signals} | "
             f"active_goals={len(active_goals)} | goal_types={goal_types[:3]} | "
@@ -819,9 +811,12 @@ class OnlinePolicyRanker:
         self,
         tool_name: str,
         context: Optional[Dict[str, Any]] = None,
+        next_context: Optional[Dict[str, Any]] = None,
         success: bool = True,
         execution_time_ms: float = 0.0,
         result_quality: float = 0.5,
+        reward: Optional[float] = None,
+        rl_signals: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Record tool execution outcome for online learning.
@@ -829,9 +824,13 @@ class OnlinePolicyRanker:
         Args:
             tool_name: Tool that was executed
             context: Context when tool was selected (uses last_context if None)
+            next_context: Optional context after the tool completed (for building transitions)
             success: Whether execution succeeded
             execution_time_ms: Execution time in milliseconds
             result_quality: Quality score of result (0.0-1.0)
+            reward: Optional authoritative reward override (0.0-1.0). If not provided,
+                    falls back to internal heuristic reward computation.
+            rl_signals: Optional RL signals dict for debug logging / provenance
         """
         tool_selection_logger.debug(
             f"OUTCOME_START | tool={tool_name} | success={success} | "
@@ -851,22 +850,67 @@ class OnlinePolicyRanker:
         if ctx is None:
             ctx = {}
 
-        # Compute reward
-        reward = self._compute_reward(success, execution_time_ms, result_quality)
+        # Compute reward:
+        # - intrinsic: selected cognitive RL signals (reward-space) if present
+        # - extrinsic: tool success/failure (+quality bonus)
+        # - latency penalty: subtract (NOT a feature)
+        if reward is not None:
+            # Explicit override still wins (escape hatch).
+            try:
+                reward_value = float(reward)
+            except Exception:
+                reward_value = 0.0
+            reward_value = max(0.0, min(1.0, reward_value))
+            reward_source = "explicit_override"
+        else:
+            from broca.config import config as _config
+
+            # Prefer provided rl_signals; else use post-action next_context.rl_signals if available.
+            post_rl_signals = rl_signals if isinstance(rl_signals, dict) else None
+            if post_rl_signals is None and isinstance(next_context, dict):
+                maybe = next_context.get("rl_signals")
+                if isinstance(maybe, dict):
+                    post_rl_signals = maybe
+
+            shaped, parts = compute_reward_from_outcome(
+                rl_signals=post_rl_signals,
+                intrinsic_keys=RL_SIGNAL_KEYS,
+                success=bool(success),
+                execution_time_ms=float(execution_time_ms or 0.0),
+                result_quality=float(result_quality if result_quality is not None else 0.5),
+                reward_success=_config.rl.reward_success,
+                reward_failure=_config.rl.reward_failure,
+                time_penalty_factor=_config.rl.time_penalty_factor,
+                max_latency_penalty=_config.rl.max_latency_penalty,
+                quality_bonus_factor=_config.rl.quality_bonus_factor,
+                weights=RewardWeights(
+                    extrinsic_weight=_config.rl.extrinsic_reward_weight,
+                    intrinsic_weight=_config.rl.intrinsic_reward_weight,
+                ),
+            )
+            reward_value = float(shaped)
+            reward_source = f"shaped:{parts}"
 
         # Create experience
         state = self._extract_features(ctx)
         action = self._tool_to_idx[tool_name]
+        next_state = None
+        if next_context is not None:
+            try:
+                next_state = self._extract_features(next_context)
+            except Exception:
+                next_state = None
 
         # Priority: higher for unexpected outcomes (for prioritized replay)
         expected_reward = 0.5 if self._last_selection is None else self._last_selection.score
-        td_error = abs(reward - expected_reward)
+        td_error = abs(reward_value - expected_reward)
         priority = td_error + 0.1  # Base priority
 
         experience = Experience(
             state=state,
             action=action,
-            reward=reward,
+            reward=reward_value,
+            next_state=next_state,
             priority=priority,
             tool_name=tool_name,
         )
@@ -879,12 +923,17 @@ class OnlinePolicyRanker:
         # Log outcome recording
         tool_selection_logger.info(
             f"OUTCOME | tool={tool_name} | action_idx={action} | "
-            f"reward={reward:.3f} | expected_reward={expected_reward:.3f} | "
+            f"reward={reward_value:.3f} | reward_source={reward_source} | expected_reward={expected_reward:.3f} | "
             f"td_error={td_error:.3f} | priority={priority:.3f} | "
             f"buffer_size={len(self.replay_buffer)} | "
             f"total_experiences={self._total_experiences} | "
             f"experiences_since_update={self._experiences_since_update}"
         )
+        if rl_signals:
+            try:
+                tool_selection_logger.debug(f"OUTCOME_RL_SIGNALS | tool={tool_name} | rl_signals={rl_signals}")
+            except Exception:
+                pass
 
         # Online update
         if self._experiences_since_update >= self.update_frequency:
@@ -893,17 +942,24 @@ class OnlinePolicyRanker:
 
         logger.debug(
             f"Recorded outcome: tool={tool_name}, success={success}, "
-            f"reward={reward:.3f}, priority={priority:.3f}",
+            f"reward={reward_value:.3f}, priority={priority:.3f}",
             extra={
                 "event": "rl_outcome_recorded",
                 "tool": tool_name,
                 "success": success,
-                "reward": reward,
+                "reward": reward_value,
                 "execution_time_ms": execution_time_ms,
                 "result_quality": result_quality,
                 "total_experiences": self._total_experiences,
             }
         )
+
+        # Save buffer after each outcome to ensure persistence across session restarts
+        # Only save buffer (not model) for efficiency - model saved during updates
+        try:
+            self.replay_buffer.save(self.buffer_path)
+        except Exception as e:
+            logger.debug(f"Failed to save replay buffer after outcome: {e}")
 
     def _compute_reward(
         self,
@@ -961,6 +1017,14 @@ class OnlinePolicyRanker:
                     )
                     
                     self._network.partial_fit(X, y, sample_weight=weights)
+                    
+                    # Save during mini-batch updates too (was missing - caused model to never persist!)
+                    if self._total_experiences % 10 == 0:
+                        self._save_state()
+                        tool_selection_logger.info(
+                            f"UPDATE_SAVE | total_experiences={self._total_experiences} | "
+                            f"buffer_size={buffer_size}"
+                        )
             else:
                 tool_selection_logger.debug(
                     f"UPDATE_SKIP | reason=buffer_empty | buffer_size={buffer_size}"
@@ -987,8 +1051,8 @@ class OnlinePolicyRanker:
             # Incremental training
             loss = self._network.partial_fit(X, y, sample_weight=weights)
 
-            # Periodic save
-            if self._total_experiences % 100 == 0:
+            # Periodic save - save every 10 experiences to ensure persistence across session restarts
+            if self._total_experiences % 10 == 0:
                 self._save_state()
                 tool_selection_logger.info(
                     f"UPDATE_SAVE | total_experiences={self._total_experiences} | "
@@ -1026,12 +1090,55 @@ class OnlinePolicyRanker:
         except Exception as e:
             logger.warning(f"Failed to save RL state: {e}")
 
+    def export_action_map(self, path: Optional[str] = None) -> Dict[str, int]:
+        """
+        Export the current action map (tool_name -> action_index).
+        
+        This is useful for debugging and analysis. The action map is dynamically
+        built from registered tools, so it always reflects the current tool set.
+        
+        Args:
+            path: Optional file path to save the action map as CSV.
+                  If None, only returns the dict without saving.
+        
+        Returns:
+            Dictionary mapping tool names to action indices.
+        """
+        action_map = dict(self._tool_to_idx)
+        
+        if path:
+            try:
+                from pathlib import Path
+                output_path = Path(path)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                with open(output_path, 'w') as f:
+                    f.write("tool_name,action_id\n")
+                    for tool_name, action_id in sorted(action_map.items(), key=lambda x: x[1]):
+                        f.write(f"{tool_name},{action_id}\n")
+                
+                logger.info(f"Exported action map ({len(action_map)} tools) to {path}")
+            except Exception as e:
+                logger.warning(f"Failed to export action map: {e}")
+        
+        return action_map
+    
+    def get_registered_tools(self) -> List[str]:
+        """
+        Get list of tool names currently registered in the action map.
+        
+        Returns:
+            List of tool names sorted by action index.
+        """
+        return [self._idx_to_tool[i] for i in range(self._n_actions)]
+    
     def get_statistics(self) -> Dict[str, Any]:
         """Get statistics about the policy ranker."""
         return {
             "total_experiences": self._total_experiences,
             "buffer_size": len(self.replay_buffer),
             "n_actions": self._n_actions,
+            "registered_tools": self.get_registered_tools(),
             "is_fitted": self._network._is_fitted if self._network else False,
             "samples_seen": self._network._n_samples_seen if self._network else 0,
             "force_threshold": self.force_threshold,
@@ -1053,4 +1160,3 @@ __all__ = [
     "PrioritizedReplayBuffer",
     "Experience",
 ]
-

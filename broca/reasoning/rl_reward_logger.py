@@ -186,6 +186,11 @@ class RLRewardLogger:
         if not self.enabled:
             return
         
+        # Guard: Reject test context patterns
+        if context and (context.startswith("tool_call_test_") or "test_tool" in context):
+            logger.debug(f"Skipping test data log entry: {context}")
+            return
+        
         try:
             ts = datetime.now(timezone.utc).isoformat()
 

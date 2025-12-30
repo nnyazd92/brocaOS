@@ -154,7 +154,16 @@ class TestRLSignalAggregator:
         # Create mock dissonance monitor
         mock_dissonance = Mock()
         mock_dissonance.get_aggregated_dissonance.return_value = {
-            "overall_dissonance": 0.3
+            "overall_dissonance": 0.3,
+            "has_data": True,
+            "has_sufficient_data": True,
+            "history_size": 25,  # Enough history to avoid dampening
+            "component_availability": {
+                "logical": True,
+                "factual": True,
+                "behavioral": True,
+                "goal": True,
+            },
         }
         
         aggregator = RLSignalAggregator(
@@ -218,7 +227,16 @@ class TestRLSignalAggregator:
         """Test signal computation with all sources."""
         mock_dissonance = Mock()
         mock_dissonance.get_aggregated_dissonance.return_value = {
-            "overall_dissonance": 0.2
+            "overall_dissonance": 0.2,
+            "has_data": True,
+            "has_sufficient_data": True,
+            "samples": 25,  # Enough history to avoid dampening
+            "component_availability": {
+                "logical": True,
+                "factual": True,
+                "behavioral": True,
+                "goal": True,
+            },
         }
         
         mock_affective = Mock()

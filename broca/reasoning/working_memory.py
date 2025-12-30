@@ -242,12 +242,14 @@ class WorkingMemory:
         matching_items.sort(key=lambda x: x[0], reverse=True)
         
         retrieved_content = [content for _, content in matching_items]
+
+        top_activation = float(matching_items[0][0]) if matching_items else 0.0
         
         logger.info(
             f"Retrieved items from working memory: pattern={pattern is not None}, "
             f"min_activation={min_activation:.3f}, evaluated={evaluated_count}, "
             f"matched={len(retrieved_content)}, "
-            f"top_activation={matching_items[0][0]:.3f if matching_items else 0.0}",
+            f"top_activation={top_activation:.3f}",
             extra={
                 "event": "working_memory_retrieve",
                 "has_pattern": pattern is not None,
@@ -255,7 +257,7 @@ class WorkingMemory:
                 "evaluated_count": evaluated_count,
                 "matched_count": len(retrieved_content),
                 "total_items": len(self.items),
-                "top_activation": matching_items[0][0] if matching_items else 0.0,
+                "top_activation": top_activation,
             }
         )
         

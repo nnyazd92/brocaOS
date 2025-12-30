@@ -120,9 +120,17 @@ class ReasoningDaemon:
                 logger.warning("Daemon is shutting down, cannot start")
                 return False
             
-            # Set up signal handlers
-            signal.signal(signal.SIGTERM, self._signal_handler)
-            signal.signal(signal.SIGINT, self._signal_handler)
+            # Set up signal handlers (only works in main thread)
+            # When running from web API or other threads, signals won't be caught
+            # but shutdown can still be triggered via stop() method
+            try:
+                if threading.current_thread() is threading.main_thread():
+                    signal.signal(signal.SIGTERM, self._signal_handler)
+                    signal.signal(signal.SIGINT, self._signal_handler)
+                else:
+                    logger.debug("Not in main thread, skipping signal handlers")
+            except ValueError as e:
+                logger.debug(f"Could not set signal handlers: {e}")
             
             # Load state if available
             if self.state_manager:

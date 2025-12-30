@@ -287,10 +287,31 @@ class ReasoningStateManager:
         """
         window = int(getattr(dissonance_monitor, "history_window", 100) or 100)
 
-        def _tail_list(obj: Any, max_items: int) -> List[Any]:
+        def _serialize_violation_record(record: Any) -> Dict[str, Any]:
+            """Serialize a violation record, converting datetime objects to ISO format."""
+            if not isinstance(record, dict):
+                return {}
+            result = {}
+            for k, v in record.items():
+                if isinstance(v, datetime):
+                    result[k] = v.isoformat()
+                elif isinstance(v, dict):
+                    # Recursively serialize nested dicts (e.g., 'violation' field)
+                    result[k] = {
+                        kk: vv.isoformat() if isinstance(vv, datetime) else vv
+                        for kk, vv in v.items()
+                    }
+                else:
+                    result[k] = v
+            return result
+
+        def _tail_list(obj: Any, max_items: int, serialize_records: bool = False) -> List[Any]:
             try:
                 xs = list(obj)  # works for deque/list
-                return xs[-max_items:]
+                tail = xs[-max_items:]
+                if serialize_records:
+                    return [_serialize_violation_record(x) for x in tail]
+                return tail
             except Exception:
                 return []
 
@@ -330,11 +351,11 @@ class ReasoningStateManager:
         return {
             "history_window": window,
             "dissonance_history": [_serialize_metrics(m) for m in history if m is not None],
-            "logical_violations": _tail_list(getattr(dissonance_monitor, "logical_violations", []), window),
-            "factual_errors": _tail_list(getattr(dissonance_monitor, "factual_errors", []), window),
-            "behavioral_deviations": _tail_list(getattr(dissonance_monitor, "behavioral_deviations", []), window),
-            "behavioral_inconsistencies": _tail_list(getattr(dissonance_monitor, "behavioral_inconsistencies", []), window),
-            "goal_conflicts": _tail_list(getattr(dissonance_monitor, "goal_conflicts", []), window),
+            "logical_violations": _tail_list(getattr(dissonance_monitor, "logical_violations", []), window, serialize_records=True),
+            "factual_errors": _tail_list(getattr(dissonance_monitor, "factual_errors", []), window, serialize_records=True),
+            "behavioral_deviations": _tail_list(getattr(dissonance_monitor, "behavioral_deviations", []), window, serialize_records=True),
+            "behavioral_inconsistencies": _tail_list(getattr(dissonance_monitor, "behavioral_inconsistencies", []), window, serialize_records=True),
+            "goal_conflicts": _tail_list(getattr(dissonance_monitor, "goal_conflicts", []), window, serialize_records=True),
             "commitment_strength": commitment,
         }
 

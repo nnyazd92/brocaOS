@@ -54,7 +54,10 @@ class LLMRLSignalEstimator:
         self.batch_size = max(1, int(batch_size))
         self.cache_size = max(0, int(cache_size))
         self.timeout_s = timeout_s
-        self.llm_client: Optional["LLMClient"] = llm_client or create_llm_client(model=model)
+        self.llm_client: Optional["LLMClient"] = llm_client or create_llm_client(
+            model=model,
+            provider="openai",  # Always use OpenAI for RL signal estimation
+        )
         self._cache: "OrderedDict[str, Dict[str, SignalEstimate]]" = OrderedDict()
 
     # ---- single-signal convenience wrappers ----

@@ -62,7 +62,10 @@ class PatternMatcher:
                 from ..config import config
                 
                 model_name = model or getattr(config.reasoning, 'llm_pattern_matching_model', 'gpt-5-nano')
-                self.llm_client = create_llm_client(model=model_name)
+                self.llm_client = create_llm_client(
+                    model=model_name,
+                    provider="openai",  # Always use OpenAI for pattern matching
+                )
                 self.model = model_name
                 logger.info(f"Initialized PatternMatcher with LLM (model: {model_name})")
             except Exception as e:

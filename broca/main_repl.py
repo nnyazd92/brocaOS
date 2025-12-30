@@ -1657,6 +1657,14 @@ def main() -> None:
                 print(f"{prompt}Error: {str(e)}\n")
                 print("You can continue the conversation or use /reset to start fresh.\n")
     finally:
+        # Shutdown RL policy ranker to save state
+        if tool_registry is not None and tool_registry.online_policy_ranker is not None:
+            try:
+                tool_registry.online_policy_ranker.shutdown()
+                logger.info("OnlinePolicyRanker shutdown and state saved")
+            except Exception as e:
+                logger.error(f"Error shutting down OnlinePolicyRanker: {e}", exc_info=True)
+        
         # Ensure memory manager is closed and vector index is saved
         if memory_manager is not None:
             try:

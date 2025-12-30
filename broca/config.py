@@ -288,6 +288,7 @@ class ContextConfig(BaseModel):
     safety_margin: float = float(os.getenv("BROCA_CONTEXT_SAFETY_MARGIN", "0.95"))  # 95% of max tokens
     selection_log_enabled: bool = os.getenv("BROCA_CONTEXT_SELECTION_LOG_ENABLED", "false").lower() == "true"
     selection_log_file: str = os.getenv("BROCA_CONTEXT_SELECTION_LOG_FILE", "data/context_selection.csv")
+    min_recent_to_keep: int = int(os.getenv("BROCA_CONTEXT_MIN_RECENT_TO_KEEP", "50"))  # Minimum recent messages to preserve during plucking
 
 
 class CacheConfig(BaseModel):
@@ -447,6 +448,11 @@ class RLConfig(BaseModel):
     """
     # Enable/disable RL-primary tool selection
     enabled: bool = os.getenv("BROCA_RL_ENABLED", "true").lower() == "true"
+
+    # Algorithm selection
+    # - online_nn: existing OnlinePolicyRanker (supervised-like online updates)
+    # - ppo: PPOOnlinePolicyRanker (on-policy updates in forced mode)
+    algorithm: str = os.getenv("BROCA_RL_ALGORITHM", "online_nn").strip().lower()
     
     # Confidence thresholds for selection modes
     force_threshold: float = float(os.getenv("BROCA_RL_FORCE_THRESHOLD", "0.85"))
@@ -469,12 +475,22 @@ class RLConfig(BaseModel):
     # Model persistence
     model_path: str = os.getenv("BROCA_RL_MODEL_PATH", "models/rl/online_policy.pt")
     buffer_path: str = os.getenv("BROCA_RL_BUFFER_PATH", "data/rl/replay_buffer.json")
+
+    # PPO persistence + hyperparameters (used when algorithm == "ppo")
+    ppo_model_path: str = os.getenv("BROCA_RL_PPO_MODEL_PATH", "models/rl/policy_ppo.pt")
+    ppo_hidden_dim: int = int(os.getenv("BROCA_RL_PPO_HIDDEN_DIM", "128"))
+    ppo_learning_rate: float = float(os.getenv("BROCA_RL_PPO_LEARNING_RATE", "0.0003"))
+    ppo_buffer_size: int = int(os.getenv("BROCA_RL_PPO_BUFFER_SIZE", "2048"))
+    ppo_batch_size: int = int(os.getenv("BROCA_RL_PPO_BATCH_SIZE", "64"))
     
     # Outcome recording
     reward_success: float = float(os.getenv("BROCA_RL_REWARD_SUCCESS", "0.8"))
     reward_failure: float = float(os.getenv("BROCA_RL_REWARD_FAILURE", "0.2"))
     time_penalty_factor: float = float(os.getenv("BROCA_RL_TIME_PENALTY_FACTOR", "0.00002"))
     quality_bonus_factor: float = float(os.getenv("BROCA_RL_QUALITY_BONUS_FACTOR", "0.2"))
+    max_latency_penalty: float = float(os.getenv("BROCA_RL_MAX_LATENCY_PENALTY", "0.2"))
+    extrinsic_reward_weight: float = float(os.getenv("BROCA_RL_EXTRINSIC_REWARD_WEIGHT", "0.5"))
+    intrinsic_reward_weight: float = float(os.getenv("BROCA_RL_INTRINSIC_REWARD_WEIGHT", "0.5"))
     
     # Exploration/exploitation
     initial_exploration_rate: float = float(os.getenv("BROCA_RL_INITIAL_EXPLORATION_RATE", "0.1"))
@@ -563,4 +579,3 @@ class BrocaConfig(BaseModel):
 
 
 config = BrocaConfig()
-

@@ -50,7 +50,8 @@ class RuleEngine:
                 from ..config import config
                 
                 llm_client = create_llm_client(
-                    model=config.reasoning.llm_pattern_matching_model
+                    model=config.reasoning.llm_pattern_matching_model,
+                    provider="openai",  # Always use OpenAI for pattern matching
                 )
                 pattern_matcher = LLMPatternMatcher(
                     llm_client=llm_client,

@@ -29,7 +29,8 @@ class TestReasoningSystem:
     
     def test_working_memory_activation_decay(self):
         """Test working memory activation decay over time."""
-        wm = WorkingMemory(capacity=5)
+        # Use a short update interval so the test doesn't have to sleep for 1s.
+        wm = WorkingMemory(capacity=5, update_interval=0.0)
         
         # Add item
         wm.add({"type": "fact", "content": "Test fact"}, activation=2.0)
@@ -129,18 +130,20 @@ class TestReasoningSystem:
         gm.add_goal(goal1)
         gm.add_goal(goal2)
         
-        # Initially, only goal1 should be ready
+        # Initially, goal1 should be ready and goal2 should not (depends on goal1).
+        # Note: GoalManager includes default system goals, so we assert membership rather than exact counts.
         ready_goals = gm.get_ready_goals()
-        assert len(ready_goals) == 1
-        assert ready_goals[0].name == "goal1"
+        ready_names = {g.name for g in ready_goals}
+        assert "goal1" in ready_names
+        assert "goal2" not in ready_names
         
         # Complete goal1
         gm.complete_goal("goal1")
         
         # Now goal2 should be ready
         ready_goals = gm.get_ready_goals()
-        assert len(ready_goals) == 1
-        assert ready_goals[0].name == "goal2"
+        ready_names = {g.name for g in ready_goals}
+        assert "goal2" in ready_names
     
     def test_integration_tool_basic_operations(self):
         """Test basic integration tool operations."""

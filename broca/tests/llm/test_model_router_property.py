@@ -58,6 +58,16 @@ class TestPropertyBased:
     def test_success_rate_consistency(self, model_router, num_requests, success_rate):
         """Property: Success rate is consistent with tracked data."""
         metrics = model_router.performance_tracker["deepseek-chat"]
+
+        # Hypothesis reuses function-scoped fixtures across many examples within a single test.
+        # Reset rolling windows so each example is evaluated independently.
+        metrics.request_count = 0
+        metrics.success_count = 0
+        metrics.error_count = 0
+        metrics.recent_successes.clear()
+        metrics.recent_errors.clear()
+        metrics.recent_confidence.clear()
+        metrics.recent_dissonance.clear()
         
         # Track requests with given success rate
         successes = int(num_requests * success_rate)
@@ -69,7 +79,8 @@ class TestPropertyBased:
             model_router.track_response_quality("deepseek-chat", success=False)
         
         # Success rate should match (within rounding)
-        assert abs(metrics.success_rate - success_rate) < 0.01 or num_requests == 0
+        expected = (successes / num_requests) if num_requests > 0 else 1.0
+        assert abs(metrics.success_rate - expected) < 0.01
     
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(

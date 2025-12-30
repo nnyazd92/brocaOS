@@ -35,6 +35,151 @@ def set_llm_client(llm_client: Optional["LLMClient"], enabled: bool = True) -> N
         logger.info(f"Critic tool LLM client set (enabled: {enabled})")
 
 
+DEFAULT_SYSTEM_PROMPT_TEMPLATE = """You are a critical reviewer (devil's advocate) for assistant outputs.
+
+Your job:
+- Validate whether the assistant output satisfies the provided constraints and fits the provided metadata context.
+- Be strict but fair.
+
+Metadata (context):
+{metadata}
+
+Constraints:
+{constraints}
+
+Return JSON only with the following schema:
+{{
+  "accepted": true/false,
+  "feedback": "short explanation",
+  "violations": [
+    {{"constraint": "constraint_name", "description": "what failed and why"}}
+  ]
+}}
+"""
+
+
+class CriticTool:
+    """LLM-backed tool that critiques/validates a piece of content against constraints."""
+
+    def __init__(
+        self,
+        llm_client: Optional["LLMClient"] = None,
+        system_prompt_template: Optional[str] = None,
+    ) -> None:
+        # Prefer instance-level client; fall back to module-level; else create default.
+        if llm_client is not None:
+            self._llm = llm_client
+        elif _llm_client is not None:
+            self._llm = _llm_client
+        else:
+            from ..llm import create_llm_client
+
+            self._llm = create_llm_client()
+
+        self._system_prompt_template = system_prompt_template or DEFAULT_SYSTEM_PROMPT_TEMPLATE
+
+    @property
+    def name(self) -> str:
+        return "critic"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Critique/validate a proposed assistant output against the current world_state constraints "
+            "(devil's advocate). Returns JSON with accepted/feedback/violations."
+        )
+
+    @property
+    def parameters(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "world_state": {
+                    "type": "object",
+                    "properties": {
+                        "constraints": {"type": "object"},
+                        "metadata": {"type": "object"},
+                    },
+                    # constraints are optional
+                    "required": [],
+                },
+                "content": {"type": "string"},
+            },
+            "required": ["world_state", "content"],
+        }
+
+    def execute(self, **kwargs: Any) -> Dict[str, Any]:
+        world_state = kwargs.get("world_state") or {}
+        content = kwargs.get("content") or ""
+
+        if not isinstance(world_state, dict):
+            return {"error": "world_state must be an object/dict"}
+        if not isinstance(content, str) or not content.strip():
+            return {"error": "content must be a non-empty string"}
+
+        metadata_obj = world_state.get("metadata") if isinstance(world_state.get("metadata"), dict) else {}
+        constraints_obj = world_state.get("constraints") if isinstance(world_state.get("constraints"), dict) else {}
+
+        # Human-readable blocks
+        if metadata_obj:
+            metadata = json.dumps(metadata_obj, indent=2, ensure_ascii=False, sort_keys=True)
+        else:
+            metadata = "(none)"
+
+        if constraints_obj:
+            constraints_lines = []
+            for k, v in constraints_obj.items():
+                constraints_lines.append(f"- {k}: {v}")
+            constraints = "\n".join(constraints_lines)
+        else:
+            constraints = "(none)"
+
+        system_prompt = self._system_prompt_template.format(metadata=metadata, constraints=constraints)
+        user_prompt = f"Content to critique:\n\n{content}\n"
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        try:
+            resp = self._llm.chat(messages, temperature=0.0)
+            raw = self._llm.extract_assistant_content(resp)
+            if not raw:
+                return {"error": "Empty critic response"}
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    return parsed
+                return {"error": "Critic response was not a JSON object", "raw": raw}
+            except Exception:
+                return {"error": "Critic returned invalid JSON", "raw": raw}
+        except Exception as e:
+            return {"error": f"Critic LLM call failed: {e}"}
+
+    def format_result(self, result: Dict[str, Any]) -> str:
+        if not isinstance(result, dict):
+            return str(result)
+        if "error" in result:
+            return f"Critic error: {result.get('error')}"
+
+        accepted = bool(result.get("accepted", False))
+        feedback = str(result.get("feedback", "") or "")
+        violations = result.get("violations", [])
+        lines = []
+        lines.append("Accepted" if accepted else "Rejected")
+        if feedback:
+            lines.append(f"Feedback: {feedback}")
+        if isinstance(violations, list) and violations:
+            lines.append("Violations:")
+            for v in violations:
+                if isinstance(v, dict):
+                    lines.append(f"- {v.get('constraint')}: {v.get('description')}")
+                else:
+                    lines.append(f"- {v}")
+        return "\n".join(lines)
+
+
 def evaluate_output(text: str, task_spec: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Evaluate output for issues using LLM when available, regex fallback otherwise.

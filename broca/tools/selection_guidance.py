@@ -163,7 +163,8 @@ class GuidanceAggregator:
             except Exception as e:
                 logger.debug(f"Error getting production rules: {e}")
         
-
+        return context
+    
     def get_policy_rankings(self, tools: List["Tool"], context: Dict[str, Any]) -> List[ToolRanking]:
         """Use PolicyRanker to produce ToolRanking list sorted by predicted probability.
 
@@ -193,10 +194,12 @@ class GuidanceAggregator:
             return rankings
         except Exception as e:
             logger.debug(f"PolicyRanker error: {e}")
-            return []
-
-
-        return context
+            # Hard fallback: return a uniform distribution rather than an empty list.
+            # This keeps downstream guidance stable even if a persisted model is missing/incompatible.
+            n = max(1, len(tools))
+            rankings = [ToolRanking(tool_name=t.name, score=1.0 / n, expected_reward=0.5) for t in tools]
+            self._policy_cache[key] = (rankings, now)
+            return rankings
 
 
 class ContextCache:
@@ -289,10 +292,13 @@ class ContextCache:
             Hash string
         """
         # Create stable hash from key context components
+        rl_signals = context.get("rl_signals") or {}
+        if not isinstance(rl_signals, dict):
+            rl_signals = {}
         key_parts = [
             str(len(context.get("active_goals", []))),
             str(len(context.get("applicable_skills", []))),
-            str(context.get("rl_signals", {}).get("composite_reward", 0.0)),
+            str(rl_signals.get("composite_reward", 0.0)),
         ]
         hash_input = "|".join(key_parts)
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
@@ -1221,14 +1227,10 @@ class ToolSelectionGuidance:
         self.context_cache = ContextCache(ttl_seconds=context_cache_ttl_seconds)
         self.incremental_updater = IncrementalContextUpdater(self.guidance_aggregator)
 
-        # attach policy ranker to guidance aggregator if available
-        try:
-            from broca.rl.policy import PolicyRanker
-            pr = PolicyRanker()
-            pr.load_model(None)
-            self.guidance_aggregator.policy_ranker = pr
-        except Exception:
-            self.guidance_aggregator.policy_ranker = None
+        # Note: PolicyRanker (behavioral cloning) has been deprecated in favor of
+        # OnlinePolicyRanker which dynamically builds its action map from registered tools.
+        # This eliminates the need for manual action_map.csv maintenance.
+        self.guidance_aggregator.policy_ranker = None
         
         # Initialize temporal tracker and relationship graph
         self.temporal_tracker = TemporalContextTracker()
@@ -1274,8 +1276,8 @@ class ToolSelectionGuidance:
             
             cache_key = "guidance_context"
             state_hash = None
-            if hasattr(self, '_last_context'):
-                state_hash = self.context_cache.get_state_hash(self._last_context)
+            if getattr(self, "_last_context", None) is not None:
+                state_hash = self.context_cache.get_state_hash(self._last_context)  # type: ignore[arg-type]
             
             context = self.context_cache.get_or_compute(
                 cache_key,
@@ -1404,14 +1406,15 @@ class ToolSelectionGuidance:
             
             cache_key = "ranking_context"
             state_hash = None
-            if hasattr(self, '_last_context'):
-                state_hash = self.context_cache.get_state_hash(self._last_context)
+            if getattr(self, "_last_context", None) is not None:
+                state_hash = self.context_cache.get_state_hash(self._last_context)  # type: ignore[arg-type]
             
             context = self.context_cache.get_or_compute(
                 cache_key,
                 compute_context,
                 state_hash=state_hash
             )
+            self._last_context = context
         
         # Get base rankings for MAB ranker
         base_rankings = None

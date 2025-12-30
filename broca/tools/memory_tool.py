@@ -531,7 +531,8 @@ class RetrieveMemoriesTool:
             Dictionary with retrieved memories including temporal information, epistemic context, and linked memories
         """
         try:
-            # Validate inputs - either query or memory_ids must be provided
+            # Validate inputs - query, memory_ids, or browse mode (empty query = recent memories)
+            browse_mode = False  # True if user wants to browse recent memories without a query
             if memory_ids:
                 # ID-based retrieval mode
                 if not isinstance(memory_ids, list) or not all(isinstance(id, int) and id > 0 for id in memory_ids):
@@ -542,7 +543,8 @@ class RetrieveMemoriesTool:
                 if len(memory_ids) > limit:
                     memory_ids = memory_ids[:limit]  # Limit to requested limit
             elif not query or not query.strip():
-                raise ValueError("Either 'query' or 'memory_ids' must be provided")
+                # No query provided - enter browse mode to return recent memories
+                browse_mode = True
             
             limit = max(1, min(20, limit))  # Clamp to valid range
             recency_weight = max(0.0, min(1.0, recency_weight))  # Clamp to 0.0-1.0
@@ -645,6 +647,30 @@ class RetrieveMemoriesTool:
                         memories.append(memory)
                     else:
                         logger.warning(f"Memory {memory_id} not found during ID-based retrieval")
+            elif browse_mode:
+                # Browse mode - return recent memories without requiring a query
+                # Use a large hours window to get recent memories, filters will be applied later
+                memories = self.memory_manager.get_recent_memories(hours=24*365, limit=limit)
+                
+                # Apply optional filters to browse results
+                if namespace:
+                    memories = [m for m in memories if m.namespace and m.namespace == namespace.strip()]
+                if namespaces:
+                    memories = [m for m in memories if m.namespace and m.namespace in namespaces]
+                if tags:
+                    if tag_mode == "all":
+                        memories = [m for m in memories if m.tags and all(t in m.tags for t in tags)]
+                    else:  # "any"
+                        memories = [m for m in memories if m.tags and any(t in m.tags for t in tags)]
+                if min_importance is not None:
+                    memories = [m for m in memories if m.importance >= min_importance]
+                if max_importance is not None:
+                    memories = [m for m in memories if m.importance <= max_importance]
+                if source_type_enums:
+                    memories = [m for m in memories if m.source_type in source_type_enums]
+                
+                # Limit after filtering
+                memories = memories[:limit]
             else:
                 # Query-based retrieval with enhanced search features
                 # Use epistemic-aware retrieval if engine available
