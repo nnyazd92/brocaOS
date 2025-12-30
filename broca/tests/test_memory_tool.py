@@ -296,20 +296,22 @@ class TestRetrieveMemoriesTool:
         assert call_args.kwargs.get("tags") == ["important"]
         assert call_args.kwargs.get("limit") == 10
     
-    def test_execute_validates_query(self):
+    def test_execute_empty_query_uses_browse_mode(self):
         """
-        Test that empty query is rejected.
+        Test that empty query enables browse mode (returns recent memories).
         
-        Rationale: Ensures schema validation works.
+        Rationale: Empty query is now allowed and returns recent memories.
         """
         mock_manager = Mock()
+        mock_manager.get_recent_memories.return_value = []
         tool = RetrieveMemoriesTool(mock_manager)
         
         result = tool.execute(query="")
         
-        assert result["success"] is False
-        assert "error" in result
-        mock_manager.retrieve_memories.assert_not_called()
+        # Should succeed and use browse mode
+        assert result["success"] is True
+        # Should call get_recent_memories for browse mode
+        mock_manager.get_recent_memories.assert_called_once()
     
     def test_execute_clamps_limit(self):
         """

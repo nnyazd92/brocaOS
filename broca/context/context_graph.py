@@ -1,8 +1,14 @@
 """
 Context graph implementation for intelligent conversation context management.
 
-Treats conversation as a tree/graph structure and intelligently prunes
-orphaned branches while preserving the main conversation thread.
+Uses simple oldest-first node plucking to stay within token limits:
+- Estimate total tokens
+- If over limit, pluck oldest nodes (by timestamp) until under limit
+- Always keep: system messages, most recent N messages
+- Plucked nodes are tombstoned so they won't be re-added from replayed history
+
+This replaces the complex relevance-based pruning which was buggy and caused
+token counts to keep growing despite "truncation".
 """
 
 from __future__ import annotations
@@ -65,14 +71,16 @@ class ContextGraph:
         tool_content_max_chars: int = 8000,
         selection_logging_enabled: bool = False,
         selection_log_file: str = "data/context_selection.csv",
+        min_recent_to_keep: int = 50,  # Minimum recent messages to always preserve (increased from 15 to better preserve tool call sequences)
     ):
         """
         Initialize context graph.
         
         Args:
             min_turns_retained: Minimum turns to always keep
-            orphan_threshold_turns: Turns before branch considered orphan
-            main_thread_boost: Boost multiplier for main thread messages
+            orphan_threshold_turns: Turns before branch considered orphan (legacy, not used)
+            main_thread_boost: Boost multiplier for main thread messages (legacy, not used)
+            min_recent_to_keep: Minimum number of recent messages to always keep during plucking
         """
         self.nodes: Dict[str, MessageNode] = {}
         self.root_nodes: List[str] = []
@@ -80,8 +88,7 @@ class ContextGraph:
         self.min_turns_retained = min_turns_retained
         self.orphan_threshold_turns = orphan_threshold_turns
         self.main_thread_boost = main_thread_boost
-        # In linear chats, the \"main thread\" is the entire conversation history.
-        # This must be budgeted, otherwise must_keep grows unbounded and pruning becomes emergency truncation.
+        # Legacy (kept for backwards compat but not used by new plucking logic)
         self.main_thread_token_budget_ratio = max(0.1, min(0.9, float(main_thread_token_budget_ratio)))
         # Store tool outputs in-graph with a strict bound so token accounting remains truthful.
         self.tool_content_max_chars = max(500, int(tool_content_max_chars))
@@ -90,9 +97,22 @@ class ContextGraph:
         self._selection_logging_enabled = bool(selection_logging_enabled)
         self._selection_log_file = str(selection_log_file)
         self._last_selection_reasons: Dict[str, str] = {}
-        self._message_order: List[str] = []  # Track insertion order
+        self._message_order: List[str] = []  # Track insertion order (timestamps)
         self._tool_chains: Dict[str, Set[str]] = {}  # Map chain_id -> set of message_ids
         self._lock = threading.RLock()  # Reentrant lock for thread safety
+        self.min_recent_to_keep = max(5, int(min_recent_to_keep))
+        # Track which message IDs were plucked in the last call (for session sync)
+        self._last_plucked_ids: List[str] = []
+        # Tombstones: message IDs intentionally excluded from the in-graph context.
+        # ConversationSession replays full history into the graph each turn; tombstones
+        # prevent previously-plucked/pruned nodes from being re-inflated while still
+        # allowing the persisted conversation history to remain intact.
+        self._excluded_message_ids: Set[str] = set()
+
+    def _tombstone(self, message_id: str, reason: str) -> None:
+        """Record that a message ID should not be re-added to the graph."""
+        self._excluded_message_ids.add(message_id)
+        self._last_selection_reasons[message_id] = reason
 
     def _truncate_tool_content(self, content: str) -> tuple[str, Dict[str, any]]:
         """
@@ -121,12 +141,68 @@ class ContextGraph:
         }
         return truncated, meta
 
+    def _get_protected_tool_chain_ids(self, keep_ids: Set[str]) -> Set[str]:
+        """
+        Get all message IDs that are part of tool chains involving kept messages.
+        
+        If any message in a tool chain is in keep_ids, the entire chain must be protected.
+        This prevents breaking tool chains during compaction.
+        
+        Args:
+            keep_ids: Set of message IDs that will be kept (not compacted)
+            
+        Returns:
+            Set of all message IDs that should be protected due to tool chain membership
+        """
+        protected = set()
+        
+        # Identify all tool chains
+        chains = self._identify_tool_call_chains()
+        
+        # If any message in a chain is kept, protect the entire chain
+        for chain_id, chain_messages in chains.items():
+            if chain_messages & keep_ids:  # Intersection - any overlap?
+                protected.update(chain_messages)
+        
+        # Also protect incomplete tool chains (assistant with tool_calls waiting for responses)
+        for msg_id, node in self.nodes.items():
+            if node.role != "assistant" or not node.message_data:
+                continue
+            
+            tool_calls = node.message_data.get("tool_calls")
+            if not tool_calls:
+                continue
+            
+            # Check if all tool responses are present
+            tool_call_ids = {tc.get("id") for tc in tool_calls if isinstance(tc, dict) and tc.get("id")}
+            found_responses = set()
+            
+            for other_id, other_node in self.nodes.items():
+                if other_node.role == "tool" and other_node.message_data:
+                    tcid = other_node.message_data.get("tool_call_id")
+                    if tcid in tool_call_ids:
+                        found_responses.add(tcid)
+            
+            # If responses are incomplete, protect this assistant and all found responses
+            if found_responses != tool_call_ids:
+                protected.add(msg_id)
+                for other_id, other_node in self.nodes.items():
+                    if other_node.role == "tool" and other_node.message_data:
+                        tcid = other_node.message_data.get("tool_call_id")
+                        if tcid in tool_call_ids:
+                            protected.add(other_id)
+        
+        return protected
+
     def _maybe_compact_history(self, *, max_tokens: int, safety_margin: float) -> None:
         """
         Proactively compact older history to reduce long-session weirdness.
 
         Key requirement: ConversationSession replays full history into the graph each turn.
         So compaction must mark nodes as compacted so they cannot be re-inflated.
+        
+        Tool chain protection: Never compact messages that are part of a tool chain
+        if any message in that chain is in the recent/kept portion.
         """
         if not self.nodes:
             return
@@ -149,16 +225,27 @@ class ContextGraph:
         if len(main_thread) <= keep_tail_count:
             return
 
+        # Messages we're keeping (tail of main thread)
+        keep_ids = set(main_thread[-keep_tail_count:])
+        
+        # Get protected tool chain IDs (entire chains if any part is kept)
+        protected_ids = self._get_protected_tool_chain_ids(keep_ids)
+        
         compact_ids = [mid for mid in main_thread[:-keep_tail_count] if mid in self.nodes]
         # Never compact system messages
         compact_ids = [mid for mid in compact_ids if self.nodes[mid].role != "system"]
+        # Never compact messages in protected tool chains
+        compact_ids = [mid for mid in compact_ids if mid not in protected_ids]
         if not compact_ids:
             return
 
         summary_text = self._build_compaction_summary(compact_ids, max_chars=4000)
+        # Use role="system" so the model understands this is system-provided context,
+        # NOT its own response. Using role="assistant" caused the model to think it
+        # had already responded and start asking clarifying questions mid-task.
         summary_msg = {
-            "role": "assistant",
-            "content": summary_text,
+            "role": "system",
+            "content": f"[CONTEXT COMPACTION: Previous conversation history has been summarized due to length limits. The assistant should continue its current task based on this summary and recent messages.]\n\n{summary_text}",
             "message_id": f"summary_{uuid.uuid4()}",
             "_broca_summary": True,
             "_broca_meta": {
@@ -279,6 +366,12 @@ class ContextGraph:
         # Ensure message_data exists
         if "message_id" not in message:
             message["message_id"] = message_id
+
+        # Tombstoned IDs are intentionally excluded from the in-graph context.
+        # Keep the persisted history unchanged, but skip re-inflation here.
+        if message_id in self._excluded_message_ids:
+            self._last_selection_reasons[message_id] = "excluded"
+            return message_id
         
         # If message already exists, update it
         if message_id in self.nodes:
@@ -726,19 +819,26 @@ class ContextGraph:
             
             # If minimal set still exceeds limit, truncate it
             if minimal_tokens > effective_max:
-                # Sort messages by priority: system first, then main thread, then by recency
+                # Identify recent tool chains that MUST be kept intact
+                # This prevents the model from losing context mid-task
+                recent_tool_chain_ids = self._get_protected_tool_chain_ids(minimal_recent)
+                
+                # Sort messages by priority: system first, recent tool chains, then main thread, then by recency
                 def message_priority(msg_id: str) -> tuple:
                     node = self.nodes.get(msg_id)
                     if not node:
-                        return (3, 0)  # Lowest priority
-                    # Priority: 0 = system, 1 = main thread, 2 = recent, 3 = other
-                    priority = 3
+                        return (4, 0)  # Lowest priority
+                    # Priority: 0 = system, 1 = recent tool chain, 2 = main thread, 3 = recent, 4 = other
+                    priority = 4
                     if node.role == "system":
                         priority = 0
-                    elif msg_id in main_thread_ids:
+                    elif msg_id in recent_tool_chain_ids:
+                        # Recent tool chains get very high priority to prevent mid-task context loss
                         priority = 1
-                    elif msg_id in minimal_recent:
+                    elif msg_id in main_thread_ids:
                         priority = 2
+                    elif msg_id in minimal_recent:
+                        priority = 3
                     # Recency: higher index = more recent
                     try:
                         recency = self._message_order.index(msg_id)
@@ -747,7 +847,7 @@ class ContextGraph:
                     return (priority, -recency)  # Negative for descending order
                 
                 # Sort message IDs by priority
-                sorted_msg_ids = sorted(minimal_keep, key=message_priority)
+                sorted_msg_ids = sorted(minimal_keep | recent_tool_chain_ids, key=message_priority)
                 
                 # Build truncated set, keeping highest priority messages
                 truncated_messages = []
@@ -877,10 +977,15 @@ class ContextGraph:
                                 break
                 
                 final_tokens = estimate_messages_tokens(truncated_messages) if truncated_messages else 0
+                
+                # Count how many tool chain messages were preserved
+                preserved_tool_chain_count = len([mid for mid in truncated_msg_ids if mid in recent_tool_chain_ids])
+                
                 logger.warning(
                     f"Must-keep messages exceed token limit ({must_keep_tokens} > {effective_max}), "
                     f"minimal set also exceeded ({minimal_tokens} > {effective_max}), "
-                    f"truncated to {len(truncated_msg_ids)} messages ({final_tokens} tokens)"
+                    f"truncated to {len(truncated_msg_ids)} messages ({final_tokens} tokens), "
+                    f"preserved {preserved_tool_chain_count} messages from recent tool chains"
                 )
                 return truncated_msg_ids, final_tokens
             
@@ -1149,13 +1254,191 @@ class ContextGraph:
         
         return valid_msg_ids
     
+    def pluck_oldest_until_under_limit(
+        self,
+        max_tokens: int,
+        min_recent_to_keep: Optional[int] = None,
+    ) -> List[str]:
+        """
+        Simple oldest-first node plucking to stay under token limit.
+        
+        Algorithm:
+        1. Get all non-system nodes sorted by insertion order (oldest first)
+        2. Protect recent N messages from plucking
+        3. Pluck oldest nodes until total tokens < max_tokens
+        4. Actually remove plucked nodes from the graph
+        5. Return list of plucked message IDs (for session to sync)
+        
+        Args:
+            max_tokens: Maximum token budget
+            min_recent_to_keep: Override for minimum recent messages to keep (default: self.min_recent_to_keep)
+            
+        Returns:
+            List of message IDs that were plucked (removed from graph)
+        """
+        if min_recent_to_keep is None:
+            min_recent_to_keep = self.min_recent_to_keep
+        
+        plucked_ids: List[str] = []
+        
+        with self._lock:
+            # Get current token count
+            all_messages = [node.message_data for node in self.nodes.values() if node.message_data]
+            current_tokens = estimate_messages_tokens(all_messages) if all_messages else 0
+            
+            # If we're under limit, nothing to do
+            if current_tokens <= max_tokens:
+                logger.debug(f"Context within limit: {current_tokens}/{max_tokens} tokens, no plucking needed")
+                self._last_plucked_ids = []
+                return []
+            
+            logger.info(f"Context over limit: {current_tokens}/{max_tokens} tokens, plucking oldest nodes...")
+            
+            # Identify protected messages (system + recent N)
+            protected_ids: Set[str] = set()
+            
+            # Always protect system messages
+            for msg_id, node in self.nodes.items():
+                if node.role == "system":
+                    protected_ids.add(msg_id)
+            
+            # Protect the most recent N messages (by insertion order)
+            recent_ids = set(self._message_order[-min_recent_to_keep:]) if len(self._message_order) > min_recent_to_keep else set(self._message_order)
+            protected_ids.update(recent_ids)
+            
+            # Log protection details for debugging
+            logger.debug(
+                f"Protecting {len(protected_ids)} messages from plucking "
+                f"(min_recent_to_keep={min_recent_to_keep}, "
+                f"total_messages={len(self._message_order)}, "
+                f"system_messages={len([n for n in self.nodes.values() if n.role == 'system'])})"
+            )
+            
+            # Get pluckable candidates (oldest first = earliest in _message_order)
+            pluckable = [
+                msg_id for msg_id in self._message_order
+                if msg_id not in protected_ids and msg_id in self.nodes
+            ]
+            
+            # Pluck oldest nodes until we're under budget
+            for msg_id in pluckable:
+                node = self.nodes.get(msg_id)
+                if not node or not node.message_data:
+                    continue
+                
+                # Pluck this node
+                self._pluck_node(msg_id)
+                plucked_ids.append(msg_id)
+                
+                # Recalculate tokens
+                remaining_messages = [n.message_data for n in self.nodes.values() if n.message_data]
+                current_tokens = estimate_messages_tokens(remaining_messages) if remaining_messages else 0
+                
+                # Check if we're under limit now
+                if current_tokens <= max_tokens:
+                    break
+
+            # Cleanup: remove disconnected components (orphans) created by plucking,
+            # and tombstone them so they won't be re-added from replayed history.
+            if self.nodes and protected_ids:
+                orphans = self.identify_orphans(protected_ids)
+                if orphans:
+                    for orphan_id in orphans:
+                        self._tombstone(orphan_id, "orphan_pruned")
+                        orphan_node = self.nodes.pop(orphan_id, None)
+                        if not orphan_node:
+                            continue
+                        if orphan_node.parent_id and orphan_node.parent_id in self.nodes:
+                            parent = self.nodes[orphan_node.parent_id]
+                            if orphan_id in parent.children:
+                                parent.children.remove(orphan_id)
+                        if orphan_id in self.root_nodes:
+                            self.root_nodes.remove(orphan_id)
+                        if orphan_id in self._message_order:
+                            self._message_order.remove(orphan_id)
+            
+            if plucked_ids:
+                remaining_count = len(self._message_order)
+                logger.info(
+                    f"Plucked {len(plucked_ids)} oldest nodes, now at {current_tokens}/{max_tokens} tokens "
+                    f"(remaining: {remaining_count} messages, protected: {len(protected_ids)})"
+                )
+            
+            self._last_plucked_ids = plucked_ids
+            return plucked_ids
+    
+    def _pluck_node(self, msg_id: str) -> None:
+        """
+        Remove a node from the graph completely.
+        
+        Args:
+            msg_id: Message ID to remove
+        """
+        node = self.nodes.get(msg_id)
+        if not node:
+            return
+
+        # Tombstone so ConversationSession replay won't re-add it.
+        self._tombstone(msg_id, "plucked")
+        
+        # Remove from parent's children list
+        if node.parent_id and node.parent_id in self.nodes:
+            parent = self.nodes[node.parent_id]
+            if msg_id in parent.children:
+                parent.children.remove(msg_id)
+        
+        # Update children to point to grandparent
+        for child_id in node.children:
+            child = self.nodes.get(child_id)
+            if child:
+                child.parent_id = node.parent_id
+                # Add children to grandparent's children list
+                if node.parent_id and node.parent_id in self.nodes:
+                    grandparent = self.nodes[node.parent_id]
+                    if child_id not in grandparent.children:
+                        grandparent.children.append(child_id)
+        
+        # Remove from root_nodes if applicable
+        if msg_id in self.root_nodes:
+            self.root_nodes.remove(msg_id)
+            # Promote children to root nodes
+            for child_id in node.children:
+                if child_id not in self.root_nodes:
+                    self.root_nodes.append(child_id)
+        
+        # Remove from message_order
+        if msg_id in self._message_order:
+            self._message_order.remove(msg_id)
+        
+        # Remove from nodes dict
+        del self.nodes[msg_id]
+    
+    def get_last_plucked_ids(self) -> List[str]:
+        """
+        Get message IDs that were plucked in the last call to pluck_oldest_until_under_limit.
+        
+        This is used by the session to sync its message list with the graph.
+        
+        Returns:
+            List of message IDs that were plucked
+        """
+        return self._last_plucked_ids.copy()
+
     def get_messages_for_llm(
         self,
         max_tokens: int,
         safety_margin: float = 0.95,
     ) -> List[Dict[str, any]]:
         """
-        Get messages for LLM after intelligent pruning.
+        Get messages for LLM, plucking oldest nodes if over token limit.
+        
+        Simple algorithm:
+        1. Estimate current token usage
+        2. If over limit, pluck oldest nodes (by timestamp) until under
+        3. Return remaining messages in order
+        
+        The plucking REMOVES nodes from the graph (and tombstones their IDs),
+        so token count decreases for real without mutating the persisted session history.
         
         Args:
             max_tokens: Maximum token limit
@@ -1164,42 +1447,22 @@ class ContextGraph:
         Returns:
             List of message dictionaries in order
         """
-        # Proactively compact older history to avoid long-session weirdness and
-        # unbounded growth from replaying full history into the graph each turn.
-        with self._lock:
-            try:
-                self._maybe_compact_history(max_tokens=max_tokens, safety_margin=safety_margin)
-            except Exception as e:
-                logger.debug(f"History compaction skipped due to error: {e}")
-
-        # Check current token usage before pruning (for proactive warning)
-        all_messages = [
-            node.message_data
-            for node in self.nodes.values()
-            if node.message_data
-        ]
-        current_tokens = estimate_messages_tokens(all_messages) if all_messages else 0
         effective_max = int(max_tokens * safety_margin)
         
-        # Proactive warning at 80% of limit
-        if current_tokens > effective_max * 0.8:
-            logger.debug(
-                f"Context approaching token limit: {current_tokens} / {effective_max} tokens "
-                f"({current_tokens / effective_max * 100:.1f}%)"
-            )
+        # Pluck oldest nodes if needed (this actually removes them from graph)
+        self.pluck_oldest_until_under_limit(effective_max)
         
-        to_keep, _ = self.prune_to_fit(max_tokens, safety_margin)
-        
-        # Build message list in insertion order
-        messages = []
-        for msg_id in self._message_order:
-            if msg_id in to_keep:
-                node = self.nodes[msg_id]
-                if node.message_data:
+        # Build message list in insertion order from remaining nodes
+        with self._lock:
+            messages = []
+            for msg_id in self._message_order:
+                node = self.nodes.get(msg_id)
+                if node and node.message_data:
                     messages.append(node.message_data)
         
         # Final validation: ensure no orphaned tool messages
         messages = self._validate_and_fix_tool_message_ordering(messages)
+        
         # Telemetry: write per-message selection reasons if enabled.
         if self._selection_logging_enabled:
             try:
@@ -1223,7 +1486,7 @@ class ContextGraph:
                             "role": node.role,
                             "token_count": node.token_count,
                             "kept": kept,
-                            "kept_reason": self._last_selection_reasons.get(msg_id, ""),
+                            "kept_reason": self._last_selection_reasons.get(msg_id, "plucking"),
                             "tool_chain_id": node.tool_call_chain_id or "",
                             "is_summary": bool(node.message_data and node.message_data.get("_broca_summary")),
                             "is_compacted": bool(getattr(node, "is_compacted", False)),
@@ -1511,4 +1774,3 @@ class ContextGraph:
                 reconstructed += 1
         
         return reconstructed
-

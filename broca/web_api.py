@@ -227,8 +227,22 @@ def _log_tool_call_rl_reward(
         if reward_logger is None or not getattr(reward_logger, "enabled", False):
             return
 
+        # Guard: In pytest runs, avoid polluting the *real* RL rewards dataset,
+        # but still allow tests to log into temporary paths.
+        import sys
+        try:
+            log_file_str = str(getattr(reward_logger, "log_file", ""))
+        except Exception:
+            log_file_str = ""
+        if ("pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST")) and ("data/rl_rewards.csv" in log_file_str):
+            return
+
         tool_name = tool_call.get("function", {}).get("name", "unknown")
         tool_call_id = tool_call.get("id", "")
+        
+        # Guard: Skip logging for test tools
+        if tool_name.startswith("test_") or tool_name == "test_tool":
+            return
 
         # Best-effort: compute real RL metrics from the reasoning tool if available.
         rl_metrics = None
@@ -255,8 +269,13 @@ def _log_tool_call_rl_reward(
                 except Exception:
                     rl_metrics = None
 
+        # Guard: Skip logging if context matches test pattern
+        context = f"tool_call_{tool_name}_{tool_call_id}"
+        if context.startswith("tool_call_test_"):
+            return
+
         if rl_metrics is not None:
-            reward_logger.log_reward_signals(rl_metrics, context=f"tool_call_{tool_name}_{tool_call_id}")
+            reward_logger.log_reward_signals(rl_metrics, context=context)
             return
 
         # Fallback: always log a tool-call row even if real RL signals are unavailable.
@@ -277,7 +296,7 @@ def _log_tool_call_rl_reward(
             weight_coherence=getattr(app_config.reasoning, "rl_weight_coherence", 0.15),
         )
         minimal.composite_reward = minimal.compute_composite()
-        reward_logger.log_reward_signals(minimal, context=f"tool_call_{tool_name}_{tool_call_id}")
+        reward_logger.log_reward_signals(minimal, context=context)
     except Exception:
         # Never let logging failures break streaming/tool execution.
         return
@@ -1505,27 +1524,71 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                 if rt.world_state_aggregator and hasattr(rt.world_state_aggregator, 'reasoning_tool'):
                     reasoning_tool = rt.world_state_aggregator.reasoning_tool
                     if reasoning_tool:
-                        # Measure cognitive dissonance (NON-BLOCKING - runs in background)
-                        if hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
-                            cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
-                            if cognitive_dissonance_monitor and content:
-                                # Run in background thread to avoid blocking conversation
-                                import threading
+                        # Run consistency checking and dissonance measurement (NON-BLOCKING - runs in background)
+                        # This is critical for populating logical/factual/behavioral violation histories
+                        if content:
+                            import threading
+                            
+                            def check_consistency_and_measure_dissonance_async():
+                                """
+                                Background task that:
+                                1. Runs consistency checking via ConsistencyLayer (populates violation histories)
+                                2. Measures cognitive dissonance from conversation
                                 
-                                def measure_dissonance_async():
-                                    try:
-                                        logger.debug("Measuring cognitive dissonance from conversation (background thread)")
-                                        cognitive_dissonance_monitor.measure_dissonance_from_conversation(
-                                            response=content,
-                                            messages=session.messages
-                                        )
-                                        logger.debug("Cognitive dissonance measurement completed")
-                                    except Exception as e:
-                                        logger.warning(f"Error measuring cognitive dissonance in web_api (background): {e}", exc_info=True)
-                                
-                                # Start background thread (fire-and-forget)
-                                thread = threading.Thread(target=measure_dissonance_async, daemon=True)
-                                thread.start()
+                                This ensures component_availability is properly set based on actual violations.
+                                """
+                                try:
+                                    # 1. Run consistency checking if ConsistencyLayer is available
+                                    # This calls observe_consistency_result() which populates
+                                    # logical_violations, factual_errors, etc.
+                                    if rt.consistency_layer is not None:
+                                        try:
+                                            logger.debug("Running consistency check on response (background thread)")
+                                            conversation_context = [
+                                                {"role": m.get("role", "user"), "content": m.get("content", "")}
+                                                for m in session.messages
+                                                if isinstance(m, dict) and m.get("content")
+                                            ]
+                                            # check_response() calls observe_consistency_result() internally
+                                            _, was_updated, consistency_result = rt.consistency_layer.check_response(
+                                                response=content,
+                                                conversation_context=conversation_context,
+                                            )
+                                            if consistency_result:
+                                                logger.debug(
+                                                    f"Consistency check completed: is_consistent={consistency_result.is_consistent}, "
+                                                    f"violations={len(consistency_result.violations)}, "
+                                                    f"severity={consistency_result.severity:.3f}",
+                                                    extra={
+                                                        "event": "consistency_check_completed",
+                                                        "is_consistent": consistency_result.is_consistent,
+                                                        "violations_count": len(consistency_result.violations),
+                                                        "severity": consistency_result.severity,
+                                                        "was_updated": was_updated,
+                                                    }
+                                                )
+                                        except Exception as e:
+                                            logger.warning(f"Error in consistency check (background): {e}", exc_info=True)
+                                    
+                                    # 2. Measure cognitive dissonance
+                                    cognitive_dissonance_monitor = getattr(reasoning_tool, 'cognitive_dissonance_monitor', None)
+                                    if cognitive_dissonance_monitor:
+                                        try:
+                                            logger.debug("Measuring cognitive dissonance from conversation (background thread)")
+                                            cognitive_dissonance_monitor.measure_dissonance_from_conversation(
+                                                response=content,
+                                                messages=session.messages
+                                            )
+                                            logger.debug("Cognitive dissonance measurement completed")
+                                        except Exception as e:
+                                            logger.warning(f"Error measuring cognitive dissonance (background): {e}", exc_info=True)
+                                            
+                                except Exception as e:
+                                    logger.warning(f"Error in background consistency/dissonance task: {e}", exc_info=True)
+                            
+                            # Start background thread (fire-and-forget)
+                            thread = threading.Thread(target=check_consistency_and_measure_dissonance_async, daemon=True)
+                            thread.start()
                         
                         # Compute RL signals if feedback loop manager is available
                         if hasattr(reasoning_tool, 'feedback_loop_manager') and reasoning_tool.feedback_loop_manager:
@@ -2018,8 +2081,7 @@ async def get_memories(request: MemoryQueryRequest):
         memory_ids = request.memory_ids[: request.limit]
     else:
         memory_ids = None
-        if not request.query or not request.query.strip():
-            raise HTTPException(status_code=400, detail="Either 'query' or 'memory_ids' must be provided")
+        # Empty query is allowed - will return recent memories (browse mode)
     
     # Clamp and validate numeric ranges
     limit = max(1, min(20, request.limit))
@@ -2068,6 +2130,7 @@ async def get_memories(request: MemoryQueryRequest):
             )
     
     # Fetch memories
+    browse_mode = not request.query or not request.query.strip()
     try:
         if memory_ids:
             memories = []
@@ -2077,6 +2140,31 @@ async def get_memories(request: MemoryQueryRequest):
                     memories.append(mem)
             retrieval_mode = "id_based"
             epistemic_result = None
+        elif browse_mode:
+            # Browse mode - return recent memories without requiring a query
+            retrieval_mode = "browse"
+            epistemic_result = None
+            memories = memory_manager.get_recent_memories(hours=24*365, limit=limit)
+            
+            # Apply optional filters
+            if request.namespace:
+                memories = [m for m in memories if m.namespace and m.namespace == request.namespace.strip()]
+            if request.namespaces:
+                memories = [m for m in memories if m.namespace and m.namespace in request.namespaces]
+            if request.tags:
+                if tag_mode == "all":
+                    memories = [m for m in memories if m.tags and all(t in m.tags for t in request.tags)]
+                else:  # "any"
+                    memories = [m for m in memories if m.tags and any(t in m.tags for t in request.tags)]
+            if request.min_importance is not None:
+                memories = [m for m in memories if m.importance >= request.min_importance]
+            if request.max_importance is not None:
+                memories = [m for m in memories if m.importance <= request.max_importance]
+            if source_type_enums:
+                memories = [m for m in memories if m.source_type in source_type_enums]
+            
+            # Limit after filtering
+            memories = memories[:limit]
         else:
             retrieval_mode = "query_based"
             if epistemic_engine:

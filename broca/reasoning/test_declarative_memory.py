@@ -260,6 +260,7 @@ class TestSpreadingActivation:
     def test_boost_activation_for_retrieved(self, spreading_activation):
         """Test boosting activation when memories are retrieved."""
         item = {"content": {"text": "test"}, "activation": 0.8}
+        old_activation = item["activation"]
         
         # Create mock memories
         mock_memories = [
@@ -281,7 +282,8 @@ class TestSpreadingActivation:
             item, mock_memories, boost_amount=0.1
         )
         
-        assert new_activation > item["activation"]
+        assert new_activation > old_activation
+        assert item["activation"] == new_activation
         assert item["activation"] > 0.8  # Should be boosted
     
     @pytest.mark.skipif(not FAISS_AVAILABLE, reason="FAISS not available")

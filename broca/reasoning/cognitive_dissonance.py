@@ -163,12 +163,13 @@ class CognitiveDissonanceMonitor:
             try:
                 from ..llm import create_llm_client
                 from ..config import config as app_config
-                # Use lightweight model for conflict detection
-                model = getattr(app_config.llm, 'model', 'gpt-4o-mini')
-                if 'gpt-4' in model.lower() or 'gpt-3.5' in model.lower():
-                    # Use mini version if available
-                    model = 'gpt-4o-mini'
-                self.llm_client = create_llm_client(model=model)
+
+                model = 'gpt-5-nano'
+
+                self.llm_client = create_llm_client(
+                    model=model,
+                    provider="openai",  # Always use OpenAI for conflict detection
+                )
                 logger.debug("Created LLM client for goal conflict detection")
             except Exception as e:
                 logger.warning(f"Failed to create LLM client for goal conflict detection: {e}")

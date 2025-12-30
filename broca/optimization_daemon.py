@@ -534,9 +534,16 @@ class OptimizationDaemon:
             logger.warning("Daemon is already running")
             return
         
-        # Set up signal handlers
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        signal.signal(signal.SIGINT, self._signal_handler)
+        # Set up signal handlers (only works in main thread)
+        try:
+            import threading
+            if threading.current_thread() is threading.main_thread():
+                signal.signal(signal.SIGTERM, self._signal_handler)
+                signal.signal(signal.SIGINT, self._signal_handler)
+            else:
+                logger.debug("Not in main thread, skipping signal handlers")
+        except ValueError as e:
+            logger.debug(f"Could not set signal handlers: {e}")
         
         # Initialize systems
         try:

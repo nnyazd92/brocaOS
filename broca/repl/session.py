@@ -163,6 +163,7 @@ class ConversationSession:
                     main_thread_boost=config.context.main_thread_boost,
                     selection_logging_enabled=config.context.selection_log_enabled,
                     selection_log_file=config.context.selection_log_file,
+                    min_recent_to_keep=config.context.min_recent_to_keep,
                 )
                 logger.debug("Context graph enabled for session")
             except Exception as e:
@@ -2256,11 +2257,13 @@ When you need to use tools to complete a task:
                             parent_id = self._context_graph._message_order[-1]
                         self._context_graph.add_message(msg, parent_id=parent_id)
                 
-                # Get messages from context graph with intelligent pruning
+                # Get messages from context graph with simple oldest-first plucking
                 filtered_messages = self._context_graph.get_messages_for_llm(
                     max_tokens=max_context_tokens,
                     safety_margin=config.context.safety_margin,
                 )
+                # Do not mutate `self.messages` here: plucking is an in-graph selection concern.
+                # The conversation history is the persisted source of truth and must remain intact.
                 
                 # Ensure system message is first if it exists
                 system_message = None

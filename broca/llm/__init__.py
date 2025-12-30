@@ -6,6 +6,7 @@ function to create appropriate client instances based on configuration.
 
 from __future__ import annotations
 
+import os
 from typing import Protocol, List, Dict, Any, Optional
 
 from ..config import config
@@ -82,22 +83,49 @@ def create_llm_client(
     Creates either a DeepSeekClient or OpenAIClient instance based on the
     configured provider. Supports dependency injection for testing.
     
+    When `provider` is explicitly specified and differs from the global config,
+    provider-specific API keys and base URLs are used from environment variables
+    (e.g., OPENAI_API_KEY for OpenAI, DEEPSEEK_API_KEY for DeepSeek).
+    
     Args:
         api_key: Optional API key override
         base_url: Optional base URL override
         model: Optional model name override
         temperature: Optional temperature override
         timeout: Optional timeout override
-        provider: Optional provider override ("deepseek" or "openai")
+        provider: Optional provider override ("deepseek", "openai", or "gemini")
         
     Returns:
-        LLMClient instance (either DeepSeekClient or OpenAIClient)
+        LLMClient instance (DeepSeekClient, OpenAIClient, or GeminiClient)
         
     Raises:
-        ValueError: If provider is not "deepseek" or "openai"
+        ValueError: If provider is not "deepseek", "openai", or "gemini"
     """
     # Determine provider
-    provider_name = provider or config.llm.provider.lower()
+    provider_name = (provider or config.llm.provider).lower()
+    config_provider = config.llm.provider.lower()
+    
+    # If provider is explicitly overridden to a DIFFERENT provider than config,
+    # use provider-specific environment variables instead of global config values.
+    # This allows internal components to use OpenAI even when user's main LLM is DeepSeek.
+    provider_explicitly_overridden = provider is not None and provider_name != config_provider
+    
+    if provider_explicitly_overridden:
+        if provider_name == "openai":
+            if api_key is None:
+                api_key = os.getenv("OPENAI_API_KEY", "")
+            if base_url is None:
+                base_url = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+        elif provider_name == "deepseek":
+            if api_key is None:
+                api_key = os.getenv("DEEPSEEK_API_KEY", "")
+            if base_url is None:
+                base_url = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
+        elif provider_name == "gemini":
+            if api_key is None:
+                api_key = os.getenv("GEMINI_API_KEY", "")
+            if base_url is None:
+                base_url = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta/openai")
     
     # Build kwargs for client initialization
     client_kwargs: Dict[str, Any] = {}

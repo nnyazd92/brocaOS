@@ -216,12 +216,35 @@ class ToolRegistry:
             return
         
         try:
+            # Pre-tool context (what the ranker likely saw at selection time)
+            pre_ctx = getattr(self, "_last_rl_context", None) or {}
+
+            # Post-tool context (best-effort) to extract RL reward signals
+            post_ctx = None
+            rl_signals = None
+            try:
+                if (
+                    getattr(self, "tool_selection_guidance", None) is not None
+                    and getattr(self.tool_selection_guidance, "guidance_aggregator", None) is not None
+                ):
+                    post_ctx = self.tool_selection_guidance.guidance_aggregator.gather_context()
+                    if isinstance(post_ctx, dict):
+                        rl_signals = post_ctx.get("rl_signals") or None
+            except Exception:
+                post_ctx = None
+                rl_signals = None
+
             self.online_policy_ranker.record_outcome(
                 tool_name=tool_name,
-                context=self._last_rl_context,
+                context=pre_ctx,
+                next_context=post_ctx,
                 success=success,
                 execution_time_ms=execution_time_ms,
                 result_quality=result_quality,
+                # Reward is computed in the ranker from:
+                # - intrinsic RL signals (subset) + extrinsic success/failure + latency penalty
+                reward=None,
+                rl_signals=rl_signals,
             )
         except Exception as e:
             logger.debug(f"Error recording RL outcome: {e}", exc_info=True)
@@ -574,19 +597,8 @@ class ToolRegistry:
                 )
             except Exception:
                 pass
-        else:
-            # Fallback: Try to reorder tools using PolicyRanker if available (post-conversion)
-            try:
-                from broca.rl.policy import PolicyRanker
-                pr = PolicyRanker()
-                pr.load_model(None)
-                # Build tool objects map
-                tool_objs = all_tools
-                probs = pr.predict_distribution(context or {}, tool_objs)
-                # reorder tools list by probs
-                tools.sort(key=lambda t: probs.get(t['function']['name'], 0.0), reverse=True)
-            except Exception:
-                pass
+        # Note: PolicyRanker fallback removed - OnlinePolicyRanker handles all RL-based
+        # tool selection with dynamic action mapping from registered tools.
 
         return tools
     
@@ -884,9 +896,24 @@ class ToolRegistry:
                         from datetime import datetime as _dt
 
                         uid = hashlib.sha1(f"{tool_name}:{time.time()}".encode()).hexdigest()
+                        # Best-effort snapshots for offline RL dataset building:
+                        # - pre_context: what the ranker saw when selecting tools (if RL selection ran)
+                        # - post_context: what the guidance system sees after the tool completes
+                        pre_context = getattr(self, "_last_rl_context", None)
+                        post_context = None
+                        try:
+                            if (
+                                getattr(self, "tool_selection_guidance", None) is not None
+                                and getattr(self.tool_selection_guidance, "guidance_aggregator", None) is not None
+                            ):
+                                post_context = self.tool_selection_guidance.guidance_aggregator.gather_context()
+                        except Exception:
+                            post_context = None
+
                         experience = {
                             "uid": uid,
                             "timestamp": _dt.utcnow().isoformat() + "Z",
+                            "tool_call_id": tool_call_id,
                             "tool_name": tool_name,
                             "arguments": arguments,
                             "result_summary": str(result)[:1000],
@@ -894,6 +921,8 @@ class ToolRegistry:
                             "execution_time_ms": execution_time_ms,
                             "epistemic": None,
                             "provenance": None,
+                            "pre_context": pre_context,
+                            "post_context": post_context,
                         }
 
                         if epistemic_impact is not None and isinstance(epistemic_impact, dict):
@@ -1047,4 +1076,3 @@ class ToolRegistry:
                 "name": tool_name,
                 "content": error_content
             }
-

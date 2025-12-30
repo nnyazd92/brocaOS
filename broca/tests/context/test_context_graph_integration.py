@@ -166,6 +166,45 @@ class TestIntegration:
         tokens = estimate_messages_tokens(messages)
         max_tokens = config.llm.max_context_tokens
         assert tokens <= max_tokens * 1.1  # Allow 10% margin
+
+    def test_plucking_does_not_mutate_persisted_history(self, mock_llm, mock_storage):
+        """
+        When context graph plucks nodes, it must not delete messages from the session history.
+        History is the persisted source of truth; only the in-graph selection should change.
+        """
+        # Force a small model context limit to trigger plucking deterministically.
+        mock_llm.get_max_context_tokens = Mock(return_value=600)
+
+        session = ConversationSession(
+            llm=mock_llm,
+            storage=mock_storage,
+            session_id="test_session",
+        )
+
+        from broca.config import config
+        config.context.enabled = True
+
+        # Build a large history (explicit IDs to avoid mutation)
+        for i in range(80):
+            session.messages.append(
+                {
+                    "role": "user" if i % 2 == 0 else "assistant",
+                    "content": f"msg {i} " + ("x" * 400),
+                    "message_id": f"h{i}",
+                }
+            )
+
+        original_len = len(session.messages)
+        assert session._context_graph is not None
+
+        filtered1 = session._get_messages_for_llm()
+        assert len(session.messages) == original_len, "Plucking must not delete persisted history"
+
+        graph_len_after_1 = len(session._context_graph.nodes)
+        filtered2 = session._get_messages_for_llm()
+        assert len(session.messages) == original_len
+        assert len(session._context_graph.nodes) == graph_len_after_1, "Tombstones prevent re-inflation on replay"
+        assert len(filtered2) > 0
     
     def test_failsafe_activation(self, mock_llm, mock_storage):
         """Test that failsafe token filtering activates when needed."""
@@ -222,4 +261,3 @@ class TestIntegration:
         except Exception:
             # Should handle gracefully
             pass
-

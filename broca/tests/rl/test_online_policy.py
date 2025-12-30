@@ -175,6 +175,66 @@ class TestOnlinePolicyRankerUnit:
             # Buffer should be loaded
             assert len(ranker2.replay_buffer) >= 10
 
+    def test_mini_batch_save_regression(self):
+        """
+        Regression test: Model must be saved during mini-batch updates.
+        
+        Previously, the save logic was only in the full-batch path (buffer_size >= batch_size),
+        causing the model to never persist when sessions end before reaching batch_size.
+        This led to expected_reward always being uniform (1/n_tools) as the network
+        restarted fresh every session.
+        
+        Bug fix: Added _save_state() call to the mini-batch update path.
+        """
+        from broca.rl.online_policy import OnlinePolicyRanker
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_path = Path(tmpdir) / "model.pt"
+            buffer_path = Path(tmpdir) / "buffer.json"
+            
+            ranker = OnlinePolicyRanker(
+                model_path=str(model_path),
+                buffer_path=str(buffer_path),
+                batch_size=32,  # High batch size to ensure mini-batch path is taken
+            )
+            
+            tools = [MockTool(name=f"tool_{i}") for i in range(5)]
+            
+            # Train with only 10 experiences (< batch_size=32)
+            # This forces the mini-batch update path
+            for i in range(10):
+                ranker.select_tool(tools, {"rl_signals": {"composite_reward": 0.5}})
+                ranker.record_outcome(
+                    tool_name=f"tool_{i % 5}",
+                    success=True,
+                    execution_time_ms=100.0,
+                    result_quality=0.9,
+                )
+            
+            # Model file should exist now (save triggered at total_experiences=10)
+            assert model_path.exists(), (
+                "Model file should be saved during mini-batch updates! "
+                "This regression causes the model to never learn across sessions."
+            )
+            
+            # Create new ranker and verify model loads successfully
+            ranker2 = OnlinePolicyRanker(
+                model_path=str(model_path),
+                buffer_path=str(buffer_path),
+                batch_size=32,
+            )
+            
+            # Make selection to trigger network initialization with load
+            ranker2.select_tool(tools, {})
+            
+            # Verify the network was trained (n_samples_seen > 0)
+            assert ranker2._network._n_samples_seen > 0, (
+                "Loaded model should have training history"
+            )
+            assert ranker2._network._is_fitted, (
+                "Loaded model should be marked as fitted"
+            )
+
 
 class TestOnlinePolicyRankerPropertyBased:
     """Property-based tests using Hypothesis."""
@@ -691,14 +751,14 @@ class TestPyTorchPolicyNetwork:
         from broca.rl.online_policy import PyTorchPolicyNetwork
         
         network = PyTorchPolicyNetwork(
-            input_dim=17,
+            input_dim=16,
             n_actions=10,
             hidden_dims=(64, 32),
         )
         
         assert network._model is not None
         assert network._optimizer is not None
-        assert network.input_dim == 17
+        assert network.input_dim == 16
         assert network.n_actions == 10
     
     def test_predict_proba_untrained(self):
@@ -775,4 +835,3 @@ class TestPyTorchPolicyNetwork:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--cov=broca.rl.online_policy", "--cov-branch"])
-

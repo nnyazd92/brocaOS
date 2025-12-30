@@ -392,6 +392,11 @@ class RLSignalAggregator:
             return measurement_uncertainty_from_quality(q, sample_size=sample_size)
         
         # 1. Dissonance reward: 1.0 - dissonance (minimize dissonance = maximize reward)
+        # Minimum history required before trusting dissonance measurements for reward shaping.
+        # This prevents artificial reward spikes at startup when only 1-2 measurements exist.
+        MIN_HISTORY_FOR_RELIABLE_REWARD = 3
+        MIN_COMPONENTS_FOR_RELIABLE_REWARD = 2  # Need at least 2 of 4 components
+        
         if dissonance_metrics:
             # IMPORTANT: dissonance_metrics can represent an "estimated/insufficient" measurement
             # (e.g., when response=None and most components are unavailable). In that case we must
@@ -399,14 +404,50 @@ class RLSignalAggregator:
             has_sufficient = bool(getattr(dissonance_metrics, "has_sufficient_data", True))
             component_availability = getattr(dissonance_metrics, "component_availability", None)
             any_component = True
+            available_count = 0
+            total_components = 4
             if isinstance(component_availability, dict):
                 any_component = any(bool(v) for v in component_availability.values())
+                available_count = sum(1 for v in component_availability.values() if v)
+                total_components = max(1, len(component_availability))
+            
+            # Get history size - when dissonance_metrics is passed directly, trust it as valid
+            # Default to MIN_HISTORY_FOR_RELIABLE_REWARD if not specified (caller explicitly provided metrics)
+            try:
+                history_size = int(getattr(dissonance_metrics, "history_size", MIN_HISTORY_FOR_RELIABLE_REWARD) or MIN_HISTORY_FOR_RELIABLE_REWARD)
+            except Exception:
+                history_size = MIN_HISTORY_FOR_RELIABLE_REWARD
+            
+            # Check if we have enough data for reliable reward calculation
+            has_enough_history = history_size >= MIN_HISTORY_FOR_RELIABLE_REWARD
+            has_enough_components = available_count >= MIN_COMPONENTS_FOR_RELIABLE_REWARD
+            
             if not has_sufficient or not any_component:
                 metrics.has_dissonance_data = False
                 metrics.dissonance_raw = None
                 metrics.dissonance_reward = 0.5  # neutral when insufficient
                 metrics.dissonance_estimator = "unavailable"
                 metrics.dissonance_uncertainty = 1.0
+            elif not has_enough_history or not has_enough_components:
+                # Insufficient history or components - use neutral reward to avoid artificial spikes
+                overall_dissonance = float(getattr(dissonance_metrics, "overall_dissonance", 0.0))
+                overall_dissonance = max(0.0, min(1.0, overall_dissonance))
+                metrics.has_dissonance_data = True
+                metrics.dissonance_raw = overall_dissonance
+                # Use neutral reward (0.5) blended toward measured value based on data quality
+                # This gradually transitions from neutral to measured as data accumulates
+                data_quality = min(1.0, (history_size / MIN_HISTORY_FOR_RELIABLE_REWARD) * 
+                                   (available_count / MIN_COMPONENTS_FOR_RELIABLE_REWARD))
+                measured_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
+                metrics.dissonance_reward = 0.5 * (1 - data_quality) + measured_reward * data_quality
+                metrics.dissonance_estimator = "insufficient_history"
+                metrics.dissonance_uncertainty = max(0.5, 1.0 - data_quality)
+                logger.debug(
+                    f"Dissonance reward dampened due to insufficient data: "
+                    f"history_size={history_size}/{MIN_HISTORY_FOR_RELIABLE_REWARD}, "
+                    f"components={available_count}/{MIN_COMPONENTS_FOR_RELIABLE_REWARD}, "
+                    f"data_quality={data_quality:.2f}, reward={metrics.dissonance_reward:.3f}"
+                )
             else:
                 overall_dissonance = float(getattr(dissonance_metrics, "overall_dissonance", 0.0))
                 overall_dissonance = max(0.0, min(1.0, overall_dissonance))
@@ -422,10 +463,6 @@ class RLSignalAggregator:
                     comp_factor = 1.0 - (available / total)
                 except Exception:
                     comp_factor = 0.3
-                try:
-                    history_size = int(getattr(dissonance_metrics, "history_size", 0) or 0)
-                except Exception:
-                    history_size = 0
                 # Approximate quality from history size
                 if history_size >= 20:
                     q = "high"
@@ -444,6 +481,23 @@ class RLSignalAggregator:
                 # Check if we have sufficient data
                 has_data = bool(dissonance_data.get("has_data", True))  # backward compatibility default
                 has_sufficient_data = bool(dissonance_data.get("has_sufficient_data", True))
+                
+                # Get history size and component availability
+                # Note: get_aggregated_dissonance() returns "samples", not "history_size"
+                try:
+                    history_size = int(dissonance_data.get("samples", 0) or dissonance_data.get("history_size", 0) or 0)
+                except Exception:
+                    history_size = 0
+                comp_av = dissonance_data.get("component_availability", {}) or {}
+                try:
+                    available_count = sum(1 for v in comp_av.values() if v)
+                except Exception:
+                    available_count = 0
+                
+                # Check if we have enough data for reliable reward calculation
+                has_enough_history = history_size >= MIN_HISTORY_FOR_RELIABLE_REWARD
+                has_enough_components = available_count >= MIN_COMPONENTS_FOR_RELIABLE_REWARD
+                
                 metrics.has_dissonance_data = bool(has_data and has_sufficient_data)
 
                 if not (has_data and has_sufficient_data):
@@ -469,22 +523,34 @@ class RLSignalAggregator:
                     else:
                         metrics.dissonance_reward = 0.5
                         metrics.dissonance_estimator = "unavailable"
+                elif not has_enough_history or not has_enough_components:
+                    # Insufficient history or components - blend toward neutral to avoid artificial spikes
+                    overall_dissonance = dissonance_data.get("overall_dissonance", 0.0)
+                    overall_dissonance = max(0.0, min(1.0, float(overall_dissonance)))
+                    metrics.dissonance_raw = overall_dissonance
+                    # Gradually transition from neutral to measured as data accumulates
+                    data_quality = min(1.0, (history_size / MIN_HISTORY_FOR_RELIABLE_REWARD) * 
+                                       (available_count / max(1, MIN_COMPONENTS_FOR_RELIABLE_REWARD)))
+                    measured_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
+                    metrics.dissonance_reward = 0.5 * (1 - data_quality) + measured_reward * data_quality
+                    metrics.dissonance_estimator = "insufficient_history"
+                    metrics.dissonance_uncertainty = max(0.5, 1.0 - data_quality)
+                    logger.debug(
+                        f"Dissonance reward dampened (monitor path): "
+                        f"history_size={history_size}/{MIN_HISTORY_FOR_RELIABLE_REWARD}, "
+                        f"components={available_count}/{MIN_COMPONENTS_FOR_RELIABLE_REWARD}, "
+                        f"data_quality={data_quality:.2f}, reward={metrics.dissonance_reward:.3f}"
+                    )
                 else:
                     overall_dissonance = dissonance_data.get("overall_dissonance", 0.0)
                     metrics.dissonance_raw = overall_dissonance
                     metrics.dissonance_reward = max(0.0, min(1.0, 1.0 - overall_dissonance))
                     metrics.dissonance_estimator = "measured"
-                    comp_av = dissonance_data.get("component_availability", {}) or {}
                     try:
-                        available = sum(1 for v in comp_av.values() if v)
                         total = max(1, len(comp_av))
-                        comp_factor = 1.0 - (available / total)
+                        comp_factor = 1.0 - (available_count / total)
                     except Exception:
                         comp_factor = 0.3
-                    try:
-                        history_size = int(dissonance_data.get("history_size", 0) or 0)
-                    except Exception:
-                        history_size = 0
                     if history_size >= 20:
                         q = "high"
                     elif history_size >= 10:

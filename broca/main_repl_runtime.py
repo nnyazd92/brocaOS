@@ -36,8 +36,30 @@ def _initialize_online_policy_ranker() -> Optional[Any]:
         return None
     
     try:
+        if config.rl.algorithm == "ppo":
+            from .rl.ppo_online_policy import PPOOnlinePolicyRanker
+
+            ranker = PPOOnlinePolicyRanker(
+                model_path=config.rl.ppo_model_path,
+                force_threshold=config.rl.force_threshold,
+                suggest_threshold=config.rl.suggest_threshold,
+                top_k_suggest=config.rl.top_k_suggest,
+                hidden_dim=config.rl.ppo_hidden_dim,
+                learning_rate=config.rl.ppo_learning_rate,
+                buffer_size=config.rl.ppo_buffer_size,
+                batch_size=config.rl.ppo_batch_size,
+            )
+            logger.info(
+                f"✓ PPOOnlinePolicyRanker initialized: "
+                f"force>={config.rl.force_threshold:.0%}, "
+                f"suggest>={config.rl.suggest_threshold:.0%}, "
+                f"<{config.rl.suggest_threshold:.0%}=LLM full choice"
+            )
+            return ranker
+
+        # Default: existing OnlinePolicyRanker
         from .rl.online_policy import OnlinePolicyRanker
-        
+
         ranker = OnlinePolicyRanker(
             model_path=config.rl.model_path,
             buffer_path=config.rl.buffer_path,
@@ -81,6 +103,8 @@ class BrocaRuntime:
     environment_system: Any | None
     reasoning_tool: ReasoningTool | None = None
     online_policy_ranker: Any | None = None  # OnlinePolicyRanker for RL-primary tool selection
+    consistency_layer: Any | None = None  # ConsistencyLayer for response consistency checking
+    self_model_storage: Any | None = None  # Storage for self-model persistence
     # Cognitive architecture components
     hierarchical_controller: Any | None = None
     recursive_reasoning_engine: Any | None = None
@@ -322,6 +346,38 @@ def initialize_runtime() -> BrocaRuntime:
             logger.warning(f"Failed to initialize reasoning system: {e}", exc_info=True)
             reasoning_tool = None
     
+    # Initialize ConsistencyLayer for response consistency checking
+    # This wires the consistency checker to the cognitive dissonance monitor
+    # so that violations are recorded and component histories are populated
+    consistency_layer = None
+    if self_model and self_model_storage:
+        try:
+            from .self_model.layer import ConsistencyLayer
+            from .self_model.consistency import ConsistencyChecker
+            
+            # Get cognitive dissonance monitor from reasoning tool if available
+            cognitive_dissonance_monitor = None
+            if reasoning_tool and hasattr(reasoning_tool, 'cognitive_dissonance_monitor'):
+                cognitive_dissonance_monitor = reasoning_tool.cognitive_dissonance_monitor
+            
+            # Create consistency checker
+            from .llm import create_llm_client
+            checker = ConsistencyChecker(llm_client=create_llm_client())
+            
+            consistency_layer = ConsistencyLayer(
+                self_model=self_model,
+                storage=self_model_storage,
+                checker=checker,
+                strict_mode=False,  # Don't block responses, just record violations
+                auto_update=config.self_model.auto_update if hasattr(config.self_model, 'auto_update') else False,
+                max_iterations=1,  # Single pass for web API (async checking)
+                dissonance_monitor=cognitive_dissonance_monitor,
+            )
+            logger.info("✓ ConsistencyLayer initialized and wired to cognitive dissonance monitor")
+        except Exception as e:
+            logger.warning(f"Failed to initialize ConsistencyLayer: {e}", exc_info=True)
+            consistency_layer = None
+    
     # Initialize OnlinePolicyRanker for RL-primary tool selection
     online_policy_ranker = _initialize_online_policy_ranker()
     if online_policy_ranker and tool_registry:
@@ -473,6 +529,8 @@ def initialize_runtime() -> BrocaRuntime:
         environment_system=environment_system,
         reasoning_tool=reasoning_tool,
         online_policy_ranker=online_policy_ranker,
+        consistency_layer=consistency_layer,
+        self_model_storage=self_model_storage,
         hierarchical_controller=hierarchical_controller,
         recursive_reasoning_engine=recursive_reasoning_engine,
         metacognitive_loop=metacognitive_loop,

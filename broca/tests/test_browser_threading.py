@@ -120,6 +120,7 @@ class TestBrowserThreading:
         for thread_id, session_id in session_ids:
             # We can't easily test this without actual thread switching,
             # but we verify sessions were created successfully
+            pass
     
     def test_session_lock_protects_access(self, browser_kernel):
         """Test that session lock protects concurrent access."""

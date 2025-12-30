@@ -237,7 +237,8 @@ class SkillManager:
                 from ..config import config
                 
                 llm_client = create_llm_client(
-                    model=getattr(config.reasoning, 'llm_pattern_matching_model', 'gpt-5-nano')
+                    model=getattr(config.reasoning, 'llm_pattern_matching_model', 'gpt-5-nano'),
+                    provider="openai",  # Always use OpenAI for pattern matching
                 )
                 pattern_matcher = LLMPatternMatcher(
                     llm_client=llm_client,

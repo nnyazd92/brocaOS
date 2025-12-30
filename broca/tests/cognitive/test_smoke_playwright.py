@@ -3,7 +3,11 @@ Smoke test for cognitive web app - ensures basic functionality works.
 """
 
 import pytest
+import re
 from playwright.sync_api import Page, expect
+
+# These tests require the pytest-playwright plugin which provides the `page` fixture.
+pytest.importorskip("pytest_playwright")
 
 @pytest.mark.playwright
 def test_cognitive_playground_loads(page: Page, base_url: str):
@@ -78,4 +82,4 @@ def test_example_queries_work(page: Page, base_url: str):
     
     # Check that textarea now contains the example
     textarea = page.locator("textarea")
-    expect(textarea).to_have_value(/formal logical proof/i)
+    expect(textarea).to_have_value(re.compile("formal logical proof", re.I))
