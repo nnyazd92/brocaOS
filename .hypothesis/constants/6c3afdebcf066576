@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/sensors/process_sensor.py
-# hypothesis_version: 6.148.7
-
-[0.1, 0.95, 2.0, '__version__', 'cpu_percent', 'error', 'memory_percent', 'name', 'network_connections', 'pid', 'process', 'process_count', 'process_creation', 'process_termination', 'processes', 'psutil not available', 'psutil_version', 'resource_consumption', 'status', 'total_cpu_percent', 'total_memory_percent', 'total_memory_used', 'unknown']

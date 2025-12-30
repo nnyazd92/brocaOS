@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/storage/json_storage.py
-# hypothesis_version: 6.148.7
-
-['*.json', 'conversations', 'messages', 'metadata', 'r', 'session_id', 'utf-8', 'w']

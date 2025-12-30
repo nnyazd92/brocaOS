@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/memory/conflict/evolution.py
-# hypothesis_version: 6.148.7
-
-[0.0, 'action_distribution', 'archived_memory_id', 'auto', 'auto_vs_user', 'average_confidence', 'by_action', 'by_strategy', 'change', 'confidence', 'confidence_changes', 'confidence_history', 'confidence_trend', 'conflict_type', 'conflict_types', 'decreasing', 'detection_method', 'first_conflict', 'from', 'id', 'increasing', 'kept_memory_id', 'last_conflict', 'max_confidence', 'memory1_id', 'memory2_id', 'merged_memory_id', 'metadata', 'min_confidence', 'most_common_action', 'most_common_strategy', 'period', 'rationale', 'resolution_action', 'resolution_strategy', 'stable', 'strategy_changes', 'timestamp', 'to', 'total', 'total_conflicts', 'total_resolutions', 'trends_over_time', 'unknown', 'user', 'user_decision', 'user_involved']

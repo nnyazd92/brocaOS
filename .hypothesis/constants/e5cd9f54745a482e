@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/policy/manager.py
-# hypothesis_version: 6.148.7
-
-[300, 'access_level', 'approved', 'current_level', 'downgrade_access', 'duration_seconds', 'emergency', 'escalation', 'escalation_request', 'expires_at', 'new_level', 'old_level', 'operation', 'parameters', 'previous_level', 'rationale', 'request_id', 'result', 'success', 'system', 'target_level', 'timestamp', 'user', 'user_id']

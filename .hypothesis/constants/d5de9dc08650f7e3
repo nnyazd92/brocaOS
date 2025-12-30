@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/internal_sensing/predictive_interoception.py
-# hypothesis_version: 6.148.7
-
-[0.0, 0.3, 0.4, 0.5, 1.0, 100, 'actual', 'attention_allocation', 'computational_load', 'conceptual_coherence', 'confidence_level', 'energy_efficiency', 'error', 'error_prediction', 'general', 'memory_pressure', 'model_type', 'predicted', 'processing_depth', 'processing_latency', 'recent_patterns', 'resource_prediction', 'timestamp', 'uncertainty_tracking']

@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/internal_sensing/integrated_interoception.py
-# hypothesis_version: 6.148.7
-
-[0.0, 0.3, 0.5, '  Arousal: unknown', '  CPU Load: unknown', '  Coherence: unknown', '  Curiosity: unknown', '  Valence: unknown', 'Affective State:', 'Cognitive State:', 'Computational State:', 'affective', 'arousal', 'change', 'cognitive', 'computational', 'computational_load', 'conceptual_coherence', 'confidence_level', 'curiosity_drive', 'energy_efficiency', 'memory_pressure', 'metric', 'overall_accuracy', 'prediction_accuracy', 'predictive', 'resources', 'timestamp', 'type', 'uncertainty_tracking', 'valence']

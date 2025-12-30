@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/self_model/consistency.py
-# hypothesis_version: 6.148.7
-
-[0.0, 0.5, 200, 'No context provided', '```', '```json', 'content', 'description', 'evidence', 'is_consistent', 'overall_severity', 'role', 'severity', 'suggested_updates', 'system', 'type', 'unknown', 'user', 'violations']

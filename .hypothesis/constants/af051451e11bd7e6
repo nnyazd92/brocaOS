@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/internal_sensing/cognitive_state.py
-# hypothesis_version: 6.148.7
-
-[0.0, 0.5, 1.0, -100, 100, 'attention_allocation', 'conceptual_coherence', 'conclusion', 'confidence', 'confidence_level', 'depth', 'name', 'operation_id', 'premise', 'processing_depth', 'question_id', 'response_id', 'step_id', 'timestamp', 'type', 'uncertainty', 'uncertainty_tracking']

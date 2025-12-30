@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/sensors/network_sensor.py
-# hypothesis_version: 6.148.7
-
-[0.9, 5.0, '__version__', 'active_connections', 'address', 'addresses', 'broadcast', 'by_family', 'by_status', 'by_type', 'bytes_recv', 'bytes_sent', 'dropin', 'dropout', 'errin', 'errout', 'family', 'host', 'inet', 'interface_statistics', 'isup', 'local_address', 'mtu', 'name', 'netmask', 'network', 'network_interfaces', 'packets_recv', 'packets_sent', 'port', 'psutil not available', 'psutil_version', 'remote_address', 'speed', 'status', 'total', 'type', 'unknown']

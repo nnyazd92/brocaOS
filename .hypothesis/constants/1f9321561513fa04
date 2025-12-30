@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/memory/conflict/detection.py
-# hypothesis_version: 6.148.7
-
-[0.0, 0.5, 0.7, 0.75, 0.8, 0.85, 86400, '\\b(never|none|no)\\b', '\\{[^}]+\\}', '```', 'a', 'an', 'are', 'be', 'been', 'being', 'choices', 'confidence', 'content', 'contradiction', 'contradicts', 'different_periods', 'dislike', 'explanation', 'hate', 'incorrect', 'is', 'message', 'never', 'no', 'none', 'not', 'recency', 'role', 'same_period', 'temp', 'the', 'type', 'update', 'user', 'was', 'were', 'wrong']

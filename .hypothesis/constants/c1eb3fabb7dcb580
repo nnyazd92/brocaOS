@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/summarization/manager.py
-# hypothesis_version: 6.148.7
-
-['bookkeeping', 'confidence', 'conflicts', 'constraints', 'current_goal', 'decisions_added', 'description', 'event_id', 'event_ids', 'extracted', 'facts_added', 'has_drift', 'high', 'id', 'low', 'medium', 'meets_threshold', 'next_steps', 'open_questions', 'pending', 'status', 'summary_patch', 'tasks_added', 'tasks_updated', 'text', 'what_we_built']

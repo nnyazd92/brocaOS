@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/tools/internal_sensing_tool.py
-# hypothesis_version: 6.148.7
-
-['No report available.', 'affective', 'all', 'aspect', 'cognitive', 'computational', 'default', 'description', 'enum', 'error', 'object', 'predictive', 'properties', 'query_internal_state', 'report', 'required', 'state', 'string', 'success', 'type']

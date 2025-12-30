@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/memory/conflict/models.py
-# hypothesis_version: 6.148.7
-
-[0.0, 1.0, 'Memory that was kept', 'Type of conflict', 'ambiguity', 'ask_user', 'confidence', 'consensus', 'contradiction', 'different_periods', 'keep_both', 'keep_important', 'keep_new', 'keep_old', 'merge', 'same_period', 'unknown', 'update']

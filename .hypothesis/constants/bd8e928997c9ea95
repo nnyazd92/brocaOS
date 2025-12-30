@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/summarization/models.py
-# hypothesis_version: 6.148.7
-
-['cancelled', 'completed', 'high', 'in_progress', 'low', 'medium', 'pending']

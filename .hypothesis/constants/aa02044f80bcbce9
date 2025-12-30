@@ -1,4 +1,0 @@
-# file: /home/wizard/Documents/Code/BrocaOS/broca/environment/actuators/filesystem_actuator.py
-# hypothesis_version: 6.148.7
-
-[0.1, '.', '0', '0o', 'File does not exist', 'Path does not exist', 'Path is not a file', 'Path not specified', 'active', 'check_file_exists', 'content', 'copy_file', 'create_directory', 'create_file', 'create_symlink', 'created_time', 'delete_directory', 'delete_file', 'destination_path', 'exists', 'filesystem_actuator', 'get_file_info', 'high', 'idle', 'is_directory', 'is_file', 'is_symlink', 'items', 'link_path', 'list_directory', 'modified_time', 'modified_time_iso', 'modify_file', 'move_file', 'name', 'new_path', 'operation', 'path', 'permissions', 'read_file', 'read_symlink', 'recursive', 'rename_file', 'requires_approval', 'safety_level', 'set_file_permissions', 'set_permissions', 'size', 'source_path', 'st_ctime', 'target', 'target_path']
