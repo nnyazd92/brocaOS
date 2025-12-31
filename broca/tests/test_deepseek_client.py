@@ -500,7 +500,7 @@ class TestDeepSeekClientReasonerSupport:
                 "tool_calls": [{"id": "call_1"}],
                 "reasoning_content": "I need to use a tool"
             },
-            {"role": "tool", "name": "test", "content": "Result"},
+            {"role": "tool", "tool_call_id": "call_1", "name": "test", "content": "Result"},
             {"role": "assistant", "content": "Final", "reasoning_content": "Old reasoning"}
         ]
         
@@ -589,7 +589,7 @@ class TestDeepSeekClientReasonerSupport:
                 "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "test", "arguments": "{}"}}]
                 # Missing reasoning_content field - should be added
             },
-            {"role": "tool", "name": "test", "content": "Result"},
+            {"role": "tool", "tool_call_id": "call_1", "name": "test", "content": "Result"},
             {"role": "assistant", "content": "Final answer"}
         ]
         
@@ -774,4 +774,3 @@ class TestDeepSeekClientReasonerSupport:
         ]
         
         assert DeepSeekClient.validate_message_interleaving(messages) is True
-

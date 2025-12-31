@@ -157,8 +157,9 @@ def test_ppo_online_uses_post_rl_signals_for_reward_and_next_state_features():
     # Verify signals are present as features (first 6 dims)
     state = exp["state"]
     next_state = exp["next_state"]
-    assert state.shape[0] == 16
-    assert next_state.shape[0] == 16
+    # Feature dimension can expand when text embeddings are enabled.
+    assert state.shape[0] == ranker._input_dim
+    assert next_state.shape[0] == ranker._input_dim
 
     # Pre-state signals all 0.1 (in order)
     assert np.allclose(state[:6], np.array([0.1] * 6, dtype=np.float32))

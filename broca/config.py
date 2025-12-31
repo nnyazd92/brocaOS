@@ -478,10 +478,31 @@ class RLConfig(BaseModel):
 
     # PPO persistence + hyperparameters (used when algorithm == "ppo")
     ppo_model_path: str = os.getenv("BROCA_RL_PPO_MODEL_PATH", "models/rl/policy_ppo.pt")
+    ppo_buffer_path: str = os.getenv("BROCA_RL_PPO_BUFFER_PATH", "data/rl/ppo_buffer.json")
     ppo_hidden_dim: int = int(os.getenv("BROCA_RL_PPO_HIDDEN_DIM", "128"))
     ppo_learning_rate: float = float(os.getenv("BROCA_RL_PPO_LEARNING_RATE", "0.0003"))
     ppo_buffer_size: int = int(os.getenv("BROCA_RL_PPO_BUFFER_SIZE", "2048"))
     ppo_batch_size: int = int(os.getenv("BROCA_RL_PPO_BATCH_SIZE", "64"))
+    # PPO bootstrap
+    ppo_forced_exploration_prob: float = float(os.getenv("BROCA_RL_PPO_FORCED_EXPLORATION_PROB", "0.05"))
+    # If true, PPO selection is always forced (no fallback/suggested gating).
+    # Useful for early bootstrapping to guarantee on-policy rollouts.
+    ppo_always_forced: bool = os.getenv("BROCA_RL_PPO_ALWAYS_FORCED", "false").lower() == "true"
+    ppo_bc_warm_start_enabled: bool = os.getenv("BROCA_RL_PPO_BC_WARM_START_ENABLED", "true").lower() == "true"
+    ppo_bc_epochs: int = int(os.getenv("BROCA_RL_PPO_BC_EPOCHS", "1"))
+    ppo_bc_batch_size: int = int(os.getenv("BROCA_RL_PPO_BC_BATCH_SIZE", "128"))
+    ppo_bc_max_samples: int = int(os.getenv("BROCA_RL_PPO_BC_MAX_SAMPLES", "2000"))
+    ppo_bc_value_coef: float = float(os.getenv("BROCA_RL_PPO_BC_VALUE_COEF", "0.25"))
+    ppo_bc_entropy_coef: float = float(os.getenv("BROCA_RL_PPO_BC_ENTROPY_COEF", "0.0"))
+    ppo_bc_force: bool = os.getenv("BROCA_RL_PPO_BC_FORCE", "false").lower() == "true"
+
+    # Optional text embedding features (hashed embedding, deterministic, local)
+    text_embedding_dim: int = int(os.getenv("BROCA_RL_TEXT_EMBED_DIM", "0"))
+    text_embedding_max_chars: int = int(os.getenv("BROCA_RL_TEXT_EMBED_MAX_CHARS", "2000"))
+    text_embedding_fields: str = os.getenv(
+        "BROCA_RL_TEXT_EMBED_FIELDS",
+        "user_prompt,last_assistant,tool_args,tool_result",
+    )
     
     # Outcome recording
     reward_success: float = float(os.getenv("BROCA_RL_REWARD_SUCCESS", "0.8"))

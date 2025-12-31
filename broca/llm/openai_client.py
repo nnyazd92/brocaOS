@@ -42,6 +42,7 @@ class OpenAIClient:
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -78,6 +79,8 @@ class OpenAIClient:
         
         if tools:
             request_params["tools"] = tools
+        if tool_choice is not None:
+            request_params["tool_choice"] = tool_choice
 
         logger.debug(
             "Sending chat request",
@@ -88,6 +91,7 @@ class OpenAIClient:
                 "messages_count": len(cleaned_messages),
                 "original_messages_count": len(messages),
                 "tools_count": len(tools) if tools else 0,
+                "tool_choice_set": tool_choice is not None,
                 "last_user_message_preview": self._last_user_preview(cleaned_messages),
             },
         )
@@ -336,4 +340,3 @@ class OpenAIClient:
                 txt = msg.get("content", "")
                 return txt[:max_len] + ("..." if len(txt) > max_len else "")
         return ""
-

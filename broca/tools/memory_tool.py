@@ -949,7 +949,8 @@ class DeleteMemoryTool:
         return (
             "Delete a memory by its ID. Use this tool when a memory is incorrect, "
             "outdated, or no longer needed. The memory will be permanently removed "
-            "from both storage and the search index."
+            "from both storage and the search index.\n\n"
+            "Safety: If memory_id is omitted/empty/0, this tool performs a no-op and returns success."
         )
     
     @property
@@ -959,14 +960,14 @@ class DeleteMemoryTool:
             "type": "object",
             "properties": {
                 "memory_id": {
-                    "type": "integer",
-                    "description": "The ID of the memory to delete"
+                    "type": ["integer", "string", "null"],
+                    "description": "The ID of the memory to delete (0/empty = no-op)"
                 }
             },
-            "required": ["memory_id"]
+            "required": []
         }
     
-    def execute(self, memory_id: int) -> Dict[str, Any]:
+    def execute(self, memory_id: Any = None) -> Dict[str, Any]:
         """
         Execute memory deletion.
         
@@ -977,6 +978,25 @@ class DeleteMemoryTool:
             Dictionary with success status and message
         """
         try:
+            # No-op support (for safety when forced-tool selection hits delete_memory).
+            if memory_id is None or memory_id == "" or memory_id == 0:
+                return {
+                    "success": True,
+                    "memory_id": 0,
+                    "message": "No-op: no memory deleted (empty/0 memory_id)",
+                }
+
+            if isinstance(memory_id, str):
+                memory_id = memory_id.strip()
+                if memory_id == "":
+                    return {
+                        "success": True,
+                        "memory_id": 0,
+                        "message": "No-op: no memory deleted (empty memory_id)",
+                    }
+                if memory_id.isdigit():
+                    memory_id = int(memory_id)
+
             # Validate input
             if not isinstance(memory_id, int) or memory_id <= 0:
                 raise ValueError(f"Invalid memory_id: {memory_id}")
@@ -1018,6 +1038,8 @@ class DeleteMemoryTool:
         """
         if result.get("success"):
             memory_id = result.get("memory_id")
+            if not memory_id:
+                return "No-op: no memory deleted"
             return f"Memory {memory_id} deleted successfully"
         else:
             error = result.get("error", "Unknown error")

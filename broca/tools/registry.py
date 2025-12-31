@@ -17,6 +17,7 @@ from typing import Dict, Any, List, Optional, TYPE_CHECKING
 import logging
 import time
 import hashlib
+import itertools
 
 from . import Tool
 from ..config import config
@@ -107,6 +108,24 @@ class ToolRegistry:
         self._last_rl_selection: Optional["ToolSelection"] = None
         self._last_rl_context: Optional[Dict[str, Any]] = None
 
+        # Correlate the last selection used to build the OpenAI tool list with subsequent tool calls.
+        # This is critical for observability in the web API where multiple tool calls can occur.
+        self._selection_seq = itertools.count(1)
+        self._last_format_selection_id: Optional[int] = None
+        self._last_format_selection_ts: Optional[float] = None
+        self._last_format_selection: Optional["ToolSelection"] = None
+        self._last_format_suggested_tools: List[str] = []
+        self._last_format_allowed_tools: List[str] = []
+
+        # Sticky forced-exploration:
+        # When PPO triggers a forced exploration selection, we must keep returning the same forced tool
+        # until it is actually executed, otherwise a noncompliant tool call can cause the next iteration
+        # to recompute selection and fall back -> PPO_SKIP.
+        self._sticky_forced_selection: Optional["ToolSelection"] = None
+        self._sticky_forced_context: Optional[Dict[str, Any]] = None
+        self._sticky_forced_tool: Optional[str] = None
+        self._sticky_forced_blocks: int = 0
+
         logger.debug("Initialized ToolRegistry")
 
     def start_turn(self, turn_no: int) -> None:
@@ -174,7 +193,21 @@ class ToolRegistry:
         
         ctx = context or {}
         tool_names = [t.name for t in tools]
-        
+
+        # Sticky forced exploration: if active, keep returning it until the forced tool is executed.
+        if (
+            self._sticky_forced_selection is not None
+            and isinstance(self._sticky_forced_tool, str)
+            and self._sticky_forced_tool
+        ):
+            ts_logger.info(
+                f"REGISTRY_RL_STICKY | mode=forced | forced_tool={self._sticky_forced_tool} | "
+                f"blocks={int(self._sticky_forced_blocks)} | reason=sticky_forced_exploration"
+            )
+            self._last_rl_selection = self._sticky_forced_selection
+            self._last_rl_context = (self._sticky_forced_context or ctx) if isinstance(self._sticky_forced_context, dict) else ctx
+            return self._sticky_forced_selection
+
         ts_logger.debug(
             f"REGISTRY_RL_START | n_tools={len(tools)} | tools={tool_names} | "
             f"context_keys={list(ctx.keys())}"
@@ -186,6 +219,23 @@ class ToolRegistry:
         # Cache for outcome recording
         self._last_rl_selection = selection
         self._last_rl_context = ctx
+
+        # Activate sticky forced exploration if applicable.
+        try:
+            if (
+                getattr(selection, "mode", None) == "forced"
+                and isinstance(getattr(selection, "tool_name", None), str)
+                and "Forced exploration" in str(getattr(selection, "reason", "") or "")
+            ):
+                self._sticky_forced_selection = selection
+                self._sticky_forced_context = ctx
+                self._sticky_forced_tool = selection.tool_name
+                self._sticky_forced_blocks = 0
+                ts_logger.info(
+                    f"REGISTRY_RL_STICKY_ARM | forced_tool={self._sticky_forced_tool} | reason=forced_exploration"
+                )
+        except Exception:
+            pass
         
         ts_logger.info(
             f"REGISTRY_RL_RESULT | mode={selection.mode} | confidence={selection.confidence:.2%} | "
@@ -201,6 +251,8 @@ class ToolRegistry:
         success: bool,
         execution_time_ms: float = 0.0,
         result_quality: float = 0.5,
+        tool_arguments: Optional[Dict[str, Any]] = None,
+        tool_result_text: Optional[str] = None,
     ) -> None:
         """
         Record tool execution outcome for online RL learning.
@@ -233,6 +285,22 @@ class ToolRegistry:
                 post_ctx = None
                 rl_signals = None
 
+            # Attach post-action text features so next_state can condition on tool args/results.
+            if isinstance(post_ctx, dict):
+                tf = post_ctx.get("text_features")
+                if not isinstance(tf, dict):
+                    tf = {}
+                try:
+                    tf["tool_args"] = json.dumps(tool_arguments, ensure_ascii=False) if isinstance(tool_arguments, dict) else ""
+                except Exception:
+                    tf["tool_args"] = ""
+                try:
+                    # Keep short to avoid accidental prompt bloat.
+                    tf["tool_result"] = (tool_result_text or "")[:2000]
+                except Exception:
+                    tf["tool_result"] = ""
+                post_ctx["text_features"] = tf
+
             self.online_policy_ranker.record_outcome(
                 tool_name=tool_name,
                 context=pre_ctx,
@@ -245,6 +313,27 @@ class ToolRegistry:
                 reward=None,
                 rl_signals=rl_signals,
             )
+
+            # Clear sticky forced-exploration once the forced tool is actually executed.
+            try:
+                forced_tool = self._sticky_forced_tool
+                if (
+                    self._sticky_forced_selection is not None
+                    and isinstance(forced_tool, str)
+                    and forced_tool
+                    and tool_name == forced_tool
+                ):
+                    ts_logger = _get_tool_selection_logger()
+                    ts_logger.info(
+                        f"REGISTRY_RL_STICKY_CLEAR | forced_tool={forced_tool} | "
+                        f"blocks={int(self._sticky_forced_blocks)} | reason=forced_tool_executed"
+                    )
+                    self._sticky_forced_selection = None
+                    self._sticky_forced_context = None
+                    self._sticky_forced_tool = None
+                    self._sticky_forced_blocks = 0
+            except Exception:
+                pass
         except Exception as e:
             logger.debug(f"Error recording RL outcome: {e}", exc_info=True)
     
@@ -461,6 +550,20 @@ class ToolRegistry:
         rl_mode = None
         filtered_out = []
         if rl_selection is not None:
+            try:
+                self._last_format_selection_id = int(next(self._selection_seq))
+                self._last_format_selection_ts = time.time()
+                self._last_format_selection = rl_selection
+                sug = [getattr(rl_selection, "tool_name", None)]
+                for alt_name, _ in (getattr(rl_selection, "alternatives", None) or []):
+                    sug.append(alt_name)
+                self._last_format_suggested_tools = [s for s in sug if isinstance(s, str) and s]
+            except Exception:
+                self._last_format_selection_id = None
+                self._last_format_selection_ts = None
+                self._last_format_selection = rl_selection
+                self._last_format_suggested_tools = []
+
             rl_mode = rl_selection.mode
             
             if rl_mode == "forced":
@@ -473,7 +576,7 @@ class ToolRegistry:
                     f"REGISTRY_FILTER | mode=forced | forced_tool={forced_name} | "
                     f"confidence={rl_selection.confidence:.2%} | "
                     f"tools_before={len(original_tool_names)} | tools_after={len(all_tools)} | "
-                    f"filtered_out={filtered_out}"
+                    f"filtered_out={filtered_out} | selection_id={self._last_format_selection_id}"
                 )
                 
                 logger.info(
@@ -496,7 +599,7 @@ class ToolRegistry:
                     f"REGISTRY_FILTER | mode=suggested | suggested_tools={sorted(suggested_names)} | "
                     f"confidence={rl_selection.confidence:.2%} | "
                     f"tools_before={len(original_tool_names)} | tools_after={len(all_tools)} | "
-                    f"filtered_out={filtered_out}"
+                    f"filtered_out={filtered_out} | selection_id={self._last_format_selection_id}"
                 )
                 
                 logger.info(
@@ -512,7 +615,7 @@ class ToolRegistry:
                 ts_logger.info(
                     f"REGISTRY_FILTER | mode=fallback | confidence={rl_selection.confidence:.2%} | "
                     f"reason={rl_selection.reason} | "
-                    f"tools_count={len(all_tools)} | LLM_has_full_choice=True"
+                    f"tools_count={len(all_tools)} | LLM_has_full_choice=True | selection_id={self._last_format_selection_id}"
                 )
                 
                 logger.info(
@@ -528,7 +631,24 @@ class ToolRegistry:
                 f"REGISTRY_FILTER | mode=none | reason=no_rl_selection | "
                 f"tools_count={len(all_tools)}"
             )
-        
+
+        # Persist the *allowed* tool names for this formatting pass so we can enforce
+        # forced-mode even if the LLM/provider emits an out-of-schema tool call.
+        try:
+            self._last_format_allowed_tools = [t.name for t in all_tools]
+        except Exception:
+            self._last_format_allowed_tools = []
+
+        # Explicit "available tool buffer" visibility.
+        try:
+            ts_logger.info(
+                f"AVAILABLE_TOOL_BUFFER | selection_id={self._last_format_selection_id} | "
+                f"mode={rl_mode or 'none'} | n_allowed={len(self._last_format_allowed_tools)} | "
+                f"allowed_tools={list(self._last_format_allowed_tools)}"
+            )
+        except Exception:
+            pass
+
         # Apply additional filtering/ranking if enabled and guidance is available
         # (This runs after RL selection, so it further refines the RL-filtered list)
         if (config.tools.pre_filtering_enabled and
@@ -634,12 +754,100 @@ class ToolRegistry:
             tool_call_id = tool_call.get("id", "")
 
             ts_logger = _get_tool_selection_logger()
+            selection_id = self._last_format_selection_id
+            selection = self._last_format_selection
+            selection_mode = getattr(selection, "mode", None) if selection is not None else None
+            selection_tool = getattr(selection, "tool_name", None) if selection is not None else None
+            selection_conf = getattr(selection, "confidence", None) if selection is not None else None
+            sel_age_ms = None
+            try:
+                if self._last_format_selection_ts is not None:
+                    sel_age_ms = (time.time() - float(self._last_format_selection_ts)) * 1000.0
+            except Exception:
+                sel_age_ms = None
+
             ts_logger.info(
-                f"TOOL_CALL_START | tool_call_id={tool_call_id} | tool={tool_name or 'unknown'}"
+                f"TOOL_CALL_START | tool_call_id={tool_call_id} | tool={tool_name or 'unknown'} | "
+                f"selection_id={selection_id} | selection_mode={selection_mode} | "
+                f"selection_tool={selection_tool} | selection_confidence={selection_conf} | "
+                f"selection_age_ms={None if sel_age_ms is None else f'{sel_age_ms:.1f}'}"
             )
             
             if not tool_name:
                 raise ValueError("Tool call missing 'function.name'")
+
+            # Enforce RL forced-mode at execution time.
+            # Some providers/clients do not strictly enforce the advertised tool schema,
+            # so the model may emit a tool call to a disallowed tool anyway.
+            allowed_tools = list(self._last_format_allowed_tools or [])
+
+            # General "available tool buffer" enforcement:
+            # if the model calls any tool that isn't in the *currently advertised* tool list,
+            # return a tool error message and let the model retry.
+            if isinstance(tool_name, str) and allowed_tools and tool_name not in allowed_tools:
+                try:
+                    ts_logger.warning(
+                        f"TOOL_CALL_BLOCKED | tool_call_id={tool_call_id} | tool={tool_name} | "
+                        f"reason=not_in_allowed_tools | allowed_tools={allowed_tools} | selection_id={selection_id}"
+                    )
+                except Exception:
+                    pass
+
+                # If we are in sticky forced-exploration, count blocks so we can log/debug.
+                try:
+                    if (
+                        self._sticky_forced_selection is not None
+                        and isinstance(self._sticky_forced_tool, str)
+                        and self._sticky_forced_tool
+                    ):
+                        self._sticky_forced_blocks += 1
+                        ts_logger.info(
+                            f"REGISTRY_RL_STICKY_BLOCK | forced_tool={self._sticky_forced_tool} | "
+                            f"requested_tool={tool_name} | blocks={int(self._sticky_forced_blocks)} | selection_id={selection_id}"
+                        )
+                except Exception:
+                    pass
+
+                return {
+                    "tool_call_id": tool_call_id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": (
+                        "Tool call blocked by policy: tool not in the available tool buffer.\n"
+                        f"Requested tool: {tool_name}\n"
+                        f"Allowed tools: {allowed_tools}\n"
+                        f"selection_id: {selection_id}"
+                    ),
+                    "_success": False,
+                }
+
+            # Back-compat: forced-mode mismatch stays explicit in logs.
+            if (
+                selection_id is not None
+                and selection_mode == "forced"
+                and isinstance(selection_tool, str)
+                and selection_tool
+                and tool_name != selection_tool
+            ):
+                try:
+                    ts_logger.warning(
+                        f"TOOL_CALL_BLOCKED | tool_call_id={tool_call_id} | tool={tool_name} | "
+                        f"reason=forced_mode_disallowed | forced_tool={selection_tool} | selection_id={selection_id}"
+                    )
+                except Exception:
+                    pass
+                return {
+                    "tool_call_id": tool_call_id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": (
+                        f"Tool call blocked by RL forced-mode policy.\n"
+                        f"Forced tool: {selection_tool}\n"
+                        f"Requested tool: {tool_name}\n"
+                        f"selection_id: {selection_id}"
+                    ),
+                    "_success": False,
+                }
             
             tool = self.get_tool(tool_name)
             if not tool:
@@ -1008,6 +1216,8 @@ class ToolRegistry:
                         success=success,
                         execution_time_ms=execution_time_ms,
                         result_quality=result_quality,
+                        tool_arguments=arguments if isinstance(arguments, dict) else None,
+                        tool_result_text=formatted_result,
                     )
                 except Exception as e:
                     logger.debug(f"Error recording RL outcome: {e}", exc_info=True)
@@ -1030,6 +1240,8 @@ class ToolRegistry:
                     if isinstance(selected_conf, (int, float))
                     else "None"
                 )
+                suggested_tools = list(self._last_format_suggested_tools or [])
+                in_suggested_set = bool(tool_name in suggested_tools) if isinstance(tool_name, str) else False
 
                 rl_signals = None
                 try:
@@ -1050,6 +1262,8 @@ class ToolRegistry:
                     f"result_quality={float(result_quality):.3f} | "
                     f"rl_selected_tool={selected_tool} | rl_mode={selected_mode} | "
                     f"rl_confidence={selected_conf_str} | matches_selected={bool(matches_selected)} | "
+                    f"selection_id={selection_id} | selection_mode={selection_mode} | "
+                    f"in_suggested_set={in_suggested_set} | suggested_tools={suggested_tools[:5]} | "
                     f"rl_signals={rl_signals}"
                 )
             except Exception:

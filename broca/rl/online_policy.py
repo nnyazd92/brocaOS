@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 
-from .features import RL_SIGNAL_KEYS, extract_state_features
+from .features import RL_SIGNAL_KEYS, extract_state_features, BASE_STATE_DIM
 from .reward import RewardWeights, compute_reward_from_outcome
 from .tool_selection_logging import get_tool_selection_logger
 
@@ -57,9 +57,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 tool_selection_logger = get_tool_selection_logger()
-tool_selection_logger.info("=" * 80)
-tool_selection_logger.info("TOOL SELECTION LOGGING INITIALIZED")
-tool_selection_logger.info("=" * 80)
 
 
 @dataclass
@@ -550,7 +547,19 @@ class OnlinePolicyRanker:
 
         # Neural network (initialized lazily when tools are known)
         self._network: Optional[PyTorchPolicyNetwork] = None
-        self._input_dim = len(RL_SIGNAL_KEYS) + 10  # RL signals + context features
+        try:
+            from broca.config import config as _config
+
+            self._text_embed_dim = int(getattr(_config.rl, "text_embedding_dim", 0) or 0)
+            self._text_embed_max_chars = int(getattr(_config.rl, "text_embedding_max_chars", 2000) or 2000)
+            fields = str(getattr(_config.rl, "text_embedding_fields", "") or "")
+            self._text_embed_fields = [x.strip() for x in fields.split(",") if x.strip()] or None
+        except Exception:
+            self._text_embed_dim = 0
+            self._text_embed_max_chars = 2000
+            self._text_embed_fields = None
+
+        self._input_dim = int(BASE_STATE_DIM + max(0, self._text_embed_dim))
 
         # Experience replay
         self.replay_buffer = PrioritizedReplayBuffer(capacity=replay_buffer_size)
@@ -609,7 +618,13 @@ class OnlinePolicyRanker:
 
     def _extract_features(self, context: Dict[str, Any]) -> np.ndarray:
         """Extract feature vector from context."""
-        feature_array = extract_state_features(context, input_dim=self._input_dim)
+        feature_array = extract_state_features(
+            context,
+            input_dim=self._input_dim,
+            text_embedding_dim=self._text_embed_dim,
+            text_fields=self._text_embed_fields,
+            text_max_chars=self._text_embed_max_chars,
+        )
         
         # Log feature extraction details
         rl_signals = (context.get("rl_signals", {}) or {}) if isinstance(context, dict) else {}

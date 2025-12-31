@@ -109,7 +109,8 @@ class TestOpenAIClientChat:
             
             assert call_kwargs["model"] == "gpt-5.2"
             assert call_kwargs["messages"] == messages
-            assert call_kwargs["temperature"] == 0.5
+            # gpt-5.* models reject non-default temps; the client omits temperature.
+            assert "temperature" not in call_kwargs
             
             # Verify response
             assert response is not None
@@ -634,7 +635,7 @@ class TestOpenAIClientStreaming:
             list(client.chat_stream(messages, temperature=0.5))
             
             call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
-            assert call_kwargs["temperature"] == 0.5
+            assert "temperature" not in call_kwargs
             
             # Test with non-o1 model and temp=0.0 (should include temperature)
             client2 = OpenAIClient(api_key="test-key", model="gpt-4", temperature=0.0)
@@ -643,4 +644,3 @@ class TestOpenAIClientStreaming:
             
             call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
             assert call_kwargs["temperature"] == 0.0
-

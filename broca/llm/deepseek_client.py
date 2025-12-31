@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional, Iterator
 import httpx
 import logging
 import json
+import time
 
 from ..config import config
 
@@ -41,6 +42,7 @@ class DeepSeekClient:
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -91,6 +93,8 @@ class DeepSeekClient:
         
         if tools:
             payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
         
         # Include reasoning_content for reasoner model when provided
         if self.is_reasoner_model() and reasoning_content:
@@ -112,6 +116,7 @@ class DeepSeekClient:
                 "temperature": temp,
                 "messages_count": len(messages),
                 "tools_count": len(tools) if tools else 0,
+                "tool_choice_set": tool_choice is not None,
                 # Truncate to avoid insane logs; you can change this later.
                 "last_user_message_preview": self._last_user_preview(messages),
             },
@@ -123,9 +128,27 @@ class DeepSeekClient:
         }
 
         try:
-            resp = self._client.post("/chat/completions", json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
+            # Retry transient DNS resolution failures (Errno -2).
+            attempts = 3
+            data: Optional[Dict[str, Any]] = None
+            for i in range(attempts):
+                try:
+                    resp = self._client.post("/chat/completions", json=payload, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    break
+                except httpx.RequestError as e:
+                    msg = str(e)
+                    errno = getattr(getattr(e, "__cause__", None), "errno", None)
+                    is_dns = (errno == -2) or ("Name or service not known" in msg) or ("gaierror" in msg)
+                    if not is_dns or i == attempts - 1:
+                        raise
+                    backoff = 0.5 * (2**i)
+                    logger.warning(f"Transient network/DNS error, retrying in {backoff:.1f}s: {e}")
+                    time.sleep(backoff)
+
+            if data is None:
+                raise httpx.RequestError("No response", request=None)
 
             logger.debug(
                 "Received chat response",
@@ -180,6 +203,7 @@ class DeepSeekClient:
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
     ) -> Iterator[str]:
@@ -221,6 +245,8 @@ class DeepSeekClient:
         
         if tools:
             payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
         
         # Include reasoning_content for reasoner model when provided
         if self.is_reasoner_model() and reasoning_content:
@@ -243,58 +269,70 @@ class DeepSeekClient:
             "Content-Type": "application/json",
         }
 
-        try:
-            # Make streaming request
-            with self._client.stream("POST", "/chat/completions", json=payload, headers=headers) as response:
-                response.raise_for_status()
-                
-                # Process streaming response (Server-Sent Events format)
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    
-                    # SSE format: "data: {...}" or "data: [DONE]"
-                    if line.startswith("data: "):
-                        data_str = line[6:]  # Remove "data: " prefix
-                        
-                        # Skip [DONE] message
-                        if data_str.strip() == "[DONE]":
-                            break
-                        
-                        try:
-                            data = json.loads(data_str)
-                            choices = data.get("choices", [])
-                            if choices and len(choices) > 0:
-                                delta = choices[0].get("delta", {})
-                                content = delta.get("content")
-                                if content:
-                                    yield content
-                        except json.JSONDecodeError:
-                            # Skip malformed JSON chunks
+        # Retry transient DNS resolution failures (Errno -2).
+        attempts = 3
+        for i in range(attempts):
+            try:
+                # Make streaming request
+                with self._client.stream("POST", "/chat/completions", json=payload, headers=headers) as response:
+                    response.raise_for_status()
+
+                    # Process streaming response (Server-Sent Events format)
+                    for line in response.iter_lines():
+                        if not line:
                             continue
-            
-        except httpx.ReadTimeout as e:
-            logger.error(
-                f"API streaming request timed out after {self._client.timeout.read} seconds",
-                exc_info=True
-            )
-            raise TimeoutError(
-                f"API request timed out. The request took longer than {self._client.timeout.read} seconds. "
-                "This may happen with large conversations or when the API is slow. "
-                "Try reducing conversation history or increasing the timeout."
-            ) from e
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"API returned error status during streaming: {e.response.status_code}",
-                exc_info=True
-            )
-            raise  # Re-raise HTTP status errors (preserve existing behavior)
-        except httpx.RequestError as e:
-            logger.error(
-                f"Network error during API streaming request: {e}",
-                exc_info=True
-            )
-            raise ConnectionError(f"Network error: {e}") from e
+
+                        # SSE format: "data: {...}" or "data: [DONE]"
+                        if line.startswith("data: "):
+                            data_str = line[6:]  # Remove "data: " prefix
+
+                            # Skip [DONE] message
+                            if data_str.strip() == "[DONE]":
+                                break
+
+                            try:
+                                data = json.loads(data_str)
+                                choices = data.get("choices", [])
+                                if choices and len(choices) > 0:
+                                    delta = choices[0].get("delta", {})
+                                    content = delta.get("content")
+                                    if content:
+                                        yield content
+                            except json.JSONDecodeError:
+                                # Skip malformed JSON chunks
+                                continue
+
+                return
+
+            except httpx.ReadTimeout as e:
+                logger.error(
+                    f"API streaming request timed out after {self._client.timeout.read} seconds",
+                    exc_info=True
+                )
+                raise TimeoutError(
+                    f"API request timed out. The request took longer than {self._client.timeout.read} seconds. "
+                    "This may happen with large conversations or when the API is slow. "
+                    "Try reducing conversation history or increasing the timeout."
+                ) from e
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f"API returned error status during streaming: {e.response.status_code}",
+                    exc_info=True
+                )
+                raise  # Re-raise HTTP status errors (preserve existing behavior)
+            except httpx.RequestError as e:
+                msg = str(e)
+                errno = getattr(getattr(e, "__cause__", None), "errno", None)
+                is_dns = (errno == -2) or ("Name or service not known" in msg) or ("gaierror" in msg)
+                if not is_dns or i == attempts - 1:
+                    logger.error(
+                        f"Network error during API streaming request: {e}",
+                        exc_info=True
+                    )
+                    raise ConnectionError(f"Network error: {e}") from e
+                backoff = 0.5 * (2**i)
+                logger.warning(f"Transient network/DNS error (stream), retrying in {backoff:.1f}s: {e}")
+                time.sleep(backoff)
 
     @staticmethod
     def extract_assistant_content(response: Dict[str, Any]) -> str:

@@ -112,6 +112,7 @@ class GeminiClient:
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -127,10 +128,12 @@ class GeminiClient:
         # Use parameter if provided, otherwise use stored signature
         sig_to_use = thought_signature if thought_signature is not None else self._thought_signature
         
+        # tool_choice is currently only enforced for OpenAI/DeepSeek tool-calling.
+        # Gemini's OpenAI-compatible endpoint may support it, but SDK path does not.
         if self._should_use_sdk() and self._sdk_client is not None:
             return self._chat_sdk(messages, temperature, tools, sig_to_use)
         else:
-            return self._chat_rest(messages, temperature, tools, sig_to_use)
+            return self._chat_rest(messages, temperature, tools, sig_to_use, tool_choice=tool_choice)
 
     def _chat_sdk(
         self,
@@ -284,6 +287,7 @@ class GeminiClient:
         temperature: Optional[float],
         tools: Optional[List[Dict[str, Any]]],
         thought_signature: Optional[str],
+        tool_choice: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Chat using REST API (OpenAI-compatible endpoint).
         
@@ -318,6 +322,8 @@ class GeminiClient:
 
         if tools:
             payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
         
         if thought_signature:
             payload["thought_signature"] = thought_signature
@@ -818,10 +824,10 @@ class GeminiClient:
                 })
         return sdk_tools
 
+    @staticmethod
     def _ensure_thought_signature_in_tool_calls(
-        self,
-        messages: List[Dict[str, Any]], 
-        thought_signature: Optional[str] = None
+        messages: List[Dict[str, Any]],
+        thought_signature: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Ensure thought_signature is present in tool_calls for Gemini API.
         
@@ -831,10 +837,9 @@ class GeminiClient:
         that are missing it.
         
         Resolution order:
-        1. Use thought_signature from the tool_call itself (if stored)
+        1. Use thought_signature from the tool_call itself (if present and non-empty)
         2. Use the thought_signature parameter passed to this function
-        3. Use self._thought_signature as fallback
-        4. Log warning only if all three sources are unavailable
+        3. Log warning only if no signature is available
         
         Args:
             messages: List of message dictionaries
@@ -867,19 +872,14 @@ class GeminiClient:
                             # Try to resolve thought_signature from multiple sources
                             resolved_sig = None
                             
-                            # Source 1: Check if tool_call itself has it (might be stored but empty/None)
-                            if "thought_signature" in tool_call:
-                                sig_value = tool_call.get("thought_signature")
-                                if sig_value and isinstance(sig_value, str) and sig_value.strip():
-                                    resolved_sig = sig_value
+                            # Source 1: tool_call itself
+                            sig_value = tool_call.get("thought_signature")
+                            if sig_value and isinstance(sig_value, str) and sig_value.strip():
+                                resolved_sig = sig_value
                             
-                            # Source 2: Use parameter passed to function
+                            # Source 2: function parameter
                             if not resolved_sig and thought_signature:
                                 resolved_sig = thought_signature
-                            
-                            # Source 3: Use instance's stored thought_signature
-                            if not resolved_sig and hasattr(self, '_thought_signature') and self._thought_signature:
-                                resolved_sig = self._thought_signature
                             
                             # Add thought_signature if we found one
                             if resolved_sig:
@@ -891,7 +891,7 @@ class GeminiClient:
                                         "event": "thought_signature_added_to_tool_call",
                                         "tool_call_id": tool_call.get("id", "unknown"),
                                         "function_name": tool_call.get("function", {}).get("name", "unknown"),
-                                        "source": "parameter" if thought_signature == resolved_sig else "instance"
+                                        "source": "tool_call" if sig_value == resolved_sig else "parameter",
                                     }
                                 )
                             else:
