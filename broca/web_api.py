@@ -1218,6 +1218,22 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
             try:
                 if app_config and app_config.tools.pre_filtering_enabled:
                     context = rt.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+                    # Attach lightweight text features for RL policies (hashed embedding).
+                    # These are used as FEATURES only (never part of reward).
+                    if isinstance(context, dict):
+                        last_assistant = ""
+                        try:
+                            for m in reversed(session.messages):
+                                if isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), str) and m.get("content"):
+                                    last_assistant = m["content"]
+                                    break
+                        except Exception:
+                            last_assistant = ""
+
+                        context["text_features"] = {
+                            "user_prompt": user_message or "",
+                            "last_assistant": last_assistant,
+                        }
             except Exception as e:
                 logger.debug(f"Error gathering context for tool filtering in web_api: {e}", exc_info=True)
         
@@ -1270,22 +1286,22 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                 f"reason={'no_registry' if not rt.tool_registry else 'rl_disabled'}"
             )
         
-        tools = rt.tool_registry.to_openai_format(context=context, rl_selection=rl_selection) if rt.tool_registry else None
-        
-        if tools and not web_search_enabled:
-            tools = [t for t in tools if t["function"]["name"] != "web_search"]
-            logger.info("Web search tool disabled for this request")
-        
+        # IMPORTANT: RL selection must be recomputed per tool-call iteration (not just once per user message).
+        # This keeps PPO/online NN "in the loop" between tool calls and allows next_state features
+        # (including tool_args/tool_result text features) to influence subsequent selections.
+        tools = None
+
         iterations = 0
         last_warning_iteration = 0
         max_iterations = 100  # Match session.send() max iterations
         assistant_text = None
         last_response = None
+        forced_reprompt_budget = 0
+        last_forced_tool_name: Optional[str] = None
         
         while iterations < max_iterations:
             iterations += 1
             session._update_system_prompt()
-            messages_for_llm = session._get_messages_for_llm()
             
             # Check for loop conditions and inject warnings if needed (same as session.send())
             warning_thresholds = [10, 20, 30, 50, 75, 90]
@@ -1361,10 +1377,87 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                         "warning_threshold": last_warning_iteration,
                     }
                 )
-            
+
+            # --- Recompute RL selection + tool list EACH iteration (per tool call) ---
+            context = None
+            if (
+                rt.tool_registry
+                and hasattr(rt.tool_registry, "tool_selection_guidance")
+                and rt.tool_registry.tool_selection_guidance is not None
+            ):
+                try:
+                    if app_config and app_config.tools.pre_filtering_enabled:
+                        context = rt.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+                        if isinstance(context, dict):
+                            last_assistant = ""
+                            try:
+                                for m in reversed(session.messages):
+                                    if (
+                                        isinstance(m, dict)
+                                        and m.get("role") == "assistant"
+                                        and isinstance(m.get("content"), str)
+                                        and m.get("content")
+                                    ):
+                                        last_assistant = m["content"]
+                                        break
+                            except Exception:
+                                last_assistant = ""
+
+                            # Stable per-user-message prompt, plus rolling last_assistant.
+                            context["text_features"] = {
+                                "user_prompt": user_message or "",
+                                "last_assistant": last_assistant,
+                            }
+                except Exception as e:
+                    logger.debug(
+                        f"Error gathering context for tool filtering in web_api (iteration {iterations}): {e}",
+                        exc_info=True,
+                    )
+
+            rl_selection = None
+            forced_tool_name = None
+            if rt.tool_registry and app_config and app_config.rl.enabled:
+                try:
+                    rl_selection = rt.tool_registry.get_rl_selection(context=context)
+                    if rl_selection:
+                        forced_tool_name = rl_selection.tool_name if getattr(rl_selection, "mode", None) == "forced" else None
+                        ts_logger.info(
+                            f"API_RL_SELECTION | conversation_id={conversation_id} | iteration={iterations} | "
+                            f"mode={rl_selection.mode} | confidence={rl_selection.confidence:.2%} | "
+                            f"tool={rl_selection.tool_name} | score={rl_selection.score:.4f} | "
+                            f"alternatives={[(t, f'{s:.4f}') for t, s in rl_selection.alternatives]} | "
+                            f"reason={rl_selection.reason}"
+                        )
+                except Exception as e:
+                    ts_logger.warning(
+                        f"API_RL_ERROR | conversation_id={conversation_id} | iteration={iterations} | error={str(e)}"
+                    )
+                    logger.debug(f"Error getting RL selection in web_api: {e}", exc_info=True)
+
+            # Reprompt budget is per "forced selection episode", not global.
+            # Reset budget when the forced tool changes (or forced mode ends).
+            if forced_tool_name != last_forced_tool_name:
+                if forced_tool_name:
+                    forced_reprompt_budget = 3
+                else:
+                    forced_reprompt_budget = 0
+                last_forced_tool_name = forced_tool_name
+
+            tools = rt.tool_registry.to_openai_format(context=context, rl_selection=rl_selection) if rt.tool_registry else None
+
+            if tools and not web_search_enabled:
+                tools = [t for t in tools if t["function"]["name"] != "web_search"]
+
+            tool_choice = None
+            if forced_tool_name:
+                # Best-effort "hard" enforcement. Some providers still violate tool schemas;
+                # execution-time enforcement and reprompting are additional safety layers.
+                tool_choice = {"type": "function", "function": {"name": forced_tool_name}}
+
             # PEA/PFREA removed - planning is now handled via planning tool
             
-            response = session.llm.chat(messages_for_llm, tools=tools)
+            messages_for_llm = session._get_messages_for_llm()
+            response = session.llm.chat(messages_for_llm, tools=tools, tool_choice=tool_choice)
             last_response = response  # Store for max_iterations handling
             tool_calls = session.llm.extract_tool_calls(response)
             
@@ -1384,6 +1477,39 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     logger.debug(f"Error tracking processing depth: {e}", exc_info=True)
             
             if tool_calls:
+                # Provider/tool-calling compliance guard:
+                # In forced mode, some providers/models may still emit a tool call to a disallowed tool.
+                # Instead of executing and surfacing a blocked tool result to the UI, re-prompt the model
+                # to call ONLY the forced tool (up to a small budget to avoid infinite loops).
+                if forced_tool_name:
+                    first_name = tool_calls[0].get("function", {}).get("name", "unknown")
+                    if first_name != forced_tool_name:
+                        if forced_reprompt_budget > 0:
+                            forced_reprompt_budget -= 1
+                            ts_logger.warning(
+                                f"API_FORCED_TOOL_NONCOMPLIANCE | conversation_id={conversation_id} | iteration={iterations} | "
+                                f"forced_tool={forced_tool_name} | requested_tool={first_name} | remaining_reprompts={forced_reprompt_budget}"
+                            )
+                            session.messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"[SYSTEM DIRECTIVE] RL forced-mode is active. "
+                                        f"You MUST call the tool '{forced_tool_name}' now. "
+                                        f"Do not call any other tools."
+                                    ),
+                                }
+                            )
+                            continue
+
+                        # After reprompt budget is exhausted, let the request proceed.
+                        # ToolRegistry will block out-of-buffer tool calls and return a tool error message.
+                        # This gives the model a concrete tool error signal and another chance to adjust.
+                        ts_logger.error(
+                            f"API_FORCED_TOOL_NONCOMPLIANCE_BUDGET_EXHAUSTED | conversation_id={conversation_id} | iteration={iterations} | "
+                            f"forced_tool={forced_tool_name} | requested_tool={first_name}"
+                        )
+
                 # PEA/PFREA removed - tool execution is always allowed
                 # Log tool calls detected for automatic continuation
                 tool_names = [tc.get("function", {}).get("name", "unknown") for tc in tool_calls]
@@ -1397,8 +1523,22 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     },
                 )
                 
-                # Create single assistant message with all tool calls and content (preserves intermediary commentary)
-                # This matches session.send() behavior
+                # IMPORTANT: Execute at most ONE tool call per iteration so RL re-evaluates between tool calls.
+                # This makes RL selection "kick in" per tool call, not just per user message.
+                if len(tool_calls) > 1:
+                    logger.info(
+                        f"Multiple tool calls returned ({len(tool_calls)}); executing 1 and re-querying LLM",
+                        extra={
+                            "event": "multi_tool_calls_sequentialized",
+                            "conversation_id": conversation_id,
+                            "iteration": iterations,
+                            "tool_calls_count": len(tool_calls),
+                            "executing_tool": tool_calls[0].get("function", {}).get("name", "unknown"),
+                        },
+                    )
+                tool_calls = [tool_calls[0]]
+
+                # Create single assistant message with tool call(s) and content (preserves intermediary commentary)
                 assistant_message = {
                     "role": "assistant",
                     "content": assistant_content,  # Preserve intermediary commentary

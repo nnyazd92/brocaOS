@@ -943,6 +943,21 @@ def _initialize_reasoning_system(
                 logger.info("✓ Reasoning state manager initialized")
             except Exception as e:
                 logger.warning(f"Failed to initialize state manager: {e}", exc_info=True)
+
+        # Load persisted state immediately (even when autonomous daemon is disabled).
+        # Without this, web_api.py restarts reset dissonance histories until the daemon
+        # happens to start, which breaks RL reward shaping continuity.
+        if state_manager:
+            try:
+                state_manager.load_state(
+                    rule_system=reasoning_tool.rule_system,
+                    goal_manager=reasoning_tool.goal_manager,
+                    working_memory=reasoning_tool.rule_system.working_memory,
+                    dissonance_monitor=cognitive_dissonance_monitor,
+                )
+                logger.info("✓ Loaded reasoning state from state manager")
+            except Exception as e:
+                logger.warning(f"Failed to load reasoning state: {e}", exc_info=True)
         
         # Initialize emotional regulation components if internal sensing is available
         affect_monitor = None

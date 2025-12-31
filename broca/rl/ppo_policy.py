@@ -27,11 +27,17 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
+import torch.nn.functional as F
+from dataclasses import asdict
 
 if TYPE_CHECKING:
     from ..tools import Tool
 
 logger = logging.getLogger(__name__)
+try:
+    from .tool_selection_logging import get_tool_selection_logger as _get_ts_logger
+except Exception:  # pragma: no cover - defensive
+    _get_ts_logger = None  # type: ignore
 
 
 class PPONetwork(nn.Module):
@@ -195,6 +201,7 @@ class PPOPolicy:
         info: Dict[str, Any]
     ):
         """Store experience in buffer."""
+        should_train = False
         with self.buffer_lock:
             done = bool(info.get("done", next_state is None))
             # Ensure log_prob/value correspond to the *actual* stored action.
@@ -237,8 +244,126 @@ class PPOPolicy:
                 self.episode_count += 1
             
             # Check if buffer is full
-            if len(self.buffer) >= self.config.buffer_size:
-                self._train()
+            should_train = len(self.buffer) >= self.config.buffer_size
+
+        # IMPORTANT: do not call _train() while holding buffer_lock (would deadlock).
+        if should_train:
+            self._train()
+
+    def behavior_clone(
+        self,
+        states: np.ndarray,
+        actions: np.ndarray,
+        *,
+        value_targets: Optional[np.ndarray] = None,
+        sample_weights: Optional[np.ndarray] = None,
+        epochs: int = 1,
+        batch_size: Optional[int] = None,
+        value_coef: float = 0.5,
+        entropy_coef: float = 0.0,
+        max_grad_norm: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Supervised warm-start for the policy (and optionally value head).
+
+        This is intended to bootstrap early training using logged (state, executed_action)
+        pairs (behavior cloning). When value_targets are provided, we also regress the
+        value head towards those targets for a faster critic warm-up.
+        """
+        if states is None or actions is None:
+            return {"bc_steps": 0, "n": 0}
+
+        states = np.asarray(states, dtype=np.float32)
+        actions = np.asarray(actions, dtype=np.int64)
+        if states.ndim != 2 or actions.ndim != 1 or len(states) != len(actions):
+            return {"bc_steps": 0, "n": 0}
+
+        n = int(len(actions))
+        if n <= 0:
+            return {"bc_steps": 0, "n": 0}
+
+        if value_targets is not None:
+            value_targets = np.asarray(value_targets, dtype=np.float32)
+            if value_targets.shape != (n,):
+                value_targets = None
+
+        if sample_weights is not None:
+            sample_weights = np.asarray(sample_weights, dtype=np.float32)
+            if sample_weights.shape != (n,):
+                sample_weights = None
+
+        self.network.train()
+
+        bs = int(batch_size or self.config.batch_size)
+        bs = max(1, min(bs, n))
+        epochs = max(1, int(epochs))
+
+        max_gn = float(max_grad_norm) if max_grad_norm is not None else float(self.config.max_grad_norm)
+
+        bc_steps = 0
+        total_loss = 0.0
+        total_ce = 0.0
+        total_v = 0.0
+        total_ent = 0.0
+        n_batches = 0
+
+        idx = np.arange(n)
+        for _ in range(epochs):
+            np.random.shuffle(idx)
+            for start in range(0, n, bs):
+                batch_idx = idx[start : start + bs]
+                s_t = torch.FloatTensor(states[batch_idx]).to(self.device)
+                a_t = torch.LongTensor(actions[batch_idx]).to(self.device)
+
+                logits, v_pred = self.network(s_t)
+                dist = Categorical(logits=logits)
+
+                # Cross-entropy on executed actions (policy imitation).
+                ce_per = F.cross_entropy(logits, a_t, reduction="none")
+                if sample_weights is not None:
+                    w_t = torch.FloatTensor(sample_weights[batch_idx]).to(self.device)
+                    ce = (ce_per * w_t).sum() / (w_t.sum() + 1e-8)
+                else:
+                    ce = ce_per.mean()
+
+                v_loss = torch.tensor(0.0, device=self.device)
+                if value_targets is not None:
+                    vt = torch.FloatTensor(value_targets[batch_idx]).to(self.device)
+                    v_loss = F.mse_loss(v_pred, vt)
+
+                ent = dist.entropy().mean()
+
+                loss = ce + float(value_coef) * v_loss - float(entropy_coef) * ent
+
+                self.optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.network.parameters(), max_gn)
+                self.optimizer.step()
+
+                bc_steps += 1
+                n_batches += 1
+                total_loss += float(loss.detach().cpu().item())
+                total_ce += float(ce.detach().cpu().item())
+                total_v += float(v_loss.detach().cpu().item())
+                total_ent += float(ent.detach().cpu().item())
+
+        # Keep this separate from PPO's on-policy training_step.
+        prev = getattr(self, "bc_step", 0)
+        try:
+            self.bc_step = int(prev) + int(bc_steps)
+        except Exception:
+            self.bc_step = int(bc_steps)
+
+        return {
+            "bc_steps": int(bc_steps),
+            "n": int(n),
+            "epochs": int(epochs),
+            "batch_size": int(bs),
+            "loss": total_loss / max(1, n_batches),
+            "ce_loss": total_ce / max(1, n_batches),
+            "value_loss": total_v / max(1, n_batches),
+            "entropy": total_ent / max(1, n_batches),
+        }
     
     def _compute_advantages(
         self,
@@ -264,18 +389,43 @@ class PPOPolicy:
     
     def _train(self):
         """Train PPO on collected experiences."""
-        if len(self.buffer) < self.config.batch_size:
+        # Snapshot buffer up-front to avoid training while holding the lock.
+        with self.buffer_lock:
+            local_buffer = list(self.buffer)
+        if len(local_buffer) < self.config.batch_size:
             return
+
+        ts_logger = None
+        try:
+            if _get_ts_logger is not None:
+                ts_logger = _get_ts_logger()
+        except Exception:
+            ts_logger = None
+
+        try:
+            if ts_logger is not None:
+                ts_logger.info(
+                    "PPO_TRAIN_START | "
+                    f"n_experiences={len(local_buffer)} | "
+                    f"batch_size={int(self.config.batch_size)} | "
+                    f"ppo_epochs={int(self.config.ppo_epochs)} | "
+                    f"clip_epsilon={float(self.config.clip_epsilon):.3f} | "
+                    f"value_coef={float(self.config.value_coef):.3f} | "
+                    f"entropy_coef={float(self.config.entropy_coef):.3f} | "
+                    f"learning_rate={float(self.config.learning_rate):.6f}"
+                )
+        except Exception:
+            pass
         
         self.network.train()
-        logger.info(f"Training PPO with {len(self.buffer)} experiences")
+        logger.info(f"Training PPO with {len(local_buffer)} experiences")
         
         # Convert buffer to arrays
-        states = np.array([exp["state"] for exp in self.buffer])
-        actions = np.array([exp["action"] for exp in self.buffer])
-        rewards = np.array([exp["reward"] for exp in self.buffer])
-        dones = np.array([exp["done"] for exp in self.buffer])
-        next_states = [exp.get("next_state") for exp in self.buffer]
+        states = np.array([exp["state"] for exp in local_buffer])
+        actions = np.array([exp["action"] for exp in local_buffer])
+        rewards = np.array([exp["reward"] for exp in local_buffer])
+        dones = np.array([exp["done"] for exp in local_buffer])
+        next_states = [exp.get("next_state") for exp in local_buffer]
 
         # Compute current values and next_values for GAE bootstrapping
         with torch.no_grad():
@@ -298,7 +448,7 @@ class PPOPolicy:
         # If missing (e.g., offline dataset), use current policy's log_probs as a stable baseline.
         old_log_probs_list: List[float] = []
         missing_lp = False
-        for exp in self.buffer:
+        for exp in local_buffer:
             lp = exp.get("log_prob", None)
             if lp is None:
                 missing_lp = True
@@ -345,7 +495,7 @@ class PPOPolicy:
         # PPO training epochs
         for epoch in range(self.config.ppo_epochs):
             # Shuffle indices for mini-batch training
-            indices = np.arange(len(self.buffer))
+            indices = np.arange(len(local_buffer))
             np.random.shuffle(indices)
             
             for start in range(0, len(indices), self.config.batch_size):
@@ -391,15 +541,35 @@ class PPOPolicy:
                 total_entropy += float(entropy.item())
                 n_batches += 1
         
-        # Clear buffer after training
         with self.buffer_lock:
-            self.buffer.clear()
+            # Remove the trained prefix, preserving any concurrently appended samples.
+            n = len(local_buffer)
+            if n <= 0:
+                pass
+            elif len(self.buffer) <= n:
+                self.buffer.clear()
+            else:
+                del self.buffer[:n]
         
         self.training_step += 1
         self._last_loss = (total_loss / max(1, n_batches))
         
         logger.info(f"PPO training step {self.training_step} complete")
         logger.info(f"Average reward: {self.total_reward / max(1, self.episode_count):.4f}")
+
+        try:
+            if ts_logger is not None:
+                ts_logger.info(
+                    "PPO_TRAIN_END | "
+                    f"training_step={int(self.training_step)} | "
+                    f"loss={float(self._last_loss):.4f} | "
+                    f"policy_loss={float(total_policy_loss / max(1, n_batches)):.4f} | "
+                    f"value_loss={float(total_value_loss / max(1, n_batches)):.4f} | "
+                    f"entropy={float(total_entropy / max(1, n_batches)):.4f} | "
+                    f"n_batches={int(n_batches)}"
+                )
+        except Exception:
+            pass
 
         return {
             "training_step": self.training_step,
@@ -422,10 +592,15 @@ class PPOPolicy:
     
     def save(self, path: str):
         """Save model to disk."""
+        # Store config as a plain dict to avoid torch.load "weights_only" pickling issues.
+        try:
+            config_payload: Any = asdict(self.config)
+        except Exception:
+            config_payload = dict(getattr(self.config, "__dict__", {}) or {})
         torch.save({
             'network_state_dict': self.network.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'config': self.config,
+            'config': config_payload,
             'training_step': self.training_step,
             'total_reward': self.total_reward,
             'episode_count': self.episode_count,
@@ -434,12 +609,34 @@ class PPOPolicy:
     
     def load(self, path: str):
         """Load model from disk."""
-        checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = None
+        # PyTorch 2.6+ defaults to weights_only=True; our payload is safe (dict + tensors),
+        # but older checkpoints may contain a PPOConfig object. We support both.
+        try:
+            checkpoint = torch.load(path, map_location=self.device, weights_only=True)
+        except TypeError:
+            checkpoint = torch.load(path, map_location=self.device)
+        except Exception:
+            # Retry with safe globals for older checkpoints that stored PPOConfig instances.
+            try:
+                import torch.serialization
+                torch.serialization.add_safe_globals([PPOConfig])
+                checkpoint = torch.load(path, map_location=self.device, weights_only=True)
+            except Exception:
+                checkpoint = torch.load(path, map_location=self.device)
+
         self.network.load_state_dict(checkpoint['network_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.training_step = checkpoint.get('training_step', 0)
         self.total_reward = checkpoint.get('total_reward', 0.0)
         self.episode_count = checkpoint.get('episode_count', 0)
+        # Restore config if present and compatible.
+        try:
+            cfg = checkpoint.get("config")
+            if isinstance(cfg, dict):
+                self.config = PPOConfig(**cfg)
+        except Exception:
+            pass
         logger.info(f"Loaded PPO model from {path}")
     
     def get_training_metrics(self) -> Dict[str, Any]:

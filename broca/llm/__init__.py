@@ -28,6 +28,7 @@ class LLMClient(Protocol):
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -37,6 +38,7 @@ class LLMClient(Protocol):
             messages: List of message dictionaries with 'role' and 'content' keys
             temperature: Optional temperature override
             tools: Optional list of tools in OpenAI function calling format
+            tool_choice: Optional tool selection directive (OpenAI-compatible tool_choice)
             reasoning_content: Optional reasoning_content for deepseek-reasoner model
             thought_signature: Optional thought_signature for Gemini 3 to maintain reasoning context
             

@@ -32,6 +32,7 @@ class LLMLike(Protocol):
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -42,6 +43,7 @@ class LLMLike(Protocol):
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
     ) -> Iterator[str]:
@@ -95,6 +97,7 @@ class CachedLLMClient:
         self,
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict[str, Any]]],
+        tool_choice: Optional[Any],
         temperature: Optional[float],
         thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -120,6 +123,7 @@ class CachedLLMClient:
             "params": {
                 "temperature": temperature,
                 "thought_signature": thought_signature,
+                "tool_choice": tool_choice,
             },
         }
 
@@ -136,11 +140,12 @@ class CachedLLMClient:
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
         descriptor = self._build_descriptor(
-            messages, tools=tools, temperature=temperature, thought_signature=thought_signature
+            messages, tools=tools, tool_choice=tool_choice, temperature=temperature, thought_signature=thought_signature
         )
         key_json = json.dumps(descriptor, sort_keys=True, separators=(",", ":"))
         cache_key = hashlib.sha256(key_json.encode("utf-8")).hexdigest()
@@ -162,6 +167,7 @@ class CachedLLMClient:
             messages=messages,
             temperature=temperature,
             tools=tools,
+            tool_choice=tool_choice,
             reasoning_content=reasoning_content,
             thought_signature=thought_signature,
         )
@@ -189,6 +195,7 @@ class CachedLLMClient:
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
     ) -> Iterator[str]:
@@ -201,6 +208,7 @@ class CachedLLMClient:
                 messages=messages,
                 temperature=temperature,
                 tools=tools,
+                tool_choice=tool_choice,
                 reasoning_content=reasoning_content,
                 thought_signature=thought_signature,
             )
@@ -211,6 +219,7 @@ class CachedLLMClient:
                 messages=messages,
                 temperature=temperature,
                 tools=tools,
+                tool_choice=tool_choice,
                 reasoning_content=reasoning_content,
                 thought_signature=thought_signature,
             )
