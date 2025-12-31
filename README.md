@@ -147,6 +147,15 @@ playwright install
 
 BrocaOS implements a practical RL system for intelligent tool selection:
 
+### **Forced Exploration (PPO) and Tool Buffer Enforcement**
+
+When `BROCA_RL_ALGORITHM=ppo`, the PPO policy may occasionally enter **forced exploration** to guarantee on-policy rollouts early in training. In forced exploration, the API advertises a **single allowed tool** (an “available tool buffer”). If the model attempts to call any tool outside that buffer, the server blocks the call and returns a tool error message listing the allowed tools, giving the model a chance to retry.
+
+### **`delete_memory` No-Op Safety**
+
+Because forced tool selection can occasionally force `delete_memory`, the `delete_memory` tool supports a safe no-op:
+- `memory_id` omitted / empty / `0` → returns success and deletes nothing.
+
 ### **Observation Space**
 - Tool confidence scores (historical success rates)
 - Current task context and goals
