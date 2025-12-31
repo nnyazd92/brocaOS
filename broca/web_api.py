@@ -31,10 +31,9 @@ def _get_tool_selection_logger():
     global _tool_selection_logger
     if _tool_selection_logger is None:
         try:
-            from .rl.online_policy import tool_selection_logger
-            _tool_selection_logger = tool_selection_logger
-        except ImportError:
-            # Fallback to main logger if RL module not available
+            from .rl.tool_selection_logging import get_tool_selection_logger
+            _tool_selection_logger = get_tool_selection_logger()
+        except Exception:
             _tool_selection_logger = logger
     return _tool_selection_logger
 

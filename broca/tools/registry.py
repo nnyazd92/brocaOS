@@ -41,10 +41,9 @@ def _get_tool_selection_logger():
     global _tool_selection_logger
     if _tool_selection_logger is None:
         try:
-            from ..rl.online_policy import tool_selection_logger
-            _tool_selection_logger = tool_selection_logger
-        except ImportError:
-            # Fallback to main logger if RL module not available
+            from ..rl.tool_selection_logging import get_tool_selection_logger
+            _tool_selection_logger = get_tool_selection_logger()
+        except Exception:
             _tool_selection_logger = logger
     return _tool_selection_logger
 
@@ -627,12 +626,17 @@ class ToolRegistry:
         
         # Log tool call received
         log_tool_call_received(tool_call, logger)
-        
+
         try:
             function_info = tool_call.get("function", {})
             tool_name = function_info.get("name")
             arguments_str = function_info.get("arguments", "{}")
             tool_call_id = tool_call.get("id", "")
+
+            ts_logger = _get_tool_selection_logger()
+            ts_logger.info(
+                f"TOOL_CALL_START | tool_call_id={tool_call_id} | tool={tool_name or 'unknown'}"
+            )
             
             if not tool_name:
                 raise ValueError("Tool call missing 'function.name'")
@@ -1007,6 +1011,49 @@ class ToolRegistry:
                     )
                 except Exception as e:
                     logger.debug(f"Error recording RL outcome: {e}", exc_info=True)
+
+            # Always log a per-call outcome line to the dedicated tool selection log.
+            # This provides per-tool-call observability comparable to rl_rewards.csv.
+            try:
+                success = result.get("success", True) if isinstance(result, dict) else True
+                result_quality = 0.5
+                if epistemic_impact and "confidence_metrics" in epistemic_impact:
+                    result_quality = epistemic_impact["confidence_metrics"].get("evidence_strength", 0.5)
+
+                selection = getattr(self, "_last_rl_selection", None)
+                selected_tool = getattr(selection, "tool_name", None) if selection is not None else None
+                selected_mode = getattr(selection, "mode", None) if selection is not None else None
+                selected_conf = getattr(selection, "confidence", None) if selection is not None else None
+                matches_selected = (selected_tool == tool_name) if selected_tool else False
+                selected_conf_str = (
+                    f"{float(selected_conf):.4f}"
+                    if isinstance(selected_conf, (int, float))
+                    else "None"
+                )
+
+                rl_signals = None
+                try:
+                    if (
+                        getattr(self, "tool_selection_guidance", None) is not None
+                        and getattr(self.tool_selection_guidance, "guidance_aggregator", None) is not None
+                    ):
+                        post_ctx = self.tool_selection_guidance.guidance_aggregator.gather_context()
+                        if isinstance(post_ctx, dict):
+                            rl_signals = post_ctx.get("rl_signals") or None
+                except Exception:
+                    rl_signals = None
+
+                ts_logger.info(
+                    "TOOL_CALL_DONE | "
+                    f"tool_call_id={tool_call_id} | tool={tool_name} | "
+                    f"success={bool(success)} | execution_time_ms={execution_time_ms:.2f} | "
+                    f"result_quality={float(result_quality):.3f} | "
+                    f"rl_selected_tool={selected_tool} | rl_mode={selected_mode} | "
+                    f"rl_confidence={selected_conf_str} | matches_selected={bool(matches_selected)} | "
+                    f"rl_signals={rl_signals}"
+                )
+            except Exception:
+                pass
             
             # Automatically observe tool call for learning if learning_tool is available
             # and runtime config allows auto-observation (to avoid unapproved persistent writes)
@@ -1042,6 +1089,13 @@ class ToolRegistry:
         except Exception as e:
             tool_name = tool_call.get("function", {}).get("name", "unknown")
             tool_call_id = tool_call.get("id", "")
+            try:
+                ts_logger = _get_tool_selection_logger()
+                ts_logger.warning(
+                    f"TOOL_CALL_ERROR | tool_call_id={tool_call_id} | tool={tool_name} | error={str(e)}"
+                )
+            except Exception:
+                pass
             
             # Try to extract stderr from the exception if it's a tool execution error
             error_msg_parts = [f"Error executing tool '{tool_name}': {str(e)}"]

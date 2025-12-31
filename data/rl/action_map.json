@@ -1,0 +1,27 @@
+{
+  "tool_to_id": {
+    "planning": 0,
+    "terminal": 1,
+    "store_memory": 2,
+    "retrieve_memories": 3,
+    "link_memories": 4,
+    "self_model_crud": 5,
+    "reasoning": 6,
+    "learning": 7,
+    "environment_access": 8,
+    "web_search": 9
+  },
+  "id_to_tool": {
+    "0": "planning",
+    "1": "terminal",
+    "2": "store_memory",
+    "3": "retrieve_memories",
+    "4": "link_memories",
+    "5": "self_model_crud",
+    "6": "reasoning",
+    "7": "learning",
+    "8": "environment_access",
+    "9": "web_search"
+  },
+  "next_id": 10
+}

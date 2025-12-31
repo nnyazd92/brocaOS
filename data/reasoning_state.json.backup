@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
-  "state_version": 1624,
-  "saved_at": "2025-12-30T02:10:23.377419+00:00",
+  "schema_version": 2,
+  "state_version": 1653,
+  "saved_at": "2025-12-30T23:36:39.601397+00:00",
   "rule_system": {
     "rules": [
       {
@@ -238,5 +238,880 @@
     "items": [],
     "capacity": 7,
     "associations": {}
+  },
+  "dissonance_monitor": {
+    "history_window": 100,
+    "dissonance_history": [
+      {
+        "timestamp": "2025-12-30T22:47:15.724639+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T22:48:12.428503+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T22:48:53.186127+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T22:49:35.887365+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T22:50:20.554186+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T22:51:01.798648+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T22:51:41.222604+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T22:52:26.193625+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:08:22.025826+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:09:16.780804+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:10:00.710891+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:10:42.793260+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:11:26.312390+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:12:04.305420+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:12:47.413340+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:13:27.557418+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:14:13.657463+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:15:00.128055+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:15:44.777986+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:16:31.060249+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:17:13.354595+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:17:54.919951+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:18:36.200024+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:19:17.158141+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:20:13.607684+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:21:07.032594+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:22:06.556877+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:22:58.552015+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:23:40.739782+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:24:22.939684+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:25:04.088145+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:25:43.105780+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:26:25.913465+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:27:05.334432+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:27:47.729042+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:28:26.937719+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:29:10.590466+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:29:55.423160+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:30:44.168772+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:31:24.631870+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:32:08.712676+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:32:11.625079+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": true,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:32:51.249710+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": true,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:32:54.107565+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:33:30.084712+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": true,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:33:33.945568+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:34:01.700492+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": true,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:34:21.048906+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:34:42.047563+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": true,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:35:03.786552+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:35:13.174169+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": true,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:35:47.173365+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": false,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:35:47.017734+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": true,
+          "goal": true
+        }
+      },
+      {
+        "timestamp": "2025-12-30T23:36:21.375484+00:00",
+        "logical_dissonance": 0.0,
+        "factual_dissonance": 0.0,
+        "behavioral_dissonance": 0.0,
+        "goal_dissonance": 0.0,
+        "overall_dissonance": 0.0,
+        "measurement_quality": "estimated",
+        "has_sufficient_data": true,
+        "component_availability": {
+          "logical": false,
+          "factual": false,
+          "behavioral": true,
+          "goal": true
+        }
+      }
+    ],
+    "logical_violations": [],
+    "factual_errors": [],
+    "behavioral_deviations": [],
+    "behavioral_inconsistencies": [],
+    "goal_conflicts": [],
+    "commitment_strength": {}
   }
 }

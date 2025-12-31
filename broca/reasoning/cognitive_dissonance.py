@@ -232,8 +232,36 @@ class CognitiveDissonanceMonitor:
 
         # Lightweight telemetry: last ingested consistency result (if any)
         self._last_consistency_ingest: Optional[Dict[str, Any]] = None
+
+        # Optional persistence hook (best-effort): used to persist dissonance-related state
+        # immediately after it changes, to prevent RL signal resets across restarts.
+        self._persist_hook: Optional[Any] = None
+        self._persist_min_interval_seconds: float = 10.0
+        self._last_persist_time: float = 0.0
         
         logger.info("Initialized CognitiveDissonanceMonitor (with commitment tracking)")
+
+    def set_persistence_hook(self, hook: Optional[Any], *, min_interval_seconds: float = 10.0) -> None:
+        """Set a throttled callback invoked after state-changing operations."""
+        self._persist_hook = hook
+        try:
+            self._persist_min_interval_seconds = max(0.0, float(min_interval_seconds))
+        except Exception:
+            self._persist_min_interval_seconds = 10.0
+
+    def _maybe_persist(self) -> None:
+        hook = self._persist_hook
+        if hook is None:
+            return
+        try:
+            now = time.time()
+            if self._persist_min_interval_seconds > 0 and (now - self._last_persist_time) < self._persist_min_interval_seconds:
+                return
+            self._last_persist_time = now
+            hook()
+        except Exception:
+            # Never allow persistence to break the dissonance measurement path.
+            return
 
     def observe_consistency_result(
         self,
@@ -302,6 +330,7 @@ class CognitiveDissonanceMonitor:
                 elif vtype == "behavioral":
                     self.behavioral_inconsistencies.append(record)
 
+            self._maybe_persist()
         except Exception as e:
             logger.debug(f"Failed to observe consistency result: {e}", exc_info=True)
     
@@ -535,6 +564,7 @@ class CognitiveDissonanceMonitor:
         # Store in history
         self.dissonance_history.append(metrics)
         self._measurement_success_count += 1
+        self._maybe_persist()
         
         # Log measurement results (info level for all measurements with detailed metadata)
         logger.info(
@@ -1663,4 +1693,3 @@ Respond with JSON only:
             reasoning_goals=reasoning_goals,
             emotional_context=emotional_context
         )
-

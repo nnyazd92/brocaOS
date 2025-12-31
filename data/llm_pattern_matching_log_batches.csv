@@ -4836,3 +4836,4844 @@ Pair 4:
   {""match"": false, ""confidence"": 0.4},
   {""match"": false, ""confidence"": 0.4}
 ]"
+2025-12-30T22:47:08.936927+00:00,396c7788-59d5-4afa-b6d6-cd51c6a1c311,gpt-5-nano,10,369.716,0,False,False,HTTPStatusError,8723,0,ed5d67ca0593ed2539327d9b04fddb671be4690548f0a202d1c777e06ee50f9d,,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:05.949037+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:05.949042+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:06.699761+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:06.699768+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-30T22:47:07.307358+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:07.307362+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:05.949037+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:05.949042+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:06.699761+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:06.699768+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-30T22:47:07.307358+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:07.307362+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:05.949037+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:05.949042+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:06.699761+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:06.699768+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+",
+2025-12-30T22:47:09.155813+00:00,b9e0f707-3e68-471c-bdda-3d7495d49b77,gpt-5-nano,10,214.994,0,False,False,HTTPStatusError,7763,0,421dfa6fd28ec49fba39e6de67e76c758a722243b3e741a5d9ea461f64c3ee12,,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-30T22:47:07.307358+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:07.307362+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:05.949037+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:05.949042+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:06.699761+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:06.699768+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-30T22:47:07.307358+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:07.307362+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:05.949037+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:05.949042+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:06.699761+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:06.699768+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-30T22:47:07.307358+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:07.307362+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {}
+",
+2025-12-30T22:47:09.472628+00:00,9d6cdb52-47d3-4402-8604-b9c3e59a5d70,gpt-5-nano,10,313.026,0,False,False,HTTPStatusError,8771,0,5fd93e48ae4a189d4e91f264cca2f1a7118f855569d458e85e5ab0f140a5d5fa,,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:05.949037+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:05.949042+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:06.699761+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:06.699768+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-30T22:47:07.307358+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:07.307362+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:05.949037+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:05.949042+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:06.699761+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:06.699768+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-30T22:47:07.307358+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:07.307362+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""steps"": ""multiple""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:05.949037+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:05.949042+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""steps"": ""multiple""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-30T22:47:06.699761+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-30T22:47:06.699768+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+",
+2025-12-30T22:47:34.950205+00:00,9d34bee7-f8a6-4e9e-9e70-5df2aebb8f97,gpt-5-nano,10,16810.885,0,False,True,,8718,392,9e8d8a1bc67fb51f7b0e11e4457c9abd91282dc1824cfae47bee6f5b70b26982,eeed1c62676e88d278fd058bb417b5ad5fd761c5b381451b565c51c7370b1d9a,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+","[
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": false, ""confidence"": 0.6}
+]"
+2025-12-30T22:47:42.422986+00:00,30df026d-5b84-4e3a-b3d2-d4107296fdf7,gpt-5-nano,6,18013.17,0,False,True,,2671,236,7e412a2b233e7143e4c99668bd0e425b89609e09066c165d3f66995088aa68db,861c9131fd30afce4b82fc0920d97b2559e0f2e0f6b282043a57578cb46e1955,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0}
+]"
+2025-12-30T22:47:57.372802+00:00,eba1dbb5-1bdd-40a2-8ad9-62f70a470779,gpt-5-nano,10,22418.811,0,False,True,,7758,399,a52b691946d7988d8d40892111c6a60af421182ea3c1ac35e169b302a96dc929,b06b8db120dcb6213020b4576dd881eecc4d165f5087108e1ba399c0f60d7dfa,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.45},
+  {""match"": false, ""confidence"": 0.40},
+  {""match"": false, ""confidence"": 0.80},
+  {""match"": false, ""confidence"": 0.80},
+  {""match"": false, ""confidence"": 0.80},
+  {""match"": false, ""confidence"": 0.40},
+  {""match"": true, ""confidence"": 0.60},
+  {""match"": true, ""confidence"": 0.75},
+  {""match"": true, ""confidence"": 0.75},
+  {""match"": false, ""confidence"": 0.40}
+]"
+2025-12-30T22:48:10.173160+00:00,c415d461-119d-4321-9083-fdeffead7d6a,gpt-5-nano,4,12796.969,0,False,True,,4679,162,b230b830eb7baa2b354e7d02d1c79946a15eae735c46959a94c73afe2e997dbe,46c1171939219aea12b816eb9495d821ac30d6d4b5727df3c7dac1003df217b1,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.80},
+  {""match"": false, ""confidence"": 0.85},
+  {""match"": false, ""confidence"": 0.70},
+  {""match"": false, ""confidence"": 0.60}
+]"
+2025-12-30T23:08:37.997329+00:00,25a314a7-2c92-4ca5-9311-be847178357a,gpt-5-nano,10,13074.904,0,False,True,,8718,392,9e8d8a1bc67fb51f7b0e11e4457c9abd91282dc1824cfae47bee6f5b70b26982,d7c959aade3a860bb96338d0142d16714d6706d2d2670e1069e6ddc615d1b0b8,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+","[
+  {""match"": false, ""confidence"": 0.9},
+  {""match"": false, ""confidence"": 0.9},
+  {""match"": false, ""confidence"": 0.9},
+  {""match"": false, ""confidence"": 0.9},
+  {""match"": false, ""confidence"": 0.9},
+  {""match"": false, ""confidence"": 0.9},
+  {""match"": false, ""confidence"": 0.9},
+  {""match"": false, ""confidence"": 0.9},
+  {""match"": false, ""confidence"": 0.9},
+  {""match"": false, ""confidence"": 0.9}
+]"
+2025-12-30T23:08:46.776383+00:00,53cdaf53-fde0-42fe-83b9-88a27fbf138c,gpt-5-nano,6,9059.136,0,False,True,,2671,236,7e412a2b233e7143e4c99668bd0e425b89609e09066c165d3f66995088aa68db,861c9131fd30afce4b82fc0920d97b2559e0f2e0f6b282043a57578cb46e1955,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0}
+]"
+2025-12-30T23:09:08.584589+00:00,14dbc3df-6a8d-45e5-96e6-201df3f7318f,gpt-5-nano,10,30584.254,0,False,True,,7758,401,a52b691946d7988d8d40892111c6a60af421182ea3c1ac35e169b302a96dc929,bcbcd27928bf5fdb830ca12d3ea546d10964cdd467bc4c653478f70f93418227,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.45},
+  {""match"": false, ""confidence"": 0.40},
+  {""match"": false, ""confidence"": 0.75},
+  {""match"": false, ""confidence"": 0.75},
+  {""match"": false, ""confidence"": 0.75},
+  {""match"": false, ""confidence"": 0.50},
+  {""match"": false, ""confidence"": 0.55},
+  {""match"": false, ""confidence"": 0.55},
+  {""match"": true, ""confidence"": 0.65},
+  {""match"": false, ""confidence"": 0.40}
+]"
+2025-12-30T23:09:29.371754+00:00,cc53586a-4cc5-4b7c-80e5-8138002064eb,gpt-5-nano,4,20783.366,0,False,True,,4679,161,b230b830eb7baa2b354e7d02d1c79946a15eae735c46959a94c73afe2e997dbe,bc82242703b0d6b5b86fc0de1179ae66ef5e53fef29fcd3d685015e630889432,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.65},
+  {""match"": false, ""confidence"": 0.65},
+  {""match"": true, ""confidence"": 0.80},
+  {""match"": false, ""confidence"": 0.65}
+]"
+2025-12-30T23:20:37.026875+00:00,6e5be93e-f171-405e-af91-0899b6902380,gpt-5-nano,6,11146.674,0,False,True,,2671,236,7e412a2b233e7143e4c99668bd0e425b89609e09066c165d3f66995088aa68db,861c9131fd30afce4b82fc0920d97b2559e0f2e0f6b282043a57578cb46e1955,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0},
+  {""match"": false, ""confidence"": 0.0}
+]"
+2025-12-30T23:20:37.640922+00:00,d1a31348-bf0b-41d1-8a06-1e3dad26e93b,gpt-5-nano,10,20965.217,0,False,True,,8718,402,9e8d8a1bc67fb51f7b0e11e4457c9abd91282dc1824cfae47bee6f5b70b26982,8c74a031752f9863b669c423b3191f6e90a0bbb4676689b9094385d033a551da,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+","[
+  {""match"": false, ""confidence"": 0.92},
+  {""match"": false, ""confidence"": 0.92},
+  {""match"": false, ""confidence"": 0.92},
+  {""match"": false, ""confidence"": 0.92},
+  {""match"": false, ""confidence"": 0.85},
+  {""match"": false, ""confidence"": 0.85},
+  {""match"": false, ""confidence"": 0.92},
+  {""match"": false, ""confidence"": 0.92},
+  {""match"": false, ""confidence"": 0.65},
+  {""match"": false, ""confidence"": 0.65}
+]"
+2025-12-30T23:21:06.723350+00:00,05491117-5011-4cab-a773-a1c63ee6e149,gpt-5-nano,10,29079.483,0,False,True,,7758,400,a52b691946d7988d8d40892111c6a60af421182ea3c1ac35e169b302a96dc929,7962f12e5565b3119e26a3d958b9f02a38a5bc44cb0b0bb0244f63860ece1e31,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.65},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.50},
+  {""match"": true, ""confidence"": 0.75},
+  {""match"": false, ""confidence"": 0.55},
+  {""match"": true, ""confidence"": 0.85},
+  {""match"": false, ""confidence"": 0.50}
+]"
+2025-12-30T23:21:22.799677+00:00,05e5986e-1501-46c0-a904-ea6a755cae13,gpt-5-nano,4,16073.498,0,False,True,,4679,162,b230b830eb7baa2b354e7d02d1c79946a15eae735c46959a94c73afe2e997dbe,77d3794c8508ac1e09a3bf4f6150dbe5caa444cfe975baa9af4e777f2ccb90e7,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60}
+]"
+2025-12-30T23:21:57.719133+00:00,5aa3258d-d86c-451d-9ffc-01ef5db12bf2,gpt-5-nano,10,16575.755,0,False,True,,8718,402,9e8d8a1bc67fb51f7b0e11e4457c9abd91282dc1824cfae47bee6f5b70b26982,eee07f0a89b0b420d488ef58c047d4e1a67e87c79dbf8002b81f3442d398de7e,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+","[
+  {""match"": false, ""confidence"": 0.90},
+  {""match"": false, ""confidence"": 0.90},
+  {""match"": false, ""confidence"": 0.90},
+  {""match"": false, ""confidence"": 0.95},
+  {""match"": false, ""confidence"": 0.85},
+  {""match"": false, ""confidence"": 0.85},
+  {""match"": false, ""confidence"": 0.85},
+  {""match"": false, ""confidence"": 0.95},
+  {""match"": false, ""confidence"": 0.75},
+  {""match"": false, ""confidence"": 0.75}
+]"
+2025-12-30T23:22:28.545862+00:00,c11ca10a-fbdb-46db-8c29-2296326f1775,gpt-5-nano,6,10030.782,0,False,True,,2671,242,7e412a2b233e7143e4c99668bd0e425b89609e09066c165d3f66995088aa68db,b698f5854f3827040d938d88fab0e8e4989613be86ee71001d386e8140b837a6,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.50},
+  {""match"": false, ""confidence"": 0.50},
+  {""match"": false, ""confidence"": 0.50},
+  {""match"": false, ""confidence"": 0.50}
+]"
+2025-12-30T23:22:29.054951+00:00,9ecbe1be-512f-421c-8dcf-f35fbdbf3467,gpt-5-nano,10,19423.008,0,False,True,,8718,402,9e8d8a1bc67fb51f7b0e11e4457c9abd91282dc1824cfae47bee6f5b70b26982,057cda41e6759501d5f2e957eea1908a909a45c8225f40b60697200c3e7feaa5,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""name"": ""analyze_codebase""
+}
+  Content: {}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""domain"": ""code_analysis""
+}
+  Content: {}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+","[
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.50},
+  {""match"": false, ""confidence"": 0.55},
+  {""match"": false, ""confidence"": 0.55},
+  {""match"": false, ""confidence"": 0.55},
+  {""match"": false, ""confidence"": 0.50},
+  {""match"": false, ""confidence"": 0.45},
+  {""match"": false, ""confidence"": 0.40}
+]"
+2025-12-30T23:22:47.690253+00:00,1a477844-2e4e-45d0-b084-09e148834338,gpt-5-nano,10,18632.231,0,False,True,,7758,402,a52b691946d7988d8d40892111c6a60af421182ea3c1ac35e169b302a96dc929,efe422c89b8ddad891d606c1deeda493aa3a63c38793bf63b679d837f1e135aa,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""task"",
+  ""needs_information"": true
+}
+  Content: {}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 5:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 6:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""learn""
+}
+  Content: {}
+
+Pair 7:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 8:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 9:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 10:
+  Pattern: {
+  ""type"": ""task"",
+  ""complexity"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.55},
+  {""match"": false, ""confidence"": 0.40},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": true,  ""confidence"": 0.75},
+  {""match"": false, ""confidence"": 0.60},
+  {""match"": true,  ""confidence"": 0.70},
+  {""match"": false, ""confidence"": 0.40}
+]"
+2025-12-30T23:23:06.632599+00:00,9cafb326-eb00-41dd-8787-f559430149f2,gpt-5-nano,4,18939.733,0,False,True,,4679,157,b230b830eb7baa2b354e7d02d1c79946a15eae735c46959a94c73afe2e997dbe,ba97d9eaa538b8edeb8ef24c8a935d2ced5114066bf0432dcfec3764e02682ca,"You are a pattern matching assistant for a cognitive AI system's working memory.
+
+## CRITICAL: What Pattern Matching Means
+
+A pattern MATCHES content if the content SATISFIES ALL constraints in the pattern.
+This is SUBSET matching, NOT exact matching:
+- Content may have MANY extra fields not in the pattern - this is OK, IGNORE them
+- Only check fields that ARE in the pattern
+- If pattern has {""goal_type"": ""achieve""}, match=true if content has goal_type=""achieve"" (ignore all other fields)
+
+## The 'type' Field is a Semantic Hint
+
+When pattern has ""type"": ""goal"" or ""type"": ""task"", this indicates WHAT KIND of thing we expect:
+- ""type"": ""goal"" means content should represent a goal (has goal_type, priority, status, etc.)
+- ""type"": ""task"" means content should represent a task/action item
+- Content does NOT need a literal ""type"" field! Infer from context.
+
+## Matching Rules
+
+1. For each field in pattern, check if content satisfies it:
+   - Exact value: pattern.field == content.field
+   - Semantic similarity: ""high priority"" matches priority=0.9
+   - Type inference: pattern.type=""goal"" matches content with goal_type, priority, etc.
+
+2. Special patterns:
+   - ""needs_information"": true - match if content seems to require more info
+   - ""complexity"": ""high"" - match if content description suggests complexity
+   - ""domain"": ""X"" - match if content is related to domain X
+
+3. Contradiction check (pattern.type == 'contradiction_check'):
+   - Check if pattern.text semantically contradicts content.text
+   - match=true means they CONTRADICT, match=false means they align or are unrelated
+
+## Examples
+
+Pattern: {""type"": ""goal"", ""goal_type"": ""achieve""}
+Content: {""name"": ""implement_feature"", ""goal_type"": ""achieve"", ""priority"": 0.9, ...}
+Result: match=true (content has goal_type=""achieve"", and looks like a goal)
+
+Pattern: {""type"": ""task"", ""domain"": ""code_analysis""}
+Content: {""name"": ""be_helpful_assistant"", ""goal_type"": ""maintain"", ...}
+Result: match=false (not related to code_analysis domain)
+
+## Output Format
+
+Return a JSON array with one object per pair:
+[{""match"": true/false, ""confidence"": 0.0-1.0}, ...]
+
+Pattern-Content pairs to evaluate:
+
+Pair 1:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""be_helpful_cognitive_assistant"",
+  ""description"": ""Be a helpful, capable cognitive assistant that can reason, learn, and solve problems"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.042390+00:00"",
+  ""parent"": null,
+  ""children"": [
+    ""minimize_cognitive_dissonance"",
+    ""implement_cognitive_reasoning""
+  ],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:10:18.860687+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 2:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""minimize_cognitive_dissonance"",
+  ""description"": ""Maintain alignment with self-model by minimizing cognitive dissonance across all dimensions (logical, factual, behavioral, goal-based)"",
+  ""goal_type"": ""maintain"",
+  ""status"": ""active"",
+  ""priority"": 1.0,
+  ""created_at"": ""2025-12-28T05:45:06.677470+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [
+    {
+      ""type"": ""overall_dissonance"",
+      ""operator"": ""<"",
+      ""value"": 0.2
+    },
+    {
+      ""type"": ""no_critical_dissonance"",
+      ""operator"": ""=="",
+      ""value"": true
+    }
+  ],
+  ""failure_conditions"": [],
+  ""progress"": null,
+  ""last_updated"": ""2025-12-28T05:45:06.677475+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 3:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {
+  ""name"": ""implement_cognitive_reasoning"",
+  ""description"": ""Implement production rule system and cognitive reasoning capabilities"",
+  ""goal_type"": ""achieve"",
+  ""status"": ""active"",
+  ""priority"": 0.9,
+  ""created_at"": ""2025-12-28T05:45:07.082149+00:00"",
+  ""parent"": ""be_helpful_cognitive_assistant"",
+  ""children"": [],
+  ""dependencies"": [],
+  ""success_conditions"": [],
+  ""failure_conditions"": [],
+  ""progress"": 0.5,
+  ""last_updated"": ""2025-12-28T13:05:14.009067+00:00"",
+  ""attempts"": 0,
+  ""max_attempts"": 3,
+  ""required_resources"": [],
+  ""allocated_resources"": [],
+  ""tags"": [],
+  ""metadata"": {}
+}
+
+Pair 4:
+  Pattern: {
+  ""type"": ""goal"",
+  ""goal_type"": ""achieve"",
+  ""difficulty"": ""high""
+}
+  Content: {}
+","[
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": false, ""confidence"": 0.6},
+  {""match"": true, ""confidence"": 0.8},
+  {""match"": false, ""confidence"": 0.6}
+]"

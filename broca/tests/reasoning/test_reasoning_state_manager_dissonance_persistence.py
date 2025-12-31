@@ -54,5 +54,3 @@ def test_reasoning_state_manager_persists_dissonance_monitor(tmp_path):
     assert len(mon2.dissonance_history) == 1
     assert isinstance(mon2.dissonance_history[-1], DissonanceMetrics)
     assert abs(mon2.dissonance_history[-1].overall_dissonance - 0.4) < 1e-9
-
-

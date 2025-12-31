@@ -32,6 +32,7 @@ import numpy as np
 
 from .features import RL_SIGNAL_KEYS, extract_state_features
 from .reward import RewardWeights, compute_reward_from_outcome
+from .tool_selection_logging import get_tool_selection_logger
 
 # Registry of ranker instances for atexit cleanup
 _ranker_instances: List[weakref.ref] = []
@@ -55,47 +56,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Dedicated logger for tool selection debug output (separate file)
-tool_selection_logger = logging.getLogger("broca.rl.tool_selection")
-_tool_selection_logging_initialized = False
-
-
-def _setup_tool_selection_logging() -> None:
-    """Configure dedicated file handler for tool selection logging."""
-    global _tool_selection_logging_initialized
-    if _tool_selection_logging_initialized:
-        return
-    
-    try:
-        log_path = Path("data/rl/tool_selection.log")
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # File handler for detailed debug output
-        file_handler = logging.FileHandler(log_path, mode='a', encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)
-        formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)-5s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        file_handler.setFormatter(formatter)
-        
-        # Prevent duplicate handlers
-        if not tool_selection_logger.handlers:
-            tool_selection_logger.addHandler(file_handler)
-        tool_selection_logger.setLevel(logging.DEBUG)
-        # Don't propagate to root logger (avoid duplicate console output)
-        tool_selection_logger.propagate = False
-        
-        _tool_selection_logging_initialized = True
-        tool_selection_logger.info("=" * 80)
-        tool_selection_logger.info("TOOL SELECTION LOGGING INITIALIZED")
-        tool_selection_logger.info("=" * 80)
-    except Exception as e:
-        logger.warning(f"Failed to setup tool selection logging: {e}")
-
-
-# Initialize logging on module load
-_setup_tool_selection_logging()
+tool_selection_logger = get_tool_selection_logger()
+tool_selection_logger.info("=" * 80)
+tool_selection_logger.info("TOOL SELECTION LOGGING INITIALIZED")
+tool_selection_logger.info("=" * 80)
 
 
 @dataclass
