@@ -10,7 +10,7 @@ from pathlib import Path
 
 import psutil
 import threading
-from fastapi import FastAPI, HTTPException, Body, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Body, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -113,6 +113,22 @@ except ImportError:
     ResponseAnalyzer = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+
+def _require_admin(request: Request) -> None:
+    """
+    Best-effort protection for privileged endpoints.
+
+    If `BROCA_ADMIN_API_KEY` is set, callers must send `X-Broca-Admin-Key` with the same value.
+    If unset, endpoints are left open (useful for localhost/dev).
+    """
+    expected = (os.getenv("BROCA_ADMIN_API_KEY", "") or "").strip()
+    if not expected:
+        return
+    got = (request.headers.get("X-Broca-Admin-Key") or request.headers.get("x-broca-admin-key") or "").strip()
+    if got != expected:
+        raise HTTPException(status_code=401, detail="Missing/invalid admin key")
+
 
 class _MetricsCache:
     """
@@ -803,6 +819,50 @@ class ChatResponse(BaseModel):
     conversation_id: str
     reply: Message
     rl_signals: Optional[Dict[str, Any]] = None  # RL signal metrics if requested
+
+
+class SharedWorldStateUpdateRequest(BaseModel):
+    key: str
+    value: Any
+    source: Optional[str] = None
+
+
+class SharedWorldStateResponse(BaseModel):
+    shared_state: Dict[str, Any]
+
+
+class GovernancePolicyResponse(BaseModel):
+    policy: Dict[str, Any]
+
+
+class GovernancePolicyRequestsResponse(BaseModel):
+    requests: List[Dict[str, Any]]
+
+
+class GovernancePolicyRequestResponse(BaseModel):
+    request: Dict[str, Any]
+
+
+class GovernanceTokenRequest(BaseModel):
+    expiry_seconds: int = Field(default=600, ge=10, le=86400)
+    sub: str = Field(default="admin", max_length=200)
+    name: str = Field(default="admin", max_length=200)
+
+
+class GovernanceTokenResponse(BaseModel):
+    token: str
+    payload: Dict[str, Any]
+    required_scopes: List[str]
+
+
+class GovernanceCommitRequest(BaseModel):
+    approval_token: str = Field(min_length=10)
+    note: Optional[str] = Field(default="", max_length=2000)
+
+
+class GovernanceCommitResponse(BaseModel):
+    request_id: str
+    applied_version: Dict[str, Any]
 
 
 class MemoryQueryRequest(BaseModel):
@@ -2918,6 +2978,119 @@ async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
         end_request()
 
 
+@app.post("/api/world_state/shared", response_model=SharedWorldStateResponse)
+async def update_shared_world_state(req: SharedWorldStateUpdateRequest):
+    """
+    Update a small shared world-state field that is injected into every session's world state.
+
+    Intended use: cross-session coordination signals like the current autonomous recursive thought,
+    without appending to prompts or rotating logs.
+    """
+    rt = get_runtime()
+    if not rt.world_state_aggregator:
+        raise HTTPException(status_code=500, detail="World state aggregator not initialized")
+
+    try:
+        rt.world_state_aggregator.set_shared_state(req.key, req.value, source=req.source)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update shared state: {e}")
+
+    return SharedWorldStateResponse(shared_state=rt.world_state_aggregator.get_shared_state())
+
+
+@app.get("/api/world_state/shared", response_model=SharedWorldStateResponse)
+async def get_shared_world_state():
+    rt = get_runtime()
+    if not rt.world_state_aggregator:
+        raise HTTPException(status_code=500, detail="World state aggregator not initialized")
+    return SharedWorldStateResponse(shared_state=rt.world_state_aggregator.get_shared_state())
+
+
+@app.get("/api/governance/policy", response_model=GovernancePolicyResponse)
+async def get_governance_policy() -> GovernancePolicyResponse:
+    from .governance.policy import GovernanceEngine
+
+    eng = GovernanceEngine()
+    return GovernancePolicyResponse(policy=eng.effective_policy())
+
+
+@app.get("/api/governance/requests", response_model=GovernancePolicyRequestsResponse)
+async def list_governance_requests(
+    status: Optional[str] = None, limit: int = 100
+) -> GovernancePolicyRequestsResponse:
+    from .governance.policy import GovernanceEngine
+
+    eng = GovernanceEngine()
+    reqs = eng.list_policy_change_requests(status=status, limit=limit)
+    return GovernancePolicyRequestsResponse(requests=reqs)
+
+
+@app.get("/api/governance/requests/{request_id}", response_model=GovernancePolicyRequestResponse)
+async def get_governance_request(request_id: str) -> GovernancePolicyRequestResponse:
+    from .governance.policy import GovernanceEngine
+
+    eng = GovernanceEngine()
+    req = eng.get_policy_change_request(request_id)
+    if not isinstance(req, dict):
+        raise HTTPException(status_code=404, detail="Request not found")
+    return GovernancePolicyRequestResponse(request=req)
+
+
+@app.post("/api/governance/requests/{request_id}/token", response_model=GovernanceTokenResponse)
+async def mint_governance_request_token(
+    request_id: str, body: GovernanceTokenRequest, request: Request
+) -> GovernanceTokenResponse:
+    _require_admin(request)
+    from .governance.policy import GovernanceEngine
+    from .token_auth.token import generate_token, get_token_secret
+
+    eng = GovernanceEngine()
+    req = eng.get_policy_change_request(request_id)
+    if not isinstance(req, dict):
+        raise HTTPException(status_code=404, detail="Request not found")
+    if str(req.get("status") or "").lower() != "pending":
+        raise HTTPException(status_code=400, detail="Request is not pending")
+
+    required_scopes = ["policy:change", f"policy_request:{request_id}"]
+    secret = get_token_secret()
+    token, payload = generate_token(
+        sub=body.sub,
+        name=body.name,
+        scopes=required_scopes,
+        expiry_seconds=int(body.expiry_seconds),
+        secret_key=secret,
+    )
+    return GovernanceTokenResponse(token=token, payload=payload, required_scopes=required_scopes)
+
+
+@app.post("/api/governance/requests/{request_id}/commit", response_model=GovernanceCommitResponse)
+async def commit_governance_request(request_id: str, body: GovernanceCommitRequest) -> GovernanceCommitResponse:
+    from .governance.policy import GovernanceEngine
+
+    eng = GovernanceEngine()
+    try:
+        res = eng.commit_approved_request(
+            request_id=request_id, approval_token=body.approval_token, note=body.note or ""
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return GovernanceCommitResponse(
+        request_id=res.get("request_id") or request_id, applied_version=res.get("applied_version") or {}
+    )
+
+
+@app.post("/api/governance/requests/{request_id}/reject")
+async def reject_governance_request(request_id: str, request: Request, note: str = "") -> Dict[str, Any]:
+    _require_admin(request)
+    from .governance.policy import GovernanceEngine
+
+    eng = GovernanceEngine()
+    ok = eng.reject_policy_change_request(request_id=request_id, note=note or "")
+    if not ok:
+        raise HTTPException(status_code=400, detail="Request not pending or not found")
+    return {"success": True, "request_id": request_id, "status": "rejected"}
+
+
 @app.post("/api/memories")
 async def get_memories(request: MemoryQueryRequest):
     """
@@ -3204,16 +3377,21 @@ async def get_artifacts():
     
     return {"artifacts": artifacts}
 
-if __name__ == "__main__":
+def _parse_web_api_args(argv: Optional[list[str]] = None):
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="BrocaOS Web API Server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--reload", action="store_true", default=True)
-    
-    args = parser.parse_args()
-    uvicorn.run("broca.web_api:app", host=args.host, port=args.port, reload=args.reload)
+    # IMPORTANT: `--reload` must default to False; otherwise `python -m broca.web_api`
+    # hot-reloads constantly and spams requests.
+    parser.add_argument("--reload", action="store_true", default=False)
+    return parser.parse_args(argv)
+
+
+if __name__ == "__main__":
+    args = _parse_web_api_args()
+    uvicorn.run("broca.web_api:app", host=args.host, port=args.port, reload=bool(args.reload))
 
 class ProjectConfig(BaseModel):
     root_path: str

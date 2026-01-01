@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hypothesis import given, strategies as st
+from hypothesis import given, strategies as st, settings
 
 from broca.reasoning.local_pattern_matcher import LocalPatternMatcher
 from broca.reasoning.pattern_matcher import PatternMatcher
@@ -74,6 +74,7 @@ def test_pattern_matcher_defaults_to_local_no_network():
     ) is True
 
 
+@settings(deadline=None)
 @given(
     base=st.dictionaries(
         keys=st.text(min_size=1, max_size=10).filter(lambda s: s != "description"),

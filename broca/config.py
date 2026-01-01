@@ -399,6 +399,7 @@ class BrowseConfig(BaseModel):
         if os.getenv("BROCA_BROWSE_EXTRACTION_MODE_PREFERENCE")
         else ["semantic", "dom", "markdown"]
     )
+    max_extracted_chars: int = int(os.getenv("BROCA_BROWSE_MAX_EXTRACTED_CHARS", "200000"))
     
     # Search engine settings
     search_timeout_seconds: int = int(os.getenv("BROCA_BROWSE_SEARCH_TIMEOUT", "30"))
@@ -522,6 +523,13 @@ class RLConfig(BaseModel):
     ppo_buffer_path: str = os.getenv("BROCA_RL_PPO_BUFFER_PATH", "data/rl/ppo_buffer.json")
     ppo_hidden_dim: int = int(os.getenv("BROCA_RL_PPO_HIDDEN_DIM", "128"))
     ppo_learning_rate: float = float(os.getenv("BROCA_RL_PPO_LEARNING_RATE", "0.0003"))
+    ppo_gamma: float = float(os.getenv("BROCA_RL_PPO_GAMMA", "0.99"))
+    ppo_gae_lambda: float = float(os.getenv("BROCA_RL_PPO_GAE_LAMBDA", "0.95"))
+    ppo_clip_epsilon: float = float(os.getenv("BROCA_RL_PPO_CLIP_EPSILON", "0.2"))
+    ppo_value_coef: float = float(os.getenv("BROCA_RL_PPO_VALUE_COEF", "0.5"))
+    ppo_entropy_coef: float = float(os.getenv("BROCA_RL_PPO_ENTROPY_COEF", "0.01"))
+    ppo_epochs: int = int(os.getenv("BROCA_RL_PPO_EPOCHS", "4"))
+    ppo_max_grad_norm: float = float(os.getenv("BROCA_RL_PPO_MAX_GRAD_NORM", "0.5"))
     ppo_buffer_size: int = int(os.getenv("BROCA_RL_PPO_BUFFER_SIZE", "2048"))
     ppo_batch_size: int = int(os.getenv("BROCA_RL_PPO_BATCH_SIZE", "64"))
     # PPO bootstrap

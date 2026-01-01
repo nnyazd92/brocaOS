@@ -166,8 +166,51 @@ class WebAPIChatBackend:
 
         raise RuntimeError(f"web_api /api/chat failed after retries: {last_error}")
 
+    def publish_autonomous_thought(
+        self,
+        *,
+        cycle: int,
+        kind: str,
+        prompt: str,
+        response: str,
+    ) -> None:
+        """
+        Publish the current autonomous-loop thought into shared world state so other sessions see it.
+        """
+        payload = {
+            "key": "autonomous_loop.current",
+            "value": {
+                "cycle": int(cycle),
+                "kind": str(kind),
+                "conversation_id": self.conversation_id,
+                "prompt_preview": (prompt[:800] + ("..." if len(prompt) > 800 else "")) if isinstance(prompt, str) else "",
+                "response_preview": (response[:800] + ("..." if len(response) > 800 else "")) if isinstance(response, str) else "",
+            },
+            "source": "recursive_thought",
+        }
+        try:
+            if self._http_client is not None:
+                resp = self._http_client.post(f"{self._base_url}/api/world_state/shared", json=payload)
+            else:
+                resp = self._test_client.post("/api/world_state/shared", json=payload)
+            # Ignore readiness during startup; /api/chat already retries it.
+            if resp.status_code not in (200, 503):
+                resp.raise_for_status()
+        except Exception:
+            # Best-effort only; do not break the thought loop on telemetry failure.
+            return
+
 
 class RecursiveThoughtLoop:
+    _MONOLOGUE_FRAME = (
+        "INTERNAL SIMULATED MONOLOGUE (Recursive Thought Loop)\n"
+        "- This is a simulated internal monologue for the agent.\n"
+        "- There is no human user in this channel; do NOT address the operator/user.\n"
+        "- Treat the prompt as private internal reflection.\n"
+        "- Do not claim real-world actions occurred unless tool calls were executed.\n"
+        "- If tools are needed, use them; otherwise continue with internal reasoning.\n"
+    )
+
     def __init__(
         self,
         seed_goal: str,
@@ -179,6 +222,12 @@ class RecursiveThoughtLoop:
         self.backend = backend or WebAPIChatBackend(base_url=None)
         self._thought_logger = thought_logger or AppendOnlyThoughtLogger()
         self.iteration = 0
+
+    def _wrap_internal_prompt(self, prompt: str) -> str:
+        p = str(prompt or "")
+        if self._MONOLOGUE_FRAME in p:
+            return p
+        return f"{self._MONOLOGUE_FRAME}\n{p}"
 
     def run(
         self,
@@ -192,11 +241,11 @@ class RecursiveThoughtLoop:
         logger.info("Starting recursive thought loop")
         
         # Initial planning step as suggested by the operator
-        plan_prompt = f"PLAN: Create a comprehensive plan for the goal: {self.seed_goal}"
+        plan_prompt = self._wrap_internal_prompt(f"PLAN: Create a comprehensive plan for the goal: {self.seed_goal}")
         initial_plan, meta = self.backend.send(plan_prompt)
         self._append_cycle(kind="initial_plan", prompt=plan_prompt, response=str(initial_plan), meta=meta)
         
-        current_prompt = (
+        current_prompt = self._wrap_internal_prompt(
             f"SYSTEM SEED: {self.seed_goal}\n\n"
             "Reflect on the initial plan and the goal. What is the first step? What are the constraints? "
             "How can we leverage the existing tools to achieve this?"
@@ -215,9 +264,9 @@ class RecursiveThoughtLoop:
                     if max_pivots is not None and pivots_done >= int(max_pivots):
                         break
                     pivots_done += 1
-                    pivot_prompt = (
+                    pivot_prompt = self._wrap_internal_prompt(
                         "You are running an autonomous recursive thought loop.\n"
-                        "Do NOT ask the operator what to do next.\n"
+                        "Do NOT ask the operator what to do next as they are not here.\n"
                         "Instead, decide what you want to think about next.\n\n"
                         "Output:\n"
                         "1) A 1-sentence next topic\n"
@@ -227,7 +276,7 @@ class RecursiveThoughtLoop:
                     pivot_reply, pivot_meta = self.backend.send(pivot_prompt)
                     self._append_cycle(kind="pivot", prompt=pivot_prompt, response=str(pivot_reply), meta=pivot_meta)
                     cycles_in_topic = 0
-                    current_prompt = (
+                    current_prompt = self._wrap_internal_prompt(
                         "NEW TOPIC SEED:\n"
                         f"{pivot_reply}\n\n"
                         "Proceed with the first step and continue the autonomous loop."
@@ -245,7 +294,11 @@ class RecursiveThoughtLoop:
             self._append_cycle(kind="cycle", prompt=current_prompt, response=str(response), meta=meta)
 
             # Prepare next prompt
-            current_prompt = f"INTERNAL MONOLOGUE (Cycle {self.iteration}):\n{response}\n\nContinue the reflection. What are the implications of the previous thought? What actions should be taken next?"
+            current_prompt = self._wrap_internal_prompt(
+                f"INTERNAL MONOLOGUE (Cycle {self.iteration}):\n{response}\n\n"
+                "Continue the reflection. What are the implications of the previous thought? "
+                "What actions should be taken next?"
+            )
             
             if sleep_between_cycles_seconds and sleep_between_cycles_seconds > 0:
                 time.sleep(float(sleep_between_cycles_seconds))
@@ -254,6 +307,12 @@ class RecursiveThoughtLoop:
 
     def _append_cycle(self, *, kind: str, prompt: str, response: str, meta: Optional[dict[str, Any]] = None) -> None:
         conversation_id = getattr(self.backend, "conversation_id", None)
+        publish = getattr(self.backend, "publish_autonomous_thought", None)
+        if callable(publish):
+            try:
+                publish(cycle=self.iteration, kind=kind, prompt=prompt, response=response)
+            except Exception:
+                pass
         self._thought_logger.append_cycle(
             cycle=self.iteration,
             kind=kind,
@@ -268,7 +327,7 @@ class RecursiveThoughtLoop:
 if __name__ == "__main__":
     # Keep module import side-effect free; configure console logging only when run as a script.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    SEED = "Who and what is BrocaOS?"
+    SEED = "INTERNAL THOUGHT: How can I help the operator (Nick Navid Yazdani) to make money so we can fund further development of BrocaOS?"
 
     base_url = None
     try:

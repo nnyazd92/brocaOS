@@ -95,9 +95,20 @@ class ReasoningTool:
             enable_llm_pattern_matching=enable_llm_pattern_matching,
         )
         
+        # Load system efficiency rules (Recursive Funding Phase)
+        try:
+            from .efficiency_rules import EFFICIENCY_RULES
+            for rule in EFFICIENCY_RULES:
+                if not any(r.name == rule.name for r in self.rule_system.rules):
+                    self.rule_system.rules.append(rule)
+            logger.info(f"Loaded {len(EFFICIENCY_RULES)} efficiency rules")
+        except ImportError:
+            logger.debug("No efficiency rules found to load")
+        except Exception as e:
+            logger.warning(f"Failed to load efficiency rules: {e}")
+        
         logger.info("Initialized ReasoningTool")
-    
-    @property
+
     def name(self) -> str:
         """Tool identifier."""
         return "reasoning"

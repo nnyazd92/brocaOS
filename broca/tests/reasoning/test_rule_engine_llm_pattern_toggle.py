@@ -22,4 +22,7 @@ def test_rule_engine_respects_llm_pattern_matching_disabled(monkeypatch):
     )
 
     engine = RuleEngine()
-    assert engine.pattern_matcher is None
+    # RuleEngine should still use local pattern matching (LLM-free), but must not instantiate an LLM.
+    from broca.reasoning.local_pattern_matcher import LocalPatternMatcher
+
+    assert isinstance(engine.pattern_matcher, LocalPatternMatcher)

@@ -13,6 +13,8 @@ import logging
 import platform
 import os
 import threading
+import json
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,7 @@ class WorldStateAggregator:
         size_manager: Optional[Any] = None,
         config: Optional[Any] = None,
         repo_tree_hash_enabled: bool = True,
+        shared_state_path: Optional[str | os.PathLike[str]] = None,
     ) -> None:
         """
         Initialize world state aggregator.
@@ -77,8 +80,82 @@ class WorldStateAggregator:
         self._last_tool_registry_hash: Optional[str] = None
         self._runtime_lock = threading.Lock()
         self._runtime_state: Dict[str, Any] = {}
+
+        # Persisted shared state (intentionally small and overwritten, not append-only).
+        # This is used for cross-session coordination signals that should appear in
+        # every session's world state (e.g., the current autonomous recursive thought).
+        default_shared_path = os.getenv("BROCA_SHARED_WORLD_STATE_PATH", "data/world_state/shared_state.json")
+        self._shared_state_path = Path(shared_state_path or default_shared_path)
+        self._shared_state_lock = threading.Lock()
+        self._shared_state: Dict[str, Any] = {}
+        self._load_shared_state()
         
         logger.info("Initialized WorldStateAggregator")
+
+    def _load_shared_state(self) -> None:
+        try:
+            path = self._shared_state_path
+            if not path.exists():
+                return
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                with self._shared_state_lock:
+                    self._shared_state = data
+        except Exception as e:
+            logger.debug(f"Failed to load shared world state: {e}", exc_info=True)
+
+    def _persist_shared_state(self) -> None:
+        try:
+            path = self._shared_state_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            with self._shared_state_lock:
+                payload = dict(self._shared_state)
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+        except Exception as e:
+            logger.debug(f"Failed to persist shared world state: {e}", exc_info=True)
+
+    @staticmethod
+    def _clamp_shared_value(value: Any, *, max_string_len: int = 4000) -> Any:
+        if isinstance(value, str) and len(value) > max_string_len:
+            return value[:max_string_len] + "...[truncated]"
+        if isinstance(value, dict):
+            # Shallow clamp only; nested payloads should already be compact.
+            out: Dict[str, Any] = {}
+            for k, v in list(value.items())[:50]:
+                out[str(k)] = WorldStateAggregator._clamp_shared_value(v, max_string_len=max_string_len)
+            return out
+        if isinstance(value, list):
+            return [WorldStateAggregator._clamp_shared_value(v, max_string_len=max_string_len) for v in value[:50]]
+        return value
+
+    def set_shared_state(self, key: str, value: Any, *, source: Optional[str] = None) -> None:
+        """
+        Set a persisted shared-world-state field.
+
+        This is designed for small, cross-session coordination signals that should appear in
+        every session's world state (and therefore system prompt). It intentionally overwrites
+        previous values to avoid unbounded growth.
+        """
+        key_clean = (key or "").strip()
+        if not key_clean:
+            return
+
+        entry = {
+            "value": self._clamp_shared_value(value),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if source:
+            entry["source"] = str(source)[:100]
+
+        with self._shared_state_lock:
+            self._shared_state[key_clean] = entry
+        self._persist_shared_state()
+
+    def get_shared_state(self) -> Dict[str, Any]:
+        with self._shared_state_lock:
+            return dict(self._shared_state)
 
     def set_rl_guidance(
         self,
@@ -187,6 +264,10 @@ class WorldStateAggregator:
             rl_guidance = self._runtime_state.get("rl_guidance")
         if isinstance(rl_guidance, dict) and rl_guidance:
             world_state["rl_guidance"] = rl_guidance
+
+        shared_state = self.get_shared_state()
+        if shared_state:
+            world_state["shared_state"] = shared_state
         
         # System info (always available)
         system_info = self.get_system_info()

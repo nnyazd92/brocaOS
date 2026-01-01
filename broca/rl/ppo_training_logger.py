@@ -43,7 +43,8 @@ class PPOTrainingLogger:
         self._lock = threading.Lock()
         self._header_written = False
 
-        self.schema_version = 1
+        # v2: approx_kl column now logs true categorical KL(pi_old || pi_new) over states.
+        self.schema_version = 2
         self._fieldnames: List[str] = [
             "timestamp",
             "schema_version",

@@ -6,6 +6,7 @@ import random
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+import threading
 
 import httpx
 
@@ -32,6 +33,14 @@ class GeminiClient:
     Note: When using the OpenAI-compatible REST endpoint, Gemini-specific parameters
     like thinking_level are not supported as the endpoint follows OpenAI's API schema.
     """
+
+    # Process-wide rate-limit coordination.
+    # Broca often has multiple GeminiClient instances (one per ConversationSession). When Gemini
+    # returns 429, naive per-instance retries can create a thundering herd that quickly exhausts
+    # retry budgets across concurrent requests. We coordinate a shared "rate limited until" time
+    # so all instances back off together.
+    _global_rate_limit_lock = threading.Lock()
+    _global_rate_limit_until_monotonic: float = 0.0
 
     def __init__(
         self,
@@ -263,6 +272,35 @@ class GeminiClient:
     def _sleep(self, seconds: float) -> None:
         self._sleep_fn(seconds)
 
+    @classmethod
+    def _bump_global_rate_limit(cls, seconds: float) -> None:
+        try:
+            seconds_f = float(seconds)
+        except Exception:
+            return
+        if seconds_f <= 0.0:
+            return
+        try:
+            now = float(time.monotonic())
+        except Exception:
+            return
+        until = now + seconds_f
+        with cls._global_rate_limit_lock:
+            cls._global_rate_limit_until_monotonic = max(cls._global_rate_limit_until_monotonic, until)
+
+    def _sleep_if_globally_rate_limited(self) -> None:
+        while True:
+            try:
+                now = float(time.monotonic())
+            except Exception:
+                return
+            with self._global_rate_limit_lock:
+                until = float(self._global_rate_limit_until_monotonic)
+            remaining = until - now
+            if remaining <= 0.0:
+                return
+            self._sleep(remaining)
+
     def chat(
         self,
         messages: List[Dict[str, str]],
@@ -301,6 +339,7 @@ class GeminiClient:
     ) -> Dict[str, Any]:
         """Chat using google-genai SDK."""
         temp = temperature if temperature is not None else self.temperature
+        self._sleep_if_globally_rate_limited()
         
         # Convert messages to SDK format
         # Ensure thought_signature is present in tool_calls first
@@ -445,6 +484,8 @@ class GeminiClient:
                 retryable = status_code in (429, 500, 502, 503, 504)
                 if attempt < max_retries and retryable:
                     wait_time = self._compute_backoff_seconds(attempt, retry_after_seconds=retry_after)
+                    if status_code == 429:
+                        self._bump_global_rate_limit(wait_time)
                     logger.warning(
                         f"Gemini SDK transient error {status_code}, retrying in {wait_time}s "
                         f"(attempt {attempt + 1}/{max_retries + 1})",
@@ -483,6 +524,7 @@ class GeminiClient:
         These features are only available when using the SDK (native API).
         """
         temp = temperature if temperature is not None else self.temperature
+        self._sleep_if_globally_rate_limited()
 
         # Gemini REST API requires at least one user message. Some Broca internal flows can
         # intentionally produce system-only prompts (e.g., tooling guards); inject a minimal
@@ -600,6 +642,8 @@ class GeminiClient:
                         retry_after = self._parse_retry_after_seconds(e.response)
                     wait_time = self._compute_backoff_seconds(attempt, retry_after_seconds=retry_after)
                     status_code = e.response.status_code if e.response else "unknown"
+                    if status_code == 429:
+                        self._bump_global_rate_limit(wait_time)
                     logger.warning(
                         f"Gemini API transient error {status_code}, retrying in {wait_time}s "
                         f"(attempt {attempt + 1}/{max_retries + 1})",
@@ -688,6 +732,7 @@ class GeminiClient:
         These features are only available when using the SDK (native API).
         """
         temp = temperature if temperature is not None else self.temperature
+        self._sleep_if_globally_rate_limited()
 
         # Gemini REST streaming also requires at least one user message.
         has_user = any((m.get("role") == "user") for m in (messages or []))
@@ -791,6 +836,8 @@ class GeminiClient:
                         retry_after = self._parse_retry_after_seconds(e.response)
                     wait_time = self._compute_backoff_seconds(attempt, retry_after_seconds=retry_after)
                     status_code = e.response.status_code if e.response else "unknown"
+                    if status_code == 429:
+                        self._bump_global_rate_limit(wait_time)
                     logger.warning(
                         f"Gemini API transient error {status_code} during streaming, retrying in {wait_time}s "
                         f"(attempt {attempt + 1}/{max_retries + 1})",

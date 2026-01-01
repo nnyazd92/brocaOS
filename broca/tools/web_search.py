@@ -11,6 +11,7 @@ import os
 import re
 import hashlib
 import logging
+import html as _html
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -56,7 +57,8 @@ class WebSearchTool:
     def __init__(
         self,
         api_key: str | None = None,
-        browse_orchestrator: Optional[Any] = None
+        browse_orchestrator: Optional[Any] = None,
+        http_client: Optional[Any] = None,
     ) -> None:
         """
         Initialize the web search tool.
@@ -74,6 +76,7 @@ class WebSearchTool:
         self._api_key = api_key or os.getenv("TAVILY_API_KEY", "")
         self._tavily_client = None
         self._browse_orchestrator = browse_orchestrator
+        self._http_client = http_client
         
         # Initialize Tavily client (primary method)
         if TavilyClient and self._api_key:
@@ -107,7 +110,113 @@ class WebSearchTool:
                 "Neither Tavily nor browser search is available. "
                 "Web search functionality will be limited."
             )
-    
+
+    @staticmethod
+    def _running_in_asyncio_loop() -> bool:
+        """
+        Return True if called from a thread that currently has a running asyncio loop.
+
+        Playwright's sync API raises a hard error in this situation, which commonly occurs
+        when tools are executed directly inside async web servers.
+        """
+        try:
+            import asyncio
+
+            asyncio.get_running_loop()
+            return True
+        except Exception:
+            return False
+
+    def _fetch_text(self, url: str) -> str:
+        """
+        Fetch a URL and return response text (best-effort).
+
+        Uses injected http_client when provided; otherwise uses httpx if available,
+        falling back to urllib.
+        """
+        headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; BrocaOS/1.0; +https://example.invalid)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+
+        if self._http_client is not None:
+            resp = self._http_client.get(url, headers=headers, follow_redirects=True)
+            if hasattr(resp, "raise_for_status"):
+                resp.raise_for_status()
+            return getattr(resp, "text", "") or ""
+
+        if httpx is not None:
+            with httpx.Client(timeout=httpx.Timeout(20.0, connect=10.0), follow_redirects=True, headers=headers) as c:
+                resp = c.get(url)
+                resp.raise_for_status()
+                return resp.text or ""
+
+        # Last-resort: stdlib
+        from urllib.request import Request, urlopen
+
+        req = Request(url, headers=headers)
+        with urlopen(req, timeout=20) as r:  # nosec - tool is explicitly for web access
+            return (r.read() or b"").decode("utf-8", errors="replace")
+
+    def _decode_duckduckgo_redirect(self, url: str) -> str:
+        """
+        DuckDuckGo HTML results often use /l/?uddg=<urlencoded>. Decode to the target URL.
+        """
+        try:
+            from urllib.parse import urlparse, parse_qs, unquote
+
+            parsed = urlparse(url)
+            if parsed.netloc.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
+                qs = parse_qs(parsed.query or "")
+                uddg = qs.get("uddg", [None])[0]
+                if isinstance(uddg, str) and uddg:
+                    return unquote(uddg)
+        except Exception:
+            pass
+        return url
+
+    def _duckduckgo_html_search(self, *, query: str, max_results: int) -> Dict[str, Any]:
+        """
+        Minimal DuckDuckGo HTML scraping fallback (no Playwright, no third-party libs).
+        """
+        from urllib.parse import quote_plus
+
+        q = (query or "").strip()
+        if not q:
+            return {"results": [], "query": query, "count": 0, "provider_used": "none", "error": "query_required"}
+
+        url = f"https://html.duckduckgo.com/html/?q={quote_plus(q)}"
+        html_text = self._fetch_text(url)
+
+        results: List[Dict[str, Any]] = []
+        # Titles/URLs
+        for m in re.finditer(r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_text, flags=re.I | re.S):
+            if len(results) >= int(max_results):
+                break
+            href = _html.unescape(m.group(1) or "").strip()
+            title = re.sub(r"<[^>]+>", "", m.group(2) or "").strip()
+            href = self._decode_duckduckgo_redirect(href)
+            if not href or not title:
+                continue
+            results.append({"title": title, "url": href, "content": "", "score": 0.0})
+
+        # Snippets (best-effort)
+        snippet_texts = [
+            re.sub(r"<[^>]+>", "", s).strip()
+            for s in re.findall(r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>', html_text, flags=re.I | re.S)
+        ]
+        if snippet_texts:
+            for i, snip in enumerate(snippet_texts[: len(results)]):
+                if snip:
+                    results[i]["content"] = _html.unescape(snip)
+
+        return {
+            "results": results,
+            "query": query,
+            "count": len(results),
+            "provider_used": "duckduckgo_html",
+        }
+
     @property
     def name(self) -> str:
         """Tool identifier."""
@@ -379,6 +488,19 @@ class WebSearchTool:
                     # Fall through to browser fallback
             
             # Fallback to browser-based search
+            # If we're running inside an asyncio event loop, avoid Playwright sync fallback.
+            if self._running_in_asyncio_loop():
+                try:
+                    return self._duckduckgo_html_search(query=query, max_results=max_results)
+                except Exception as e:
+                    return {
+                        "results": [],
+                        "query": query,
+                        "count": 0,
+                        "provider_used": "none",
+                        "error": f"HTTP search fallback failed. Last error: {str(e)}",
+                    }
+
             if not self._browse_orchestrator or self._browser_search_disabled:
                 return {
                     "results": [],
@@ -422,6 +544,12 @@ class WebSearchTool:
                 
             except Exception as e:
                 error_str = str(e)
+                # Playwright sync API cannot run within asyncio event loops; fall back to HTTP scraping.
+                if "playwright sync api" in error_str.lower() and "asyncio" in error_str.lower():
+                    try:
+                        return self._duckduckgo_html_search(query=query, max_results=max_results)
+                    except Exception:
+                        pass
                 # Check if this is a threading error - disable browser search permanently
                 if "cannot switch to a different thread" in error_str.lower() or "thread" in error_str.lower():
                     logger.error(

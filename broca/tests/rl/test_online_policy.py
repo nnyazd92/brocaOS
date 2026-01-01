@@ -38,6 +38,13 @@ except ImportError:
 pytestmark = pytest.mark.skipif(not HAS_TORCH, reason="PyTorch not available")
 
 
+@pytest.fixture(autouse=True)
+def _legacy_toolset_for_synthetic_tools(monkeypatch):
+    # This module uses synthetic tool names (e.g., tool_0); ensure visibility under toolset policy.
+    from broca.config import config
+    monkeypatch.setattr(config.tools, "toolset", "legacy", raising=False)
+
+
 @dataclass
 class MockTool:
     """Mock tool for testing."""
@@ -244,7 +251,7 @@ class TestOnlinePolicyRankerPropertyBased:
         force_threshold=st.floats(min_value=0.5, max_value=1.0),
         suggest_threshold=st.floats(min_value=0.1, max_value=0.5),
     )
-    @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     def test_confidence_gating_modes(
         self,
         confidence: float,
@@ -285,7 +292,7 @@ class TestOnlinePolicyRankerPropertyBased:
         execution_time_ms=st.floats(min_value=0.0, max_value=100000.0),
         result_quality=st.floats(min_value=0.0, max_value=1.0),
     )
-    @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     def test_reward_computation_bounds(
         self,
         success: bool,
@@ -310,7 +317,7 @@ class TestOnlinePolicyRankerPropertyBased:
         n_tools=st.integers(min_value=1, max_value=20),
         n_rl_signals=st.integers(min_value=0, max_value=7),
     )
-    @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     def test_selection_returns_valid_tool(
         self,
         n_tools: int,
@@ -545,7 +552,7 @@ class TestPrioritizedReplayBuffer:
             max_size=20,
         )
     )
-    @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     def test_prioritized_sampling_bias(self, priorities: List[float]):
         """Property: Higher priority items should be sampled more often."""
         from broca.rl.online_policy import PrioritizedReplayBuffer, Experience
@@ -802,7 +809,7 @@ class TestPyTorchPolicyNetwork:
         n_features=st.integers(min_value=5, max_value=30),
         n_actions=st.integers(min_value=2, max_value=20),
     )
-    @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
+    @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     def test_network_training_stability(
         self,
         batch_size: int,

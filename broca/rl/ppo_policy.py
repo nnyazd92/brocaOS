@@ -40,6 +40,19 @@ except Exception:  # pragma: no cover - defensive
     _get_ts_logger = None  # type: ignore
 
 
+def categorical_kl_from_logits(old_logits: torch.Tensor, new_logits: torch.Tensor) -> torch.Tensor:
+    """
+    True categorical KL(pi_old || pi_new) computed from logits.
+
+    Returns per-sample KL values (shape: [batch]).
+    """
+
+    old_log_probs = torch.log_softmax(old_logits, dim=-1)
+    old_probs = torch.softmax(old_logits, dim=-1)
+    new_log_probs = torch.log_softmax(new_logits, dim=-1)
+    return (old_probs * (old_log_probs - new_log_probs)).sum(dim=-1)
+
+
 class PPONetwork(nn.Module):
     """Neural network for PPO with shared feature extractor."""
     
@@ -494,16 +507,21 @@ class PPOPolicy:
         else:
             old_log_probs = np.array(old_log_probs_list, dtype=np.float32)
         
-        # Compute advantages and returns
-        advantages = self._compute_advantages(
+        # Compute advantages (GAE) and returns.
+        #
+        # IMPORTANT: normalize advantages for the policy gradient, but do NOT use the
+        # normalized advantages to form value targets (returns). Value targets should
+        # reflect the unnormalized return estimate.
+        advantages_raw = self._compute_advantages(
             rewards=rewards.astype(np.float32),
             values=values.astype(np.float32),
             next_values=next_values.astype(np.float32),
             dones=dones.astype(np.float32),
         )
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-        
-        returns = advantages + values.astype(np.float32)
+        advantages_raw = advantages_raw.astype(np.float32)
+        advantages = (advantages_raw - advantages_raw.mean()) / (advantages_raw.std() + 1e-8)
+
+        returns = advantages_raw + values.astype(np.float32)
         
         # Convert to tensors
         states_t = torch.FloatTensor(states).to(self.device)
@@ -512,12 +530,18 @@ class PPOPolicy:
         advantages_t = torch.FloatTensor(advantages).to(self.device)
         returns_t = torch.FloatTensor(returns).to(self.device)
 
+        # Snapshot the policy at the start of this update for true KL monitoring.
+        # This measures policy drift over states and stays meaningful even when actions
+        # were generated via forced exploration / fallback.
+        with torch.no_grad():
+            old_policy_logits_all, _ = self.network(states_t)
+
         total_loss = 0.0
         total_policy_loss = 0.0
         total_value_loss = 0.0
         total_entropy = 0.0
         # Health monitoring aggregates (weighted by batch size)
-        total_kl = 0.0
+        total_kl = 0.0  # true KL(pi_old || pi_new) over states (categorical)
         total_clip_fraction = 0.0
         total_weight = 0.0
         n_batches = 0
@@ -549,8 +573,9 @@ class PPOPolicy:
 
                 # Health metrics
                 with torch.no_grad():
-                    # approx_kl ~ E[log pi_old(a|s) - log pi_new(a|s)]
-                    kl = (batch_old_log_probs - new_log_probs).mean()
+                    # True categorical KL between the pre-update snapshot and current policy.
+                    batch_old_logits = old_policy_logits_all[batch_indices]
+                    kl = categorical_kl_from_logits(batch_old_logits, policy_logits).mean()
                     ratio = torch.exp(new_log_probs - batch_old_log_probs)
                     clip_frac = (torch.abs(ratio - 1.0) > self.config.clip_epsilon).float().mean()
                     w = float(len(batch_indices))
@@ -622,6 +647,9 @@ class PPOPolicy:
             from .ppo_training_logger import get_ppo_training_logger
 
             approx_kl = (total_kl / total_weight) if total_weight > 0 else 0.0
+            # Guard against tiny negative values from floating point noise.
+            if approx_kl < 0.0 and abs(approx_kl) < 1e-8:
+                approx_kl = 0.0
             clip_fraction = (total_clip_fraction / total_weight) if total_weight > 0 else 0.0
 
             lr = None

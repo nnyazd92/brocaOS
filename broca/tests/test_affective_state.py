@@ -375,13 +375,14 @@ class TestValenceFromConversationHistory:
         Rationale: Ensures empty conversations don't cause errors.
         """
         monitor = ComputationalAffectMonitor()
+        initial = monitor.affective_states["valence"]
         
         # Empty conversation
         monitor.compute_valence_from_conversation_history([])
         valence = monitor.affective_states["valence"]
         
-        # Should remain None for empty conversation
-        assert valence is None
+        # Should not update on empty conversation (keep existing moving average)
+        assert valence == initial
     
     def test_valence_from_mixed_conversation(self):
         """
@@ -426,4 +427,3 @@ class TestValenceFromConversationHistory:
         assert isinstance(valence, float)
         assert -1.0 <= valence <= 1.0
         assert valence > 0.0  # Should be positive from positive user message
-

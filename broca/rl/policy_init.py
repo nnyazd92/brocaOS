@@ -46,6 +46,13 @@ def initialize_online_policy_ranker() -> Optional[Any]:
                 top_k_suggest=config.rl.top_k_suggest,
                 hidden_dim=config.rl.ppo_hidden_dim,
                 learning_rate=config.rl.ppo_learning_rate,
+                gamma=config.rl.ppo_gamma,
+                gae_lambda=config.rl.ppo_gae_lambda,
+                clip_epsilon=config.rl.ppo_clip_epsilon,
+                value_coef=config.rl.ppo_value_coef,
+                entropy_coef=config.rl.ppo_entropy_coef,
+                ppo_epochs=config.rl.ppo_epochs,
+                max_grad_norm=config.rl.ppo_max_grad_norm,
                 buffer_size=config.rl.ppo_buffer_size,
                 batch_size=config.rl.ppo_batch_size,
             )

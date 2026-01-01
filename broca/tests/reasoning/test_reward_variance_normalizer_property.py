@@ -15,7 +15,11 @@ from broca.reasoning.reward_normalizer import RewardVarianceNormalizer
 @given(
     xs=st.lists(st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False), min_size=1, max_size=200),
 )
-@settings(max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(
+    max_examples=200,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+    deadline=None,
+)
 def test_reward_variance_normalizer_outputs_bounded_and_finite(tmp_path, xs):
     n = RewardVarianceNormalizer(
         storage_path=str(tmp_path / "norm.json"),

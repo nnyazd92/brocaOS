@@ -129,7 +129,8 @@ class ConversationSession:
 
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = self.created_at
-        self._max_tool_iterations = 100
+        # Hard cap tool-call iterations per user turn to prevent infinite loops.
+        self._max_tool_iterations = 30
         
         # Initialize summarization components if enabled (for manual /summarize command only)
         self._event_logger = None
@@ -541,6 +542,49 @@ When you need to use tools to complete a task:
         from ..config import config
         self._log_context_before_turn(user_text=user_text)
 
+        turn_message_start_idx = len(self.messages)
+        last_visible_assistant_before_turn: Optional[str] = None
+        try:
+            for m in reversed(self.messages):
+                if not isinstance(m, dict):
+                    continue
+                if m.get("role") != "assistant":
+                    continue
+                if m.get("hidden") is True:
+                    continue
+                content = m.get("content")
+                if isinstance(content, str) and content.strip():
+                    last_visible_assistant_before_turn = content
+                    break
+        except Exception:
+            last_visible_assistant_before_turn = None
+
+        def _hide_duplicate_assistant_for_hidden_turn() -> None:
+            """
+            Hidden internal prompts (e.g., RESPOND_AND_CONTINUE continuation) should not
+            cause the exact same user-facing assistant message to appear twice.
+            """
+            if not hidden_user_message:
+                return
+            try:
+                prev = last_visible_assistant_before_turn
+                if not isinstance(prev, str) or not prev.strip():
+                    return
+                assistant_msg = None
+                for m in reversed(self.messages[turn_message_start_idx:]):
+                    if isinstance(m, dict) and m.get("role") == "assistant":
+                        assistant_msg = m
+                        break
+                if not isinstance(assistant_msg, dict):
+                    return
+                cur = assistant_msg.get("content")
+                if not isinstance(cur, str) or not cur.strip():
+                    return
+                if cur.strip() == prev.strip():
+                    assistant_msg["hidden"] = True
+            except Exception:
+                pass
+
         # Per-turn macro state (used by RESPOND_AND_CONTINUE).
         self._pending_auto_continue_prompt = None
         # When tools are disabled (DONE/RESPOND_AND_CONTINUE), some models may still emit tool_calls.
@@ -674,11 +718,17 @@ When you need to use tools to complete a task:
         response = None
         # Track last warning iteration to prevent duplicate warnings at the same threshold
         last_warning_iteration = 0
-        while iterations < self._max_tool_iterations:
+        tool_iteration_budget = max(1, int(self._max_tool_iterations or 30))
+        max_force_final_response_attempts = 3
+        max_total_iterations = tool_iteration_budget + max_force_final_response_attempts
+        iteration_budget_reprompt_attempts = 0
+
+        while iterations < max_total_iterations:
             iterations += 1
+            tools_disabled_due_to_budget = iterations >= tool_iteration_budget
 
             # Compute RL selection + tool buffer per iteration (parity with web_api.py).
-            if self.tool_registry:
+            if self.tool_registry and not tools_disabled_due_to_budget:
                 context = None
                 if (
                     config.tools.pre_filtering_enabled
@@ -749,16 +799,21 @@ When you need to use tools to complete a task:
                     tools = []
                     tool_choice = None
             else:
-                tools = None
-                tool_choice = None
-                rl_selection = None
+                if self.tool_registry and tools_disabled_due_to_budget:
+                    tools = []
+                    tool_choice = None
+                    rl_selection = None
+                else:
+                    tools = None
+                    tool_choice = None
+                    rl_selection = None
 
             # Update system prompt with current world state before each LLM call
             self._update_system_prompt()
             
             # Check for loop conditions and inject warnings if needed
             # Do this before getting messages for LLM so warnings are included
-            warning_thresholds = [10, 20, 30, 50, 75, 90]
+            warning_thresholds = [20, 25, 28, 29, 30]
             should_warn = False
             warning_message = None
             loop_info = None
@@ -772,57 +827,43 @@ When you need to use tools to complete a task:
                     # Detect loops
                     loop_info = self._detect_tool_call_loop(iterations)
                     
-                    # Generate warning message based on severity
-                    if iterations >= 75:
-                        severity = "CRITICAL"
-                        urgency = "MUST"
-                    elif iterations >= 50:
-                        severity = "CRITICAL"
-                        urgency = "MUST"
-                    elif iterations >= 30:
-                        severity = "HIGH"
-                        urgency = "should"
-                    else:
-                        severity = "MEDIUM"
-                        urgency = "should"
-                    
-                    if loop_info:
-                        # Loop detected - include loop information in warning
-                        tool_name = loop_info["tool_name"]
-                        repeat_count = loop_info["repeat_count"]
-                        pattern = loop_info["pattern_description"]
+                    budget_text = f"{threshold}/30"
+                    if threshold >= 30:
                         warning_message = (
-                            f"[SYSTEM DIRECTIVE - {severity} WARNING] You are on iteration {iterations}. "
-                            f"A loop has been detected: {pattern}. You {urgency} break out of this loop. "
-                            "Review the tool results you've received and either:\n"
-                            "- Make different tool calls if you need different information\n"
-                            "- Provide your final comprehensive response to the user if you have enough information\n"
-                            "Do not continue making the same tool calls repeatedly. The system automatically continues "
-                            "after tool results - you should review results and respond accordingly."
+                            f"[SYSTEM DIRECTIVE - HARD STOP] Tool-iteration budget reached: {budget_text}.\n"
+                            "You MUST respond now in plain text.\n"
+                            "- Tools are DISABLED.\n"
+                            "- Do NOT output tool_calls.\n"
+                            "- Provide the final user-visible answer now."
+                        )
+                    elif threshold >= 28:
+                        warning_message = (
+                            f"[SYSTEM DIRECTIVE - URGENT] Tool-iteration budget nearing limit: {budget_text}.\n"
+                            "You MUST stop calling tools and prepare to answer.\n"
+                            "- If you have enough information, respond now.\n"
+                            "- If not, call at most one final high-value tool and then respond."
                         )
                     else:
-                        # High iteration count but no clear loop pattern detected
-                        if iterations >= 50:
-                            warning_message = (
-                                f"[SYSTEM DIRECTIVE - {severity} WARNING] Very high iteration count ({iterations}). "
-                                f"You {urgency} provide a final response to the user. Review all tool results you've received "
-                                "and provide a comprehensive answer. The system automatically continues after tool results - "
-                                "you should respond with your final answer, not wait for user input."
-                            )
-                        elif iterations >= 30:
-                            warning_message = (
-                                f"[SYSTEM DIRECTIVE - {severity} WARNING] High iteration count ({iterations}). "
-                                "You may be stuck in a loop. Review tool results and either make different tool calls "
-                                "if needed, or provide your final response. The system automatically continues - "
-                                "you should respond based on tool results, not wait for user prompts."
-                            )
-                        else:
-                            warning_message = (
-                                f"[SYSTEM DIRECTIVE - {severity} WARNING] You're on iteration {iterations}. "
-                                "Consider if your current approach is working. If you're making progress with tool calls, continue. "
-                                "If you have enough information from tool results, provide your final response. "
-                                "Remember: the system automatically continues after tool results - review them and respond accordingly."
-                            )
+                        warning_message = (
+                            f"[SYSTEM DIRECTIVE - WARNING] Tool-iteration budget: {budget_text}.\n"
+                            "Converge toward a final response.\n"
+                            "- Avoid repeating the same tool calls.\n"
+                            "- If you have enough information, respond now."
+                        )
+
+                    if loop_info and isinstance(loop_info, dict):
+                        try:
+                            tool_name = loop_info.get("tool_name")
+                            repeat_count = loop_info.get("repeat_count")
+                            pattern = loop_info.get("pattern_description")
+                            if tool_name and repeat_count:
+                                warning_message += (
+                                    f"\n[LOOP DETECTED] {tool_name} repeated {repeat_count} times"
+                                    + (f" ({pattern})" if pattern else "")
+                                    + "."
+                                )
+                        except Exception:
+                            pass
                     
                     break  # Only warn at one threshold per iteration
             
@@ -842,6 +883,7 @@ When you need to use tools to complete a task:
                 self.messages.append({
                     "role": "user",
                     "content": warning_message,
+                    "hidden": True,
                 })
 
             # Track if we used streaming (for later use)
@@ -1390,6 +1432,50 @@ When you need to use tools to complete a task:
                 # Repair broken ANSI escape sequences in extracted text
                 if assistant_text:
                     assistant_text = repair_ansi_codes(assistant_text)
+
+            # If we've hit the tool-iteration budget, force a final plain-text response.
+            # Some providers may still emit tool_calls or empty content even when tools are not advertised.
+            tools_disabled_reason = None
+            if tools_disabled_due_to_budget:
+                tools_disabled_reason = f"tool-iteration budget ({tool_iteration_budget}) reached"
+            elif self.tool_registry and getattr(self.tool_registry, "force_final_response", False):
+                tools_disabled_reason = "DONE/RESPOND_AND_CONTINUE invoked"
+
+            if (
+                tools_disabled_reason
+                and (not tool_calls)
+                and (
+                    assistant_text is None
+                    or (isinstance(assistant_text, str) and assistant_text.strip() == "")
+                )
+            ):
+                iteration_budget_reprompt_attempts += 1
+                logger.warning(
+                    "Empty response while tools are disabled; reprompting for final text",
+                    extra={
+                        "event": "tools_disabled_empty_response",
+                        "attempt": iteration_budget_reprompt_attempts,
+                        "iteration": iterations,
+                        "reason": tools_disabled_reason,
+                    },
+                )
+                if iteration_budget_reprompt_attempts <= max_force_final_response_attempts:
+                    self.messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"[SYSTEM DIRECTIVE - FINAL RESPONSE REQUIRED] Tools are disabled ({tools_disabled_reason}). "
+                                "You MUST respond now in plain text.\n"
+                                "- Do NOT call any tools.\n"
+                                "- Do NOT output tool_calls.\n"
+                                "- Provide the final user-visible answer now."
+                            ),
+                            "hidden": True,
+                        }
+                    )
+                    continue
+                assistant_text = "I apologize, but I’m unable to produce a final response at the moment. Please try rephrasing your request."
+                break
             
             # PEA/PFREA removed - planning is now handled via planning tool
 
@@ -1404,15 +1490,16 @@ When you need to use tools to complete a task:
                 # plain-text response. This prevents infinite tool-call loops in providers that
                 # emit tool_calls even when no tools are advertised.
                 try:
-                    if getattr(self.tool_registry, "force_final_response", False):
+                    if getattr(self.tool_registry, "force_final_response", False) or tools_disabled_due_to_budget:
                         force_final_response_reprompt_attempts += 1
                         logger.warning(
-                            f"Tool calls returned while force_final_response is active (attempt {force_final_response_reprompt_attempts})",
+                            f"Tool calls returned while tools are disabled (attempt {force_final_response_reprompt_attempts})",
                             extra={
                                 "event": "force_final_response_tool_calls",
                                 "attempt": force_final_response_reprompt_attempts,
                                 "tool_calls_count": len(tool_calls),
                                 "iteration": iterations,
+                                "disabled_due_to_budget": tools_disabled_due_to_budget,
                             },
                         )
 
@@ -1421,12 +1508,17 @@ When you need to use tools to complete a task:
                         self.messages.append({"role": "assistant", "content": attempted_text, "hidden": True})
 
                         if force_final_response_reprompt_attempts <= 3:
+                            reason = (
+                                f"tool-iteration budget ({tool_iteration_budget}) reached"
+                                if tools_disabled_due_to_budget
+                                else "DONE/RESPOND_AND_CONTINUE was invoked"
+                            )
                             self.messages.append(
                                 {
                                     "role": "user",
                                     "content": (
-                                        "[SYSTEM DIRECTIVE - TOOLS DISABLED] Tools are disabled for this turn because DONE/"
-                                        "RESPOND_AND_CONTINUE was invoked. You MUST respond to the user now in plain text.\n"
+                                        f"[SYSTEM DIRECTIVE - TOOLS DISABLED] Tools are disabled for this turn because {reason}. "
+                                        "You MUST respond to the user now in plain text.\n"
                                         "- Do NOT call any tools.\n"
                                         "- Do NOT output tool_calls.\n"
                                         "- Provide the final user-visible answer now."
@@ -1437,7 +1529,7 @@ When you need to use tools to complete a task:
                             continue
 
                         # Retry budget exhausted: force the best-effort answer path.
-                        assistant_text = attempted_text or "I’m unable to continue with tool calls disabled. Please rephrase your request."
+                        assistant_text = attempted_text or "I apologize, but I’m unable to continue with tool calls disabled. Please rephrase your request."
                         break
                 except Exception:
                     # If anything goes wrong, fall back to existing behavior.
@@ -1696,6 +1788,7 @@ When you need to use tools to complete a task:
 
                 # Persist immediately so callers (and tests) can observe saved state
                 try:
+                    _hide_duplicate_assistant_for_hidden_turn()
                     self._save_conversation()
                 except Exception:
                     pass
@@ -1950,6 +2043,7 @@ When you need to use tools to complete a task:
                                 # CRITICAL: Re-save conversation with updated world state
                                 # This ensures saved conversations show the latest internal sensing values, not defaults
                                 try:
+                                    _hide_duplicate_assistant_for_hidden_turn()
                                     self._save_conversation()
                                     logger.info("Re-saved conversation with updated world state after recording")
                                 except Exception as save_error:
@@ -1978,6 +2072,7 @@ When you need to use tools to complete a task:
                     # This ensures saved conversations include the latest world state with updated internal sensing values
                     # The initial save at line 1216 happens before instrumentation, so we need to save again here
                     try:
+                        _hide_duplicate_assistant_for_hidden_turn()
                         self._save_conversation()
                         logger.debug("Re-saved conversation after instrumentation with updated world state")
                     except Exception as save_error:
@@ -2085,6 +2180,7 @@ When you need to use tools to complete a task:
         except Exception as e:
             logger.error(f"Error in max iterations post-processing: {e}", exc_info=True)
         
+        _hide_duplicate_assistant_for_hidden_turn()
         self._save_conversation()
         return assistant_text
 

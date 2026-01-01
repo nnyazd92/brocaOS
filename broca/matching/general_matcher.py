@@ -339,6 +339,68 @@ class GeneralMatcher:
         return _safe_json_dumps(x)[: self.config.max_text_chars]
 
     def _match_uncached(self, pattern: Pattern, content: Content) -> MatchResult:
+        # 1. Handle string patterns
+        if isinstance(pattern, str):
+            if isinstance(content, str):
+                score = self._score_text_similarity(pattern, content)
+                return MatchResult(score >= self.config.text_threshold, score, "text", "string_similarity")
+            else:
+                # String pattern vs dict content: check if string is in any value
+                content_str = _safe_json_dumps(content)
+                score = self._score_text_similarity(pattern, content_str)
+                return MatchResult(score >= self.config.text_threshold, score, "text", "string_in_dict")
+
+        # 2. Handle dict patterns (structured matching)
+        if isinstance(pattern, dict):
+            if not isinstance(content, dict):
+                return MatchResult(False, 0.0, "dict", "type_mismatch")
+            
+            return self._match_dict(pattern, content)
+
+        return MatchResult(False, 0.0, "unknown", "unsupported_pattern_type")
+
+    def _match_dict(self, pattern: Dict[str, Any], content: Dict[str, Any]) -> MatchResult:
+        """Match a dictionary pattern against dictionary content with operator support."""
+        for key, p_val in pattern.items():
+            if key not in content:
+                return MatchResult(False, 0.0, "dict", f"missing_key: {key}")
+            
+            c_val = content[key]
+            
+            # Handle operators
+            if isinstance(p_val, dict) and any(k.startswith("$") for k in p_val):
+                for op, val in p_val.items():
+                    if op == "$gt":
+                        if not (c_val > val): return MatchResult(False, 0.0, "operator", f"{key} not > {val}")
+                    elif op == "$lt":
+                        if not (c_val < val): return MatchResult(False, 0.0, "operator", f"{key} not < {val}")
+                    elif op == "$gte":
+                        if not (c_val >= val): return MatchResult(False, 0.0, "operator", f"{key} not >= {val}")
+                    elif op == "$lte":
+                        if not (c_val <= val): return MatchResult(False, 0.0, "operator", f"{key} not <= {val}")
+                    elif op == "$eq":
+                        if not (c_val == val): return MatchResult(False, 0.0, "operator", f"{key} not == {val}")
+                    elif op == "$ne":
+                        if not (c_val != val): return MatchResult(False, 0.0, "operator", f"{key} not != {val}")
+                    elif op == "$in":
+                        if c_val not in val: return MatchResult(False, 0.0, "operator", f"{key} not in {val}")
+                    elif op == "$nin":
+                        if c_val in val: return MatchResult(False, 0.0, "operator", f"{key} in {val}")
+            elif isinstance(p_val, dict) and isinstance(c_val, dict):
+                # Recursive match
+                res = self._match_dict(p_val, c_val)
+                if not res.matched:
+                    return res
+            elif p_val != c_val:
+                # Fallback to text similarity if both are strings
+                if isinstance(p_val, str) and isinstance(c_val, str):
+                    score = self._score_text_similarity(p_val, c_val)
+                    if score < self.config.text_threshold:
+                        return MatchResult(False, score, "text", f"low_similarity: {key}")
+                else:
+                    return MatchResult(False, 0.0, "dict", f"value_mismatch: {key}")
+        
+        return MatchResult(True, 1.0, "dict", "all_keys_matched")
         if isinstance(pattern, str):
             pattern = {"text": pattern}
         if isinstance(content, str):

@@ -16,6 +16,7 @@ import atexit
 import json
 import logging
 import random
+import shutil
 import time
 import weakref
 from dataclasses import dataclass, field
@@ -262,6 +263,8 @@ class PPOOnlinePolicyRanker:
         clip_epsilon: float = 0.2,
         value_coef: float = 0.5,
         entropy_coef: float = 0.01,
+        ppo_epochs: int = 4,
+        max_grad_norm: float = 0.5,
         batch_size: int = 64,
         buffer_size: int = 2048,
     ):
@@ -277,6 +280,8 @@ class PPOOnlinePolicyRanker:
         self._clip_epsilon = float(clip_epsilon)
         self._value_coef = float(value_coef)
         self._entropy_coef = float(entropy_coef)
+        self._ppo_epochs = int(ppo_epochs)
+        self._max_grad_norm = float(max_grad_norm)
         self._batch_size = int(batch_size)
         self._buffer_size = int(buffer_size)
 
@@ -344,6 +349,8 @@ class PPOOnlinePolicyRanker:
                 clip_epsilon=self._clip_epsilon,
                 value_coef=self._value_coef,
                 entropy_coef=self._entropy_coef,
+                ppo_epochs=self._ppo_epochs,
+                max_grad_norm=self._max_grad_norm,
                 batch_size=self._batch_size,
                 buffer_size=self._buffer_size,
             )
@@ -1099,10 +1106,52 @@ class PPOOnlinePolicyRanker:
                 if isinstance(exp, dict)
             ],
         }
-        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        payload_json = json.dumps(payload, ensure_ascii=False)
+
+        # Write atomically with a best-effort rolling backup so mapping changes or test runs
+        # can't silently wipe an accumulated buffer.
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        bak_path = path.with_suffix(path.suffix + ".bak")
+        try:
+            tmp_path.write_text(payload_json, encoding="utf-8")
+            if path.exists():
+                try:
+                    shutil.copy2(path, bak_path)
+                except Exception:
+                    pass
+            tmp_path.replace(path)
+        finally:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except Exception:
+                pass
+
         tool_selection_logger.info(
             f"PPO_BUFFER_SAVE | path={str(path)} | n={len(exps)} | training_step={payload['training_step']}"
         )
+
+    def _preserve_incompatible_buffer(self, path: Path, *, reason: str) -> None:
+        """
+        If the persisted buffer doesn't match the current mapping/dims, preserve it instead of
+        allowing later saves to overwrite it.
+        """
+        if not path.exists():
+            return
+        ts = time.strftime("%Y%m%d_%H%M%S", time.gmtime())
+        base = f"{path.stem}.incompatible.{reason}.{ts}"
+        candidate = path.with_name(base + path.suffix)
+        for i in range(1, 100):
+            if not candidate.exists():
+                break
+            candidate = path.with_name(f"{base}.{i}" + path.suffix)
+        try:
+            path.replace(candidate)
+            tool_selection_logger.info(
+                f"PPO_BUFFER_PRESERVE | reason={reason} | from={str(path)} | to={str(candidate)}"
+            )
+        except Exception:
+            pass
 
     def _load_buffer(self) -> None:
         if self._policy is None:
@@ -1119,12 +1168,15 @@ class PPOOnlinePolicyRanker:
 
         if payload.get("mapping") != self._mapping_fingerprint():
             tool_selection_logger.info("PPO_BUFFER_LOAD_SKIP | reason=mapping_mismatch")
+            self._preserve_incompatible_buffer(path, reason="mapping_mismatch")
             return
         if int(payload.get("input_dim", -1)) != int(getattr(self._policy.config, "input_dim", self._input_dim)):
             tool_selection_logger.info("PPO_BUFFER_LOAD_SKIP | reason=input_dim_mismatch")
+            self._preserve_incompatible_buffer(path, reason="input_dim_mismatch")
             return
         if int(payload.get("output_dim", -1)) != int(getattr(self._policy.config, "output_dim", self._n_actions)):
             tool_selection_logger.info("PPO_BUFFER_LOAD_SKIP | reason=output_dim_mismatch")
+            self._preserve_incompatible_buffer(path, reason="output_dim_mismatch")
             return
 
         exps = payload.get("experiences")

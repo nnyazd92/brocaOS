@@ -19,7 +19,9 @@ def test_solve_local_reasoning_tool_disables_llm_pattern_matching_by_default(mon
     tool = SolveTool()
     rt = tool._tool()
     assert rt.rule_engine is not None
-    assert getattr(rt.rule_engine, "pattern_matcher", None) is None
+    from broca.reasoning.local_pattern_matcher import LocalPatternMatcher
+
+    assert isinstance(getattr(rt.rule_engine, "pattern_matcher", None), LocalPatternMatcher)
 
 
 def test_solve_local_reasoning_tool_can_enable_llm_pattern_matching(monkeypatch):
@@ -31,4 +33,3 @@ def test_solve_local_reasoning_tool_can_enable_llm_pattern_matching(monkeypatch)
     # We don't assert it's always non-None (depends on OPENAI_API_KEY etc),
     # but we do assert the env toggle is respected and does not crash.
     _ = getattr(rt.rule_engine, "pattern_matcher", None)
-
