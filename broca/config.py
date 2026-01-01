@@ -3,7 +3,10 @@ from dotenv import load_dotenv
 import os
 from typing import List, Optional
 
-load_dotenv()
+# Prefer `.env` as the local source of truth (avoids "stuck" values when a shell exports
+# older config). This is primarily a local-dev ergonomics choice; in environments without
+# a `.env` file this is a no-op.
+load_dotenv(override=True)
 from .reasoning.config import ReasoningConfig
 
 
@@ -523,6 +526,10 @@ class RLConfig(BaseModel):
     ppo_batch_size: int = int(os.getenv("BROCA_RL_PPO_BATCH_SIZE", "64"))
     # PPO bootstrap
     ppo_forced_exploration_prob: float = float(os.getenv("BROCA_RL_PPO_FORCED_EXPLORATION_PROB", "0.05"))
+    # Anneal forced exploration probability over time to avoid permanently skewing the dataset.
+    # p_effective = max(min_prob, base_prob * decay**progress)
+    ppo_forced_exploration_min_prob: float = float(os.getenv("BROCA_RL_PPO_FORCED_EXPLORATION_MIN_PROB", "0.05"))
+    ppo_forced_exploration_decay: float = float(os.getenv("BROCA_RL_PPO_FORCED_EXPLORATION_DECAY", "0.995"))
     # If true, PPO selection is always forced (no fallback/suggested gating).
     # Useful for early bootstrapping to guarantee on-policy rollouts.
     ppo_always_forced: bool = os.getenv("BROCA_RL_PPO_ALWAYS_FORCED", "false").lower() == "true"
@@ -533,6 +540,20 @@ class RLConfig(BaseModel):
     ppo_bc_value_coef: float = float(os.getenv("BROCA_RL_PPO_BC_VALUE_COEF", "0.25"))
     ppo_bc_entropy_coef: float = float(os.getenv("BROCA_RL_PPO_BC_ENTROPY_COEF", "0.0"))
     ppo_bc_force: bool = os.getenv("BROCA_RL_PPO_BC_FORCE", "false").lower() == "true"
+    # PPO behavior cloning debiasing (sample-weighting)
+    # Uses per-sample weights inversely proportional to action frequency to prevent prior collapse
+    # onto an overrepresented tool (e.g., SET_GOALS).
+    ppo_bc_class_weight_alpha: float = float(os.getenv("BROCA_RL_PPO_BC_CLASS_WEIGHT_ALPHA", "0.5"))
+    ppo_bc_max_sample_weight: float = float(os.getenv("BROCA_RL_PPO_BC_MAX_SAMPLE_WEIGHT", "5.0"))
+    # PPO behavior cloning sampling
+    ppo_bc_stratified_sampling: bool = os.getenv("BROCA_RL_PPO_BC_STRATIFIED_SAMPLING", "true").lower() == "true"
+    ppo_bc_max_per_tool: int = int(os.getenv("BROCA_RL_PPO_BC_MAX_PER_TOOL", "64"))
+    ppo_bc_seed: int = int(os.getenv("BROCA_RL_PPO_BC_SEED", "0"))
+
+    # PPO exploration mode
+    # - "uniform": sample uniformly over tools during forced exploration (recommended for early bootstrapping)
+    # - "policy": sample from current policy distribution (can inherit BC bias early)
+    ppo_forced_exploration_mode: str = os.getenv("BROCA_RL_PPO_FORCED_EXPLORATION_MODE", "uniform").strip().lower()
 
     # Optional text embedding features (hashed embedding, deterministic, local)
     text_embedding_dim: int = int(os.getenv("BROCA_RL_TEXT_EMBED_DIM", "0"))

@@ -54,27 +54,18 @@ class PatternMatcher:
         self.fallback_to_simple = fallback_to_simple
         self.batch_size = batch_size
         self.cache_size = cache_size
-        
-        # Initialize LLM client
-        if llm_client is None:
-            try:
-                from ..llm import create_llm_client
-                from ..config import config
-                
-                model_name = model or getattr(config.reasoning, 'llm_pattern_matching_model', 'gpt-5-nano')
-                self.llm_client = create_llm_client(
-                    model=model_name,
-                    provider="openai",  # Always use OpenAI for pattern matching
-                )
-                self.model = model_name
-                logger.info(f"Initialized PatternMatcher with LLM (model: {model_name})")
-            except Exception as e:
-                logger.warning(f"Failed to initialize LLM client for PatternMatcher: {e}. Using simple matching.")
-                self.llm_client = None
-                self.model = None
-        else:
-            self.llm_client = llm_client
-            self.model = model or "gpt-5-nano"
+
+        # Local matcher is always preferred; LLM is optional and must be injected explicitly.
+        self.llm_client = llm_client
+        self.model = model or "gpt-5-nano"
+        try:
+            from .local_pattern_matcher import LocalPatternMatcher
+
+            # Make local cache substantially larger than the wrapper cache.
+            self._local_matcher = LocalPatternMatcher(cache_size=max(1000, cache_size * 50))
+        except Exception as e:
+            logger.warning(f"Failed to initialize LocalPatternMatcher: {e}. Using legacy dict matching only.")
+            self._local_matcher = None
         
         # Cache for pattern matches: hash(pattern, item) -> (match, confidence)
         self._cache: Dict[str, Tuple[bool, float]] = {}
@@ -117,9 +108,9 @@ class PatternMatcher:
         Returns:
             True if pattern matches item
         """
-        # If LLM is not available, use simple matching
+        # If LLM is not available, use local matching (deterministic, no network).
         if self.llm_client is None:
-            return self._simple_match(pattern, item)
+            return self._local_match(pattern, item, context="single_match_local")[0]
         
         # Check cache first
         cache_key = self._get_cache_key(pattern, item)
@@ -155,9 +146,9 @@ class PatternMatcher:
                 self._cache_result(cache_key, match, confidence)
                 return match
         except Exception as e:
-            logger.warning(f"LLM pattern matching failed: {e}. Falling back to simple matching.")
+            logger.warning(f"LLM pattern matching failed: {e}. Falling back to local matching.")
             if self.fallback_to_simple:
-                return self._simple_match(pattern, item)
+                return self._local_match(pattern, item, context="single_match_local_fallback")[0]
             raise
         
         return False
@@ -177,9 +168,9 @@ class PatternMatcher:
         if not items:
             return []
         
-        # If LLM is not available, use simple matching
+        # If LLM is not available, use local matching.
         if self.llm_client is None:
-            return self._simple_find_matching(pattern, items)
+            return self._local_find_matching(pattern, items)
         
         # Check cache for all items first
         results: List[Optional[bool]] = [None] * len(items)
@@ -297,6 +288,42 @@ class PatternMatcher:
         matching = []
         for item in items:
             if self._simple_match(pattern, item):
+                matching.append(item)
+        return matching
+
+    def _local_match(self, pattern: Dict[str, Any], item: Dict[str, Any], *, context: str) -> Tuple[bool, float]:
+        if self._local_matcher is None:
+            ok = self._simple_match(pattern, item)
+            return (ok, 1.0 if ok else 0.0)
+
+        ok, conf = self._local_matcher.match_with_confidence(pattern, item)
+
+        if self._pm_logger:
+            try:
+                batch_id = f"local_{uuid.uuid4()}"
+                self._pm_logger.log_pair(
+                    batch_id=batch_id,
+                    pair_index=0,
+                    pattern=pattern,
+                    item=item,
+                    match_label=bool(ok),
+                    confidence=float(conf),
+                    cache_hit=False,
+                    fallback_used=False,
+                    llm_used=False,
+                    parse_ok=True,
+                    error_type=None,
+                    context=context,
+                )
+            except Exception:
+                pass
+
+        return (bool(ok), float(conf))
+
+    def _local_find_matching(self, pattern: Dict[str, Any], items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        matching: List[Dict[str, Any]] = []
+        for item in items:
+            if self.match(pattern, item):
                 matching.append(item)
         return matching
     

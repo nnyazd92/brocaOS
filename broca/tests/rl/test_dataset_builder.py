@@ -45,11 +45,8 @@ def test_dataset_builder_prefers_post_context_reward_over_csv():
 
         ds = build_dataset(root)
         assert ds.rewards.shape == (1,)
-        # Reward = composite_reward + (reward_success - 0.5) - latency (quality term is 0 for result_quality=0.5).
-        from broca.config import config as _config
-
-        expected = 0.4 + (_config.rl.reward_success - 0.5)
-        assert abs(float(ds.rewards[0]) - float(expected)) < 1e-6
+        # Reward is derived from rl_signals only (tool/outcome shaping disabled).
+        assert abs(float(ds.rewards[0]) - 0.4) < 1e-6
 
 
 @given(

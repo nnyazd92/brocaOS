@@ -3,8 +3,10 @@ Reward shaping utilities shared by PPO + online NN and offline dataset building.
 
 Design:
 - Base reward: composite_reward (0..1) from cognitive RL signals.
-- Tool-related adjustment: +/- success/failure + optional quality + latency penalty.
-- Latency is a reward-only penalty (NOT included as a feature).
+
+NOTE: Tool/outcome shaping (success/failure, result_quality, latency penalty) is intentionally
+disabled; reward is derived only from rl_signals so PPO optimizes internal cognitive signals
+instead of tool-actuation proxies.
 """
 
 from __future__ import annotations
@@ -139,28 +141,22 @@ def compute_reward_from_outcome(
     weights: RewardWeights = RewardWeights(),
 ) -> Tuple[float, Dict[str, float]]:
     base = compute_base_composite_reward(rl_signals, intrinsic_keys=intrinsic_keys)
-    tool_adj = compute_tool_adjustment(
-        success=success,
-        reward_success=reward_success,
-        reward_failure=reward_failure,
-        result_quality=result_quality,
-        quality_bonus_factor=quality_bonus_factor,
-    )
-    penalty = compute_latency_penalty(
-        execution_time_ms=execution_time_ms,
-        time_penalty_factor=time_penalty_factor,
-        max_penalty=max_latency_penalty,
-    )
-    total = compute_total_reward(
-        base_composite_reward=base,
-        tool_adjustment=tool_adj,
-        latency_penalty=penalty,
-        weights=weights,
-    )
+    # Ignore tool/outcome shaping entirely; keep the signature for compatibility.
+    _ = success
+    _ = execution_time_ms
+    _ = result_quality
+    _ = reward_success
+    _ = reward_failure
+    _ = time_penalty_factor
+    _ = max_latency_penalty
+    _ = quality_bonus_factor
+    _ = weights
+
+    total = _clamp01(base)
     parts = {
         "composite_reward": float(base),
-        "tool_adjustment": float(tool_adj),
-        "latency_penalty": float(penalty),
+        "tool_adjustment": 0.0,
+        "latency_penalty": 0.0,
         "total": float(total),
     }
     return total, parts

@@ -483,19 +483,20 @@ class GeminiClient:
         """
         temp = temperature if temperature is not None else self.temperature
 
-        # Validate that we have at least one non-system message
-        non_system_messages = [msg for msg in messages if msg.get("role") != "system"]
-        if not non_system_messages:
-            error_msg = "Cannot send only system messages to Gemini REST API. At least one user message required."
-            logger.error(
-                error_msg,
+        # Gemini REST API requires at least one user message. Some Broca internal flows can
+        # intentionally produce system-only prompts (e.g., tooling guards); inject a minimal
+        # ephemeral user turn to satisfy the API without mutating persisted conversation state.
+        has_user = any((m.get("role") == "user") for m in (messages or []))
+        if not has_user:
+            logger.warning(
+                "Gemini REST call missing user message; injecting minimal user turn",
                 extra={
-                    "event": "gemini_no_user_messages",
+                    "event": "gemini_injected_user_message",
                     "messages_count": len(messages),
                     "mode": "rest",
-                }
+                },
             )
-            raise ValueError(error_msg)
+            messages = list(messages) + [{"role": "user", "content": "Continue."}]
 
         # Ensure thought_signature is present in tool_calls (required by Gemini API)
         # The OpenAI-compatible REST endpoint may not emit thought_signature. Avoid noisy warnings here;
@@ -685,6 +686,19 @@ class GeminiClient:
         These features are only available when using the SDK (native API).
         """
         temp = temperature if temperature is not None else self.temperature
+
+        # Gemini REST streaming also requires at least one user message.
+        has_user = any((m.get("role") == "user") for m in (messages or []))
+        if not has_user:
+            logger.warning(
+                "Gemini REST stream missing user message; injecting minimal user turn",
+                extra={
+                    "event": "gemini_injected_user_message",
+                    "messages_count": len(messages),
+                    "mode": "rest_stream",
+                },
+            )
+            messages = list(messages) + [{"role": "user", "content": "Continue."}]
 
         # Ensure thought_signature is present in tool_calls (required by Gemini API)
         prepared_messages = self._ensure_thought_signature_in_tool_calls(messages, thought_signature)

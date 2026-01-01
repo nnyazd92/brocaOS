@@ -56,6 +56,166 @@ def _atexit_cleanup():
 atexit.register(_atexit_cleanup)
 
 
+def _compute_bc_sample_weights(
+    actions: np.ndarray,
+    *,
+    alpha: float = 0.5,
+    max_weight: float = 5.0,
+) -> np.ndarray:
+    """
+    Compute per-sample weights for behavior cloning to counter class imbalance.
+
+    weights[i] ∝ 1 / (count[action_i] ** alpha), normalized to mean=1, with a max cap.
+    """
+    a = np.asarray(actions, dtype=np.int64).reshape(-1)
+    n = int(a.size)
+    if n <= 0:
+        return np.zeros((0,), dtype=np.float32)
+
+    alpha = float(alpha)
+    if alpha < 0.0:
+        alpha = 0.0
+    max_weight = float(max_weight)
+    if max_weight <= 0.0:
+        max_weight = 1.0
+
+    counts: Dict[int, int] = {}
+    for x in a.tolist():
+        xi = int(x)
+        counts[xi] = counts.get(xi, 0) + 1
+
+    w = np.empty((n,), dtype=np.float32)
+    for i, x in enumerate(a.tolist()):
+        c = float(counts.get(int(x), 1))
+        w[i] = float(1.0 / (c**alpha if c > 0 else 1.0))
+
+    mean = float(w.mean()) if n > 0 else 1.0
+    if mean > 0:
+        w = w / mean
+
+    w = np.clip(w, 0.0, float(max_weight)).astype(np.float32)
+    return w
+
+
+def _sample_forced_exploration_action(
+    *,
+    probs: np.ndarray,
+    n_actions: int,
+    training_step: int,
+    mode: str,
+    rng: Optional[random.Random] = None,
+) -> int:
+    """
+    Pick an action index for forced exploration.
+
+    Evidence-based default: use uniform sampling while training_step==0 to avoid inheriting
+    BC priors; switch to policy sampling once PPO has started training.
+    """
+    r = rng or random
+    n = int(n_actions)
+    if n <= 0:
+        return 0
+    m = str(mode or "").strip().lower()
+    if int(training_step) <= 0 and m == "uniform":
+        return int(r.randrange(n))
+    p = np.asarray(probs, dtype=np.float64).reshape(-1)
+    if p.size != n or not np.isfinite(p).all() or float(p.sum()) <= 0.0:
+        return int(r.randrange(n))
+    p = p / float(p.sum())
+    u = float(r.random())
+    cdf = 0.0
+    for i in range(n):
+        cdf += float(p[i])
+        if u <= cdf:
+            return int(i)
+    return int(n - 1)
+
+
+def _anneal_prob(*, base: float, min_prob: float, decay: float, progress: int) -> float:
+    base = float(base)
+    min_prob = float(min_prob)
+    decay = float(decay)
+    progress = max(0, int(progress))
+    if base <= 0.0:
+        return 0.0
+    if min_prob < 0.0:
+        min_prob = 0.0
+    if min_prob > 1.0:
+        min_prob = 1.0
+    if decay <= 0.0 or decay > 1.0:
+        decay = 1.0
+    p = base * (decay**progress)
+    if p < min_prob:
+        p = min_prob
+    if p > 1.0:
+        p = 1.0
+    return float(p)
+
+
+def _stratified_reservoir_sample_by_tool(
+    records: List[Dict[str, Any]],
+    *,
+    max_total: int,
+    max_per_tool: int,
+    seed: int = 0,
+) -> List[Dict[str, Any]]:
+    """
+    Stratified sample with per-tool caps to avoid dataset skew (e.g., SET_GOALS domination).
+
+    - For each tool_name, reservoir-sample up to max_per_tool across the whole record list.
+    - Then, if the combined sample exceeds max_total, downsample uniformly to max_total.
+    """
+    rng = random.Random(int(seed))
+    max_total = max(0, int(max_total))
+    max_per_tool = max(1, int(max_per_tool))
+
+    by_tool: Dict[str, List[Dict[str, Any]]] = {}
+    seen: Dict[str, int] = {}
+
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        tool_name = rec.get("tool_name")
+        if not isinstance(tool_name, str) or not tool_name:
+            continue
+        seen_n = seen.get(tool_name, 0) + 1
+        seen[tool_name] = seen_n
+
+        res = by_tool.setdefault(tool_name, [])
+        if len(res) < max_per_tool:
+            res.append(rec)
+            continue
+        # Reservoir replacement: keep each item with probability k/seen_n.
+        j = rng.randrange(seen_n)
+        if j < max_per_tool:
+            res[j] = rec
+
+    sampled: List[Dict[str, Any]] = []
+    for xs in by_tool.values():
+        sampled.extend(xs)
+
+    if max_total > 0 and len(sampled) > max_total:
+        # Uniform downsample across tools (still bounded by max_per_tool per tool).
+        idxs = list(range(len(sampled)))
+        rng.shuffle(idxs)
+        sampled = [sampled[i] for i in idxs[:max_total]]
+
+    return sampled
+
+
+def _should_run_bc_warm_start(*, training_step: int, bc_step: int, force: bool) -> bool:
+    """
+    Decide whether BC warm-start should run.
+
+    Evidence-based default: run at most once for a given persisted model/tool mapping.
+    - If the model has already been warm-started (bc_step>0) or trained (training_step>0),
+      skip unless `force` is enabled.
+    """
+    if force:
+        return True
+    return int(training_step) <= 0 and int(bc_step) <= 0
+
+
 @dataclass
 class ToolSelection:
     """Result of RL tool selection (mirrors broca.rl.online_policy.ToolSelection)."""
@@ -147,6 +307,7 @@ class PPOOnlinePolicyRanker:
         self._last_selection: Optional[ToolSelection] = None
         self._last_context: Optional[Dict[str, Any]] = None
         self._bc_warm_started_for_mapping: Optional[str] = None
+        self._selection_count: int = 0
 
         # Persist PPO rollout buffer across restarts so forced-exploration on-policy data survives.
         try:
@@ -322,11 +483,15 @@ class PPOOnlinePolicyRanker:
             training_step = int(getattr(self._policy, "training_step", 0))
         except Exception:
             training_step = 0
+        try:
+            bc_step = int(getattr(self._policy, "bc_step", 0))
+        except Exception:
+            bc_step = 0
         force = bool(getattr(_config.rl, "ppo_bc_force", False))
-        if training_step > 0 and not force:
+        if not _should_run_bc_warm_start(training_step=training_step, bc_step=bc_step, force=force):
             try:
                 tool_selection_logger.info(
-                    f"PPO_BC_SKIP | reason=training_step_gt_zero | training_step={training_step} | mapping={fp}"
+                    f"PPO_BC_SKIP | reason=already_warm_started_or_trained | training_step={training_step} | bc_step={bc_step} | mapping={fp}"
                 )
             except Exception:
                 pass
@@ -345,7 +510,7 @@ class PPOOnlinePolicyRanker:
         jsonl_path = Path("data/rl/experiences.jsonl")
         if jsonl_path.exists():
             try:
-                records = []
+                records: List[Dict[str, Any]] = []
                 with jsonl_path.open("r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
@@ -357,8 +522,20 @@ class PPOOnlinePolicyRanker:
                             continue
                         if isinstance(obj, dict):
                             records.append(obj)
-                if len(records) > max_samples:
-                    records = records[-max_samples:]
+                # Evidence-based: avoid tail-only bias by stratified sampling with per-tool caps.
+                try:
+                    if bool(getattr(_config.rl, "ppo_bc_stratified_sampling", True)):
+                        records = _stratified_reservoir_sample_by_tool(
+                            records,
+                            max_total=int(max_samples),
+                            max_per_tool=int(getattr(_config.rl, "ppo_bc_max_per_tool", 64)),
+                            seed=int(getattr(_config.rl, "ppo_bc_seed", 0)),
+                        )
+                    elif len(records) > max_samples:
+                        records = records[-max_samples:]
+                except Exception:
+                    if len(records) > max_samples:
+                        records = records[-max_samples:]
 
                 for rec in records:
                     tool_name = rec.get("tool_name")
@@ -462,10 +639,40 @@ class PPOOnlinePolicyRanker:
         act = np.asarray(actions, dtype=np.int64)
         vt = np.asarray(value_targets, dtype=np.float32)
 
+        # Debias warm-start: class-weight the imitation loss so a single overrepresented tool
+        # (often SET_GOALS early on) does not collapse the policy.
+        sample_weights = None
+        try:
+            from broca.config import config as _config
+
+            alpha = float(getattr(_config.rl, "ppo_bc_class_weight_alpha", 0.5))
+            max_w = float(getattr(_config.rl, "ppo_bc_max_sample_weight", 5.0))
+            sample_weights = _compute_bc_sample_weights(act, alpha=alpha, max_weight=max_w)
+
+            # Log distribution + weight stats for auditability.
+            try:
+                counts: Dict[str, int] = {}
+                for a in act.tolist():
+                    name = self._idx_to_tool.get(int(a), str(int(a)))
+                    counts[name] = counts.get(name, 0) + 1
+                top = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:8]
+                tool_selection_logger.info(
+                    "PPO_BC_CLASS_WEIGHTS | "
+                    f"alpha={alpha:.3f} | max_w={max_w:.2f} | "
+                    f"n={int(act.size)} | "
+                    f"w_min={float(sample_weights.min()):.3f} | w_mean={float(sample_weights.mean()):.3f} | w_max={float(sample_weights.max()):.3f} | "
+                    f"top_counts={top}"
+                )
+            except Exception:
+                pass
+        except Exception:
+            sample_weights = None
+
         metrics = self._policy.behavior_clone(
             st,
             act,
             value_targets=vt,
+            sample_weights=sample_weights,
             epochs=int(epochs),
             batch_size=int(batch_size),
             value_coef=float(value_coef),
@@ -509,6 +716,7 @@ class PPOOnlinePolicyRanker:
                 reason="No tools available",
             )
 
+        self._selection_count += 1
         self._ensure_policy(tools)
         assert self._policy is not None
 
@@ -522,18 +730,35 @@ class PPOOnlinePolicyRanker:
         try:
             from broca.config import config as _config
 
-            p = float(_config.rl.ppo_forced_exploration_prob)
+            base_p = float(_config.rl.ppo_forced_exploration_prob)
+            min_p = float(getattr(_config.rl, "ppo_forced_exploration_min_prob", 0.0))
+            decay = float(getattr(_config.rl, "ppo_forced_exploration_decay", 1.0))
+            try:
+                ts = int(getattr(self._policy, "training_step", 0))
+            except Exception:
+                ts = 0
+            progress = ts if ts > 0 else int(self._selection_count)
+            p = _anneal_prob(base=base_p, min_prob=min_p, decay=decay, progress=progress)
             roll = random.random()
             try:
                 tool_selection_logger.info(
-                    f"PPO_EXPLORE_CHECK | p={p:.3f} | roll={roll:.3f} | triggered={bool(p > 0 and roll < p)}"
+                    f"PPO_EXPLORE_CHECK | base_p={base_p:.3f} | p={p:.3f} | min_p={min_p:.3f} | decay={decay:.6f} | "
+                    f"progress={progress} | roll={roll:.3f} | triggered={bool(p > 0 and roll < p)}"
                 )
             except Exception:
                 pass
 
             if p > 0 and roll < p:
-                # Sample from current policy distribution.
-                a, _, _info = self._policy.select_action(state, explore=True)
+                # Evidence-based: during the "pre-training" phase, sample uniformly to avoid inheriting
+                # BC/action-frequency priors; switch to policy sampling once training_step > 0.
+                mode = str(getattr(_config.rl, "ppo_forced_exploration_mode", "uniform") or "uniform").strip().lower()
+                a = _sample_forced_exploration_action(
+                    probs=probs,
+                    n_actions=self._n_actions,
+                    training_step=ts,
+                    mode=mode,
+                    rng=None,
+                )
                 forced_tool = self._idx_to_tool.get(int(a), "")
                 if forced_tool:
                     selection = ToolSelection(
@@ -542,12 +767,12 @@ class PPOOnlinePolicyRanker:
                         confidence=float(probs[int(a)]) if int(a) < len(probs) else 0.0,
                         mode="forced",
                         alternatives=[],
-                        reason=f"Forced exploration (p={p:.3f}) - collect on-policy data",
+                        reason=f"Forced exploration (p={p:.3f}, mode={mode}) - collect on-policy data",
                         all_scores={self._idx_to_tool[i]: float(probs[i]) for i in range(min(len(probs), self._n_actions)) if self._idx_to_tool.get(i)},
                     )
                     try:
                         tool_selection_logger.info(
-                            f"PPO_FORCED_EXPLORATION | tool={forced_tool} | action_idx={int(a)} | p={p:.3f}"
+                            f"PPO_FORCED_EXPLORATION | tool={forced_tool} | action_idx={int(a)} | p={p:.3f} | mode={mode}"
                         )
                     except Exception:
                         pass
@@ -594,9 +819,16 @@ class PPOOnlinePolicyRanker:
         try:
             from broca.config import config as _config
 
-            if bool(getattr(_config.rl, "ppo_always_forced", False)) and mode != "forced":
+            # Evidence-based guard: "always forced" is useful only before any training begins AND
+            # before BC warm-start has imprinted a strong prior. Otherwise it can collapse the
+            # action space and amplify dataset skew.
+            ts = int(getattr(self._policy, "training_step", 0)) if self._policy is not None else 0
+            bc = int(getattr(self._policy, "bc_step", 0)) if self._policy is not None else 0
+
+            if bool(getattr(_config.rl, "ppo_always_forced", False)) and mode != "forced" and ts <= 0 and bc <= 0:
                 tool_selection_logger.info(
-                    f"PPO_FORCE_OVERRIDE | prev_mode={mode} | forced_tool={top_tool} | confidence={confidence:.2%}"
+                    f"PPO_FORCE_OVERRIDE | prev_mode={mode} | forced_tool={top_tool} | confidence={confidence:.2%} | "
+                    f"training_step={ts} | bc_step={bc}"
                 )
                 mode = "forced"
                 reason = "PPO always-forced enabled - collect on-policy rollouts"

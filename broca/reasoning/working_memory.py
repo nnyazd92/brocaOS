@@ -138,6 +138,10 @@ class WorkingMemory:
         
         # Thread safety for state synchronization
         self._state_lock = threading.RLock()
+
+        # Cached compiled prefilter for repeated retrieve() patterns.
+        self._retrieve_cps_key: Optional[str] = None
+        self._retrieve_cps: Optional[Any] = None
     
     @contextmanager
     def acquire_state_lock(self, timeout: Optional[float] = None):
@@ -226,6 +230,10 @@ class WorkingMemory:
         Returns list of content dictionaries.
         """
         self._update_activations()
+
+        cps = None
+        if pattern is not None:
+            cps = self._get_retrieve_compiled_pattern(pattern)
         
         matching_items = []
         evaluated_count = 0
@@ -234,7 +242,28 @@ class WorkingMemory:
             if item.activation < min_activation:
                 continue
             
-            if pattern is None or self._pattern_matches(pattern, item.content):
+            if pattern is None:
+                matching_items.append((item.activation, item.content))
+                item.strengthen(0.1)  # Strengthen on retrieval
+                continue
+
+            # Stage (1): cheap hard-constraint prefilter to avoid unnecessary matcher calls.
+            if cps is not None:
+                try:
+                    if 0 not in cps.candidate_indices_for_content(item.content):
+                        continue
+                except Exception:
+                    # Conservative fallback: if prefilter fails, evaluate full matcher.
+                    pass
+            try:
+                if not self._prefilter_hard_constraints(pattern, item.content):
+                    continue
+            except Exception:
+                # Conservative fallback: if prefilter fails, just evaluate full matcher.
+                pass
+
+            # Stage (2/3): full structured/operator match (pattern matcher handles fuzziness).
+            if self._pattern_matches(pattern, item.content):
                 matching_items.append((item.activation, item.content))
                 item.strengthen(0.1)  # Strengthen on retrieval
         
@@ -263,6 +292,87 @@ class WorkingMemory:
         
         # Return just the content
         return retrieved_content
+
+    def _get_retrieve_compiled_pattern(self, pattern: Dict[str, Any]):
+        """
+        Compile the current retrieve() pattern into a conservative prefilter.
+
+        This is only used as a prefilter; the full matcher still decides the final match.
+        """
+        try:
+            import json
+            import hashlib
+
+            payload = json.dumps(pattern, sort_keys=True, ensure_ascii=False, default=str)
+            key = hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()
+        except Exception:
+            key = None
+
+        if key and key == self._retrieve_cps_key and self._retrieve_cps is not None:
+            return self._retrieve_cps
+
+        try:
+            from broca.matching import CompiledPatternSet
+
+            cps = CompiledPatternSet([pattern])
+        except Exception:
+            cps = None
+
+        self._retrieve_cps_key = key
+        self._retrieve_cps = cps
+        return cps
+
+    def _prefilter_hard_constraints(self, pattern: Dict[str, Any], content: Dict[str, Any], _depth: int = 0) -> bool:
+        """
+        Conservative prefilter: only enforces constraints that must hold for any possible match.
+
+        This intentionally does NOT prefilter on text-like keys, because those can match fuzzily.
+        """
+        if _depth > 3:
+            return True
+        if not isinstance(pattern, dict) or not isinstance(content, dict):
+            return True
+
+        def _is_text_like_key(key: str) -> bool:
+            k = (key or "").lower()
+            return k in {"text", "query", "prompt", "message", "content"} or k.endswith("_text") or k.endswith("_message") or k.endswith("_description")
+
+        def _is_operator_dict(d: Dict[str, Any]) -> bool:
+            if len(d) != 1:
+                return False
+            return next(iter(d.keys())) in {"contains", "regex", "in", "any", "all", "eq", "ne", "gt", "gte", "lt", "lte", "exists"}
+
+        for k, v in pattern.items():
+            if k not in content:
+                return False
+            cv = content.get(k)
+
+            if isinstance(v, dict) and _is_operator_dict(v):
+                op, arg = next(iter(v.items()))
+                if op == "contains" and str(k).lower() == "tags":
+                    if not isinstance(cv, list):
+                        return False
+                    if str(arg) not in {str(t) for t in cv}:
+                        return False
+                    continue
+                # Other operators might match in many ways; can't safely prefilter.
+                continue
+
+            if isinstance(v, dict):
+                if not isinstance(cv, dict):
+                    return False
+                if not self._prefilter_hard_constraints(v, cv, _depth=_depth + 1):
+                    return False
+                continue
+
+            if _is_text_like_key(str(k)):
+                continue
+            if isinstance(v, (str, int, float, bool)) or v is None:
+                if cv != v:
+                    return False
+                continue
+
+        return True
     
     def _pattern_matches(self, pattern: Dict[str, Any], content: Dict[str, Any]) -> bool:
         """Check if pattern matches content."""

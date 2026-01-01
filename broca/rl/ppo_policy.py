@@ -261,6 +261,7 @@ class PPOPolicy:
         batch_size: Optional[int] = None,
         value_coef: float = 0.5,
         entropy_coef: float = 0.0,
+        lr_multiplier: float = 5.0,
         max_grad_norm: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
@@ -299,6 +300,16 @@ class PPOPolicy:
         epochs = max(1, int(epochs))
 
         max_gn = float(max_grad_norm) if max_grad_norm is not None else float(self.config.max_grad_norm)
+
+        # Behavior cloning wants to imprint a prior quickly; PPO's base LR can be very small.
+        # Temporarily increase optimizer LR during BC to reduce flaky/weak warm-starts.
+        orig_lrs: List[float] = []
+        try:
+            for g in self.optimizer.param_groups:
+                orig_lrs.append(float(g.get("lr", 0.0)))
+                g["lr"] = float(g.get("lr", 0.0)) * float(lr_multiplier)
+        except Exception:
+            orig_lrs = []
 
         bc_steps = 0
         total_loss = 0.0
@@ -346,6 +357,14 @@ class PPOPolicy:
                 total_ce += float(ce.detach().cpu().item())
                 total_v += float(v_loss.detach().cpu().item())
                 total_ent += float(ent.detach().cpu().item())
+
+        # Restore optimizer LR.
+        try:
+            if orig_lrs and len(orig_lrs) == len(self.optimizer.param_groups):
+                for g, lr in zip(self.optimizer.param_groups, orig_lrs):
+                    g["lr"] = float(lr)
+        except Exception:
+            pass
 
         # Keep this separate from PPO's on-policy training_step.
         prev = getattr(self, "bc_step", 0)

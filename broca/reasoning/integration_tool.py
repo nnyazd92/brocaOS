@@ -47,6 +47,7 @@ class ReasoningTool:
         spreading_activation: Optional[Any] = None,
         rule_engine: Optional[RuleEngine] = None,
         daemon: Optional[Any] = None,
+        enable_llm_pattern_matching: Optional[bool] = None,
     ):
         """
         Initialize reasoning tool.
@@ -90,7 +91,8 @@ class ReasoningTool:
         # Create rule engine with declarative memory integration
         self.rule_engine = rule_engine or RuleEngine(
             rule_system=self.rule_system,
-            declarative_memory=declarative_memory
+            declarative_memory=declarative_memory,
+            enable_llm_pattern_matching=enable_llm_pattern_matching,
         )
         
         logger.info("Initialized ReasoningTool")

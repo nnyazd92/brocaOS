@@ -543,6 +543,9 @@ When you need to use tools to complete a task:
 
         # Per-turn macro state (used by RESPOND_AND_CONTINUE).
         self._pending_auto_continue_prompt = None
+        # When tools are disabled (DONE/RESPOND_AND_CONTINUE), some models may still emit tool_calls.
+        # Track retries so we can reprompt a few times and then force an answer.
+        force_final_response_reprompt_attempts = 0
 
         # Clear reasoning_content when starting a new user turn (prevents 400 errors)
         # For deepseek-reasoner, reasoning_content should only be used within a single turn
@@ -1379,6 +1382,50 @@ When you need to use tools to complete a task:
                 
                 # Mark that we've had tool calls
                 had_tool_calls = True
+
+                # If DONE/RESPOND_AND_CONTINUE was invoked, tools are disabled for this user turn.
+                # Do NOT execute tool calls; instead inject a hidden directive and reprompt for a
+                # plain-text response. This prevents infinite tool-call loops in providers that
+                # emit tool_calls even when no tools are advertised.
+                try:
+                    if getattr(self.tool_registry, "force_final_response", False):
+                        force_final_response_reprompt_attempts += 1
+                        logger.warning(
+                            f"Tool calls returned while force_final_response is active (attempt {force_final_response_reprompt_attempts})",
+                            extra={
+                                "event": "force_final_response_tool_calls",
+                                "attempt": force_final_response_reprompt_attempts,
+                                "tool_calls_count": len(tool_calls),
+                                "iteration": iterations,
+                            },
+                        )
+
+                        # Record the assistant content (but do NOT record tool_calls, since we won't execute them).
+                        attempted_text = self.llm.extract_assistant_content(response) or ""
+                        self.messages.append({"role": "assistant", "content": attempted_text, "hidden": True})
+
+                        if force_final_response_reprompt_attempts <= 3:
+                            self.messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "[SYSTEM DIRECTIVE - TOOLS DISABLED] Tools are disabled for this turn because DONE/"
+                                        "RESPOND_AND_CONTINUE was invoked. You MUST respond to the user now in plain text.\n"
+                                        "- Do NOT call any tools.\n"
+                                        "- Do NOT output tool_calls.\n"
+                                        "- Provide the final user-visible answer now."
+                                    ),
+                                    "hidden": True,
+                                }
+                            )
+                            continue
+
+                        # Retry budget exhausted: force the best-effort answer path.
+                        assistant_text = attempted_text or "I’m unable to continue with tool calls disabled. Please rephrase your request."
+                        break
+                except Exception:
+                    # If anything goes wrong, fall back to existing behavior.
+                    pass
                 
                 
                 # Log tool calls detected
@@ -5145,61 +5192,79 @@ When you need to use tools to complete a task:
                     from ..reasoning.rl_signals import RLSignalMetrics
                     from ..config import config as app_config
                     from datetime import datetime, timezone
-                    
-                    config = ReasoningConfig()
-                    
-                    if not config.rl_reward_log_enabled:
+
+                    reasoning_cfg = ReasoningConfig()
+
+                    if not reasoning_cfg.rl_reward_log_enabled:
                         logger.debug(f"RL reward logging is disabled in config for tool call: {tool_name}")
                     else:
                         # Create or reuse reward logger (singleton-like pattern)
                         reward_logger = RLRewardLogger(
-                            log_file=config.rl_reward_log_file,
-                            enabled=config.rl_reward_log_enabled,
-                            append=config.rl_reward_log_append
+                            log_file=reasoning_cfg.rl_reward_log_file,
+                            enabled=reasoning_cfg.rl_reward_log_enabled,
+                            append=reasoning_cfg.rl_reward_log_append,
                         )
-                        
+
                         if not reward_logger.enabled:
                             logger.debug(f"RL reward logger is disabled for tool call: {tool_name}")
                         else:
                             # Try to compute RL signals if we have access to signal aggregator
                             rl_metrics = None
-                            if (self.world_state_aggregator and 
-                                hasattr(self.world_state_aggregator, 'reasoning_tool') and
-                                self.world_state_aggregator.reasoning_tool):
+                            if (
+                                self.world_state_aggregator
+                                and hasattr(self.world_state_aggregator, "reasoning_tool")
+                                and self.world_state_aggregator.reasoning_tool
+                            ):
                                 reasoning_tool = self.world_state_aggregator.reasoning_tool
-                                if (hasattr(reasoning_tool, 'feedback_loop_manager') and
-                                    reasoning_tool.feedback_loop_manager and
-                                    hasattr(reasoning_tool.feedback_loop_manager, 'rl_signal_aggregator') and
-                                    reasoning_tool.feedback_loop_manager.rl_signal_aggregator):
+                                if (
+                                    hasattr(reasoning_tool, "feedback_loop_manager")
+                                    and reasoning_tool.feedback_loop_manager
+                                    and hasattr(reasoning_tool.feedback_loop_manager, "rl_signal_aggregator")
+                                    and reasoning_tool.feedback_loop_manager.rl_signal_aggregator
+                                ):
                                     try:
                                         # Ensure dissonance history exists before computing RL signals.
                                         # Tool-call logging often happens before the next assistant response
                                         # (and before any async dissonance measurement completes), which can
                                         # otherwise leave dissonance_reward stuck at neutral 0.5 (no data).
                                         try:
-                                            cd_monitor = getattr(reasoning_tool.feedback_loop_manager, "cognitive_dissonance_monitor", None)
+                                            cd_monitor = getattr(
+                                                reasoning_tool.feedback_loop_manager,
+                                                "cognitive_dissonance_monitor",
+                                                None,
+                                            )
                                             if cd_monitor is not None:
                                                 # Best-effort tool_usage record from the current tool call
                                                 cd_monitor.measure_dissonance(
                                                     response=None,
-                                                    tool_usage=[tool_call] if isinstance(tool_call, dict) else None,
+                                                    tool_usage=[tool_call]
+                                                    if isinstance(tool_call, dict)
+                                                    else None,
                                                     conversation_context=self.messages,
                                                 )
                                         except Exception as e:
-                                            logger.debug(f"Failed to pre-measure dissonance for tool call {tool_name}: {e}")
+                                            logger.debug(
+                                                f"Failed to pre-measure dissonance for tool call {tool_name}: {e}"
+                                            )
 
-                                        rl_metrics = reasoning_tool.feedback_loop_manager.rl_signal_aggregator.compute_signals()
+                                        rl_metrics = (
+                                            reasoning_tool.feedback_loop_manager.rl_signal_aggregator.compute_signals()
+                                        )
                                         logger.debug(f"Computed RL signals for tool call {tool_name}")
                                     except Exception as e:
-                                        logger.debug(f"Failed to compute RL signals for tool call {tool_name}: {e}")
-                            
+                                        logger.debug(
+                                            f"Failed to compute RL signals for tool call {tool_name}: {e}"
+                                        )
+
                             # Log reward signals if we have metrics, otherwise log tool call event with minimal metrics
                             if rl_metrics:
                                 reward_logger.log_reward_signals(
                                     rl_metrics,
-                                    context=f"tool_call_{tool_name}_{tool_call_id}"
+                                    context=f"tool_call_{tool_name}_{tool_call_id}",
                                 )
-                                logger.info(f"Logged RL reward signals for tool call: {tool_name} (with metrics)")
+                                logger.info(
+                                    f"Logged RL reward signals for tool call: {tool_name} (with metrics)"
+                                )
                             else:
                                 # Log tool call with minimal reward data (zero values)
                                 # This ensures tool calls are tracked even without full RL metrics
@@ -5210,21 +5275,37 @@ When you need to use tools to complete a task:
                                     curiosity_reward=0.0,
                                     information_gain_reward=0.0,
                                     coherence_reward=0.0,
-                                    weight_dissonance=getattr(app_config.reasoning, 'rl_weight_dissonance', 0.3),
-                                    weight_surprise=getattr(app_config.reasoning, 'rl_weight_surprise', 0.2),
-                                    weight_curiosity=getattr(app_config.reasoning, 'rl_weight_curiosity', 0.2),
-                                    weight_info_gain=getattr(app_config.reasoning, 'rl_weight_info_gain', 0.15),
-                                    weight_coherence=getattr(app_config.reasoning, 'rl_weight_coherence', 0.15),
+                                    weight_dissonance=getattr(
+                                        app_config.reasoning, "rl_weight_dissonance", 0.3
+                                    ),
+                                    weight_surprise=getattr(
+                                        app_config.reasoning, "rl_weight_surprise", 0.2
+                                    ),
+                                    weight_curiosity=getattr(
+                                        app_config.reasoning, "rl_weight_curiosity", 0.2
+                                    ),
+                                    weight_info_gain=getattr(
+                                        app_config.reasoning, "rl_weight_info_gain", 0.15
+                                    ),
+                                    weight_coherence=getattr(
+                                        app_config.reasoning, "rl_weight_coherence", 0.15
+                                    ),
                                 )
                                 # Compute composite reward
                                 minimal_metrics.composite_reward = minimal_metrics.compute_composite()
                                 reward_logger.log_reward_signals(
                                     minimal_metrics,
-                                    context=f"tool_call_{tool_name}_{tool_call_id}"
+                                    context=f"tool_call_{tool_name}_{tool_call_id}",
                                 )
-                                logger.info(f"Logged RL reward signals for tool call: {tool_name} (minimal metrics, context: tool_call_{tool_name}_{tool_call_id})")
+                                logger.info(
+                                    f"Logged RL reward signals for tool call: {tool_name} "
+                                    f"(minimal metrics, context: tool_call_{tool_name}_{tool_call_id})"
+                                )
                 except Exception as e:
-                    logger.warning(f"Failed to log RL reward signals for tool call {tool_name} (id: {tool_call_id}): {e}", exc_info=True)
+                    logger.warning(
+                        f"Failed to log RL reward signals for tool call {tool_name} (id: {tool_call_id}): {e}",
+                        exc_info=True,
+                    )
                 
                 # Determine if tool call was successful
                 # Use _success field if available (from raw result), otherwise fall back to content parsing

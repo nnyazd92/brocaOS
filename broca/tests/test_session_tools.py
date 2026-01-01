@@ -88,7 +88,7 @@ class TestConversationSessionWithTools:
 
 class TestConversationSessionToolCalls:
     """Test tool call execution in ConversationSession."""
-    
+
     def test_single_tool_call_execution(self, mock_llm_client: Mock):
         """
         Test executing a single tool call.
@@ -131,6 +131,47 @@ class TestConversationSessionToolCalls:
         assert response == "Final answer"
         # Verify tool was called
         assert mock_llm_client.chat.call_count == 2
+
+    def test_tool_call_does_not_shadow_app_config(self, mock_llm_client: Mock):
+        """
+        Regression test: tool call handling must not shadow Broca config with ReasoningConfig.
+
+        This previously caused AttributeError: 'ReasoningConfig' object has no attribute 'summarization'
+        during tool result truncation.
+        """
+        class BigResultTool(MockTool):
+            def execute(self, **kwargs):
+                return {"result": "x" * 20000}
+
+        registry = ToolRegistry()
+        tool = BigResultTool("big_tool")
+        registry.register_tool(tool)
+
+        tool_call_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_big",
+                        "type": "function",
+                        "function": {"name": "big_tool", "arguments": json.dumps({"param": "value"})}
+                    }]
+                }
+            }]
+        }
+        final_response = build_llm_response(content="OK")
+
+        tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
+        mock_llm_client.chat.side_effect = [tool_call_response, final_response]
+        mock_llm_client.extract_tool_calls.side_effect = [tool_calls_list, []]
+        mock_llm_client.extract_assistant_content.side_effect = [None, "OK"]
+
+        session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
+        response = session.send("Use tool")
+
+        assert response == "OK"
+        assert any(m.get("role") == "tool" for m in session.messages)
     
     def test_multiple_tool_calls_execution(self, mock_llm_client: Mock):
         """
@@ -757,4 +798,3 @@ class TestConversationSessionThoughtSignature:
         assert len(tool_calls) > 0
         # Non-Gemini clients don't need thought_signature
         assert "thought_signature" not in tool_calls[0]
-
