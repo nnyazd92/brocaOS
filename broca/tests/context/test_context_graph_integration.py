@@ -6,6 +6,7 @@ Tests full conversation flow and integration with the session system.
 
 from __future__ import annotations
 
+import logging
 import pytest
 from unittest.mock import Mock, MagicMock
 from broca.context.context_graph import ContextGraph
@@ -101,6 +102,79 @@ class TestIntegration:
                     if i + 1 < len(messages):
                         next_msg = messages[i + 1]
                         assert next_msg.get("role") == "tool"
+
+    def test_session_context_graph_preserves_tool_sequence_order(self, mock_llm, mock_storage, caplog):
+        """
+        Regression: tool results must not become orphaned due to ContextGraph insertion order.
+
+        If the session adds a tool result node to the context graph before the corresponding
+        assistant(tool_calls) node, ContextGraph validation will delete both and the model
+        will loop calling the tool again.
+        """
+        from broca.config import config
+
+        config.context.enabled = True
+
+        # Minimal LLM: only used for assistant content extraction in _handle_tool_calls.
+        mock_llm.extract_assistant_content = Mock(return_value=None)
+
+        # Minimal tool registry: returns a correctly-shaped tool message.
+        tool_registry = Mock()
+        tool_registry.execute_tool_call = Mock(
+            return_value={
+                "tool_call_id": "call_1",
+                "role": "tool",
+                "name": "test_tool",
+                "content": "OK",
+            }
+        )
+
+        session = ConversationSession(
+            llm=mock_llm,
+            storage=mock_storage,
+            tool_registry=tool_registry,
+            session_id="test_session",
+        )
+        # Disable UI side effects in tests.
+        session._tool_status_display = None
+
+        # Prime the graph so the system message is inserted first.
+        _ = session._get_messages_for_llm()
+        assert session._context_graph is not None
+
+        # Add a user turn to both history and graph.
+        user_msg = {"role": "user", "content": "do thing", "message_id": "u0"}
+        session.messages.append(user_msg)
+        parent_id = session._context_graph._message_order[-1] if session._context_graph._message_order else None
+        session._context_graph.add_message(user_msg, parent_id=parent_id)
+
+        # Simulate a tool call response.
+        tool_calls = [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "test_tool", "arguments": "{}"},
+            }
+        ]
+        session._handle_tool_calls({"choices": [{"message": {"role": "assistant", "content": None}}]}, tool_calls)
+
+        caplog.set_level(logging.WARNING)
+        messages_for_llm = session._get_messages_for_llm()
+
+        # ContextGraph must not "fix" ordering by deleting valid tool bundles.
+        assert not any(
+            "Removed" in r.message and "orphaned tool message" in r.message for r in caplog.records
+        )
+        assert not any(
+            "Removed" in r.message and "incomplete tool_call sequence" in r.message for r in caplog.records
+        )
+
+        # The assistant tool_calls must be followed by the matching tool result in the outgoing context.
+        idx = next(
+            i for i, m in enumerate(messages_for_llm) if m.get("role") == "assistant" and m.get("tool_calls")
+        )
+        assert messages_for_llm[idx + 1].get("role") == "tool"
+        assert messages_for_llm[idx + 1].get("tool_call_id") == "call_1"
     
     def test_storage_integration(self, mock_llm, mock_storage):
         """Test loading from storage and graph reconstruction."""

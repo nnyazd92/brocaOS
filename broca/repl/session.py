@@ -546,6 +546,7 @@ When you need to use tools to complete a task:
         # When tools are disabled (DONE/RESPOND_AND_CONTINUE), some models may still emit tool_calls.
         # Track retries so we can reprompt a few times and then force an answer.
         force_final_response_reprompt_attempts = 0
+        require_done_reprompt_attempts = 0
 
         # Clear reasoning_content when starting a new user turn (prevents 400 errors)
         # For deepseek-reasoner, reasoning_content should only be used within a single turn
@@ -1077,12 +1078,27 @@ When you need to use tools to complete a task:
                                 )
                             
                             non_stream_response = self.llm.chat(
-                                messages_for_llm, 
+                                messages_for_llm,
                                 tools=tools,
                                 tool_choice=tool_choice,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None,
-                                thought_signature=self._current_thought_signature if is_gemini else None
+                                thought_signature=self._current_thought_signature if is_gemini else None,
                             )
+                            # Streaming-to-nonstream tool_calls check: preserve Gemini thought_signature
+                            # from the non-streaming response so tool calls can be replayed safely.
+                            if is_gemini and hasattr(self.llm, "extract_thought_signature"):
+                                try:
+                                    extracted_sig = self.llm.extract_thought_signature(non_stream_response)
+                                except Exception:
+                                    extracted_sig = None
+                                if extracted_sig:
+                                    self._current_thought_signature = extracted_sig
+                                    # Also attach to the synthetic `response` dict so the normal
+                                    # post-call signature extraction path sees it.
+                                    try:
+                                        response["thought_signature"] = extracted_sig
+                                    except Exception:
+                                        pass
                             tool_calls_from_response = self.llm.extract_tool_calls(non_stream_response)
                             if tool_calls_from_response:
                                 # Update response with tool_calls
@@ -1521,6 +1537,64 @@ When you need to use tools to complete a task:
                 else:
                     logger.debug(f"Using existing assistant_text (length={len(assistant_text) if assistant_text else 0}, used_streaming={used_streaming})")
                 
+                # RL response contract: if DONE/RESPOND_AND_CONTINUE are available and RL policy is active,
+                # do not allow the model to respond directly without first calling DONE/RESPOND_AND_CONTINUE.
+                try:
+                    if (
+                        assistant_text
+                        and self.tool_registry
+                        and not getattr(self.tool_registry, "force_final_response", False)
+                        and getattr(config.tools, "toolset", "legacy") == "primitive"
+                        and getattr(config.rl, "require_done_for_response", False)
+                        and getattr(self.tool_registry, "online_policy_ranker", None) is not None
+                    ):
+                        allowed_tool_names = set()
+                        if isinstance(tools, list):
+                            for t in tools:
+                                try:
+                                    allowed_tool_names.add(t.get("function", {}).get("name"))
+                                except Exception:
+                                    pass
+
+                        if allowed_tool_names.intersection({"DONE", "RESPOND_AND_CONTINUE"}):
+                            require_done_reprompt_attempts += 1
+                            logger.warning(
+                                "Final response attempted without DONE/RESPOND_AND_CONTINUE while RL response contract is enabled",
+                                extra={
+                                    "event": "response_contract_missing_done",
+                                    "attempt": require_done_reprompt_attempts,
+                                    "iteration": iterations,
+                                    "allowed_tools": sorted([n for n in allowed_tool_names if isinstance(n, str)]),
+                                },
+                            )
+
+                            # Record the attempted text as hidden (audit/debug) and reprompt.
+                            self.messages.append({"role": "assistant", "content": assistant_text, "hidden": True})
+                            assistant_text = None
+
+                            if require_done_reprompt_attempts <= 3:
+                                self.messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "[SYSTEM DIRECTIVE - RESPONSE CONTRACT] You attempted to respond directly.\n"
+                                            "You MUST end this turn by calling one of these tools:\n"
+                                            "- DONE (respond now, then stop)\n"
+                                            "- RESPOND_AND_CONTINUE (respond now, then continue in background)\n"
+                                            "Do NOT output a final answer in plain text in this message."
+                                        ),
+                                        "hidden": True,
+                                    }
+                                )
+                                continue
+
+                            logger.warning(
+                                "RL response contract reprompt budget exhausted; allowing final response without DONE",
+                                extra={"event": "response_contract_budget_exhausted", "iteration": iterations},
+                            )
+                except Exception as e:
+                    logger.debug(f"Failed to enforce RL response contract: {e}", exc_info=True)
+
                 # PEA/PFREA removed - final responses are always allowed
                 
                 # Ensure response is always printed
@@ -2330,8 +2404,11 @@ When you need to use tools to complete a task:
             extra={
                 "event": "turn_after",
                 "context_stats": stats,
-                "assistant_preview": (assistant_text[:200] if assistant_text else None)
-                + ("..." if assistant_text and len(assistant_text) > 200 else ""),
+                "assistant_preview": (
+                    None
+                    if not assistant_text
+                    else assistant_text[:200] + ("..." if len(assistant_text) > 200 else "")
+                ),
                 "usage": usage,
             },
         )
@@ -5058,6 +5135,11 @@ When you need to use tools to complete a task:
             "content": self.llm.extract_assistant_content(response) or None,
             "tool_calls": tool_calls,
         }
+
+        # Ensure assistant(tool_calls) has a stable message_id so ContextGraph can preserve
+        # atomic tool-call bundles without producing orphaned tool nodes.
+        if "message_id" not in assistant_message:
+            assistant_message["message_id"] = str(uuid.uuid4())
         
         # Include reasoning_content in the assistant message for reasoner model
         # The API requires this field to be present in assistant messages with tool_calls
@@ -5119,6 +5201,19 @@ When you need to use tools to complete a task:
                     )
         
         self.messages.append(assistant_message)
+
+        # Add assistant(tool_calls) to context graph BEFORE adding tool results.
+        # If tool results are inserted first, ContextGraph validation will delete them as orphaned.
+        if self._context_graph:
+            try:
+                parent_id = None
+                if self._context_graph._message_order:
+                    parent_id = self._context_graph._message_order[-1]
+                self._context_graph.add_message(assistant_message, parent_id=parent_id)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to add assistant tool_calls message to context graph: {e}", exc_info=True
+                )
 
         # Execute each tool call
         for i, tool_call in enumerate(tool_calls, 1):

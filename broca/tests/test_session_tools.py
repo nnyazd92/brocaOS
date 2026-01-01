@@ -172,6 +172,71 @@ class TestConversationSessionToolCalls:
 
         assert response == "OK"
         assert any(m.get("role") == "tool" for m in session.messages)
+
+    def test_requires_done_for_final_response_when_rl_active(self, mock_llm_client: Mock, monkeypatch):
+        """
+        Regression/contract test:
+        When RL policy is active (ranker present) and DONE is available, the model must not respond
+        directly in plain text; it must call DONE/RESPOND_AND_CONTINUE to end the tool loop.
+        """
+        from broca.config import config as app_config
+
+        monkeypatch.setattr(app_config.tools, "toolset", "primitive", raising=False)
+        monkeypatch.setattr(app_config.rl, "enabled", True, raising=False)
+        monkeypatch.setattr(app_config.rl, "require_done_for_response", True, raising=False)
+
+        class _FallbackSelection:
+            tool_name = "READ_FILE"
+            mode = "fallback"
+            reason = "Low confidence - LLM has full choice"
+            confidence = 0.01
+            score = 0.01
+            alternatives = []
+            all_scores = {}
+
+        class _Ranker:
+            def select_tool(self, tools, ctx):
+                return _FallbackSelection()
+
+            def record_outcome(self, **kwargs):
+                return None
+
+        registry = ToolRegistry()
+        tool_done = MockTool("DONE")
+        registry.register_tool(tool_done)
+        registry.set_online_policy_ranker(_Ranker())
+
+        premature = build_llm_response(content="I will answer directly (not allowed).")
+
+        tool_call_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_done",
+                        "type": "function",
+                        "function": {"name": "DONE", "arguments": "{}"}
+                    }]
+                }
+            }]
+        }
+        final = build_llm_response(content="Final answer after DONE")
+
+        tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
+        mock_llm_client.chat.side_effect = [premature, tool_call_response, final]
+        mock_llm_client.extract_tool_calls.side_effect = [[], tool_calls_list, []]
+        mock_llm_client.extract_assistant_content.side_effect = [
+            "I will answer directly (not allowed).",
+            None,
+            "Final answer after DONE",
+        ]
+
+        session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
+        response = session.send("Hello")
+
+        assert response == "Final answer after DONE"
+        assert mock_llm_client.chat.call_count == 3
     
     def test_multiple_tool_calls_execution(self, mock_llm_client: Mock):
         """

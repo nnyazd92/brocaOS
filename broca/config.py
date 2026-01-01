@@ -584,6 +584,11 @@ class RLConfig(BaseModel):
     log_selections: bool = os.getenv("BROCA_RL_LOG_SELECTIONS", "true").lower() == "true"
     log_file: str = os.getenv("BROCA_RL_LOG_FILE", "data/rl/selections.jsonl")
 
+    # Response contract (macro toolset):
+    # When RL is active and DONE/RESPOND_AND_CONTINUE are available, require the model to end the
+    # tool loop by calling DONE/RESPOND_AND_CONTINUE instead of responding directly in plain text.
+    require_done_for_response: bool = os.getenv("BROCA_RL_REQUIRE_DONE_FOR_RESPONSE", "true").lower() == "true"
+
 
 class LearningConfig(BaseModel):
     """Configuration for learning system."""

@@ -4,6 +4,7 @@ Tests for thought_signature extraction and handling in Gemini tool calls.
 Tests ensure thought_signature is extracted before tool_calls processing.
 """
 
+import logging
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from broca.repl.session import ConversationSession
@@ -165,3 +166,114 @@ class TestThoughtSignatureFaultInjection:
         # Should not crash the system
         assert extracted_sig is None or isinstance(extracted_sig, str)
 
+
+class DummyGeminiStreamingToolCalls(GeminiClient):
+    """
+    Minimal GeminiClient subtype to exercise ConversationSession's streaming + tool_calls check path
+    without making network calls.
+    """
+
+    def __init__(self) -> None:
+        # Intentionally do not call super().__init__ (avoid network/client setup).
+        self.model = "dummy-gemini"
+        self._stream_calls = 0
+
+    def chat_stream(self, messages, tools=None, reasoning_content=None, thought_signature=None):
+        # 1st stream yields no chunks -> triggers non-stream tool_calls check.
+        # 2nd stream yields a final answer -> completes the turn.
+        self._stream_calls += 1
+        if self._stream_calls == 1:
+            if False:
+                yield ""  # pragma: no cover
+            return
+        yield "Final answer."
+
+    def chat(self, messages, tools=None, tool_choice=None, reasoning_content=None, thought_signature=None, **kwargs):
+        # Non-stream tool_calls check response: includes thought_signature we must preserve.
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {"name": "test_tool", "arguments": "{}"},
+                            }
+                        ],
+                    }
+                }
+            ],
+            "thought_signature": "sig-xyz",
+        }
+
+    def extract_tool_calls(self, response):
+        try:
+            return response["choices"][0]["message"].get("tool_calls") or []
+        except Exception:
+            return []
+
+    def extract_assistant_content(self, response):
+        try:
+            return response["choices"][0]["message"].get("content")
+        except Exception:
+            return None
+
+    def is_reasoner_model(self):
+        return False
+
+
+def test_streaming_tool_calls_check_preserves_thought_signature(monkeypatch, caplog):
+    """
+    Regression: when streaming yields no/minimal content and we do a non-streaming tool_calls check,
+    we must preserve Gemini's thought_signature from that check response so tool calls can be replayed
+    without warnings/API errors.
+    """
+    from broca.config import config
+
+    # Avoid sleeps during streaming in tests.
+    monkeypatch.setattr(config.llm, "streaming_delay", 0.0, raising=False)
+    # Keep this test focused: disable RL-driven tool forcing and tool pre-filtering.
+    monkeypatch.setattr(getattr(config, "rl", object()), "enabled", False, raising=False)
+    monkeypatch.setattr(getattr(config, "tools", object()), "pre_filtering_enabled", False, raising=False)
+
+    llm = DummyGeminiStreamingToolCalls()
+
+    tool_registry = Mock()
+    tool_registry.force_final_response = False
+    tool_registry.tool_selection_guidance = None
+    tool_registry.to_openai_format = Mock(
+        return_value=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "test_tool",
+                    "description": "Test tool",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+    )
+    tool_registry.execute_tool_call = Mock(
+        return_value={
+            "tool_call_id": "call_1",
+            "role": "tool",
+            "name": "test_tool",
+            "content": "OK",
+        }
+    )
+
+    session = ConversationSession(llm=llm, tool_registry=tool_registry)
+    session._tool_status_display = None
+
+    caplog.set_level(logging.WARNING)
+    _ = session.send("Hello", stream=True)
+
+    assert session._current_thought_signature == "sig-xyz"
+
+    # Ensure the assistant(tool_calls) message persisted the signature onto the tool_call payload.
+    assistant_tool_msgs = [m for m in session.messages if m.get("role") == "assistant" and m.get("tool_calls")]
+    assert assistant_tool_msgs
+    assert assistant_tool_msgs[-1]["tool_calls"][0].get("thought_signature") == "sig-xyz"

@@ -1577,6 +1577,11 @@ def stream_response(
     # When tools are disabled (DONE/RESPOND_AND_CONTINUE), some models may still emit tool_calls.
     # Reprompt a few times and then force a best-effort answer to avoid infinite loops.
     force_final_response_reprompt_attempts = 0
+    # When RL response contract is enabled, prevent direct responses without DONE/RESPOND_AND_CONTINUE.
+    require_done_reprompt_attempts = 0
+    # When the provider returns an empty assistant message, reprompt a few times instead of
+    # emitting a generic apology (this often happens right after DONE).
+    empty_final_response_reprompt_attempts = 0
 
     try:
         if rt.tool_registry and hasattr(rt.tool_registry, "start_turn"):
@@ -2146,8 +2151,125 @@ def stream_response(
             else:
                 # No tool calls - check if final response is allowed
                 content = assistant_content
-                if not content:
-                    content = "I apologize, but I encountered an issue processing your request."
+                if not content or not str(content).strip():
+                    empty_final_response_reprompt_attempts += 1
+                    logger.warning(
+                        "Empty assistant_content in stream_response final path",
+                        extra={
+                            "event": "empty_final_response",
+                            "attempt": empty_final_response_reprompt_attempts,
+                            "iteration": iterations,
+                            "conversation_id": conversation_id,
+                            "force_final_response": bool(getattr(rt.tool_registry, "force_final_response", False))
+                            if rt.tool_registry
+                            else False,
+                        },
+                    )
+
+                    # Record the attempted content (even if empty) for traceability.
+                    session.messages.append({"role": "assistant", "content": assistant_content or "", "hidden": True})
+
+                    if empty_final_response_reprompt_attempts <= 3:
+                        if rt.tool_registry and getattr(rt.tool_registry, "force_final_response", False):
+                            directive = (
+                                "[SYSTEM DIRECTIVE - RESPONSE REQUIRED] Tools are disabled for this turn because DONE/"
+                                "RESPOND_AND_CONTINUE was invoked. You returned an empty response.\n"
+                                "- Do NOT call any tools.\n"
+                                "- Provide a non-empty final answer in plain text now."
+                            )
+                        else:
+                            directive = (
+                                "[SYSTEM DIRECTIVE - RESPONSE REQUIRED] You returned an empty response.\n"
+                                "- Provide a non-empty response in plain text.\n"
+                                "- If you need tools, call them explicitly; otherwise answer now."
+                            )
+
+                        session.messages.append({"role": "user", "content": directive, "hidden": True})
+                        yield (
+                            json.dumps(
+                                {
+                                    "type": "warning",
+                                    "warning": "empty_final_response",
+                                    "attempt": empty_final_response_reprompt_attempts,
+                                    "conversation_id": conversation_id,
+                                }
+                            )
+                            + "\n"
+                        )
+                        continue
+
+                    content = "I didn't receive a response from the model. Please retry."
+                else:
+                    content = str(content)
+
+                # RL response contract: if DONE/RESPOND_AND_CONTINUE are available and RL policy is active,
+                # do not allow a direct plain-text response without first calling DONE/RESPOND_AND_CONTINUE.
+                try:
+                    if (
+                        content
+                        and rt.tool_registry
+                        and not getattr(rt.tool_registry, "force_final_response", False)
+                        and getattr(app_config.tools, "toolset", "legacy") == "primitive"
+                        and getattr(app_config.rl, "require_done_for_response", False)
+                        and getattr(rt.tool_registry, "online_policy_ranker", None) is not None
+                    ):
+                        allowed_tool_names = set()
+                        if isinstance(tools, list):
+                            for t in tools:
+                                try:
+                                    allowed_tool_names.add(t.get("function", {}).get("name"))
+                                except Exception:
+                                    pass
+
+                        if allowed_tool_names.intersection({"DONE", "RESPOND_AND_CONTINUE"}):
+                            require_done_reprompt_attempts += 1
+                            logger.warning(
+                                "Final response attempted without DONE/RESPOND_AND_CONTINUE while RL response contract is enabled",
+                                extra={
+                                    "event": "response_contract_missing_done",
+                                    "attempt": require_done_reprompt_attempts,
+                                    "iteration": iterations,
+                                    "conversation_id": conversation_id,
+                                    "allowed_tools": sorted([n for n in allowed_tool_names if isinstance(n, str)]),
+                                },
+                            )
+
+                            session.messages.append({"role": "assistant", "content": content, "hidden": True})
+
+                            if require_done_reprompt_attempts <= 3:
+                                session.messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "[SYSTEM DIRECTIVE - RESPONSE CONTRACT] You attempted to respond directly.\n"
+                                            "You MUST end this turn by calling one of these tools:\n"
+                                            "- DONE (respond now, then stop)\n"
+                                            "- RESPOND_AND_CONTINUE (respond now, then continue in background)\n"
+                                            "Do NOT output a final answer in plain text in this message."
+                                        ),
+                                        "hidden": True,
+                                    }
+                                )
+                                yield json.dumps(
+                                    {
+                                        "type": "warning",
+                                        "warning": "response_contract_missing_done",
+                                        "attempt": require_done_reprompt_attempts,
+                                        "conversation_id": conversation_id,
+                                    }
+                                ) + "\n"
+                                continue
+
+                            logger.warning(
+                                "RL response contract reprompt budget exhausted; allowing final response without DONE",
+                                extra={
+                                    "event": "response_contract_budget_exhausted",
+                                    "iteration": iterations,
+                                    "conversation_id": conversation_id,
+                                },
+                            )
+                except Exception as e:
+                    logger.debug(f"Failed to enforce RL response contract: {e}", exc_info=True)
                 
                 # PEA/PFREA removed - final responses are always allowed
                 

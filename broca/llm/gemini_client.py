@@ -271,6 +271,7 @@ class GeminiClient:
         tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """Send a chat completion request and return the raw JSON response.
 
@@ -659,11 +660,12 @@ class GeminiClient:
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Any] = None,
         reasoning_content: Optional[str] = None,
         thought_signature: Optional[str] = None,
+        **kwargs: Any,
     ) -> Iterator[str]:
-        """Stream chat completion, yielding text chunks as they arrive.
-
+        """
         Note: Streaming with thought_signature may not be fully supported in SDK mode.
         Falls back to REST API for streaming.
         """

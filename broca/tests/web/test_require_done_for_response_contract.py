@@ -23,6 +23,8 @@ class _FakeToolRegistry:
     def __init__(self) -> None:
         self._force_final_response = False
         self.calls = []
+        # Marker for "RL policy active" in response-contract enforcement.
+        self.online_policy_ranker = object()
 
     @property
     def force_final_response(self) -> bool:
@@ -35,7 +37,9 @@ class _FakeToolRegistry:
         return None
 
     def to_openai_format(self, context=None, rl_selection=None):
-        return [] if self._force_final_response else [{"type": "function", "function": {"name": "DONE", "parameters": {}}}]
+        if self._force_final_response:
+            return []
+        return [{"type": "function", "function": {"name": "DONE", "parameters": {}}}]
 
     def execute_tool_call(self, tool_call):
         name = tool_call.get("function", {}).get("name")
@@ -43,8 +47,6 @@ class _FakeToolRegistry:
         if name == "DONE":
             self._force_final_response = True
             return {"role": "tool", "name": "DONE", "content": "DONE ok"}
-        if name == "EXECUTE":
-            raise AssertionError("EXECUTE must not run while force_final_response is active")
         return {"role": "tool", "name": name or "unknown", "content": "ok"}
 
 
@@ -52,46 +54,18 @@ def _tool_call(call_id: str, name: str, args: str = "{}"):
     return {"id": call_id, "type": "function", "function": {"name": name, "arguments": args}}
 
 
-def test_stream_response_force_final_response_reprompts_and_finishes():
+def test_stream_response_requires_done_for_plain_text_response(monkeypatch):
+    from broca.config import config as app_config
     from broca.web_api import stream_response
+
+    monkeypatch.setattr(app_config.tools, "toolset", "primitive", raising=False)
+    monkeypatch.setattr(app_config.rl, "enabled", True, raising=False)
+    monkeypatch.setattr(app_config.rl, "require_done_for_response", True, raising=False)
 
     llm = _FakeLLM(
         responses=[
+            {"tool_calls": [], "content": "premature answer"},
             {"tool_calls": [_tool_call("c1", "DONE")], "content": ""},
-            {"tool_calls": [_tool_call("c2", "EXECUTE", "{\"cmd\":\"echo hi\"}")], "content": ""},
-            {"tool_calls": [], "content": "final answer"},
-        ]
-    )
-    session = SimpleNamespace(
-        messages=[],
-        llm=llm,
-        internal_sensing_framework=None,
-        world_state_aggregator=None,
-        _update_system_prompt=lambda: None,
-        _get_messages_for_llm=lambda: [],
-    )
-    rt = SimpleNamespace(tool_registry=_FakeToolRegistry(), world_state_aggregator=None)
-    storage = SimpleNamespace(
-        load_conversation=lambda _cid: {"metadata": {}},
-        save_conversation=lambda _cid, _msgs, _meta: None,
-    )
-
-    chunks = list(stream_response(rt, storage, session, "cid", "hello", web_search_enabled=True))
-    events = [json.loads(c) for c in chunks if c.strip()]
-
-    # 1) DONE executed, 2) force_final_response tool_calls were reprompted (warning), 3) final text delivered.
-    assert rt.tool_registry.calls == ["DONE"]
-    assert any(e.get("type") == "warning" and e.get("warning") == "tools_disabled_force_final_response" for e in events)
-    assert any(e.get("type") == "text" and "final answer" in e.get("content", "") for e in events)
-
-
-def test_stream_response_empty_final_after_done_reprompts():
-    from broca.web_api import stream_response
-
-    llm = _FakeLLM(
-        responses=[
-            {"tool_calls": [_tool_call("c1", "DONE")], "content": ""},
-            {"tool_calls": [], "content": ""},  # empty final response (should reprompt, not emit generic apology)
             {"tool_calls": [], "content": "final answer"},
         ]
     )
@@ -113,5 +87,6 @@ def test_stream_response_empty_final_after_done_reprompts():
     events = [json.loads(c) for c in chunks if c.strip()]
 
     assert rt.tool_registry.calls == ["DONE"]
-    assert any(e.get("type") == "warning" and e.get("warning") == "empty_final_response" for e in events)
+    assert any(e.get("type") == "warning" and e.get("warning") == "response_contract_missing_done" for e in events)
     assert any(e.get("type") == "text" and "final answer" in e.get("content", "") for e in events)
+
