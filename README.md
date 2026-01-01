@@ -101,6 +101,15 @@ playwright install
    cp .env.example .env  # Edit with your API keys
    ```
 
+#### Gemini rate limit retries (429 / TPM)
+If you use `BROCA_LLM_PROVIDER=gemini` and see frequent `429` errors, configure exponential backoff:
+
+- `BROCA_GEMINI_MAX_RETRIES` (default `6`)
+- `BROCA_GEMINI_BACKOFF_BASE_SECONDS` (default `1.0`)
+- `BROCA_GEMINI_BACKOFF_MAX_SECONDS` (default `60.0`)
+- `BROCA_GEMINI_BACKOFF_JITTER` (default `0.25`) — randomizes waits to avoid thundering herd
+- `BROCA_GEMINI_RESPECT_RETRY_AFTER` (default `true`) — honors `Retry-After` when provided
+
 2. **Run the REPL**:
    ```bash
    python -m broca.main_repl
