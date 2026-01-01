@@ -1,4 +1,0 @@
-Extended Z3 checks for planning assumptions
-case_all_true: sat
-case_ante_true_conseq_false: unsat
-case_ante_false: sat

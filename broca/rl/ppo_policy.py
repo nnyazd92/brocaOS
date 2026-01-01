@@ -392,8 +392,14 @@ class PPOPolicy:
         # Snapshot buffer up-front to avoid training while holding the lock.
         with self.buffer_lock:
             local_buffer = list(self.buffer)
-        if len(local_buffer) < self.config.batch_size:
+        if len(local_buffer) == 0:
             return
+
+        # `batch_size` is a mini-batch size, not a minimum-data threshold.
+        # Training is triggered by `buffer_size` in store_experience(), so if we get here with
+        # fewer samples than the configured mini-batch size, still train using a smaller batch.
+        # This avoids misconfiguration like: buffer_size=32, batch_size=64 (would never train).
+        effective_batch_size = int(min(int(self.config.batch_size), len(local_buffer)))
 
         ts_logger = None
         try:
@@ -407,7 +413,8 @@ class PPOPolicy:
                 ts_logger.info(
                     "PPO_TRAIN_START | "
                     f"n_experiences={len(local_buffer)} | "
-                    f"batch_size={int(self.config.batch_size)} | "
+                    f"minibatch_size={effective_batch_size} | "
+                    f"configured_batch_size={int(self.config.batch_size)} | "
                     f"ppo_epochs={int(self.config.ppo_epochs)} | "
                     f"clip_epsilon={float(self.config.clip_epsilon):.3f} | "
                     f"value_coef={float(self.config.value_coef):.3f} | "
@@ -490,6 +497,10 @@ class PPOPolicy:
         total_policy_loss = 0.0
         total_value_loss = 0.0
         total_entropy = 0.0
+        # Health monitoring aggregates (weighted by batch size)
+        total_kl = 0.0
+        total_clip_fraction = 0.0
+        total_weight = 0.0
         n_batches = 0
         
         # PPO training epochs
@@ -498,8 +509,8 @@ class PPOPolicy:
             indices = np.arange(len(local_buffer))
             np.random.shuffle(indices)
             
-            for start in range(0, len(indices), self.config.batch_size):
-                end = start + self.config.batch_size
+            for start in range(0, len(indices), effective_batch_size):
+                end = start + effective_batch_size
                 batch_indices = indices[start:end]
                 
                 # Get batch
@@ -516,9 +527,19 @@ class PPOPolicy:
                 # Compute losses
                 new_log_probs = dist.log_prob(batch_actions)
                 entropy = dist.entropy().mean()
+
+                # Health metrics
+                with torch.no_grad():
+                    # approx_kl ~ E[log pi_old(a|s) - log pi_new(a|s)]
+                    kl = (batch_old_log_probs - new_log_probs).mean()
+                    ratio = torch.exp(new_log_probs - batch_old_log_probs)
+                    clip_frac = (torch.abs(ratio - 1.0) > self.config.clip_epsilon).float().mean()
+                    w = float(len(batch_indices))
+                    total_kl += float(kl.item()) * w
+                    total_clip_fraction += float(clip_frac.item()) * w
+                    total_weight += w
                 
                 # PPO clipped objective
-                ratio = torch.exp(new_log_probs - batch_old_log_probs)
                 surr1 = ratio * batch_advantages
                 surr2 = torch.clamp(ratio, 1 - self.config.clip_epsilon, 1 + self.config.clip_epsilon) * batch_advantages
                 policy_loss = -torch.min(surr1, surr2).mean()
@@ -540,6 +561,26 @@ class PPOPolicy:
                 total_value_loss += float(value_loss.item())
                 total_entropy += float(entropy.item())
                 n_batches += 1
+
+        # Episode return estimate for monitoring.
+        episode_returns: List[float] = []
+        running = 0.0
+        for exp in local_buffer:
+            if not isinstance(exp, dict):
+                continue
+            try:
+                running += float(exp.get("reward", 0.0) or 0.0)
+            except Exception:
+                pass
+            if bool(exp.get("done", False)):
+                episode_returns.append(running)
+                running = 0.0
+        if not episode_returns:
+            # If the rollout doesn't include terminal transitions, treat it as one partial episode.
+            try:
+                episode_returns.append(float(sum(float(e.get("reward", 0.0) or 0.0) for e in local_buffer if isinstance(e, dict))))
+            except Exception:
+                episode_returns.append(0.0)
         
         with self.buffer_lock:
             # Remove the trained prefix, preserving any concurrently appended samples.
@@ -556,6 +597,44 @@ class PPOPolicy:
         
         logger.info(f"PPO training step {self.training_step} complete")
         logger.info(f"Average reward: {self.total_reward / max(1, self.episode_count):.4f}")
+
+        # Append per-update metrics to CSV for monitoring.
+        try:
+            from .ppo_training_logger import get_ppo_training_logger
+
+            approx_kl = (total_kl / total_weight) if total_weight > 0 else 0.0
+            clip_fraction = (total_clip_fraction / total_weight) if total_weight > 0 else 0.0
+
+            lr = None
+            try:
+                lr = float(self.optimizer.param_groups[0].get("lr"))
+            except Exception:
+                lr = None
+
+            get_ppo_training_logger().log_update(
+                {
+                    "training_step": int(self.training_step),
+                    "n_experiences": int(len(local_buffer)),
+                    "n_episodes": int(len(episode_returns)),
+                    "mean_episode_return": float(sum(episode_returns) / max(1, len(episode_returns))),
+                    "approx_kl": float(approx_kl),
+                    "clip_fraction": float(clip_fraction),
+                    "policy_entropy": float(total_entropy / max(1, n_batches)),
+                    "policy_loss": float(total_policy_loss / max(1, n_batches)),
+                    "value_loss": float(total_value_loss / max(1, n_batches)),
+                    "total_loss": float(total_loss / max(1, n_batches)),
+                    "learning_rate": lr,
+                    "clip_epsilon": float(self.config.clip_epsilon),
+                    "entropy_coef": float(self.config.entropy_coef),
+                    "value_coef": float(self.config.value_coef),
+                    "ppo_epochs": int(self.config.ppo_epochs),
+                    "configured_batch_size": int(self.config.batch_size),
+                    "configured_buffer_size": int(self.config.buffer_size),
+                    "minibatch_size": int(effective_batch_size),
+                }
+            )
+        except Exception:
+            pass
 
         try:
             if ts_logger is not None:
@@ -630,13 +709,10 @@ class PPOPolicy:
         self.training_step = checkpoint.get('training_step', 0)
         self.total_reward = checkpoint.get('total_reward', 0.0)
         self.episode_count = checkpoint.get('episode_count', 0)
-        # Restore config if present and compatible.
-        try:
-            cfg = checkpoint.get("config")
-            if isinstance(cfg, dict):
-                self.config = PPOConfig(**cfg)
-        except Exception:
-            pass
+        # IMPORTANT: Do NOT overwrite self.config from checkpoint.
+        # Runtime configuration (e.g., env vars) must control batch_size/buffer_size and other
+        # training hyperparameters across restarts. Loading the checkpoint's config can cause
+        # silent no-training behavior (e.g., checkpoint batch_size=64, runtime buffer_size=32).
         logger.info(f"Loaded PPO model from {path}")
     
     def get_training_metrics(self) -> Dict[str, Any]:

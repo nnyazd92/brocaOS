@@ -139,14 +139,22 @@ class GuidanceAggregator:
         # Get RL signals
         if self.rl_signal_aggregator:
             try:
-                rl_metrics = self.rl_signal_aggregator.compute_signals()
+                # Guidance must be fast and side-effect free: never block on LLM-based estimation.
+                rl_metrics = self.rl_signal_aggregator.compute_signals(allow_estimation=False)
                 context["rl_signals"] = {
                     "composite_reward": rl_metrics.composite_reward,
                     "dissonance_reward": rl_metrics.dissonance_reward,
+                    "dissonance_reward_varnorm": getattr(rl_metrics, "dissonance_reward_varnorm", 0.5),
                     "surprise_reward": rl_metrics.surprise_reward,
+                    "surprise_reward_varnorm": getattr(rl_metrics, "surprise_reward_varnorm", 0.5),
                     "curiosity_reward": rl_metrics.curiosity_reward,
+                    "curiosity_reward_varnorm": getattr(rl_metrics, "curiosity_reward_varnorm", 0.5),
                     "information_gain_reward": rl_metrics.information_gain_reward,
+                    "information_gain_reward_varnorm": getattr(rl_metrics, "information_gain_reward_varnorm", 0.5),
                     "coherence_reward": rl_metrics.coherence_reward,
+                    "coherence_reward_varnorm": getattr(rl_metrics, "coherence_reward_varnorm", 0.5),
+                    "valence_reward": getattr(rl_metrics, "valence_reward", 0.5),
+                    "valence_reward_varnorm": getattr(rl_metrics, "valence_reward_varnorm", 0.5),
                     "exploration_balance": rl_metrics.get_exploration_exploitation_balance(),
                 }
             except Exception as e:
@@ -250,6 +258,12 @@ class ContextCache:
         if key in self._cache:
             cached_context, timestamp = self._cache[key]
             age = current_time - timestamp
+
+            # If the clock appears to have moved backwards (e.g., in tests patching `time.time()`),
+            # interpret `current_time` as an offset since cache insertion rather than an absolute epoch time.
+            # This keeps TTL behavior stable under time mocking and avoids negative ages.
+            if age < 0:
+                age = current_time
             
             if age < self.ttl_seconds:
                 logger.debug(f"Context cache hit for key '{key}' (age: {age:.2f}s)")
@@ -366,10 +380,17 @@ class IncrementalContextUpdater:
                 updated_context["rl_signals"] = {
                     "composite_reward": rl_metrics.composite_reward,
                     "dissonance_reward": rl_metrics.dissonance_reward,
+                    "dissonance_reward_varnorm": getattr(rl_metrics, "dissonance_reward_varnorm", 0.5),
                     "surprise_reward": rl_metrics.surprise_reward,
+                    "surprise_reward_varnorm": getattr(rl_metrics, "surprise_reward_varnorm", 0.5),
                     "curiosity_reward": rl_metrics.curiosity_reward,
+                    "curiosity_reward_varnorm": getattr(rl_metrics, "curiosity_reward_varnorm", 0.5),
                     "information_gain_reward": rl_metrics.information_gain_reward,
+                    "information_gain_reward_varnorm": getattr(rl_metrics, "information_gain_reward_varnorm", 0.5),
                     "coherence_reward": rl_metrics.coherence_reward,
+                    "coherence_reward_varnorm": getattr(rl_metrics, "coherence_reward_varnorm", 0.5),
+                    "valence_reward": getattr(rl_metrics, "valence_reward", 0.5),
+                    "valence_reward_varnorm": getattr(rl_metrics, "valence_reward_varnorm", 0.5),
                     "exploration_balance": rl_metrics.get_exploration_exploitation_balance(),
                 }
             except Exception as e:
@@ -917,10 +938,22 @@ class ToolRanker:
         # Simple keyword matching (can be enhanced)
         tool_keywords = {
             "terminal": ["execute", "run", "command", "script", "code"],
+            "EXECUTE": ["execute", "run", "command", "script", "tests", "build"],
+            "READ_FILE": ["read", "open", "view", "inspect", "file"],
+            "WRITE_FILE": ["write", "create", "save", "file"],
+            "APPEND_FILE": ["append", "log", "add", "file"],
+            "PATCH_FILE": ["patch", "edit", "modify", "file"],
+            "LIST_DIR": ["list", "directory", "folder", "files"],
+            "STAT_PATH": ["stat", "metadata", "permissions", "size"],
             "web_search": ["search", "find", "information", "lookup"],
+            "WEB_SEARCH": ["search", "find", "information", "lookup"],
+            "WEB_FETCH": ["fetch", "download", "retrieve", "content", "pdf", "html"],
             "retrieve_memories": ["remember", "recall", "memory", "past"],
             "store_memory": ["remember", "save", "store", "learn"],
+            "MEMORY_GET": ["remember", "recall", "memory", "past"],
+            "MEMORY_PUT": ["remember", "save", "store", "learn"],
             "reasoning": ["reason", "think", "plan", "goal"],
+            "PLAN": ["plan", "steps", "approach"],
         }
         
         keywords = tool_keywords.get(tool_name, [])
@@ -947,9 +980,10 @@ class ToolRanker:
         
         # Map skill types to tools
         skill_tool_map = {
-            "technical": ["terminal", "environment_access"],
-            "analytical": ["retrieve_memories", "web_search", "reasoning"],
-            "procedural": ["terminal", "reasoning"],
+            # Prefer macro tool vocabulary; legacy universal actuators are intentionally excluded.
+            "technical": ["EXECUTE", "READ_FILE", "WRITE_FILE", "APPEND_FILE", "PATCH_FILE", "LIST_DIR", "STAT_PATH"],
+            "analytical": ["MEMORY_GET", "WEB_SEARCH", "WEB_FETCH", "SOLVE", "VERIFY", "INTERPRET"],
+            "procedural": ["PLAN", "EXECUTE", "READ_FILE", "WRITE_FILE", "PATCH_FILE"],
         }
         
         suggested_tools = skill_tool_map.get(skill_type, [])
@@ -1008,7 +1042,7 @@ class ToolValidator:
         self,
         tool_name: str,
         arguments: Dict[str, Any],
-        context: Dict[str, Any]
+        context: Optional[Dict[str, Any]]
     ) -> ValidationResult:
         """
         Validate a tool selection against constraints.
@@ -1025,8 +1059,11 @@ class ToolValidator:
         suggestions: List[str] = []
         confidence = 1.0
         
-        active_goals = context.get("active_goals", [])
-        rl_signals = context.get("rl_signals")
+        ctx = context if isinstance(context, dict) else {}
+        active_goals = ctx.get("active_goals", [])
+        if not isinstance(active_goals, list):
+            active_goals = []
+        rl_signals = ctx.get("rl_signals")
         
         # 1. Check goal constraints
         goal_validation = self._validate_against_goals(tool_name, active_goals)
@@ -1044,7 +1081,7 @@ class ToolValidator:
                 confidence *= 0.9  # RL validation is softer
         
         # 3. Check production rules (if available)
-        production_rules = context.get("production_rules", [])
+        production_rules = ctx.get("production_rules", [])
         if production_rules:
             rule_validation = self._validate_against_rules(tool_name, production_rules)
             if not rule_validation["valid"]:
@@ -1107,12 +1144,34 @@ class ToolValidator:
         
         # Check if tool conflicts with goal constraints
         for goal in active_goals:
+            if not isinstance(goal, dict):
+                continue
             goal_name = goal.get("name", "")
             goal_type = goal.get("goal_type", "")
             
             # Check for read-only goals
             if "read_only" in goal_name.lower() or "readonly" in goal_name.lower():
-                write_tools = ["store_memory", "update_memory", "delete_memory", "terminal"]
+                write_tools = [
+                    "store_memory",
+                    "update_memory",
+                    "delete_memory",
+                    "terminal",
+                    "WRITE_FILE",
+                    "APPEND_FILE",
+                    "PATCH_FILE",
+                    "EXECUTE",
+                    "MEMORY_PUT",
+                    "MEMORY_LINK",
+                    "MEMORY_DELETE",
+                    "MEMORY_UPDATE",
+                    "SELF_MODEL_UPDATE",
+                    "SELF_MODEL_ARCHIVE",
+                    "SET_GOALS",
+                    "DESIGN_REWARD",
+                    "UPDATE_POLICY",
+                    "PROMOTE_POLICY",
+                    "ROLLBACK_POLICY",
+                ]
                 if tool_name in write_tools:
                     result["valid"] = False
                     result["warnings"].append(
@@ -1135,7 +1194,7 @@ class ToolValidator:
         
         # If low composite reward, suggest tools that might improve it
         if composite_reward < 0.3:
-            info_tools = ["web_search", "retrieve_memories", "reasoning"]
+            info_tools = ["web_search", "WEB_SEARCH", "WEB_FETCH", "retrieve_memories", "MEMORY_GET", "reasoning", "PLAN"]
             if tool_name not in info_tools:
                 result["warnings"].append(
                     f"Low composite reward ({composite_reward:.2f}). Consider information-gathering tools."
@@ -1553,4 +1612,3 @@ class ToolSelectionGuidance:
         
         # Invalidate context cache on tool usage (state changed)
         self.context_cache.invalidate()
-

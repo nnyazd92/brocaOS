@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
-from datetime import datetime
+from datetime import datetime, timezone
 
 from . import Tool
 from ..memory.manager import MemoryManager
@@ -114,6 +114,19 @@ class StoreMemoryTool:
                     "minimum": 0.0,
                     "maximum": 1.0,
                     "default": 0.7
+                },
+                "valid_from": {
+                    "type": "string",
+                    "description": "Optional ISO datetime when this fact became true (temporal metadata)"
+                },
+                "valid_until": {
+                    "type": "string",
+                    "description": "Optional ISO datetime when this fact stopped being true (temporal metadata)"
+                },
+                "temporal_scope": {
+                    "type": "string",
+                    "enum": ["past", "present", "future", "timeless"],
+                    "description": "Optional temporal classification for this memory"
                 }
             },
             "required": ["namespace", "text"]
@@ -129,6 +142,9 @@ class StoreMemoryTool:
         conflict_check: bool = False,
         auto_resolve: bool = False,
         ask_user_threshold: float = 0.7,
+        valid_from: Optional[str] = None,
+        valid_until: Optional[str] = None,
+        temporal_scope: Optional[str] = None,
         source_type: Optional[str] = None,
         source_metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -160,6 +176,21 @@ class StoreMemoryTool:
                 raise ValueError(f"Importance must be between 0.0 and 1.0, got {importance}")
             
             tags = tags or []
+
+            def parse_dt(value: Optional[str]) -> Optional[datetime]:
+                if value is None:
+                    return None
+                if not isinstance(value, str) or not value.strip():
+                    return None
+                dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(timezone.utc)
+
+            parsed_valid_from = parse_dt(valid_from)
+            parsed_valid_until = parse_dt(valid_until)
+            if parsed_valid_from and parsed_valid_until and parsed_valid_from > parsed_valid_until:
+                raise ValueError("valid_from cannot be after valid_until")
             
             # Create source metadata (default to USER for user-initiated storage)
             if source_type is None:
@@ -197,6 +228,9 @@ class StoreMemoryTool:
                             deduplicate=deduplicate,
                             conflict_check=conflict_check,
                             auto_resolve=auto_resolve,
+                            valid_from=parsed_valid_from,
+                            valid_until=parsed_valid_until,
+                            temporal_scope=temporal_scope,
                             auto_link=True
                         )
                     )
@@ -223,6 +257,9 @@ class StoreMemoryTool:
                         deduplicate=deduplicate,
                         conflict_check=conflict_check,
                         auto_resolve=auto_resolve,
+                        valid_from=parsed_valid_from,
+                        valid_until=parsed_valid_until,
+                        temporal_scope=temporal_scope,
                         auto_link=True
                     )
             else:
@@ -236,6 +273,9 @@ class StoreMemoryTool:
                     deduplicate=deduplicate,
                     conflict_check=conflict_check,
                     auto_resolve=auto_resolve,
+                    valid_from=parsed_valid_from,
+                    valid_until=parsed_valid_until,
+                    temporal_scope=temporal_scope,
                     auto_link=True  # Default to auto-linking relationships
                 )
             
@@ -755,6 +795,9 @@ class RetrieveMemoriesTool:
                     "importance": memory.importance,
                     "created_at": memory.created_at.isoformat(),
                     "last_used_at": memory.last_used_at.isoformat(),
+                    "valid_from": memory.valid_from.isoformat() if memory.valid_from else None,
+                    "valid_until": memory.valid_until.isoformat() if memory.valid_until else None,
+                    "temporal_scope": memory.temporal_scope,
                     "age_days": age.days + age.seconds / 86400,
                     "age_human": age_human,
                     "is_recent": is_recent
@@ -888,6 +931,13 @@ class RetrieveMemoriesTool:
                 lines.append(f"   Tags: {', '.join(memory['tags'])}")
             lines.append(f"   Importance: {memory['importance']:.2f}")
             lines.append(f"   Age: {memory.get('age_human', 'unknown')} (created: {memory['created_at'][:10]})")
+            if memory.get("temporal_scope") or memory.get("valid_from") or memory.get("valid_until"):
+                lines.append(
+                    "   Validity: "
+                    f"scope={memory.get('temporal_scope') or 'unknown'}, "
+                    f"from={memory.get('valid_from') or 'n/a'}, "
+                    f"until={memory.get('valid_until') or 'n/a'}"
+                )
             if memory.get('is_recent'):
                 lines.append(f"   ✓ Recent (within 24 hours)")
             
@@ -1107,6 +1157,19 @@ class UpdateMemoryTool:
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "New tags list (optional)"
+                },
+                "valid_from": {
+                    "type": "string",
+                    "description": "Optional ISO datetime when this fact became true"
+                },
+                "valid_until": {
+                    "type": "string",
+                    "description": "Optional ISO datetime when this fact stopped being true"
+                },
+                "temporal_scope": {
+                    "type": "string",
+                    "enum": ["past", "present", "future", "timeless"],
+                    "description": "Optional temporal classification"
                 }
             },
             "required": ["memory_id"]
@@ -1118,7 +1181,10 @@ class UpdateMemoryTool:
         text: Optional[str] = None,
         namespace: Optional[str] = None,
         importance: Optional[float] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        valid_from: Optional[str] = None,
+        valid_until: Optional[str] = None,
+        temporal_scope: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Execute memory update.
@@ -1144,13 +1210,31 @@ class UpdateMemoryTool:
             if importance is not None and not (0.0 <= importance <= 1.0):
                 raise ValueError(f"Importance must be between 0.0 and 1.0, got {importance}")
             
+            def parse_dt(value: Optional[str]) -> Optional[datetime]:
+                if value is None:
+                    return None
+                if not isinstance(value, str) or not value.strip():
+                    return None
+                dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(timezone.utc)
+
+            parsed_valid_from = parse_dt(valid_from)
+            parsed_valid_until = parse_dt(valid_until)
+            if parsed_valid_from and parsed_valid_until and parsed_valid_from > parsed_valid_until:
+                raise ValueError("valid_from cannot be after valid_until")
+
             # Update memory
             success = self.memory_manager.update_memory(
                 memory_id=memory_id,
                 text=text.strip() if text else None,
                 namespace=namespace.strip() if namespace else None,
                 importance=importance,
-                tags=tags
+                tags=tags,
+                valid_from=parsed_valid_from,
+                valid_until=parsed_valid_until,
+                temporal_scope=temporal_scope,
             )
             
             if success:

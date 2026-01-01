@@ -56,6 +56,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from ..internal_sensing.data_quality import measurement_uncertainty_from_quality
+from .reward_normalizer import RewardVarianceNormalizer
 
 if TYPE_CHECKING:
     from .cognitive_dissonance import CognitiveDissonanceMonitor, DissonanceMetrics
@@ -75,7 +76,16 @@ class RLSignalMetrics:
     curiosity_reward: float = 0.0  # curiosity (maximize curiosity = maximize reward)
     information_gain_reward: float = 0.0  # info_gain (maximize information gain)
     coherence_reward: float = 0.0  # coherence_pleasure (maximize coherence)
+    valence_reward: float = 0.5  # mapped from valence (-1..1) -> (0..1); maximize positive valence
     composite_reward: float = 0.0  # Weighted combination
+
+    # Variance-normalized reward components (running variance; squashed back to [0,1]).
+    dissonance_reward_varnorm: float = 0.5
+    surprise_reward_varnorm: float = 0.5
+    curiosity_reward_varnorm: float = 0.5
+    information_gain_reward_varnorm: float = 0.5
+    coherence_reward_varnorm: float = 0.5
+    valence_reward_varnorm: float = 0.5
     
     # Weights (configurable, should sum to ~1.0)
     weight_dissonance: float = 0.3
@@ -83,11 +93,12 @@ class RLSignalMetrics:
     weight_curiosity: float = 0.2
     weight_info_gain: float = 0.15
     weight_coherence: float = 0.15
+    weight_valence: float = 0.0
 
     # --- Raw / intermediate signals (for debugging + learning) ---
     # Convention: raw_* are in "signal space" where higher means "more of the thing".
     # Rewards are typically in "reward space" where higher means "better".
-    schema_version: int = 4
+    schema_version: int = 5
     dissonance_raw: Optional[float] = None  # overall_dissonance (0..1); higher = more dissonance
     has_dissonance_data: Optional[bool] = None
     dissonance_estimator: Optional[str] = None  # "measured" | "estimated_llm" | "unavailable"
@@ -121,6 +132,13 @@ class RLSignalMetrics:
     info_gain_estimator: Optional[str] = None  # "epistemic_bridge" | "provided" | "estimated_llm" | "unavailable"
     info_gain_uncertainty: Optional[float] = None  # 0..1
 
+    # Valence (from affect monitor): raw in [-1,1], reward in [0,1]
+    valence_raw: Optional[float] = None
+    valence_has_data: Optional[bool] = None
+    valence_data_quality: Optional[str] = None
+    valence_estimator: Optional[str] = None  # "affective" | "unavailable"
+    valence_uncertainty: Optional[float] = None  # 0..1
+
     # --- Epistemic uncertainty (separate from measurement uncertainty) ---
     epistemic_uncertainty_total: Optional[float] = None
     epistemic_uncertainty_epistemic: Optional[float] = None
@@ -143,6 +161,7 @@ class RLSignalMetrics:
         self.curiosity_reward = max(0.0, min(1.0, float(self.curiosity_reward)))
         self.information_gain_reward = max(0.0, min(1.0, float(self.information_gain_reward)))
         self.coherence_reward = max(0.0, min(1.0, float(self.coherence_reward)))
+        self.valence_reward = max(0.0, min(1.0, float(self.valence_reward)))
 
         # Normalize weights to sum to 1.0
         total_weight = (
@@ -150,7 +169,8 @@ class RLSignalMetrics:
             self.weight_surprise +
             self.weight_curiosity +
             self.weight_info_gain +
-            self.weight_coherence
+            self.weight_coherence +
+            self.weight_valence
         )
         
         # Treat extremely tiny totals as zero to avoid overflow when normalizing.
@@ -162,6 +182,7 @@ class RLSignalMetrics:
             self.weight_curiosity = 0.2
             self.weight_info_gain = 0.2
             self.weight_coherence = 0.2
+            self.weight_valence = 0.0
             total_weight = 1.0
         elif abs(total_weight - 1.0) > 0.01:
             # Normalize weights
@@ -171,6 +192,7 @@ class RLSignalMetrics:
             self.weight_curiosity *= scale
             self.weight_info_gain *= scale
             self.weight_coherence *= scale
+            self.weight_valence *= scale
         
         # Compute weighted sum
         self.composite_reward = (
@@ -178,7 +200,8 @@ class RLSignalMetrics:
             self.surprise_reward * self.weight_surprise +
             self.curiosity_reward * self.weight_curiosity +
             self.information_gain_reward * self.weight_info_gain +
-            self.coherence_reward * self.weight_coherence
+            self.coherence_reward * self.weight_coherence +
+            self.valence_reward * self.weight_valence
         )
         
         # Ensure composite is within convex hull of components (defensive vs float drift).
@@ -188,6 +211,7 @@ class RLSignalMetrics:
             self.curiosity_reward,
             self.information_gain_reward,
             self.coherence_reward,
+            self.valence_reward,
         )
         max_component = max(
             self.dissonance_reward,
@@ -195,6 +219,7 @@ class RLSignalMetrics:
             self.curiosity_reward,
             self.information_gain_reward,
             self.coherence_reward,
+            self.valence_reward,
         )
         self.composite_reward = max(min_component, min(max_component, self.composite_reward))
 
@@ -205,7 +230,8 @@ class RLSignalMetrics:
             f"RL signal metrics computed: composite={self.composite_reward:.4f}, "
             f"dissonance={self.dissonance_reward:.4f}, surprise={self.surprise_reward:.4f}, "
             f"curiosity={self.curiosity_reward:.4f}, info_gain={self.information_gain_reward:.4f}, "
-            f"coherence={self.coherence_reward:.4f}, exploration_balance={self.get_exploration_exploitation_balance():.4f}",
+            f"coherence={self.coherence_reward:.4f}, valence={self.valence_reward:.4f}, "
+            f"exploration_balance={self.get_exploration_exploitation_balance():.4f}",
             extra={
                 "event": "rl_signal_metrics_computed",
                 "composite_reward": self.composite_reward,
@@ -214,6 +240,7 @@ class RLSignalMetrics:
                 "curiosity_reward": self.curiosity_reward,
                 "information_gain_reward": self.information_gain_reward,
                 "coherence_reward": self.coherence_reward,
+                "valence_reward": self.valence_reward,
                 "exploration_balance": self.get_exploration_exploitation_balance(),
             }
         )
@@ -314,11 +341,13 @@ class RLSignalAggregator:
         weight_curiosity: float = 0.2,
         weight_info_gain: float = 0.15,
         weight_coherence: float = 0.15,
+        weight_valence: float = 0.0,
         cognitive_dissonance_monitor: Optional["CognitiveDissonanceMonitor"] = None,
         affective_monitor: Optional["ComputationalAffectMonitor"] = None,
         predictive_interoception: Optional["PredictiveInteroception"] = None,
         epistemic_bridge: Optional[Any] = None,
         estimator: Optional[Any] = None,
+        reward_normalizer: Optional[RewardVarianceNormalizer] = None,
     ):
         """
         Initialize RL signal aggregator.
@@ -339,18 +368,20 @@ class RLSignalAggregator:
         self.weight_curiosity = weight_curiosity
         self.weight_info_gain = weight_info_gain
         self.weight_coherence = weight_coherence
+        self.weight_valence = weight_valence
         
         self.cognitive_dissonance_monitor = cognitive_dissonance_monitor
         self.affective_monitor = affective_monitor
         self.predictive_interoception = predictive_interoception
         self.epistemic_bridge = epistemic_bridge
         self.estimator = estimator
+        self.reward_normalizer = reward_normalizer
         
         logger.info(
             f"Initialized RLSignalAggregator with weights: "
             f"dissonance={weight_dissonance:.2f}, surprise={weight_surprise:.2f}, "
             f"curiosity={weight_curiosity:.2f}, info_gain={weight_info_gain:.2f}, "
-            f"coherence={weight_coherence:.2f}"
+            f"coherence={weight_coherence:.2f}, valence={weight_valence:.2f}"
         )
     
     def compute_signals(
@@ -359,6 +390,8 @@ class RLSignalAggregator:
         affective_state: Optional[Dict[str, Any]] = None,
         prediction_error: Optional[float] = None,
         information_gain: Optional[float] = None,
+        *,
+        allow_estimation: bool = True,
     ) -> RLSignalMetrics:
         """
         Compute all RL signals from available sources.
@@ -379,6 +412,7 @@ class RLSignalAggregator:
             weight_curiosity=self.weight_curiosity,
             weight_info_gain=self.weight_info_gain,
             weight_coherence=self.weight_coherence,
+            weight_valence=getattr(self, "weight_valence", 0.0),
         )
 
         def _quality_is_usable(q: Optional[str]) -> bool:
@@ -503,7 +537,7 @@ class RLSignalAggregator:
                 if not (has_data and has_sufficient_data):
                     # Missing/low-quality data: DO NOT interpret defaults as real measurements.
                     # Use estimator if available, otherwise fall back to neutral.
-                    if self.estimator and hasattr(self.estimator, "estimate_dissonance"):
+                    if allow_estimation and self.estimator and hasattr(self.estimator, "estimate_dissonance"):
                         try:
                             est_dissonance, _est_uncertainty = self.estimator.estimate_dissonance(
                                 context={"dissonance_data": dissonance_data}
@@ -609,7 +643,7 @@ class RLSignalAggregator:
                     metrics.surprise_uncertainty = _meas_unc(q)
                 else:
                     # Low-quality/missing affective surprise: estimate if possible
-                    if self.estimator and hasattr(self.estimator, "estimate_surprise"):
+                    if allow_estimation and self.estimator and hasattr(self.estimator, "estimate_surprise"):
                         try:
                             est_s, est_u = self.estimator.estimate_surprise(context={"affective_state": affective})
                             est_s = max(0.0, min(1.0, float(est_s)))
@@ -707,7 +741,7 @@ class RLSignalAggregator:
                     metrics.curiosity_estimator = "affective"
                     metrics.curiosity_uncertainty = _meas_unc(q)
                 else:
-                    if self.estimator and hasattr(self.estimator, "estimate_curiosity"):
+                    if allow_estimation and self.estimator and hasattr(self.estimator, "estimate_curiosity"):
                         try:
                             est_c, est_u = self.estimator.estimate_curiosity(context={"affective_state": affective})
                             est_c = max(0.0, min(1.0, float(est_c)))
@@ -770,7 +804,7 @@ class RLSignalAggregator:
                         metrics.info_gain_uncertainty = _meas_unc(q, sample_size=sample_size_i)
                     else:
                         # Missing/low-quality epistemic info gain -> estimate if possible.
-                        if self.estimator and hasattr(self.estimator, "estimate_information_gain"):
+                        if allow_estimation and self.estimator and hasattr(self.estimator, "estimate_information_gain"):
                             try:
                                 est_ig, est_u = self.estimator.estimate_information_gain(context={"epistemic_info": info})
                                 est_ig = max(0.0, min(1.0, float(est_ig)))
@@ -839,7 +873,7 @@ class RLSignalAggregator:
                     metrics.coherence_estimator = "affective"
                     metrics.coherence_uncertainty = _meas_unc(q)
                 else:
-                    if self.estimator and hasattr(self.estimator, "estimate_coherence"):
+                    if allow_estimation and self.estimator and hasattr(self.estimator, "estimate_coherence"):
                         try:
                             est_coh, est_u = self.estimator.estimate_coherence(context={"affective_state": affective})
                             est_coh = max(0.0, min(1.0, float(est_coh)))
@@ -861,9 +895,62 @@ class RLSignalAggregator:
         else:
             metrics.coherence_reward = 0.5  # Default moderate if unavailable
             metrics.coherence_estimator = "unavailable"
+
+        # 6. Valence reward: map valence (-1..1) -> reward (0..1)
+        if affective_state:
+            valence = affective_state.get("valence", 0.0)
+            try:
+                vraw = max(-1.0, min(1.0, float(valence)))
+            except Exception:
+                vraw = 0.0
+            metrics.valence_raw = vraw
+            metrics.valence_reward = max(0.0, min(1.0, (vraw + 1.0) / 2.0))
+            q = (affective_state.get("data_quality") or {}).get("valence") if isinstance(affective_state.get("data_quality"), dict) else None
+            metrics.valence_data_quality = q
+            metrics.valence_has_data = _quality_is_usable(q)
+            metrics.valence_estimator = "affective" if metrics.valence_has_data else None
+            metrics.valence_uncertainty = _meas_unc(q)
+        elif self.affective_monitor:
+            try:
+                affective = self.affective_monitor.sample_affective_state()
+                valence = affective.get("valence", 0.0)
+                try:
+                    vraw = max(-1.0, min(1.0, float(valence)))
+                except Exception:
+                    vraw = 0.0
+                metrics.valence_raw = vraw
+                metrics.valence_reward = max(0.0, min(1.0, (vraw + 1.0) / 2.0))
+                q = (affective.get("data_quality") or {}).get("valence") if isinstance(affective.get("data_quality"), dict) else None
+                metrics.valence_data_quality = q
+                metrics.valence_has_data = _quality_is_usable(q)
+                metrics.valence_estimator = "affective" if metrics.valence_has_data else None
+                metrics.valence_uncertainty = _meas_unc(q)
+            except Exception as e:
+                logger.debug(f"Error getting valence signal: {e}")
+                metrics.valence_raw = None
+                metrics.valence_reward = 0.5
+                metrics.valence_estimator = "unavailable"
+        else:
+            metrics.valence_raw = None
+            metrics.valence_reward = 0.5
+            metrics.valence_estimator = "unavailable"
         
         # Compute composite reward
         metrics.compute_composite()
+
+        # Running-variance normalization for reward components (for state features).
+        if getattr(self, "reward_normalizer", None):
+            try:
+                rn = self.reward_normalizer
+                _, metrics.dissonance_reward_varnorm = rn.normalize("dissonance_reward", metrics.dissonance_reward)
+                _, metrics.surprise_reward_varnorm = rn.normalize("surprise_reward", metrics.surprise_reward)
+                _, metrics.curiosity_reward_varnorm = rn.normalize("curiosity_reward", metrics.curiosity_reward)
+                _, metrics.information_gain_reward_varnorm = rn.normalize("information_gain_reward", metrics.information_gain_reward)
+                _, metrics.coherence_reward_varnorm = rn.normalize("coherence_reward", metrics.coherence_reward)
+                _, metrics.valence_reward_varnorm = rn.normalize("valence_reward", metrics.valence_reward)
+            except Exception:
+                # Keep defaults (0.5) if normalizer fails.
+                pass
 
         # Epistemic uncertainty (separate from measurement uncertainty)
         if self.epistemic_bridge and hasattr(self.epistemic_bridge, "get_aggregated_uncertainty"):
@@ -890,7 +977,8 @@ class RLSignalAggregator:
             f"RL signals computed: composite={metrics.composite_reward:.4f}, "
             f"dissonance={metrics.dissonance_reward:.4f}, surprise={metrics.surprise_reward:.4f}, "
             f"curiosity={metrics.curiosity_reward:.4f}, info_gain={metrics.information_gain_reward:.4f}, "
-            f"coherence={metrics.coherence_reward:.4f}, exploration_balance={metrics.get_exploration_exploitation_balance():.4f}",
+            f"coherence={metrics.coherence_reward:.4f}, valence={metrics.valence_reward:.4f}, "
+            f"exploration_balance={metrics.get_exploration_exploitation_balance():.4f}",
             extra={
                 "event": "rl_signals_computed",
                 "composite_reward": metrics.composite_reward,
@@ -899,6 +987,7 @@ class RLSignalAggregator:
                 "curiosity_reward": metrics.curiosity_reward,
                 "information_gain_reward": metrics.information_gain_reward,
                 "coherence_reward": metrics.coherence_reward,
+                "valence_reward": metrics.valence_reward,
                 "exploration_balance": metrics.get_exploration_exploitation_balance(),
                 "has_dissonance": dissonance_metrics is not None or self.cognitive_dissonance_monitor is not None,
                 "has_affective": affective_state is not None or self.affective_monitor is not None,
@@ -1151,4 +1240,3 @@ class RLSignalStorage:
         if self.storage_path.exists():
             self.storage_path.unlink()
         logger.info("Cleared RL signal history")
-

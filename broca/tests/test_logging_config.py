@@ -42,6 +42,7 @@ class TestJsonFormatter:
         output = formatter.format(record)
         parsed = json.loads(output)
         
+        assert "timestamp" in parsed
         assert parsed["level"] == "INFO"
         assert parsed["logger"] == "test_logger"
         assert parsed["message"] == "Test message"
@@ -719,4 +720,3 @@ class TestLoggingIntegration:
         
         # Restore original config
         logging_config.config = original_config
-

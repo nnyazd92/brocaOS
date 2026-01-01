@@ -49,9 +49,9 @@ class RLRewardLogger:
         self._last_summary_time = time.time()
         self._summary_interval = 300  # Log summary every 5 minutes
 
-        # CSV schema (v4 adds epistemic uncertainty fields; v3 already includes per-signal missingness/estimator/uncertainty)
-        self.schema_version = 4
-        self._fieldnames_v4 = [
+        # CSV schema (v5 adds valence + running-variance normalized reward components)
+        self.schema_version = 5
+        self._fieldnames_v5 = [
             # v1 fields
             "timestamp",
             "dissonance_reward",
@@ -59,13 +59,21 @@ class RLRewardLogger:
             "curiosity_reward",
             "information_gain_reward",
             "coherence_reward",
+            "valence_reward",
             "composite_reward",
             "exploration_balance",
+            "dissonance_reward_varnorm",
+            "surprise_reward_varnorm",
+            "curiosity_reward_varnorm",
+            "information_gain_reward_varnorm",
+            "coherence_reward_varnorm",
+            "valence_reward_varnorm",
             "weight_dissonance",
             "weight_surprise",
             "weight_curiosity",
             "weight_info_gain",
             "weight_coherence",
+            "weight_valence",
             "context",
             # v2+ additions
             "schema_version",
@@ -99,6 +107,13 @@ class RLRewardLogger:
             "info_gain_has_data",
             "info_gain_estimator",
             "info_gain_uncertainty",
+
+            # v5: valence metadata
+            "valence_raw",
+            "valence_has_data",
+            "valence_data_quality",
+            "valence_estimator",
+            "valence_uncertainty",
 
             # v4: epistemic uncertainty (separate from measurement uncertainty)
             "epistemic_uncertainty_total",
@@ -202,13 +217,21 @@ class RLRewardLogger:
                 "curiosity_reward": round(float(getattr(rl_metrics, "curiosity_reward", 0.0)), 6),
                 "information_gain_reward": round(float(getattr(rl_metrics, "information_gain_reward", 0.0)), 6),
                 "coherence_reward": round(float(getattr(rl_metrics, "coherence_reward", 0.0)), 6),
+                "valence_reward": round(float(getattr(rl_metrics, "valence_reward", 0.5)), 6),
                 "composite_reward": round(float(getattr(rl_metrics, "composite_reward", 0.0)), 6),
                 "exploration_balance": round(float(rl_metrics.get_exploration_exploitation_balance()), 6),
+                "dissonance_reward_varnorm": round(float(getattr(rl_metrics, "dissonance_reward_varnorm", 0.5)), 6),
+                "surprise_reward_varnorm": round(float(getattr(rl_metrics, "surprise_reward_varnorm", 0.5)), 6),
+                "curiosity_reward_varnorm": round(float(getattr(rl_metrics, "curiosity_reward_varnorm", 0.5)), 6),
+                "information_gain_reward_varnorm": round(float(getattr(rl_metrics, "information_gain_reward_varnorm", 0.5)), 6),
+                "coherence_reward_varnorm": round(float(getattr(rl_metrics, "coherence_reward_varnorm", 0.5)), 6),
+                "valence_reward_varnorm": round(float(getattr(rl_metrics, "valence_reward_varnorm", 0.5)), 6),
                 "weight_dissonance": round(float(getattr(rl_metrics, "weight_dissonance", 0.0)), 6),
                 "weight_surprise": round(float(getattr(rl_metrics, "weight_surprise", 0.0)), 6),
                 "weight_curiosity": round(float(getattr(rl_metrics, "weight_curiosity", 0.0)), 6),
                 "weight_info_gain": round(float(getattr(rl_metrics, "weight_info_gain", 0.0)), 6),
                 "weight_coherence": round(float(getattr(rl_metrics, "weight_coherence", 0.0)), 6),
+                "weight_valence": round(float(getattr(rl_metrics, "weight_valence", 0.0)), 6),
                 "context": context or "",
 
                 "schema_version": int(getattr(rl_metrics, "schema_version", self.schema_version)),
@@ -243,6 +266,12 @@ class RLRewardLogger:
                 "info_gain_estimator": getattr(rl_metrics, "info_gain_estimator", None),
                 "info_gain_uncertainty": getattr(rl_metrics, "info_gain_uncertainty", None),
 
+                "valence_raw": getattr(rl_metrics, "valence_raw", None),
+                "valence_has_data": getattr(rl_metrics, "valence_has_data", None),
+                "valence_data_quality": getattr(rl_metrics, "valence_data_quality", None),
+                "valence_estimator": getattr(rl_metrics, "valence_estimator", None),
+                "valence_uncertainty": getattr(rl_metrics, "valence_uncertainty", None),
+
                 "epistemic_uncertainty_total": getattr(rl_metrics, "epistemic_uncertainty_total", None),
                 "epistemic_uncertainty_epistemic": getattr(rl_metrics, "epistemic_uncertainty_epistemic", None),
                 "epistemic_uncertainty_aleatoric": getattr(rl_metrics, "epistemic_uncertainty_aleatoric", None),
@@ -259,7 +288,7 @@ class RLRewardLogger:
                 
                 mode = "a" if (self.append and file_exists) else "w"
                 with open(self.log_file, mode, newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=self._fieldnames_v4)
+                    writer = csv.DictWriter(f, fieldnames=self._fieldnames_v5)
                     
                     if write_header:
                         writer.writeheader()
@@ -351,12 +380,12 @@ class RLRewardLogger:
 
             is_headerless_current = (
                 ("timestamp" not in [c.strip() for c in first_row if isinstance(c, str)])
-                and len(first_row) == len(self._fieldnames_v4)
+                and len(first_row) == len(self._fieldnames_v5)
                 and _looks_like_iso_ts(str(first_row[0]))
             )
 
             # Normal headered case
-            if not is_headerless_current and list(first_row) == self._fieldnames_v4:
+            if not is_headerless_current and list(first_row) == self._fieldnames_v5:
                 return
 
             ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -379,17 +408,17 @@ class RLRewardLogger:
                     suffix=".tmp",
                 ) as tf:
                     tmp_path = Path(tf.name)
-                    writer = csv.DictWriter(tf, fieldnames=self._fieldnames_v4)
+                    writer = csv.DictWriter(tf, fieldnames=self._fieldnames_v5)
                     writer.writeheader()
                     for prow in positional_rows:
-                        if len(prow) != len(self._fieldnames_v4):
+                        if len(prow) != len(self._fieldnames_v5):
                             # Skip malformed trailing blank lines
                             if len([c for c in prow if str(c).strip()]) == 0:
                                 continue
                             raise ValueError(
-                                f"Headerless rewards file has row with {len(prow)} cols; expected {len(self._fieldnames_v4)}"
+                                f"Headerless rewards file has row with {len(prow)} cols; expected {len(self._fieldnames_v5)}"
                             )
-                        out = {k: prow[i] for i, k in enumerate(self._fieldnames_v4)}
+                        out = {k: prow[i] for i, k in enumerate(self._fieldnames_v5)}
                         writer.writerow(out)
 
                 tmp_path.replace(self.log_file)
@@ -417,11 +446,11 @@ class RLRewardLogger:
                 suffix=".tmp",
             ) as tf:
                 tmp_path = Path(tf.name)
-                writer = csv.DictWriter(tf, fieldnames=self._fieldnames_v4)
+                writer = csv.DictWriter(tf, fieldnames=self._fieldnames_v5)
                 writer.writeheader()
 
                 for r in old_rows:
-                    out = {k: "" for k in self._fieldnames_v4}
+                    out = {k: "" for k in self._fieldnames_v5}
                     for k in old_fieldnames:
                         if k in out:
                             out[k] = r.get(k, "")
@@ -467,4 +496,3 @@ class RLRewardLogger:
                 "log_file": str(self.log_file.absolute()),
             }
         )
-

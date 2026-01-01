@@ -18,6 +18,7 @@ import logging
 import time
 import hashlib
 import itertools
+import shlex
 
 from . import Tool
 from ..config import config
@@ -33,6 +34,37 @@ if TYPE_CHECKING:
     from ..rl.online_policy import OnlinePolicyRanker, ToolSelection
 
 logger = logging.getLogger(__name__)
+
+# Hard limit for how many times the model can attempt a non-whitelisted EXECUTE
+# in a single user turn before we stop accepting further noncompliant EXECUTE calls.
+_EXECUTE_WHITELIST_RETRY_LIMIT = 3
+
+
+def _extract_base_command(cmd: Any) -> str:
+    """
+    Best-effort extraction of the "base command" from a shell command string.
+
+    Matches `ExecuteTool` behavior: skips leading env var assignments like FOO=bar.
+    """
+    if not isinstance(cmd, str):
+        return ""
+    cmd_s = cmd.strip()
+    if not cmd_s:
+        return ""
+    try:
+        parts = shlex.split(cmd_s)
+        for part in parts:
+            if (
+                "=" in part
+                and not part.startswith(("./", "/"))
+                and part.split("=", 1)[0].isidentifier()
+            ):
+                continue
+            return part
+    except Exception:
+        pass
+    parts2 = cmd_s.split()
+    return parts2[0] if parts2 else ""
 
 # Import tool selection logger from rl module (uses same dedicated log file)
 _tool_selection_logger = None
@@ -103,6 +135,15 @@ class ToolRegistry:
         # Policy mode (read-only)
         # Read from env first (to support tests patching os.environ), fallback to config
         self._policy_mode = os.getenv("BROCA_TOOLS_MODE", getattr(config.tools, "tools_mode", "normal"))
+
+        # Governance policy (capability gating / scopes / budgets / audit)
+        self._governance_engine = None
+        try:
+            from ..governance.policy import GovernanceEngine
+
+            self._governance_engine = GovernanceEngine()
+        except Exception:
+            self._governance_engine = None
         
         # Cache last RL selection for outcome recording
         self._last_rl_selection: Optional["ToolSelection"] = None
@@ -126,12 +167,33 @@ class ToolRegistry:
         self._sticky_forced_tool: Optional[str] = None
         self._sticky_forced_blocks: int = 0
 
+        # DONE macro: once called, tools are disabled for the remainder of the current user turn
+        # so the next LLM iteration is forced to produce a natural-language answer.
+        self._force_final_response: bool = False
+
+        # Per-user-turn safety counters (reset by start_turn()).
+        self._turn_no: Optional[int] = None
+        self._execute_whitelist_block_count: int = 0
+        self._execute_whitelist_block_by_base: Dict[str, int] = {}
+
         logger.debug("Initialized ToolRegistry")
 
     def start_turn(self, turn_no: int) -> None:
         """Reset per-turn counters at start of a new user turn."""
-        # No-op: kept for API compatibility, but no counters to reset
-        pass
+        self._turn_no = int(turn_no) if isinstance(turn_no, int) else None
+        self._execute_whitelist_block_count = 0
+        self._execute_whitelist_block_by_base = {}
+        # Reset per-turn sticky forced exploration to avoid cross-turn action-space collapse.
+        self._sticky_forced_selection = None
+        self._sticky_forced_context = None
+        self._sticky_forced_tool = None
+        self._sticky_forced_blocks = 0
+        # Reset DONE latch for new user turn.
+        self._force_final_response = False
+
+    @property
+    def force_final_response(self) -> bool:
+        return bool(self._force_final_response)
     
     def set_learning_tool(self, learning_tool: Optional[Any]) -> None:
         """
@@ -177,6 +239,11 @@ class ToolRegistry:
             - None if RL is disabled or not available
         """
         ts_logger = _get_tool_selection_logger()
+
+        # If DONE was called, we intentionally disable tools and let the model answer.
+        if self._force_final_response:
+            ts_logger.info("REGISTRY_RL | status=disabled | reason=force_final_response")
+            return None
         
         if not config.rl.enabled:
             ts_logger.debug("REGISTRY_RL | status=disabled | reason=config.rl.enabled=False")
@@ -186,7 +253,7 @@ class ToolRegistry:
             ts_logger.debug("REGISTRY_RL | status=unavailable | reason=no_policy_ranker")
             return None
         
-        tools = self.list_tools()
+        tools = self._visible_tools()
         if not tools:
             ts_logger.debug("REGISTRY_RL | status=no_tools | reason=empty_tool_registry")
             return None
@@ -421,6 +488,24 @@ class ToolRegistry:
                 "",
                 "Do NOT call the terminal tool with empty arguments {} or without the 'command' parameter."
             ])
+        elif tool_name == "EXECUTE":
+            lines.extend([
+                "The 'cmd' parameter is REQUIRED and must be a non-empty string.",
+                "",
+                "Correct usage examples:",
+                '  {"cmd": "pytest -q"}',
+                '  {"cmd": "python -m pip --version"}',
+                '  {"cmd": "python -c \\"print(123)\\""}',
+                '  {"cmd": "rg \\"ToolRegistry\\" -n broca", "cwd": "."}',
+                '  {"cmd": "python -m pytest -q", "timeout": 120, "env_allowlist": ["PATH", "HOME"]}',
+                "",
+                "To fix this error:",
+                "1. Always include the 'cmd' parameter in your tool call",
+                "2. The 'cmd' must be a non-empty string containing the command to execute",
+                "3. If you need a working directory, supply 'cwd'",
+                "",
+                "Do NOT call EXECUTE with empty arguments {} or without the 'cmd' parameter."
+            ])
         else:
             # Generic example for other tools
             example_dict = {param: f"<{param}_value>" for param in required}
@@ -489,6 +574,68 @@ class ToolRegistry:
             List of all registered tool instances
         """
         return list(self._tools.values())
+
+    def _primitive_allowed_tool_names(self) -> set[str]:
+        """
+        Allowed tool names for the primitive (macro) toolset.
+
+        This is the intended RL/agent action space: explicit, typed macros only.
+        """
+        return {
+            # Core I/O
+            "READ_FILE",
+            "WRITE_FILE",
+            "APPEND_FILE",
+            "PATCH_FILE",
+            "LIST_DIR",
+            "STAT_PATH",
+            "EXECUTE",
+            # Web
+            "WEB_SEARCH",
+            "WEB_FETCH",
+            # Cognition (pure)
+            "PLAN",
+            "CRITIC",
+            "SOLVE",
+            "VERIFY",
+            "INTERPRET",
+            "DONE",
+            "RESPOND_AND_CONTINUE",
+            # Memory / self-model (versioned)
+            "MEMORY_PUT",
+            "MEMORY_GET",
+            "MEMORY_LINK",
+            "MEMORY_DELETE",
+            "MEMORY_UPDATE",
+            "MEMORY_RELATED",
+            "SELF_MODEL_GET",
+            "SELF_MODEL_UPDATE",
+            "SELF_MODEL_ARCHIVE",
+            # Learning / Goals (mutating only via explicit steps)
+            "SET_GOALS",
+            "DESIGN_REWARD",
+            # Governance policy tools (declarative gating + audit)
+            "GET_POLICY",
+            "SET_POLICY",
+            "REQUEST_POLICY_CHANGE",
+            "COMMIT_APPROVAL",
+            "EVALUATE_ACTION",
+            "GET_AUDIT_LOG",
+            # Operator-only RL debug tools (registered conditionally)
+            "UPDATE_POLICY",
+            "EVALUATE_POLICY",
+            "PROMOTE_POLICY",
+            "ROLLBACK_POLICY",
+        }
+
+    def _is_tool_visible(self, tool_name: str) -> bool:
+        toolset = str(getattr(config.tools, "toolset", "legacy") or "legacy").lower()
+        if toolset != "primitive":
+            return True
+        return tool_name in self._primitive_allowed_tool_names()
+
+    def _visible_tools(self) -> List[Tool]:
+        return [t for t in self._tools.values() if self._is_tool_visible(t.name)]
     
     def get_registry_hash(self) -> str:
         """
@@ -535,9 +682,30 @@ class ToolRegistry:
             List of tool definitions in OpenAI format
         """
         ts_logger = _get_tool_selection_logger()
+
+        # DONE macro: once called, disable all tools for the remainder of this user turn so the
+        # next LLM iteration produces a natural-language answer.
+        if self._force_final_response:
+            try:
+                self._last_format_selection_id = int(next(self._selection_seq))
+                self._last_format_selection_ts = time.time()
+            except Exception:
+                self._last_format_selection_id = None
+                self._last_format_selection_ts = None
+            self._last_format_selection = None
+            self._last_format_suggested_tools = []
+            self._last_format_allowed_tools = []
+            try:
+                ts_logger.info(
+                    f"AVAILABLE_TOOL_BUFFER | selection_id={self._last_format_selection_id} | "
+                    f"mode=none | n_allowed=0 | allowed_tools=[] | reason=force_final_response"
+                )
+            except Exception:
+                pass
+            return []
         
-        # Get all tools
-        all_tools = list(self._tools.values())
+        # Get visible tools (toolset policy)
+        all_tools = self._visible_tools()
         original_tool_names = [t.name for t in all_tools]
         
         ts_logger.debug(
@@ -776,6 +944,30 @@ class ToolRegistry:
             if not tool_name:
                 raise ValueError("Tool call missing 'function.name'")
 
+            # Toolset visibility enforcement (macro toolset must not execute legacy tools).
+            if isinstance(tool_name, str) and not self._is_tool_visible(tool_name):
+                allowed = sorted(list(self._primitive_allowed_tool_names()))
+                try:
+                    ts_logger.warning(
+                        f"TOOL_CALL_BLOCKED | tool_call_id={tool_call_id} | tool={tool_name} | "
+                        f"reason=toolset_disallowed | toolset={getattr(config.tools, 'toolset', 'legacy')} | "
+                        f"allowed_tools={allowed} | selection_id={selection_id}"
+                    )
+                except Exception:
+                    pass
+                return {
+                    "tool_call_id": tool_call_id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": (
+                        "Tool call blocked by toolset policy (primitive macro toolset).\n"
+                        f"Requested tool: {tool_name}\n"
+                        f"Allowed tools: {allowed}\n"
+                        f"selection_id: {selection_id}"
+                    ),
+                    "_success": False,
+                }
+
             # Enforce RL forced-mode at execution time.
             # Some providers/clients do not strictly enforce the advertised tool schema,
             # so the model may emit a tool call to a disallowed tool anyway.
@@ -951,13 +1143,37 @@ class ToolRegistry:
 
             # Enforce read-only policy and web search limits
             if self._policy_mode == "read_only":
-                readonly_blocked = {"store_memory", "update_memory", "delete_memory", "link_memories"}
+                readonly_blocked = {
+                    # Legacy memory writes
+                    "store_memory",
+                    "update_memory",
+                    "delete_memory",
+                    "link_memories",
+                    # Primitive memory writes
+                    "MEMORY_PUT",
+                    "MEMORY_LINK",
+                    "MEMORY_DELETE",
+                    "MEMORY_UPDATE",
+                    # Primitive file/exec writes
+                    "WRITE_FILE",
+                    "APPEND_FILE",
+                    "PATCH_FILE",
+                    "EXECUTE",
+                    # Self-model mutation
+                    "self_model_crud",
+                    "SELF_MODEL_UPDATE",
+                    "SELF_MODEL_ARCHIVE",
+                    # Policy lifecycle mutation
+                    "UPDATE_POLICY",
+                    "PROMOTE_POLICY",
+                    "ROLLBACK_POLICY",
+                }
                 if tool_name in readonly_blocked:
                     return {
                         "tool_call_id": tool_call_id,
                         "role": "tool",
                         "name": tool_name,
-                        "content": "Blocked by read-only policy: memory write tools are disabled."
+                        "content": "Blocked by read-only policy: write/mutation tools are disabled."
                     }
                 if tool_name == "terminal":
                     return {
@@ -966,7 +1182,7 @@ class ToolRegistry:
                         "name": tool_name,
                         "content": "Blocked by read-only policy: terminal is disabled."
                     }
-            
+
             # Validate required parameters
             validation_error = self._validate_tool_arguments(tool, arguments)
             if validation_error:
@@ -995,6 +1211,107 @@ class ToolRegistry:
                     "name": tool_name,
                     "content": f"Error: {validation_error}\n\nPlease provide all required parameters and try again."
                 }
+
+            # System-level strict EXECUTE allowlist + 3-try reprompt budget.
+            if tool_name == "EXECUTE":
+                allowlist = getattr(config.tools, "execute_command_whitelist", None)
+                if isinstance(allowlist, list) and allowlist:
+                    cmd = arguments.get("cmd")
+                    base = _extract_base_command(cmd)
+                    if base not in allowlist:
+                        self._execute_whitelist_block_count += 1
+                        self._execute_whitelist_block_by_base[base] = (
+                            self._execute_whitelist_block_by_base.get(base, 0) + 1
+                        )
+
+                        shown_attempt = min(
+                            int(self._execute_whitelist_block_count),
+                            _EXECUTE_WHITELIST_RETRY_LIMIT,
+                        )
+                        remaining = max(0, _EXECUTE_WHITELIST_RETRY_LIMIT - shown_attempt)
+                        exhausted = self._execute_whitelist_block_count >= _EXECUTE_WHITELIST_RETRY_LIMIT
+
+                        try:
+                            ts_logger.warning(
+                                "TOOL_CALL_BLOCKED | "
+                                f"tool_call_id={tool_call_id} | tool=EXECUTE | reason=command_not_allowed | "
+                                f"base_command={base} | allowed_commands={allowlist} | "
+                                f"attempt={shown_attempt}/{_EXECUTE_WHITELIST_RETRY_LIMIT} | "
+                                f"turn_no={self._turn_no}"
+                            )
+                        except Exception:
+                            pass
+
+                        guidance = (
+                            "Pick a `cmd` whose first executable token is an allowed base command; args may vary.\n"
+                            "If you need to expand the whitelist, update `BROCA_EXECUTE_WHITELIST` in `.env` and restart."
+                        )
+                        if exhausted:
+                            guidance = (
+                                "Retry budget exhausted for non-whitelisted EXECUTE in this turn.\n"
+                                + guidance
+                            )
+
+                        return {
+                            "tool_call_id": tool_call_id,
+                            "role": "tool",
+                            "name": tool_name,
+                            "content": (
+                                "EXECUTE blocked: base command not allowed by whitelist.\n"
+                                f"attempt: {shown_attempt}/{_EXECUTE_WHITELIST_RETRY_LIMIT} "
+                                f"(remaining: {remaining})\n"
+                                f"base_command: {base}\n"
+                                f"allowed_base_commands: {allowlist}\n"
+                                f"cmd: {cmd}\n\n"
+                                f"{guidance}"
+                            ),
+                            "_success": False,
+                            "_error": "command_not_allowed",
+                            "_base_command": base,
+                            "_allowed_base_commands": allowlist,
+                            "_attempt": shown_attempt,
+                            "_remaining_attempts": remaining,
+                        }
+
+            # Governance policy preflight (capability gating / scopes / budgets).
+            if self._governance_engine is not None:
+                try:
+                    decision = self._governance_engine.evaluate_action(
+                        tool_name=str(tool_name),
+                        arguments=arguments if isinstance(arguments, dict) else {},
+                    )
+                    # Audit the attempt regardless of allow/deny.
+                    try:
+                        self._governance_engine.audit().append(
+                            {
+                                "ts": time.time(),
+                                "event_type": "action_attempt",
+                                "tool": tool_name,
+                                "allowed": bool(decision.allowed),
+                                "reason": decision.reason,
+                                "matched_rule": decision.matched_rule,
+                            }
+                        )
+                    except Exception:
+                        pass
+
+                    if not decision.allowed:
+                        return {
+                            "tool_call_id": tool_call_id,
+                            "role": "tool",
+                            "name": tool_name,
+                            "content": (
+                                "Blocked by governance policy.\n"
+                                f"reason: {decision.reason}\n"
+                                f"matched_rule: {decision.matched_rule}\n"
+                                f"normalized: {decision.normalized}\n"
+                                "To change policy: use SET_POLICY (tighten-only) or REQUEST_POLICY_CHANGE + COMMIT_APPROVAL."
+                            ),
+                            "_success": False,
+                        }
+                except Exception:
+                    # Fail open if policy evaluation errors; keep system usable.
+                    pass
             
             # Log execution start
             log_tool_execution_start(tool_name, arguments, tool_call_id, logger)
@@ -1003,6 +1320,40 @@ class ToolRegistry:
             start_time = time.time()
             result = tool.execute(**arguments)
             execution_time_ms = (time.time() - start_time) * 1000
+
+            # DONE/RESPOND_AND_CONTINUE macros: latch "force final response" after successful execution.
+            if tool_name in {"DONE", "RESPOND_AND_CONTINUE"}:
+                try:
+                    is_ok = result.get("success", True) if isinstance(result, dict) else True
+                    if is_ok:
+                        self._force_final_response = True
+                        # Clear forced-exploration sticky state so we don't keep advertising a forced tool.
+                        self._sticky_forced_selection = None
+                        self._sticky_forced_context = None
+                        self._sticky_forced_tool = None
+                        self._sticky_forced_blocks = 0
+                except Exception:
+                    self._force_final_response = True
+
+            # Governance audit: record action result and basic cost signals (best-effort).
+            if self._governance_engine is not None:
+                try:
+                    cost: Dict[str, Any] = {"execution_time_ms": float(execution_time_ms)}
+                    if isinstance(result, dict):
+                        for k in ("bytes_written", "bytes_appended", "bytes", "exit_code", "status_code"):
+                            if k in result:
+                                cost[k] = result.get(k)
+                    self._governance_engine.audit().append(
+                        {
+                            "ts": time.time(),
+                            "event_type": "action_result",
+                            "tool": tool_name,
+                            "success": bool(result.get("success", True)) if isinstance(result, dict) else True,
+                            "cost": cost,
+                        }
+                    )
+                except Exception:
+                    pass
             
             # Track epistemic metadata if engine available
             epistemic_impact = None
@@ -1178,13 +1529,20 @@ class ToolRegistry:
                 "tool_call_id": tool_call_id,
                 "role": "tool",
                 "name": tool_name,
-                "content": formatted_result
+                "content": formatted_result,
             }
-            
+
             # Include success field from raw result for proper success detection
             # Always set _success as a boolean to ensure consistent success detection
             if isinstance(result, dict) and "success" in result:
                 result_dict["_success"] = bool(result.get("success", True))
+
+            # RESPOND_AND_CONTINUE: surface the internal continue prompt to the caller so the
+            # surface (web_api/main_repl) can enqueue a hidden user turn asynchronously.
+            if tool_name == "RESPOND_AND_CONTINUE" and isinstance(result, dict):
+                cp = result.get("continue_prompt")
+                if isinstance(cp, str) and cp.strip():
+                    result_dict["_auto_continue_prompt"] = cp.strip()
             
             # Include epistemic impact if available
             if epistemic_impact:

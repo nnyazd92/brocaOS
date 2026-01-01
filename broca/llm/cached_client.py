@@ -241,3 +241,18 @@ class CachedLLMClient:
         from .openai_client import OpenAIClient  # local import to avoid cycles
 
         return OpenAIClient.extract_tool_calls(response)
+
+    def extract_thought_signature(self, response: Dict[str, Any]) -> Optional[str]:
+        """
+        Delegate Gemini-specific thought_signature extraction to the underlying client if supported.
+
+        ConversationSession uses this when running with Gemini so it can persist reasoning
+        context across tool-call iterations even when the LLM client is wrapped by caching.
+        """
+        underlying = getattr(self, "_underlying", None)
+        if underlying is not None and hasattr(underlying, "extract_thought_signature"):
+            try:
+                return underlying.extract_thought_signature(response)  # type: ignore[no-any-return]
+            except Exception:
+                return None
+        return None

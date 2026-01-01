@@ -1,9 +1,9 @@
 """
 Shared feature extraction for RL policies (Online NN + PPO) and offline datasets.
 
-Single source of truth for the 17-dim state vector:
-- 7 RL signal features (in fixed order)
-- 10 lightweight context features (goals/skills/memory/rules/recent tools)
+ Single source of truth for the 16-dim state vector:
+ - 7 RL signal features (in fixed order)
+ - 9 lightweight context features (goals/skills/memory/rules/recent tools)
 """
 
 from __future__ import annotations
@@ -21,10 +21,11 @@ RL_SIGNAL_KEYS: List[str] = [
     "curiosity_reward",
     "information_gain_reward",
     "coherence_reward",
+    "valence_reward",
     "exploration_balance",
 ]
 
-BASE_CONTEXT_DIM = 10
+BASE_CONTEXT_DIM = 9
 BASE_STATE_DIM = len(RL_SIGNAL_KEYS) + BASE_CONTEXT_DIM  # 16
 
 
@@ -79,7 +80,9 @@ def extract_state_features(
         rl_signals = {}
 
     for k in RL_SIGNAL_KEYS:
-        features.append(_clamp01(_safe_float(rl_signals.get(k, 0.5), default=0.5)))
+        # Prefer variance-normalized features if present (running variance; squashed to [0,1]).
+        v = rl_signals.get(f"{k}_varnorm", rl_signals.get(k, 0.5))
+        features.append(_clamp01(_safe_float(v, default=0.5)))
 
     active_goals = ctx.get("active_goals", []) if isinstance(ctx.get("active_goals", []), list) else []
     features.append(min(len(active_goals), 5) / 5.0)
@@ -87,11 +90,6 @@ def extract_state_features(
         features.append(max((g.get("priority", 0.5) for g in active_goals if isinstance(g, dict)), default=0.5))
     except Exception:
         features.append(0.5)
-    try:
-        goal_types = [g.get("goal_type", "") for g in active_goals if isinstance(g, dict)]
-        features.append(_stable_hash01("".join(goal_types)))
-    except Exception:
-        features.append(0.0)
 
     skills = ctx.get("applicable_skills", []) if isinstance(ctx.get("applicable_skills", []), list) else []
     features.append(min(len(skills), 5) / 5.0)

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import List, Dict, Any, Optional, Iterator
 import logging
+import random
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -39,6 +42,13 @@ class GeminiClient:
         timeout: Optional[float] = None,
         thinking_level: Optional[str] = None,
         use_sdk: Optional[bool] = None,
+        max_retries: Optional[int] = None,
+        backoff_base_seconds: Optional[float] = None,
+        backoff_max_seconds: Optional[float] = None,
+        backoff_jitter: Optional[float] = None,
+        respect_retry_after: Optional[bool] = None,
+        _sleep_fn: Optional[Any] = None,
+        _rng: Optional[random.Random] = None,
     ) -> None:
         # Defaults come from config.llm but can be overridden.
         self.api_key = api_key or config.llm.api_key
@@ -52,6 +62,34 @@ class GeminiClient:
         # Gemini 3 specific configuration
         self.thinking_level = thinking_level or getattr(config.llm, "thinking_level", "low")
         self.use_sdk = use_sdk if use_sdk is not None else getattr(config.llm, "use_sdk", True)
+
+        # Retry / backoff configuration (mainly for 429 TPM rate limits)
+        self.max_retries = (
+            max_retries if max_retries is not None else getattr(config.llm, "gemini_max_retries", 6)
+        )
+        self.backoff_base_seconds = (
+            backoff_base_seconds
+            if backoff_base_seconds is not None
+            else getattr(config.llm, "gemini_backoff_base_seconds", 1.0)
+        )
+        self.backoff_max_seconds = (
+            backoff_max_seconds
+            if backoff_max_seconds is not None
+            else getattr(config.llm, "gemini_backoff_max_seconds", 60.0)
+        )
+        self.backoff_jitter = (
+            backoff_jitter
+            if backoff_jitter is not None
+            else getattr(config.llm, "gemini_backoff_jitter", 0.25)
+        )
+        self.respect_retry_after = (
+            respect_retry_after
+            if respect_retry_after is not None
+            else getattr(config.llm, "gemini_respect_retry_after", True)
+        )
+        self._sleep_fn = _sleep_fn or time.sleep
+        self._rng = _rng or random.Random()
+        self._log_timings = bool(getattr(config.logging, "log_llm_timings", False))
         
         # Store thought_signature for maintaining reasoning context
         self._thought_signature: Optional[str] = None
@@ -107,6 +145,124 @@ class GeminiClient:
         # Retry on rate limits and server errors
         return status_code in (429, 500, 502, 503, 504)
 
+    @staticmethod
+    def _parse_retry_after_seconds(response: httpx.Response) -> Optional[float]:
+        """Parse Retry-After header into seconds, if present and valid."""
+        try:
+            value = response.headers.get("Retry-After")
+        except Exception:
+            value = None
+        return GeminiClient._parse_retry_after_header_value(value)
+
+    @staticmethod
+    def _parse_retry_after_header_value(value: Optional[str]) -> Optional[float]:
+        if not value:
+            return None
+
+        value = value.strip()
+        # Retry-After: <delay-seconds>
+        if value.isdigit():
+            try:
+                return float(int(value))
+            except Exception:
+                return None
+
+        # Retry-After: <http-date>
+        try:
+            retry_at = parsedate_to_datetime(value)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            delta = (retry_at - now).total_seconds()
+            if delta <= 0:
+                return None
+            return float(delta)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_status_code_from_sdk_exception(exc: Exception) -> Optional[int]:
+        for attr in ("status_code", "code"):
+            try:
+                value = getattr(exc, attr, None)
+                if isinstance(value, int):
+                    return value
+                if isinstance(value, str) and value.isdigit():
+                    return int(value)
+            except Exception:
+                pass
+
+        try:
+            resp = getattr(exc, "response", None)
+            if resp is not None:
+                status = getattr(resp, "status_code", None)
+                if isinstance(status, int):
+                    return status
+        except Exception:
+            pass
+
+        # Best-effort parsing from message text
+        try:
+            msg = str(exc)
+            for code in (429, 500, 502, 503, 504):
+                if str(code) in msg:
+                    return code
+        except Exception:
+            pass
+
+        return None
+
+    @staticmethod
+    def _extract_retry_after_from_sdk_exception(exc: Exception) -> Optional[float]:
+        headers = None
+        for attr in ("headers",):
+            try:
+                maybe = getattr(exc, attr, None)
+                if maybe:
+                    headers = maybe
+                    break
+            except Exception:
+                pass
+
+        if headers is None:
+            try:
+                resp = getattr(exc, "response", None)
+                headers = getattr(resp, "headers", None) if resp is not None else None
+            except Exception:
+                headers = None
+
+        if not headers:
+            return None
+
+        try:
+            value = headers.get("Retry-After") or headers.get("retry-after")
+        except Exception:
+            value = None
+        return GeminiClient._parse_retry_after_header_value(value)
+
+    def _compute_backoff_seconds(self, attempt: int, *, retry_after_seconds: Optional[float]) -> float:
+        """Compute exponential backoff with bounded jitter."""
+        base = max(0.0, float(self.backoff_base_seconds))
+        max_sleep = max(0.0, float(self.backoff_max_seconds))
+        exponent = 2**max(0, int(attempt))
+        sleep_seconds = min(max_sleep, base * exponent)
+
+        if self.respect_retry_after and retry_after_seconds is not None:
+            sleep_seconds = max(sleep_seconds, max(0.0, float(retry_after_seconds)))
+            sleep_seconds = min(max_sleep, sleep_seconds)
+
+        jitter = float(self.backoff_jitter)
+        if jitter > 0.0 and sleep_seconds > 0.0:
+            jitter = min(jitter, 1.0)
+            low = sleep_seconds * (1.0 - jitter)
+            high = sleep_seconds
+            sleep_seconds = self._rng.uniform(low, high)
+
+        return min(max_sleep, max(0.0, float(sleep_seconds)))
+
+    def _sleep(self, seconds: float) -> None:
+        self._sleep_fn(seconds)
+
     def chat(
         self,
         messages: List[Dict[str, str]],
@@ -147,7 +303,9 @@ class GeminiClient:
         
         # Convert messages to SDK format
         # Ensure thought_signature is present in tool_calls first
-        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages, thought_signature)
+        prepared_messages = self._ensure_thought_signature_in_tool_calls(
+            messages, thought_signature, warn_if_missing=True
+        )
         
         sdk_messages = []
         for msg in prepared_messages:
@@ -230,56 +388,84 @@ class GeminiClient:
             )
             raise ValueError(error_msg)
         
-        try:
-            # Build generation config
-            generation_config = self._build_generation_config()
-            if temp is not None:
-                generation_config["temperature"] = temp
-            
-            # Create request
-            request_params: Dict[str, Any] = {
+        # Build generation config
+        generation_config = self._build_generation_config()
+        if temp is not None:
+            generation_config["temperature"] = temp
+
+        # Create request
+        request_params: Dict[str, Any] = {
+            "model": self.model,
+            "contents": sdk_messages,
+            "generation_config": generation_config,
+        }
+
+        if thought_signature:
+            request_params["thought_signature"] = thought_signature
+
+        if tools:
+            request_params["tools"] = self._convert_tools_to_sdk_format(tools)
+
+        logger.debug(
+            "Sending Gemini SDK chat request",
+            extra={
+                "event": "llm_request",
+                "provider": "gemini",
+                "mode": "sdk",
                 "model": self.model,
-                "contents": sdk_messages,
-                "generation_config": generation_config,
-            }
-            
-            if thought_signature:
-                request_params["thought_signature"] = thought_signature
-            
-            if tools:
-                # Convert tools to SDK format
-                request_params["tools"] = self._convert_tools_to_sdk_format(tools)
-            
-            logger.debug(
-                "Sending Gemini SDK chat request",
-                extra={
-                    "event": "llm_request",
-                    "provider": "gemini",
-                    "mode": "sdk",
-                    "model": self.model,
-                    "temperature": temp,
-                    "thinking_level": self.thinking_level,
-                    "messages_count": len(messages),
-                    "tools_count": len(tools) if tools else 0,
-                    "has_thought_signature": bool(thought_signature),
-                },
-            )
-            
-            # Call SDK
-            response = self._sdk_client.models.generate_content(**request_params)
-            
-            # Extract thought_signature from response
-            extracted_sig = self._extract_thought_signature_from_sdk_response(response)
-            if extracted_sig:
-                self._thought_signature = extracted_sig
-            
-            # Convert SDK response to OpenAI-compatible format
-            return self._convert_sdk_response_to_openai_format(response)
-            
-        except Exception as e:
-            logger.warning(f"SDK request failed, falling back to REST: {e}")
-            # Fall back to REST
-            return self._chat_rest(messages, temperature, tools, thought_signature)
+                "temperature": temp,
+                "thinking_level": self.thinking_level,
+                "messages_count": len(messages),
+                "tools_count": len(tools) if tools else 0,
+                "has_thought_signature": bool(thought_signature),
+            },
+        )
+
+        # Retry logic for transient errors
+        max_retries = max(0, int(self.max_retries))
+        last_exception: Optional[Exception] = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                if self._sdk_client is None:
+                    raise RuntimeError("SDK client is not initialized")
+                response = self._sdk_client.models.generate_content(**request_params)
+
+                extracted_sig = self._extract_thought_signature_from_sdk_response(response)
+                if extracted_sig:
+                    self._thought_signature = extracted_sig
+
+                return self._convert_sdk_response_to_openai_format(response)
+            except Exception as e:
+                last_exception = e
+                status_code = self._extract_status_code_from_sdk_exception(e)
+                retry_after = self._extract_retry_after_from_sdk_exception(e)
+
+                retryable = status_code in (429, 500, 502, 503, 504)
+                if attempt < max_retries and retryable:
+                    wait_time = self._compute_backoff_seconds(attempt, retry_after_seconds=retry_after)
+                    logger.warning(
+                        f"Gemini SDK transient error {status_code}, retrying in {wait_time}s "
+                        f"(attempt {attempt + 1}/{max_retries + 1})",
+                        extra={
+                            "event": "api_error_retry_sdk",
+                            "provider": "gemini",
+                            "status_code": status_code,
+                            "attempt": attempt + 1,
+                            "max_retries": max_retries + 1,
+                            "retry_after_seconds": retry_after,
+                        },
+                    )
+                    self._sleep(wait_time)
+                    continue
+
+                logger.warning(f"SDK request failed, falling back to REST: {e}")
+                return self._chat_rest(messages, temperature, tools, thought_signature)
+
+        # Should be unreachable, but keep conservative behavior.
+        if last_exception is not None:
+            logger.warning(f"SDK request failed, falling back to REST: {last_exception}")
+        return self._chat_rest(messages, temperature, tools, thought_signature)
 
     def _chat_rest(
         self,
@@ -312,7 +498,11 @@ class GeminiClient:
             raise ValueError(error_msg)
 
         # Ensure thought_signature is present in tool_calls (required by Gemini API)
-        prepared_messages = self._ensure_thought_signature_in_tool_calls(messages, thought_signature)
+        # The OpenAI-compatible REST endpoint may not emit thought_signature. Avoid noisy warnings here;
+        # the SDK path still enforces and warns, since it supports thought_signature end-to-end.
+        prepared_messages = self._ensure_thought_signature_in_tool_calls(
+            messages, thought_signature, warn_if_missing=False
+        )
         
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -350,14 +540,16 @@ class GeminiClient:
         }
 
         # Retry logic for transient errors
-        max_retries = 3
+        max_retries = max(0, int(self.max_retries))
         last_exception = None
         
         for attempt in range(max_retries + 1):
             try:
+                start = time.perf_counter()
                 resp = self._client.post("/chat/completions", json=payload, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
                 
                 # Extract and store thought_signature
                 extracted_sig = self.extract_thought_signature(data)
@@ -377,12 +569,34 @@ class GeminiClient:
                     },
                 )
 
+                if self._log_timings:
+                    try:
+                        from ..summarization.token_estimator import estimate_messages_tokens
+                        prompt_tokens_est = estimate_messages_tokens(prepared_messages)
+                    except Exception:
+                        prompt_tokens_est = None
+                    logger.info(
+                        "Gemini REST call timing",
+                        extra={
+                            "event": "gemini_rest_timing",
+                            "provider": "gemini",
+                            "model": self.model,
+                            "attempt": attempt + 1,
+                            "elapsed_ms": elapsed_ms,
+                            "prompt_tokens_est": prompt_tokens_est,
+                            "usage": data.get("usage", {}),
+                        },
+                    )
+
                 return data
 
             except httpx.HTTPStatusError as e:
                 last_exception = e
                 if attempt < max_retries and self._should_retry_error(e):
-                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    retry_after = None
+                    if e.response is not None:
+                        retry_after = self._parse_retry_after_seconds(e.response)
+                    wait_time = self._compute_backoff_seconds(attempt, retry_after_seconds=retry_after)
                     status_code = e.response.status_code if e.response else "unknown"
                     logger.warning(
                         f"Gemini API transient error {status_code}, retrying in {wait_time}s "
@@ -393,9 +607,10 @@ class GeminiClient:
                             "status_code": status_code,
                             "attempt": attempt + 1,
                             "max_retries": max_retries + 1,
+                            "retry_after_seconds": retry_after,
                         }
                     )
-                    time.sleep(wait_time)
+                    self._sleep(wait_time)
                     continue
                 # Not retryable or out of retries - break and handle below
                 break
@@ -509,7 +724,7 @@ class GeminiClient:
         last_chunk_thought_sig: Optional[str] = None
 
         # Retry logic for transient errors (retries the initial request)
-        max_retries = 3
+        max_retries = max(0, int(self.max_retries))
         last_exception = None
         
         for attempt in range(max_retries + 1):
@@ -555,7 +770,10 @@ class GeminiClient:
             except httpx.HTTPStatusError as e:
                 last_exception = e
                 if attempt < max_retries and self._should_retry_error(e):
-                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    retry_after = None
+                    if e.response is not None:
+                        retry_after = self._parse_retry_after_seconds(e.response)
+                    wait_time = self._compute_backoff_seconds(attempt, retry_after_seconds=retry_after)
                     status_code = e.response.status_code if e.response else "unknown"
                     logger.warning(
                         f"Gemini API transient error {status_code} during streaming, retrying in {wait_time}s "
@@ -566,9 +784,10 @@ class GeminiClient:
                             "status_code": status_code,
                             "attempt": attempt + 1,
                             "max_retries": max_retries + 1,
+                            "retry_after_seconds": retry_after,
                         }
                     )
-                    time.sleep(wait_time)
+                    self._sleep(wait_time)
                     continue
                 # Not retryable or out of retries - break and handle below
                 break
@@ -828,6 +1047,8 @@ class GeminiClient:
     def _ensure_thought_signature_in_tool_calls(
         messages: List[Dict[str, Any]],
         thought_signature: Optional[str] = None,
+        *,
+        warn_if_missing: bool = True,
     ) -> List[Dict[str, Any]]:
         """Ensure thought_signature is present in tool_calls for Gemini API.
         
@@ -850,6 +1071,7 @@ class GeminiClient:
         """
         # Make a shallow copy to avoid modifying the original
         prepared_messages = []
+        missing: list[dict[str, str]] = []
         for msg in messages:
             msg_copy = dict(msg)  # Shallow copy
             
@@ -895,22 +1117,36 @@ class GeminiClient:
                                     }
                                 )
                             else:
-                                # No thought_signature available from any source - log warning
-                                logger.warning(
-                                    "Tool call missing thought_signature for Gemini API (no source available)",
-                                    extra={
-                                        "event": "missing_thought_signature_in_tool_call",
-                                        "tool_call_id": tool_call.get("id", "unknown"),
-                                        "function_name": tool_call.get("function", {}).get("name", "unknown"),
+                                # No thought_signature available from any source.
+                                # Avoid spamming logs per-tool-call; aggregate once per request.
+                                missing.append(
+                                    {
+                                        "tool_call_id": str(tool_call.get("id", "unknown")),
+                                        "function_name": str(tool_call.get("function", {}).get("name", "unknown")),
                                     }
                                 )
-                                tool_calls_updated = True
                     
                     if tool_calls_updated:
                         # Update the tool_calls in the message copy
                         msg_copy["tool_calls"] = tool_calls
             
             prepared_messages.append(msg_copy)
+
+        if warn_if_missing and missing:
+            # Log a single warning per chat request rather than one per tool call.
+            # This frequently happens when the REST OpenAI-compatible endpoint does not provide
+            # thought_signature, so we may not be able to preserve it across tool-call loops.
+            tool_names = sorted({m.get("function_name", "unknown") for m in missing})
+            tool_call_ids = [m.get("tool_call_id", "unknown") for m in missing][:10]
+            logger.warning(
+                "Tool calls missing thought_signature for Gemini API (no source available)",
+                extra={
+                    "event": "missing_thought_signature_in_tool_calls",
+                    "tool_calls_count": len(missing),
+                    "tool_names": tool_names,
+                    "tool_call_ids_preview": tool_call_ids,
+                },
+            )
         
         return prepared_messages
     

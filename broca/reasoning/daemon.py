@@ -12,6 +12,8 @@ import threading
 import time
 import logging
 import queue
+import os
+from concurrent.futures import ThreadPoolExecutor, Future
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 from enum import Enum
@@ -103,6 +105,39 @@ class ReasoningDaemon:
         self._daemon_thread: Optional[threading.Thread] = None
         
         logger.info(f"Initialized ReasoningDaemon (delay={cycle_delay_seconds}s, max_cycles/min={max_cycles_per_minute})")
+        # Performance guard: if a cycle produces no actions, skip expensive post-processing.
+        # This avoids burning time on LLM-based dissonance + self-model updates when the rule engine did nothing.
+        self._skip_postprocess_when_no_rules = os.getenv(
+            "BROCA_REASONING_DAEMON_SKIP_POSTPROCESS_WHEN_NO_RULES",
+            "true",
+        ).lower() == "true"
+
+        # Optional offloading of long-running side effects to a background thread.
+        self._async_self_model_updates = os.getenv(
+            "BROCA_REASONING_DAEMON_ASYNC_SELF_MODEL_UPDATES",
+            "true",
+        ).lower() == "true"
+        self._async_dissonance_measurement = os.getenv(
+            "BROCA_REASONING_DAEMON_ASYNC_DISSONANCE_MEASUREMENT",
+            "true",
+        ).lower() == "true"
+        max_workers = max(1, int(os.getenv("BROCA_REASONING_DAEMON_BG_WORKERS", "1")))
+        self._background_executor = ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="ReasoningDaemonBG"
+        )
+        self._self_model_update_future: Optional[Future] = None
+        self._dissonance_future: Optional[Future] = None
+
+    def _submit_background(self, future_slot: str, fn, *args, **kwargs) -> None:
+        """Submit a background job if the previous one in that slot is not running."""
+        try:
+            current = getattr(self, future_slot)
+            if current is not None and not current.done():
+                return
+            fut = self._background_executor.submit(fn, *args, **kwargs)
+            setattr(self, future_slot, fut)
+        except Exception:
+            logger.debug("Failed to submit background job", exc_info=True)
     
     def start(self) -> bool:
         """
@@ -194,6 +229,11 @@ class ReasoningDaemon:
                     logger.info("Saved state before stopping")
                 except Exception as e:
                     logger.error(f"Failed to save state: {e}", exc_info=True)
+
+            try:
+                self._background_executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
             
             self.status = DaemonStatus.STOPPED
             logger.info("Reasoning daemon stopped")
@@ -341,6 +381,22 @@ class ReasoningDaemon:
             )
             
             cycle_duration = time.time() - cycle_start_time
+
+            if self._skip_postprocess_when_no_rules and not cycle_results:
+                # Nothing happened; avoid costly metric/dissonance/self-model work.
+                self.cycle_history.append(
+                    {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "duration": cycle_duration,
+                        "rules_fired": 0,
+                        "results": [],
+                        "goals_processed": len(ready_goals),
+                        "skipped_postprocess": True,
+                    }
+                )
+                if len(self.cycle_history) > 100:
+                    self.cycle_history = self.cycle_history[-100:]
+                return True
             
             # Evaluate outcomes with feedback loop
             cycle_outcome = {
@@ -372,12 +428,22 @@ class ReasoningDaemon:
                                         "status": getattr(getattr(g, "status", None), "value", getattr(g, "status", None)),
                                     })
 
-                            self.feedback_loop_manager.cognitive_dissonance_monitor.measure_dissonance(
-                                response=None,
-                                tool_usage=cycle_results if isinstance(cycle_results, list) else None,
-                                reasoning_goals=reasoning_goals if reasoning_goals else None,
-                                conversation_context=None,
-                            )
+                            if self._async_dissonance_measurement:
+                                self._submit_background(
+                                    "_dissonance_future",
+                                    self.feedback_loop_manager.cognitive_dissonance_monitor.measure_dissonance,
+                                    response=None,
+                                    tool_usage=cycle_results if isinstance(cycle_results, list) else None,
+                                    reasoning_goals=reasoning_goals if reasoning_goals else None,
+                                    conversation_context=None,
+                                )
+                            else:
+                                self.feedback_loop_manager.cognitive_dissonance_monitor.measure_dissonance(
+                                    response=None,
+                                    tool_usage=cycle_results if isinstance(cycle_results, list) else None,
+                                    reasoning_goals=reasoning_goals if reasoning_goals else None,
+                                    conversation_context=None,
+                                )
                         except Exception as e:
                             logger.warning(f"Failed to measure cognitive dissonance in daemon cycle: {e}", exc_info=True)
 
@@ -420,11 +486,20 @@ class ReasoningDaemon:
                     
                     # Check if update should be triggered
                     if dissonance_metrics and self.self_model_feedback_loop.should_update(dissonance_metrics):
-                        self.self_model_feedback_loop.trigger_update(
-                            dissonance_metrics=dissonance_metrics,
-                            response=None,  # No response available in cycle context
-                            conversation_context=None
-                        )
+                        if self._async_self_model_updates:
+                            self._submit_background(
+                                "_self_model_update_future",
+                                self.self_model_feedback_loop.trigger_update,
+                                dissonance_metrics=dissonance_metrics,
+                                response=None,
+                                conversation_context=None,
+                            )
+                        else:
+                            self.self_model_feedback_loop.trigger_update(
+                                dissonance_metrics=dissonance_metrics,
+                                response=None,  # No response available in cycle context
+                                conversation_context=None
+                            )
                 except Exception as e:
                     logger.error(f"Error in self model feedback loop: {e}", exc_info=True)
             
@@ -497,4 +572,3 @@ class ReasoningDaemon:
         except Exception as e:
             logger.error(f"Error executing reasoning cycle: {e}", exc_info=True)
             return False
-

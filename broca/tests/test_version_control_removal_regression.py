@@ -55,7 +55,8 @@ class TestToolRegistryWithoutVersionControl:
         """
         from broca.main_repl import _initialize_tool_registry
         
-        # Mock config to enable some tools (version_control removed)
+        # Toolset defaults to primitive (macro tools). Ensure registry initializes and
+        # does not contain version_control regardless of legacy tool flags.
         mock_config.tools.enable_web_search = False
         mock_config.tools.enable_terminal = True
         mock_config.tools.enable_critic = False
@@ -68,12 +69,13 @@ class TestToolRegistryWithoutVersionControl:
             storage=None
         )
         
-        # Registry should have terminal tool but not version_control
+        # Registry should not have version_control (terminal presence depends on toolset).
         if registry is not None:
             assert registry.get_tool("version_control") is None
-            terminal = registry.get_tool("terminal")
-            assert terminal is not None
-            assert terminal.name == "terminal"
+            tool_names = [tool.name for tool in registry.list_tools()]
+            assert "version_control" not in tool_names
+            # Primitive macro baseline: we should have at least one core macro tool.
+            assert any(name in tool_names for name in ("EXECUTE", "READ_FILE", "PLAN"))
 
 
 class TestConfigWithoutVersionControlFields:
@@ -427,4 +429,3 @@ class TestGoldenTraceReplay:
         # Hash should be consistent
         hash2 = registry.get_registry_hash()
         assert hash1 == hash2
-

@@ -16,6 +16,12 @@ from broca.llm.deepseek_client import DeepSeekClient
 
 class TestSystemPromptWithBasePrompt:
     """Test system prompt generation with base prompt section."""
+
+    @staticmethod
+    def _extract_json(content: str) -> dict:
+        start = content.find("{")
+        assert start != -1, "Expected system prompt to contain world state JSON"
+        return json.loads(content[start:])
     
     def test_base_system_prompt_prepended(self, mock_llm_client):
         """Test that base system prompt is prepended when configured."""
@@ -66,9 +72,9 @@ class TestSystemPromptWithBasePrompt:
         # Should still have system message with world state
         assert len(session.messages) == 1
         content = session.messages[0]["content"]
-        parsed = json.loads(content)
+        parsed = self._extract_json(content)
         assert "timestamp" in parsed
-    
+
     def test_no_base_prompt_uses_world_state_only(self, mock_llm_client):
         """Test that when no base prompt is provided, only world state is used."""
         aggregator = Mock(spec=WorldStateAggregator)
@@ -85,12 +91,7 @@ class TestSystemPromptWithBasePrompt:
         # Should have system message with only world state
         assert len(session.messages) == 1
         content = session.messages[0]["content"]
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in content:
-            json_part = content.split("\n\n", 1)[1]
-        else:
-            json_part = content
-        parsed = json.loads(json_part)
+        parsed = self._extract_json(content)
         assert "timestamp" in parsed
         assert "system" in parsed
 
@@ -230,4 +231,3 @@ def mock_llm_client():
         }]
     }
     return mock
-

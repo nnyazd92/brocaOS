@@ -62,6 +62,9 @@ class ReasoningConfig(BaseModel):
     state_persistence_enabled: bool = os.getenv("BROCA_REASONING_STATE_PERSISTENCE_ENABLED", "true").lower() == "true"
     state_file_path: str = os.getenv("BROCA_REASONING_STATE_FILE", "data/reasoning_state.json")
     auto_save_interval_seconds: float = float(os.getenv("BROCA_REASONING_AUTO_SAVE_INTERVAL_SECONDS", "60.0"))
+
+    # Goal snapshot persistence (audit/rollback)
+    goal_snapshots_file_path: str = os.getenv("BROCA_GOAL_SNAPSHOTS_FILE", "data/goal_snapshots.json")
     
     # Feedback loops
     feedback_loops_enabled: bool = os.getenv("BROCA_REASONING_FEEDBACK_LOOPS_ENABLED", "true").lower() == "true"
@@ -135,9 +138,16 @@ class ReasoningConfig(BaseModel):
     rl_weight_curiosity: float = float(os.getenv("BROCA_REASONING_RL_WEIGHT_CURIOSITY", "0.2"))
     rl_weight_info_gain: float = float(os.getenv("BROCA_REASONING_RL_WEIGHT_INFO_GAIN", "0.15"))
     rl_weight_coherence: float = float(os.getenv("BROCA_REASONING_RL_WEIGHT_COHERENCE", "0.15"))
+    rl_weight_valence: float = float(os.getenv("BROCA_REASONING_RL_WEIGHT_VALENCE", "0.0"))
     rl_surprise_threshold: float = float(os.getenv("BROCA_REASONING_RL_SURPRISE_THRESHOLD", "0.3"))
     rl_curiosity_threshold: float = float(os.getenv("BROCA_REASONING_RL_CURIOSITY_THRESHOLD", "0.5"))
     rl_exploration_ratio: float = float(os.getenv("BROCA_REASONING_RL_EXPLORATION_RATIO", "0.6"))
+
+    # Running-variance normalization for RL reward components (state feature scaling)
+    rl_varnorm_enabled: bool = os.getenv("BROCA_REASONING_RL_VARNORM_ENABLED", "true").lower() == "true"
+    rl_varnorm_path: str = os.getenv("BROCA_REASONING_RL_VARNORM_PATH", "data/rl/reward_variance.json")
+    rl_varnorm_min_samples: int = int(os.getenv("BROCA_REASONING_RL_VARNORM_MIN_SAMPLES", "10"))
+    rl_varnorm_persist_interval_s: float = float(os.getenv("BROCA_REASONING_RL_VARNORM_PERSIST_INTERVAL_S", "5.0"))
     
     # RL Reward Logging
     rl_reward_log_enabled: bool = os.getenv("BROCA_REASONING_RL_REWARD_LOG_ENABLED", "true").lower() == "true"

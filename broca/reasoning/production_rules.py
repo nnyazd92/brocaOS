@@ -330,8 +330,13 @@ class ProductionRuleSystem:
             actions=[
                 {
                     "type": "trigger_tool",
-                    "tool_name": "terminal",
-                    "parameters": {"command": "find . -name '*.py' -type f | head -20"}
+                    "tool_name": "EXECUTE",
+                    "parameters": {
+                        "cmd": "find . -name '*.py' -type f | head -20",
+                        "cwd": ".",
+                        "timeout": 60,
+                        "env_allowlist": [],
+                    }
                 }
             ],
             rule_type=RuleType.ACTION,

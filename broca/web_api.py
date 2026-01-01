@@ -1,6 +1,7 @@
 from typing import Literal, List, Optional, Dict, Any, Generator
 from uuid import uuid4
 from datetime import datetime, timezone
+from contextlib import contextmanager
 import json
 import logging
 import os
@@ -26,6 +27,10 @@ _rl_reward_logger = None
 # Tool selection logger (shared with rl.online_policy)
 _tool_selection_logger = None
 
+# RESPOND_AND_CONTINUE: background continuation worker (best-effort, survives restarts via metadata flag)
+_auto_continue_worker_started = False
+_auto_continue_worker_lock = threading.Lock()
+
 def _get_tool_selection_logger():
     """Get tool selection logger from RL module."""
     global _tool_selection_logger
@@ -36,6 +41,26 @@ def _get_tool_selection_logger():
         except Exception:
             _tool_selection_logger = logger
     return _tool_selection_logger
+
+def _log_stage(ts_logger: logging.Logger, conversation_id: str, iteration: int, stage: str, *, event: str, duration_ms: Optional[int] = None, since_start_ms: Optional[int] = None, extra: Optional[Dict[str, Any]] = None) -> None:
+    fields = {
+        "conversation_id": conversation_id,
+        "iteration": iteration,
+        "stage": stage,
+    }
+    if duration_ms is not None:
+        fields["duration_ms"] = duration_ms
+    if since_start_ms is not None:
+        fields["since_start_ms"] = since_start_ms
+    if extra:
+        fields.update(extra)
+
+    # Keep as single-line key=value for grepability and parity with existing logs.
+    payload = " | ".join(f"{k}={v}" for k, v in fields.items())
+    msg = f"{event} | {payload}"
+    ts_logger.info(msg)
+    if ts_logger is not logger:
+        logger.info(msg)
 
 def _get_rl_reward_logger():
     """Get or initialize RL reward logger."""
@@ -307,9 +332,89 @@ _runtime_lock = threading.Lock()
 _runtime_init_started_at: Optional[float] = None
 _runtime_ready_at: Optional[float] = None
 _runtime_init_error: Optional[str] = None
+_startup_profiler: Optional["StartupProfiler"] = None
 PROJECT_ROOT: Path = Path(__file__).parent.parent.resolve()
 
 app = FastAPI(title="BrocaOS Web API")
+
+
+class StartupProfiler:
+    """
+    Thread-safe startup span profiler for background runtime initialization.
+
+    This is intentionally lightweight so it can be queried frequently while
+    initialization is in progress.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._started_wall = time.time()
+        self._started_perf = time.perf_counter()
+        self._ended_wall: Optional[float] = None
+        self._status: str = "initializing"  # initializing | ready | error
+        self._error: Optional[str] = None
+        self._span_stack: List[Dict[str, Any]] = []
+        self._spans: List[Dict[str, Any]] = []
+
+    @contextmanager
+    def span(self, name: str):
+        start_wall = time.time()
+        start_perf = time.perf_counter()
+        with self._lock:
+            self._span_stack.append({"name": str(name), "start_ts": start_wall, "start_perf": start_perf})
+        try:
+            yield
+        finally:
+            end_wall = time.time()
+            end_perf = time.perf_counter()
+            duration_ms = max(0.0, (end_perf - start_perf) * 1000.0)
+            with self._lock:
+                if self._span_stack:
+                    self._span_stack.pop()
+                self._spans.append(
+                    {
+                        "name": str(name),
+                        "start_ts": start_wall,
+                        "end_ts": end_wall,
+                        "duration_ms": duration_ms,
+                    }
+                )
+
+    def finish_success(self) -> None:
+        with self._lock:
+            self._status = "ready"
+            self._ended_wall = time.time()
+            self._error = None
+
+    def finish_error(self, error: str) -> None:
+        with self._lock:
+            self._status = "error"
+            self._ended_wall = time.time()
+            self._error = str(error)
+
+    def snapshot(self) -> Dict[str, Any]:
+        now_perf = time.perf_counter()
+        now_wall = time.time()
+        with self._lock:
+            current = self._span_stack[-1]["name"] if self._span_stack else None
+            current_started_at = self._span_stack[-1]["start_ts"] if self._span_stack else None
+            spans = list(self._spans)
+            status = self._status
+            error = self._error
+            started_at = self._started_wall
+            ended_at = self._ended_wall
+            started_perf = self._started_perf
+        return {
+            "status": status,
+            "error": error,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "elapsed_ms": max(0.0, (now_perf - started_perf) * 1000.0),
+            "current_span": current,
+            "current_span_started_at": current_started_at,
+            "spans": spans,
+            "timestamp": now_wall,
+        }
 
 
 @app.on_event("startup")
@@ -327,7 +432,7 @@ def _ensure_runtime_initializing() -> None:
     This prevents the first request from blocking the event loop while we load the memory index,
     self-model, reasoning daemon, etc.
     """
-    global _runtime_status, _runtime_init_started_at, _runtime_init_error
+    global _runtime_status, _runtime_init_started_at, _runtime_init_error, _startup_profiler
     with _runtime_lock:
         if _runtime_status in ("initializing", "ready"):
             return
@@ -338,26 +443,142 @@ def _ensure_runtime_initializing() -> None:
         _runtime_status = "initializing"
         _runtime_init_started_at = time.time()
         _runtime_init_error = None
+        _startup_profiler = StartupProfiler()
 
         def _init() -> None:
-            global _runtime, _runtime_status, _runtime_ready_at, _runtime_init_error
+            global _runtime, _runtime_status, _runtime_ready_at, _runtime_init_error, _startup_profiler
+            profiler = _startup_profiler
             try:
-                rt = initialize_runtime()
+                try:
+                    if profiler is not None:
+                        rt = initialize_runtime(startup_profiler=profiler)
+                    else:
+                        rt = initialize_runtime()
+                except TypeError:
+                    # Backward compatibility for older initialize_runtime signatures
+                    # in tests or downstream integrations.
+                    rt = initialize_runtime()
                 with _runtime_lock:
                     _runtime = rt
                     _runtime_status = "ready"
                     _runtime_ready_at = time.time()
                     _runtime_init_error = None
+                if profiler is not None:
+                    profiler.finish_success()
                 logger.info("Web API runtime initialized (ready)")
+                try:
+                    _start_auto_continue_worker_thread()
+                except Exception:
+                    pass
             except Exception as e:
                 with _runtime_lock:
                     _runtime = None
                     _runtime_status = "error"
                     _runtime_init_error = str(e)
+                if profiler is not None:
+                    profiler.finish_error(str(e))
                 logger.error(f"Web API runtime initialization failed: {e}", exc_info=True)
 
         t = threading.Thread(target=_init, daemon=True, name="broca-runtime-init")
         t.start()
+
+
+def _get_runtime_if_ready() -> Optional[BrocaRuntime]:
+    with _runtime_lock:
+        if _runtime_status == "ready" and _runtime is not None:
+            return _runtime
+    return None
+
+
+def _run_auto_continue_job_now(conversation_id: str) -> None:
+    """
+    Best-effort: if the conversation has a pending auto-continue request, run it once.
+
+    This is used as a BackgroundTasks hook (and by the periodic worker) so continuation work
+    happens asynchronously and is recoverable after restarts (pending state is persisted in metadata).
+    """
+    rt = _get_runtime_if_ready()
+    if rt is None or rt.conversation_storage is None:
+        return
+
+    storage = rt.conversation_storage
+    try:
+        data = storage.load_conversation(conversation_id)
+        if not data:
+            return
+        metadata = data.get("metadata", {}) or {}
+        pending = metadata.get("auto_continue_pending")
+        if not isinstance(pending, dict):
+            return
+        status = str(pending.get("status") or "pending").lower()
+        if status != "pending":
+            return
+        prompt = pending.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            # Clear malformed pending requests.
+            metadata.pop("auto_continue_pending", None)
+            metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+            storage.save_conversation(conversation_id, data.get("messages", []), metadata)
+            return
+
+        # Claim.
+        pending["status"] = "running"
+        pending["started_at"] = datetime.now(timezone.utc).isoformat()
+        metadata["auto_continue_pending"] = pending
+        metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+        storage.save_conversation(conversation_id, data.get("messages", []), metadata)
+
+        # Run continuation turn (hidden internal user message).
+        try:
+            session = create_session(conversation_id)
+            _ = session.send(prompt.strip(), stream=False, hidden_user_message=True)
+        finally:
+            # Clear pending flag so we don't re-run.
+            final = storage.load_conversation(conversation_id) or {}
+            final_messages = final.get("messages", []) if isinstance(final, dict) else []
+            final_meta = (final.get("metadata", {}) if isinstance(final, dict) else {}) or {}
+            final_meta.pop("auto_continue_pending", None)
+            final_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            storage.save_conversation(conversation_id, final_messages, final_meta)
+    except Exception as e:
+        logger.warning(f"Auto-continue job failed for {conversation_id}: {e}", exc_info=True)
+
+
+def _start_auto_continue_worker_thread(interval_sec: float = 1.0) -> None:
+    global _auto_continue_worker_started
+    with _auto_continue_worker_lock:
+        if _auto_continue_worker_started:
+            return
+        _auto_continue_worker_started = True
+
+    def _loop() -> None:
+        while True:
+            try:
+                rt = _get_runtime_if_ready()
+                if rt is None or rt.conversation_storage is None:
+                    time.sleep(interval_sec)
+                    continue
+                storage = rt.conversation_storage
+
+                # Fast scan via list_conversations (no message payload) for pending requests.
+                convs = storage.list_conversations() or []
+                for c in convs:
+                    cid = c.get("session_id") or c.get("conversation_id")
+                    if not isinstance(cid, str) or not cid:
+                        continue
+                    pending = c.get("auto_continue_pending")
+                    if not isinstance(pending, dict):
+                        continue
+                    status = str(pending.get("status") or "pending").lower()
+                    if status != "pending":
+                        continue
+                    _run_auto_continue_job_now(cid)
+            except Exception:
+                pass
+            time.sleep(interval_sec)
+
+    t = threading.Thread(target=_loop, daemon=True, name="broca-auto-continue-worker")
+    t.start()
 
 
 @app.get("/api/healthz")
@@ -373,6 +594,7 @@ async def healthz() -> Dict[str, Any]:
         started_at = _runtime_init_started_at
         ready_at = _runtime_ready_at
         err = _runtime_init_error
+        profiler = _startup_profiler
 
     now = time.time()
     init_age = (now - started_at) if started_at else None
@@ -382,7 +604,29 @@ async def healthz() -> Dict[str, Any]:
         "init_ready_at": ready_at,
         "init_age_sec": init_age,
         "error": err,
+        "startup_span": (profiler.snapshot().get("current_span") if profiler is not None else None),
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/startup_profile")
+async def startup_profile() -> Dict[str, Any]:
+    """Return startup profiling spans for runtime initialization."""
+    with _runtime_lock:
+        status = _runtime_status
+        started_at = _runtime_init_started_at
+        ready_at = _runtime_ready_at
+        err = _runtime_init_error
+        profiler = _startup_profiler
+
+    return {
+        "runtime": {
+            "status": status,
+            "init_started_at": started_at,
+            "init_ready_at": ready_at,
+            "error": err,
+        },
+        "profile": (profiler.snapshot() if profiler is not None else None),
     }
 
 
@@ -607,28 +851,6 @@ def generate_title(user_message: str) -> str:
     - No state changes or side effects
     - Fast, stateless operation
     """
-    # Log PFREA bypass
-    try:
-        from .reasoning.pfrea_tracker import get_pfrea_tracker, PFREAEventType
-        tracker = get_pfrea_tracker()
-        if tracker:
-            tracker.record_bypass(
-                reason="title_generation",
-                justification="Simple LLM call with no tool usage or planning required. Stateless operation with no side effects.",
-                context={"user_message_preview": user_message[:50]}
-            )
-    except Exception as e:
-        logger.debug(f"Could not record PFREA bypass: {e}")
-    
-    logger.info(
-        "PFREA: Bypassed for title generation (legitimate - no planning needed)",
-        extra={
-            "event": "pfrea_bypass",
-            "reason": "title_generation",
-            "justification": "Simple LLM call with no tool usage or planning required",
-            "session_id": None,  # No session for this operation
-        }
-    )
     
     rt = get_runtime()
     prompt = f"Generate a very short (max 5 words), punchy title for a conversation that starts with: '{user_message}'. Return ONLY the title text, no quotes or punctuation."
@@ -996,10 +1218,17 @@ async def cognitive_query(req: CognitiveQueryRequest):
                         # Prepare RL signals data for response
                         result["rl_signals"] = {
                             "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                            "dissonance_reward_varnorm": round(getattr(rl_metrics, "dissonance_reward_varnorm", 0.5), 3),
                             "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                            "surprise_reward_varnorm": round(getattr(rl_metrics, "surprise_reward_varnorm", 0.5), 3),
                             "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                            "curiosity_reward_varnorm": round(getattr(rl_metrics, "curiosity_reward_varnorm", 0.5), 3),
                             "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                            "information_gain_reward_varnorm": round(getattr(rl_metrics, "information_gain_reward_varnorm", 0.5), 3),
                             "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                            "coherence_reward_varnorm": round(getattr(rl_metrics, "coherence_reward_varnorm", 0.5), 3),
+                            "valence_reward": round(getattr(rl_metrics, "valence_reward", 0.5), 3),
+                            "valence_reward_varnorm": round(getattr(rl_metrics, "valence_reward_varnorm", 0.5), 3),
                             "composite_reward": round(rl_metrics.composite_reward, 3),
                             "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
                             "weights": {
@@ -1008,6 +1237,7 @@ async def cognitive_query(req: CognitiveQueryRequest):
                                 "curiosity": rl_metrics.weight_curiosity,
                                 "info_gain": rl_metrics.weight_info_gain,
                                 "coherence": rl_metrics.weight_coherence,
+                                "valence": getattr(rl_metrics, "weight_valence", 0.0),
                             }
                         }
                         
@@ -1136,6 +1366,9 @@ async def load_conversation(conversation_id: str) -> LoadConversationResponse:
     raw_msgs = data.get("messages", [])
     msgs = []
     for m in raw_msgs:
+        # Hide internal prompts (e.g., RESPOND_AND_CONTINUE follow-ups).
+        if m.get("hidden") is True:
+            continue
         # Filter out SYSTEM DIRECTIVE messages - these are internal system warnings
         # and should not be exposed via the API
         if m.get("role") == "user":
@@ -1206,10 +1439,25 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
             logger.debug(f"Error in pre-LLM instrumentation: {e}", exc_info=True)
     
     session.messages.append({"role": "user", "content": user_message})
+
+    # Parity with ConversationSession.send(): reset per-turn ToolRegistry counters.
+    # Streaming path executes tools directly, so we must explicitly mark new user turns here.
+    pending_auto_continue_prompt: Optional[str] = None
+
+    try:
+        if rt.tool_registry and hasattr(rt.tool_registry, "start_turn"):
+            user_turns = sum(1 for m in session.messages if isinstance(m, dict) and m.get("role") == "user")
+            rt.tool_registry.start_turn(user_turns)
+    except Exception:
+        pass
     
     # PEA/PFREA removed - planning is now handled via planning tool
     
     try:
+        request_t0 = time.monotonic()
+        ts_logger = _get_tool_selection_logger()
+        _log_stage(ts_logger, conversation_id, 0, "stream_response", event="API_STAGE_START", extra={"user_message_length": len(user_message or "")})
+
         # Gather context for tool filtering/ranking if guidance is enabled
         context = None
         if (rt.tool_registry and 
@@ -1239,7 +1487,6 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
         
         # Get RL-based tool selection with confidence gating
         rl_selection = None
-        ts_logger = _get_tool_selection_logger()
         
         ts_logger.info(
             f"API_REQUEST | conversation_id={conversation_id} | "
@@ -1270,6 +1517,32 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                             "reason": rl_selection.reason,
                         }
                     )
+
+                    # Surface the RL suggestion in the mutable system prompt via world state.
+                    try:
+                        if session.world_state_aggregator:
+                            suggested_tools = [rl_selection.tool_name] + [
+                                n for n, _ in (rl_selection.alternatives or [])
+                            ]
+                            ppo_status = None
+                            try:
+                                # Best-effort: some rankers expose status for logging/visibility.
+                                ppo_status = rt.tool_registry.get_rl_status() if hasattr(rt.tool_registry, "get_rl_status") else None
+                            except Exception:
+                                ppo_status = None
+
+                            session.world_state_aggregator.set_rl_guidance(
+                                suggested_tool=rl_selection.tool_name,
+                                mode=getattr(rl_selection, "mode", None),
+                                confidence=getattr(rl_selection, "confidence", None),
+                                reason=getattr(rl_selection, "reason", None),
+                                selection_id=getattr(rt.tool_registry, "_last_format_selection_id", None),
+                                suggested_tools=suggested_tools,
+                                ppo_status=ppo_status if isinstance(ppo_status, dict) else None,
+                            )
+                            session._update_system_prompt()
+                    except Exception as e:
+                        logger.debug(f"Failed to update RL guidance in system prompt: {e}", exc_info=True)
                 else:
                     ts_logger.debug(
                         f"API_RL_SELECTION | conversation_id={conversation_id} | "
@@ -1296,12 +1569,31 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
         max_iterations = 100  # Match session.send() max iterations
         assistant_text = None
         last_response = None
-        forced_reprompt_budget = 0
         last_forced_tool_name: Optional[str] = None
         
         while iterations < max_iterations:
             iterations += 1
+            # Stage timing: system prompt update can be expensive (world state, summaries, dedupe).
+            sp_t0 = time.monotonic()
+            _log_stage(
+                ts_logger,
+                conversation_id,
+                iterations,
+                "update_system_prompt",
+                event="API_STAGE_START",
+                since_start_ms=int((sp_t0 - request_t0) * 1000),
+            )
             session._update_system_prompt()
+            sp_t1 = time.monotonic()
+            _log_stage(
+                ts_logger,
+                conversation_id,
+                iterations,
+                "update_system_prompt",
+                event="API_STAGE_END",
+                duration_ms=int((sp_t1 - sp_t0) * 1000),
+                since_start_ms=int((sp_t1 - request_t0) * 1000),
+            )
             
             # Check for loop conditions and inject warnings if needed (same as session.send())
             warning_thresholds = [10, 20, 30, 50, 75, 90]
@@ -1434,19 +1726,46 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     )
                     logger.debug(f"Error getting RL selection in web_api: {e}", exc_info=True)
 
-            # Reprompt budget is per "forced selection episode", not global.
-            # Reset budget when the forced tool changes (or forced mode ends).
+            # Track forced tool changes for visibility (parity with REPL: no forced reprompt loop).
             if forced_tool_name != last_forced_tool_name:
-                if forced_tool_name:
-                    forced_reprompt_budget = 3
-                else:
-                    forced_reprompt_budget = 0
+                _log_stage(
+                    ts_logger,
+                    conversation_id,
+                    iterations,
+                    "forced_tool_change",
+                    event="API_STAGE_END",
+                    since_start_ms=int((time.monotonic() - request_t0) * 1000),
+                    extra={"forced_tool": forced_tool_name or "none"},
+                )
                 last_forced_tool_name = forced_tool_name
 
             tools = rt.tool_registry.to_openai_format(context=context, rl_selection=rl_selection) if rt.tool_registry else None
 
+            # Ensure the mutable system prompt always exposes the current RL suggestion,
+            # including during forced exploration (per-tool-call loop).
+            try:
+                if rl_selection and session.world_state_aggregator:
+                    suggested_tools = [rl_selection.tool_name] + [
+                        n for n, _ in (rl_selection.alternatives or [])
+                    ]
+                    session.world_state_aggregator.set_rl_guidance(
+                        suggested_tool=rl_selection.tool_name,
+                        mode=getattr(rl_selection, "mode", None),
+                        confidence=getattr(rl_selection, "confidence", None),
+                        reason=getattr(rl_selection, "reason", None),
+                        selection_id=getattr(rt.tool_registry, "_last_format_selection_id", None),
+                        suggested_tools=suggested_tools,
+                    )
+                    session._update_system_prompt()
+            except Exception as e:
+                logger.debug(f"Failed to update RL guidance in system prompt (iteration {iterations}): {e}", exc_info=True)
+
             if tools and not web_search_enabled:
-                tools = [t for t in tools if t["function"]["name"] != "web_search"]
+                tools = [
+                    t
+                    for t in tools
+                    if t.get("function", {}).get("name") not in {"web_search", "WEB_SEARCH"}
+                ]
 
             tool_choice = None
             if forced_tool_name:
@@ -1457,7 +1776,30 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
             # PEA/PFREA removed - planning is now handled via planning tool
             
             messages_for_llm = session._get_messages_for_llm()
+            llm_t0 = time.monotonic()
+            _log_stage(
+                ts_logger,
+                conversation_id,
+                iterations,
+                "llm_chat",
+                event="API_STAGE_START",
+                since_start_ms=int((llm_t0 - request_t0) * 1000),
+                extra={
+                    "forced_tool": forced_tool_name or "none",
+                    "tools_count": len(tools) if isinstance(tools, list) else 0,
+                },
+            )
             response = session.llm.chat(messages_for_llm, tools=tools, tool_choice=tool_choice)
+            llm_t1 = time.monotonic()
+            _log_stage(
+                ts_logger,
+                conversation_id,
+                iterations,
+                "llm_chat",
+                event="API_STAGE_END",
+                duration_ms=int((llm_t1 - llm_t0) * 1000),
+                since_start_ms=int((llm_t1 - request_t0) * 1000),
+            )
             last_response = response  # Store for max_iterations handling
             tool_calls = session.llm.extract_tool_calls(response)
             
@@ -1479,34 +1821,13 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
             if tool_calls:
                 # Provider/tool-calling compliance guard:
                 # In forced mode, some providers/models may still emit a tool call to a disallowed tool.
-                # Instead of executing and surfacing a blocked tool result to the UI, re-prompt the model
-                # to call ONLY the forced tool (up to a small budget to avoid infinite loops).
+                # Parity with REPL: do NOT reprompt in a tight loop (can cause multi-minute silent waits).
+                # Instead, allow execution-time enforcement to block out-of-buffer tool calls and surface the tool error.
                 if forced_tool_name:
                     first_name = tool_calls[0].get("function", {}).get("name", "unknown")
                     if first_name != forced_tool_name:
-                        if forced_reprompt_budget > 0:
-                            forced_reprompt_budget -= 1
-                            ts_logger.warning(
-                                f"API_FORCED_TOOL_NONCOMPLIANCE | conversation_id={conversation_id} | iteration={iterations} | "
-                                f"forced_tool={forced_tool_name} | requested_tool={first_name} | remaining_reprompts={forced_reprompt_budget}"
-                            )
-                            session.messages.append(
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        f"[SYSTEM DIRECTIVE] RL forced-mode is active. "
-                                        f"You MUST call the tool '{forced_tool_name}' now. "
-                                        f"Do not call any other tools."
-                                    ),
-                                }
-                            )
-                            continue
-
-                        # After reprompt budget is exhausted, let the request proceed.
-                        # ToolRegistry will block out-of-buffer tool calls and return a tool error message.
-                        # This gives the model a concrete tool error signal and another chance to adjust.
-                        ts_logger.error(
-                            f"API_FORCED_TOOL_NONCOMPLIANCE_BUDGET_EXHAUSTED | conversation_id={conversation_id} | iteration={iterations} | "
+                        ts_logger.warning(
+                            f"API_FORCED_TOOL_NONCOMPLIANCE | conversation_id={conversation_id} | iteration={iterations} | "
                             f"forced_tool={forced_tool_name} | requested_tool={first_name}"
                         )
 
@@ -1571,6 +1892,12 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                     }) + "\n"
                     
                     result_dict = rt.tool_registry.execute_tool_call(tc)
+                    try:
+                        ap = result_dict.get("_auto_continue_prompt")
+                        if isinstance(ap, str) and ap.strip():
+                            pending_auto_continue_prompt = ap.strip()
+                    except Exception:
+                        pass
 
                     # Log RL reward signals per tool call (append-only)
                     # Note: stream_response bypasses ConversationSession._handle_tool_calls(),
@@ -1761,10 +2088,17 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                                     # Prepare RL signals data for response
                                     rl_signals_data = {
                                         "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                                        "dissonance_reward_varnorm": round(getattr(rl_metrics, "dissonance_reward_varnorm", 0.5), 3),
                                         "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                                        "surprise_reward_varnorm": round(getattr(rl_metrics, "surprise_reward_varnorm", 0.5), 3),
                                         "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                                        "curiosity_reward_varnorm": round(getattr(rl_metrics, "curiosity_reward_varnorm", 0.5), 3),
                                         "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                                        "information_gain_reward_varnorm": round(getattr(rl_metrics, "information_gain_reward_varnorm", 0.5), 3),
                                         "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                                        "coherence_reward_varnorm": round(getattr(rl_metrics, "coherence_reward_varnorm", 0.5), 3),
+                                        "valence_reward": round(getattr(rl_metrics, "valence_reward", 0.5), 3),
+                                        "valence_reward_varnorm": round(getattr(rl_metrics, "valence_reward_varnorm", 0.5), 3),
                                         "composite_reward": round(rl_metrics.composite_reward, 3),
                                         "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
                                         "weights": {
@@ -1773,6 +2107,7 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                                             "curiosity": rl_metrics.weight_curiosity,
                                             "info_gain": rl_metrics.weight_info_gain,
                                             "coherence": rl_metrics.weight_coherence,
+                                            "valence": getattr(rl_metrics, "weight_valence", 0.0),
                                         }
                                     }
                                     
@@ -1958,6 +2293,12 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
             )
             thread.start()
         metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if isinstance(pending_auto_continue_prompt, str) and pending_auto_continue_prompt.strip():
+            metadata["auto_continue_pending"] = {
+                "status": "pending",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "prompt": pending_auto_continue_prompt.strip(),
+            }
         storage.save_conversation(conversation_id, session.messages, metadata)
         
     except Exception as e:
@@ -2029,10 +2370,17 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                         # Add RL signals to done message
                         done_data["rl_signals"] = {
                             "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                            "dissonance_reward_varnorm": round(getattr(rl_metrics, "dissonance_reward_varnorm", 0.5), 3),
                             "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                            "surprise_reward_varnorm": round(getattr(rl_metrics, "surprise_reward_varnorm", 0.5), 3),
                             "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                            "curiosity_reward_varnorm": round(getattr(rl_metrics, "curiosity_reward_varnorm", 0.5), 3),
                             "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                            "information_gain_reward_varnorm": round(getattr(rl_metrics, "information_gain_reward_varnorm", 0.5), 3),
                             "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                            "coherence_reward_varnorm": round(getattr(rl_metrics, "coherence_reward_varnorm", 0.5), 3),
+                            "valence_reward": round(getattr(rl_metrics, "valence_reward", 0.5), 3),
+                            "valence_reward_varnorm": round(getattr(rl_metrics, "valence_reward_varnorm", 0.5), 3),
                             "composite_reward": round(rl_metrics.composite_reward, 3),
                             "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
                             "weights": {
@@ -2041,6 +2389,7 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                                 "curiosity": rl_metrics.weight_curiosity,
                                 "info_gain": rl_metrics.weight_info_gain,
                                 "coherence": rl_metrics.weight_coherence,
+                                "valence": getattr(rl_metrics, "weight_valence", 0.0),
                             }
                         }
                         
@@ -2092,9 +2441,11 @@ async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
             req.conversation_id = res.conversation_id
 
         if req.stream:
+            background_tasks.add_task(_run_auto_continue_job_now, req.conversation_id)
             return StreamingResponse(
                 stream_response(req.conversation_id, last.content, web_search_enabled=req.web_search, include_rl_signals=req.include_rl_signals),
-                media_type="application/x-ndjson"
+                media_type="application/x-ndjson",
+                background=background_tasks,
             )
 
         session = create_session(req.conversation_id)
@@ -2138,10 +2489,17 @@ async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
                             # Prepare RL signals data for response
                             rl_signals_data = {
                                 "dissonance_reward": round(rl_metrics.dissonance_reward, 3),
+                                "dissonance_reward_varnorm": round(getattr(rl_metrics, "dissonance_reward_varnorm", 0.5), 3),
                                 "surprise_reward": round(rl_metrics.surprise_reward, 3),
+                                "surprise_reward_varnorm": round(getattr(rl_metrics, "surprise_reward_varnorm", 0.5), 3),
                                 "curiosity_reward": round(rl_metrics.curiosity_reward, 3),
+                                "curiosity_reward_varnorm": round(getattr(rl_metrics, "curiosity_reward_varnorm", 0.5), 3),
                                 "information_gain_reward": round(rl_metrics.information_gain_reward, 3),
+                                "information_gain_reward_varnorm": round(getattr(rl_metrics, "information_gain_reward_varnorm", 0.5), 3),
                                 "coherence_reward": round(rl_metrics.coherence_reward, 3),
+                                "coherence_reward_varnorm": round(getattr(rl_metrics, "coherence_reward_varnorm", 0.5), 3),
+                                "valence_reward": round(getattr(rl_metrics, "valence_reward", 0.5), 3),
+                                "valence_reward_varnorm": round(getattr(rl_metrics, "valence_reward_varnorm", 0.5), 3),
                                 "composite_reward": round(rl_metrics.composite_reward, 3),
                                 "exploration_balance": round(rl_metrics.get_exploration_exploitation_balance(), 3),
                                 "weights": {
@@ -2150,6 +2508,7 @@ async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
                                     "curiosity": rl_metrics.weight_curiosity,
                                     "info_gain": rl_metrics.weight_info_gain,
                                     "coherence": rl_metrics.weight_coherence,
+                                    "valence": getattr(rl_metrics, "weight_valence", 0.0),
                                 }
                             }
                             
@@ -2181,6 +2540,17 @@ async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
         storage = get_storage()
         data = storage.load_conversation(req.conversation_id)
         metadata = data.get("metadata", {}) if data else {}
+        try:
+            pending = session.consume_auto_continue_prompt()
+            if isinstance(pending, str) and pending.strip():
+                metadata["auto_continue_pending"] = {
+                    "status": "pending",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "prompt": pending.strip(),
+                }
+                background_tasks.add_task(_run_auto_continue_job_now, req.conversation_id)
+        except Exception:
+            pass
         if metadata.get("title") == "New conversation":
             # Don't block - use default title for now, generate proper title in background
             metadata["title"] = last.content[:40] + "..."

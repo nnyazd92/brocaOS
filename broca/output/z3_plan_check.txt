@@ -1,3 +1,0 @@
-Z3 planning checks performed:
-check1: sat
-check2 (antecedent true, consequent false): unsat

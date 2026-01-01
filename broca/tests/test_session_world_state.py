@@ -63,12 +63,10 @@ class TestSessionWorldState:
         assert session.messages[0]["role"] == "system"
         # Check that it's valid JSON with expected structure
         system_content = session.messages[0]["content"]
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in system_content:
-            json_part = system_content.split("\n\n", 1)[1]
-        else:
-            json_part = system_content
-        parsed = json.loads(json_part)
+        # Extract JSON part (system prompt may include guidance/instructions before JSON)
+        json_start = system_content.find("{")
+        assert json_start != -1
+        parsed = json.loads(system_content[json_start:])
         assert "timestamp" in parsed
         assert "system" in parsed or "self_model" in parsed
     
@@ -99,13 +97,10 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in system_content:
-            json_part = system_content.split("\n\n", 1)[1]
-        else:
-            json_part = system_content
-        # Check that it's valid JSON
-        parsed = json.loads(json_part)
+        # Extract JSON part (system prompt may include guidance/instructions before JSON)
+        json_start = system_content.find("{")
+        assert json_start != -1
+        parsed = json.loads(system_content[json_start:])
         assert "timestamp" in parsed
         assert "system" in parsed or "self_model" in parsed
         
@@ -127,13 +122,9 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in system_content:
-            json_part = system_content.split("\n\n", 1)[1]
-        else:
-            json_part = system_content
-        # Check that it's valid JSON
-        parsed = json.loads(json_part)
+        json_start = system_content.find("{")
+        assert json_start != -1
+        parsed = json.loads(system_content[json_start:])
         assert "timestamp" in parsed
     
     def test_update_system_prompt_with_aggregator(self, mock_llm_client, mock_world_state_aggregator):
@@ -158,13 +149,9 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in system_content:
-            json_part = system_content.split("\n\n", 1)[1]
-        else:
-            json_part = system_content
-        # Check that it's valid JSON
-        parsed = json.loads(json_part)
+        json_start = system_content.find("{")
+        assert json_start != -1
+        parsed = json.loads(system_content[json_start:])
         assert "timestamp" in parsed
     
     def test_update_system_prompt_without_aggregator(self, mock_llm_client):
@@ -195,13 +182,9 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in system_content:
-            json_part = system_content.split("\n\n", 1)[1]
-        else:
-            json_part = system_content
-        # Check that it's valid JSON
-        parsed = json.loads(json_part)
+        json_start = system_content.find("{")
+        assert json_start != -1
+        parsed = json.loads(system_content[json_start:])
         assert "timestamp" in parsed
         
         # Reset and manually remove system message to test creation
@@ -217,13 +200,9 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in system_content:
-            json_part = system_content.split("\n\n", 1)[1]
-        else:
-            json_part = system_content
-        # Check that it's valid JSON
-        parsed = json.loads(json_part)
+        json_start = system_content.find("{")
+        assert json_start != -1
+        parsed = json.loads(system_content[json_start:])
         assert "timestamp" in parsed
     
     def test_update_system_prompt_handles_errors(self, mock_llm_client):
@@ -268,12 +247,9 @@ class TestSessionWorldState:
         
         # Verify system message contains only world state as JSON
         system_content = session.messages[0]["content"]
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in system_content:
-            json_part = system_content.split("\n\n", 1)[1]
-        else:
-            json_part = system_content
-        parsed = json.loads(json_part)
+        json_start = system_content.find("{")
+        assert json_start != -1
+        parsed = json.loads(system_content[json_start:])
         assert "timestamp" in parsed
     
     def test_send_updates_system_prompt_each_iteration(self, mock_llm_client, mock_world_state_aggregator):
@@ -315,12 +291,9 @@ class TestSessionWorldState:
         assert session.messages[2]["role"] == "assistant"
         # System message should contain only world state as JSON
         system_content = session.messages[0]["content"]
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in system_content:
-            json_part = system_content.split("\n\n", 1)[1]
-        else:
-            json_part = system_content
-        parsed = json.loads(json_part)
+        json_start = system_content.find("{")
+        assert json_start != -1
+        parsed = json.loads(system_content[json_start:])
         assert "timestamp" in parsed
     
     def test_system_prompt_excludes_behavioral_patterns(self, mock_llm_client):
@@ -357,16 +330,10 @@ class TestSessionWorldState:
         assert len(session.messages) == 1
         assert session.messages[0]["role"] == "system"
         system_content = session.messages[0]["content"]
-        
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in system_content:
-            json_part = system_content.split("\n\n", 1)[1]
-        else:
-            # If no base prompt, entire content is JSON
-            json_part = system_content
-        
-        # Parse JSON
-        parsed = json.loads(json_part)
+
+        json_start = system_content.find("{")
+        assert json_start != -1
+        parsed = json.loads(system_content[json_start:])
         
         # Verify behavioral_patterns is NOT in the JSON anywhere
         # Check recursively in the parsed structure
@@ -425,15 +392,10 @@ class TestSessionWorldState:
                     assert len(session.messages) == 1
                     assert session.messages[0]["role"] == "system"
                     system_content = session.messages[0]["content"]
-                    
-                    # Extract JSON part
-                    if "\n\n" in system_content:
-                        json_part = system_content.split("\n\n", 1)[1]
-                    else:
-                        json_part = system_content
-                    
-                    # Parse JSON
-                    parsed = json.loads(json_part)
+
+                    json_start = system_content.find("{")
+                    assert json_start != -1
+                    parsed = json.loads(system_content[json_start:])
                     
                     # Verify memory section exists
                     assert "memory" in parsed
@@ -522,9 +484,8 @@ class TestSessionWorldState:
             internal_sensing_framework=framework,
         )
         
-        # Before sending, valence should be None
+        # Before sending, valence may already be present due to world-state sampling during init.
         initial_valence = framework.interoception.affect.affective_states.get("valence")
-        assert initial_valence is None
         
         # Send first message - valence should be computed from user message before response
         # We'll check by mocking the send to stop before LLM call
@@ -537,6 +498,8 @@ class TestSessionWorldState:
         assert isinstance(valence, float)
         assert -1.0 <= valence <= 1.0
         assert valence > 0.0  # Should be positive from positive user message
+        if initial_valence is not None:
+            assert valence != initial_valence
     
     def test_valence_in_world_state_on_first_prompt(self, mock_llm_client):
         """Test that valence appears in world state on first prompt."""
@@ -567,4 +530,3 @@ class TestSessionWorldState:
         assert isinstance(affect["valence"], float)
         assert -1.0 <= affect["valence"] <= 1.0
         assert affect["valence"] < 0.0  # Should be negative from negative user message
-

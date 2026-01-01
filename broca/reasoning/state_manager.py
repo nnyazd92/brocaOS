@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from datetime import datetime, timezone
 from collections import deque
+from enum import Enum
 
 if TYPE_CHECKING:
     from .production_rules import ProductionRuleSystem
@@ -201,6 +202,28 @@ class ReasoningStateManager:
                 # Atomic write: write to a uniquely named temp file in the same directory, fsync, then rename.
                 state_path = Path(self.state_file_path)
                 state_path.parent.mkdir(parents=True, exist_ok=True)
+
+                def _json_default(obj: Any) -> Any:
+                    # Enums (e.g., GoalType, GoalStatus) -> their .value for stable JSON.
+                    if isinstance(obj, Enum):
+                        return obj.value
+                    # Datetimes -> ISO string
+                    if isinstance(obj, datetime):
+                        return obj.isoformat()
+                    # Paths -> string
+                    if isinstance(obj, Path):
+                        return str(obj)
+                    # Deques/sets -> list
+                    if isinstance(obj, deque):
+                        return list(obj)
+                    if isinstance(obj, set):
+                        return list(obj)
+                    # Best-effort: objects with to_dict()
+                    to_dict = getattr(obj, "to_dict", None)
+                    if callable(to_dict):
+                        return to_dict()
+                    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
                 with tempfile.NamedTemporaryFile(
                     mode="w",
                     encoding="utf-8",
@@ -210,7 +233,7 @@ class ReasoningStateManager:
                     delete=False,
                 ) as f:
                     temp_path = f.name
-                    json.dump(state_data, f, indent=2)
+                    json.dump(state_data, f, indent=2, default=_json_default)
                     f.flush()
                     os.fsync(f.fileno())
 

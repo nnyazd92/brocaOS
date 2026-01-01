@@ -45,8 +45,11 @@ def test_dataset_builder_prefers_post_context_reward_over_csv():
 
         ds = build_dataset(root)
         assert ds.rewards.shape == (1,)
-        # Reward = composite_reward + (reward_success - 0.5) - latency ~= 0.4 + 0.3 = 0.7
-        assert abs(float(ds.rewards[0]) - 0.7) < 1e-6
+        # Reward = composite_reward + (reward_success - 0.5) - latency (quality term is 0 for result_quality=0.5).
+        from broca.config import config as _config
+
+        expected = 0.4 + (_config.rl.reward_success - 0.5)
+        assert abs(float(ds.rewards[0]) - float(expected)) < 1e-6
 
 
 @given(
@@ -56,13 +59,14 @@ def test_dataset_builder_prefers_post_context_reward_over_csv():
         st.just(float("inf")),
         st.just(float("-inf")),
     ),
-    n_missing=st.integers(min_value=0, max_value=7),
+    n_missing=st.integers(min_value=0, max_value=10),
 )
 def test_extract_state_features_never_nan_inf(composite: float, n_missing: int):
     from broca.rl.features import extract_state_features, RL_SIGNAL_KEYS
 
     # Build rl_signals with some missing keys and potentially NaN/inf
-    keys = RL_SIGNAL_KEYS[: max(0, 6 - min(n_missing, 6))]
+    n_signals = len(RL_SIGNAL_KEYS)
+    keys = RL_SIGNAL_KEYS[: max(0, n_signals - min(n_missing, n_signals))]
     rl = {k: composite for k in keys}
     ctx = {"rl_signals": rl}
 

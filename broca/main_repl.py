@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 from .logging_config import setup_logging
 from .repl.session import ConversationSession
-# Config is imported locally in functions to avoid scoping issues
+# Keep a module-level `config` symbol for tests/mocking; functions may still import locally.
+from .config import config
 from .storage.json_storage import JSONFileStorage
 from .storage import ConversationStorage
 from .tools.registry import ToolRegistry
@@ -199,114 +200,137 @@ def _initialize_tool_registry(
             internal_sensing_framework=internal_sensing,
             tool_selection_guidance=tool_selection_guidance
         )
-        
-        # Register web search tool if enabled
-        # Tavily API is primary search provider (requires TAVILY_API_KEY)
-        # Browser-based search is used as fallback when Tavily is unavailable
-        if app_config.tools.enable_web_search:
+
+        # Toolset selection: default to legacy unless explicitly set.
+        toolset = getattr(app_config.tools, "toolset", None)
+        if not isinstance(toolset, str):
+            toolset = os.getenv("BROCA_TOOLSET", "legacy")
+
+        if toolset.lower() == "primitive":
             try:
-                # WebSearchTool uses Tavily API as primary, browser search as fallback
-                web_search_tool = WebSearchTool(api_key=app_config.tools.tavily_api_key or None)
-                registry.register_tool(web_search_tool)
-                logger.info("Registered web search tool (Tavily primary, browser fallback)")
-            except Exception as e:
-                logger.warning(
-                    f"Failed to register web search tool: {e}. "
-                    "Ensure browser navigation is enabled and Playwright is installed: "
-                    "pip install playwright && playwright install chromium",
-                    exc_info=True
-                )
-        
-        # Register memory tools if memory manager is available
-        if memory_manager:
-            try:
-                store_tool = StoreMemoryTool(
-                    memory_manager, 
+                from .tools.primitive_toolset import register_primitive_toolset
+
+                register_primitive_toolset(
+                    registry,
+                    memory_manager=memory_manager,
                     epistemic_engine=epistemic_engine,
                     self_model=self_model,
-                    storage=storage
-                )
-                retrieve_tool = RetrieveMemoriesTool(memory_manager, epistemic_engine=epistemic_engine)
-                delete_tool = DeleteMemoryTool(memory_manager)
-                update_tool = UpdateMemoryTool(memory_manager)
-                link_tool = LinkMemoriesTool(memory_manager)
-                get_related_tool = GetRelatedMemoriesTool(memory_manager)
-                memory_graph_tool = MemoryGraphTool(memory_manager)
-                registry.register_tool(store_tool)
-                registry.register_tool(retrieve_tool)
-                registry.register_tool(delete_tool)
-                registry.register_tool(update_tool)
-                registry.register_tool(link_tool)
-                registry.register_tool(get_related_tool)
-                registry.register_tool(memory_graph_tool)
-                logger.info("Registered memory tools")
-            except Exception as e:
-                logger.warning(f"Failed to register memory tools: {e}", exc_info=True)
-        
-        # Register terminal tool if enabled
-        if app_config.tools.enable_terminal:
-            try:
-                terminal_tool = TerminalTool()
-                registry.register_tool(terminal_tool)
-                logger.info("Registered terminal tool")
-            except Exception as e:
-                logger.warning(f"Failed to register terminal tool: {e}", exc_info=True)
-        
-        # Register critic tool if enabled
-        if app_config.tools.enable_critic:
-            try:
-                from .tools.critic import CriticTool
-                critic_tool = CriticTool(
-                    system_prompt_template=app_config.tools.critic_system_prompt_template
-                )
-                registry.register_tool(critic_tool)
-                logger.info("Registered critic tool")
-            except Exception as e:
-                logger.warning(f"Failed to register critic tool: {e}", exc_info=True)
-        
-        # Register browser navigation tool if enabled
-        if app_config.tools.enable_browser_navigation:
-            try:
-                from .tools.browser_navigation import BrowserNavigationTool
-                browser_tool = BrowserNavigationTool(
-                    headless=app_config.tools.browser_headless,
-                    timeout=app_config.tools.browser_timeout,
-                    stealth_mode=app_config.tools.browser_stealth_mode,
-                    viewport_width=app_config.tools.browser_viewport_width,
-                    viewport_height=app_config.tools.browser_viewport_height,
-                    user_agents=app_config.tools.browser_user_agents
-                )
-                registry.register_tool(browser_tool)
-                logger.info("Registered browser navigation tool")
-            except Exception as e:
-                logger.warning(f"Failed to register browser navigation tool: {e}", exc_info=True)
-        
-        # Register self-model tools if self-model is available
-        if self_model and storage:
-            try:
-                # Register CRUD tool (comprehensive self-model management)
-                # All self-model updates should be done through the CRUD tool
-                crud_tool = SelfModelCRUDTool(
-                    self_model=self_model,
                     storage=storage,
-                    epistemic_engine=epistemic_engine
                 )
-                registry.register_tool(crud_tool)
-                logger.info("Registered self-model CRUD tool")
+                logger.info("Registered primitive toolset (v2)")
             except Exception as e:
-                logger.warning(f"Failed to register self-model tools: {e}", exc_info=True)
+                logger.warning(f"Failed to register primitive toolset: {e}", exc_info=True)
+                return None
+        else:
         
-        # Register planning tool
-        try:
-            from .tools.planning_tool import PlanningTool
-            planning_tool = PlanningTool()
-            registry.register_tool(planning_tool)
-            logger.info("Registered planning tool")
-        except Exception as e:
-            logger.warning(f"Failed to register planning tool: {e}", exc_info=True)
+            # Register web search tool if enabled
+            # Tavily API is primary search provider (requires TAVILY_API_KEY)
+            # Browser-based search is used as fallback when Tavily is unavailable
+            if app_config.tools.enable_web_search:
+                try:
+                    # WebSearchTool uses Tavily API as primary, browser search as fallback
+                    web_search_tool = WebSearchTool(api_key=app_config.tools.tavily_api_key or None)
+                    registry.register_tool(web_search_tool)
+                    logger.info("Registered web search tool (Tavily primary, browser fallback)")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to register web search tool: {e}. "
+                        "Ensure browser navigation is enabled and Playwright is installed: "
+                        "pip install playwright && playwright install chromium",
+                        exc_info=True
+                    )
+            
+            # Register memory tools if memory manager is available
+            if memory_manager:
+                try:
+                    store_tool = StoreMemoryTool(
+                        memory_manager, 
+                        epistemic_engine=epistemic_engine,
+                        self_model=self_model,
+                        storage=storage
+                    )
+                    retrieve_tool = RetrieveMemoriesTool(memory_manager, epistemic_engine=epistemic_engine)
+                    delete_tool = DeleteMemoryTool(memory_manager)
+                    update_tool = UpdateMemoryTool(memory_manager)
+                    link_tool = LinkMemoriesTool(memory_manager)
+                    get_related_tool = GetRelatedMemoriesTool(memory_manager)
+                    memory_graph_tool = MemoryGraphTool(memory_manager)
+                    registry.register_tool(store_tool)
+                    registry.register_tool(retrieve_tool)
+                    registry.register_tool(delete_tool)
+                    registry.register_tool(update_tool)
+                    registry.register_tool(link_tool)
+                    registry.register_tool(get_related_tool)
+                    registry.register_tool(memory_graph_tool)
+                    logger.info("Registered memory tools")
+                except Exception as e:
+                    logger.warning(f"Failed to register memory tools: {e}", exc_info=True)
+            
+            # Register terminal tool if enabled
+            if app_config.tools.enable_terminal:
+                try:
+                    terminal_tool = TerminalTool()
+                    registry.register_tool(terminal_tool)
+                    logger.info("Registered terminal tool")
+                except Exception as e:
+                    logger.warning(f"Failed to register terminal tool: {e}", exc_info=True)
+            
+            # Register critic tool if enabled
+            if app_config.tools.enable_critic:
+                try:
+                    from .tools.critic import CriticTool
+                    critic_tool = CriticTool(
+                        system_prompt_template=app_config.tools.critic_system_prompt_template
+                    )
+                    registry.register_tool(critic_tool)
+                    logger.info("Registered critic tool")
+                except Exception as e:
+                    logger.warning(f"Failed to register critic tool: {e}", exc_info=True)
+            
+            # Register browser navigation tool if enabled
+            if app_config.tools.enable_browser_navigation:
+                try:
+                    from .tools.browser_navigation import BrowserNavigationTool
+                    browser_tool = BrowserNavigationTool(
+                        headless=app_config.tools.browser_headless,
+                        timeout=app_config.tools.browser_timeout,
+                        stealth_mode=app_config.tools.browser_stealth_mode,
+                        viewport_width=app_config.tools.browser_viewport_width,
+                        viewport_height=app_config.tools.browser_viewport_height,
+                        user_agents=app_config.tools.browser_user_agents
+                    )
+                    registry.register_tool(browser_tool)
+                    logger.info("Registered browser navigation tool")
+                except Exception as e:
+                    logger.warning(f"Failed to register browser navigation tool: {e}", exc_info=True)
+            
+            # Register self-model tools if self-model is available
+            if self_model and storage:
+                try:
+                    # Register CRUD tool (comprehensive self-model management)
+                    # All self-model updates should be done through the CRUD tool
+                    crud_tool = SelfModelCRUDTool(
+                        self_model=self_model,
+                        storage=storage,
+                        epistemic_engine=epistemic_engine
+                    )
+                    registry.register_tool(crud_tool)
+                    logger.info("Registered self-model CRUD tool")
+                except Exception as e:
+                    logger.warning(f"Failed to register self-model tools: {e}", exc_info=True)
+            
+            # Register planning tool
+            try:
+                from .tools.planning_tool import PlanningTool
+                planning_tool = PlanningTool()
+                registry.register_tool(planning_tool)
+                logger.info("Registered planning tool")
+            except Exception as e:
+                logger.warning(f"Failed to register planning tool: {e}", exc_info=True)
         
-        # Register Z3 validator tool if enabled
-        if app_config.reasoning.z3_tool_enabled:
+        # Register Z3 validator tool only in legacy toolset.
+        # In the primitive toolset, Z3 should be accessed via VERIFY (macro), not as a direct tool.
+        if toolset.lower() != "primitive" and app_config.reasoning.z3_tool_enabled:
             try:
                 from .tools.z3_validator_tool import Z3ValidatorTool
                 z3_tool = Z3ValidatorTool(
@@ -781,16 +805,37 @@ def _initialize_reasoning_system(
                             epistemic_bridge = internal_sensing.interoception.epistemic_bridge
 
                 # Optional: LLM-based estimator for missing/low-quality RL signals.
+                # IMPORTANT: This must never be required for normal operation and should be explicitly
+                # enabled. It can be slow (network call) and requires OPENAI_API_KEY.
                 estimator = None
+                if reasoning_config.llm_pattern_matching_enabled:
+                    try:
+                        if not os.getenv("OPENAI_API_KEY"):
+                            raise ValueError("OPENAI_API_KEY not set (required for LLMRLSignalEstimator)")
+                        from .reasoning.rl_signal_estimators import LLMRLSignalEstimator
+                        estimator = LLMRLSignalEstimator(
+                            model=reasoning_config.llm_pattern_matching_model,
+                            batch_size=reasoning_config.llm_pattern_matching_batch_size,
+                            cache_size=reasoning_config.llm_pattern_matching_cache_size,
+                        )
+                    except Exception as e:
+                        logger.debug(f"LLMRLSignalEstimator disabled: {e}")
+                        estimator = None
+
+                reward_normalizer = None
                 try:
-                    from .reasoning.rl_signal_estimators import LLMRLSignalEstimator
-                    estimator = LLMRLSignalEstimator(
-                        model=reasoning_config.llm_pattern_matching_model,
-                        batch_size=reasoning_config.llm_pattern_matching_batch_size,
-                        cache_size=reasoning_config.llm_pattern_matching_cache_size,
-                    )
-                except Exception:
-                    estimator = None
+                    if getattr(reasoning_config, "rl_varnorm_enabled", True):
+                        from .reasoning.reward_normalizer import RewardVarianceNormalizer
+
+                        reward_normalizer = RewardVarianceNormalizer(
+                            storage_path=getattr(reasoning_config, "rl_varnorm_path", "data/rl/reward_variance.json"),
+                            enabled=True,
+                            min_samples=int(getattr(reasoning_config, "rl_varnorm_min_samples", 10)),
+                            persist_interval_s=float(getattr(reasoning_config, "rl_varnorm_persist_interval_s", 5.0)),
+                        )
+                except Exception as e:
+                    logger.debug(f"Reward variance normalizer disabled: {e}")
+                    reward_normalizer = None
                 
                 rl_signal_aggregator = RLSignalAggregator(
                     weight_dissonance=reasoning_config.rl_weight_dissonance,
@@ -798,11 +843,13 @@ def _initialize_reasoning_system(
                     weight_curiosity=reasoning_config.rl_weight_curiosity,
                     weight_info_gain=reasoning_config.rl_weight_info_gain,
                     weight_coherence=reasoning_config.rl_weight_coherence,
+                    weight_valence=getattr(reasoning_config, "rl_weight_valence", 0.0),
                     cognitive_dissonance_monitor=cognitive_dissonance_monitor,
                     affective_monitor=affective_monitor,
                     predictive_interoception=predictive_interoception,
                     epistemic_bridge=epistemic_bridge,
                     estimator=estimator,
+                    reward_normalizer=reward_normalizer,
                 )
                 logger.info("✓ RL signal aggregator initialized")
             except Exception as e:
@@ -1107,6 +1154,15 @@ def main() -> None:
         app_config = None
     
     setup_logging()
+    # Apply persisted reward design (if present) so reward shaping survives restarts.
+    try:
+        from .rl.reward_design import apply_persisted_reward_design
+
+        applied, changes = apply_persisted_reward_design()
+        if applied:
+            logger.info(f"✓ Applied persisted reward design ({len(changes)} change(s))")
+    except Exception as e:
+        logger.debug(f"Failed to apply persisted reward design: {e}")
 
     # Detect workspace root (parent of broca package directory)
     workspace_root = Path(__file__).parent.parent.resolve()
@@ -1164,6 +1220,17 @@ def main() -> None:
         else:
             logger.warning("✗ Tool registry initialization failed or disabled")
         
+        # Initialize RL-primary policy ranker (tool selection) and wire to registry.
+        try:
+            from .rl.policy_init import initialize_online_policy_ranker
+
+            ranker = initialize_online_policy_ranker()
+            if ranker is not None:
+                tool_registry.set_online_policy_ranker(ranker)
+                logger.info("✓ OnlinePolicyRanker wired to tool registry")
+        except Exception as e:
+            logger.warning(f"Failed to initialize OnlinePolicyRanker: {e}", exc_info=True)
+        
         # Register self-model tools if self-model system is enabled (CRUD tool already registered in _initialize_tool_registry)
         # Additional tools can be registered here if needed
         pass
@@ -1171,8 +1238,10 @@ def main() -> None:
         # Internal sensing tools are NOT registered as tools since internal sensing data
         # is already included in the LLM's mutable system prompt via WorldStateAggregator.
         
-        # Register environment access tool if environment system is enabled
-        if environment_system and tool_registry:
+        # Register legacy environment access tool only in legacy toolset.
+        # In the primitive toolset, environment interaction must occur via explicit macro tools.
+        toolset = str(getattr(app_config.tools, "toolset", "legacy"))
+        if environment_system and tool_registry and toolset.lower() != "primitive":
             try:
                 from .environment.tools.environment_tool import EnvironmentAccessTool
                 env_tool = EnvironmentAccessTool(access_system=environment_system)
@@ -1243,21 +1312,72 @@ def main() -> None:
                         except Exception as e:
                             logger.warning(f"Failed to wire reasoning learning tool to tool registry: {e}", exc_info=True)
                     
-                    # Register reasoning tool in tool registry
-                    if tool_registry:
+                    toolset = str(getattr(app_config.tools, "toolset", "legacy"))
+
+                    # Register legacy reasoning/learning tools only in legacy toolset.
+                    # In the primitive toolset, these are accessed via macros (SOLVE/VERIFY/INTERPRET, etc).
+                    if tool_registry and toolset.lower() != "primitive":
                         try:
                             tool_registry.register_tool(reasoning_tool)
                             logger.info("Registered reasoning tool")
                         except Exception as e:
                             logger.warning(f"Failed to register reasoning tool: {e}", exc_info=True)
-                    
-                    # Register learning tool if available
-                    if tool_registry and hasattr(reasoning_tool, 'learning_tool') and reasoning_tool.learning_tool:
-                        try:
-                            tool_registry.register_tool(reasoning_tool.learning_tool)
-                            logger.info("Registered learning tool")
-                        except Exception as e:
-                            logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
+
+                if (
+                    tool_registry
+                    and hasattr(reasoning_tool, "learning_tool")
+                    and reasoning_tool.learning_tool
+                    and str(getattr(app_config.tools, "toolset", "legacy")).lower() != "primitive"
+                ):
+                    try:
+                        tool_registry.register_tool(reasoning_tool.learning_tool)
+                        logger.info("Registered learning tool")
+                    except Exception as e:
+                        logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
+
+                    # Register primitive macros that require reasoning/learning components.
+                    # These need to be registered here (after reasoning_tool exists), because
+                    # the primitive toolset is initialized earlier before goal_manager is available.
+                    try:
+                        from .config import config as app_config
+                        if getattr(app_config.tools, "toolset", "legacy").lower() == "primitive":
+                            from .tools.goal_reward_tools import DesignRewardTool, SetGoalsTool
+
+                            existing = tool_registry.get_tool("SET_GOALS") if tool_registry else None
+                            if existing is None and goal_manager is not None:
+                                tool_registry.register_tool(
+                                    SetGoalsTool(
+                                        goal_manager=goal_manager,
+                                        experience_logger=getattr(reasoning_tool.learning_tool, "experience_logger", None),
+                                        state_file_path=app_config.reasoning.state_file_path,
+                                    )
+                                )
+                                logger.info("Registered SET_GOALS tool (primitive macro)")
+                            existing = tool_registry.get_tool("DESIGN_REWARD") if tool_registry else None
+                            if existing is None:
+                                tool_registry.register_tool(
+                                    DesignRewardTool(
+                                        experience_logger=getattr(reasoning_tool.learning_tool, "experience_logger", None)
+                                    )
+                                )
+                                logger.info("Registered DESIGN_REWARD tool (primitive macro)")
+                            # Wire cognition macros to the shared reasoning tool (avoid local-state drift).
+                            try:
+                                exp_logger = getattr(reasoning_tool.learning_tool, "experience_logger", None)
+                                for name in ("SOLVE", "VERIFY", "INTERPRET"):
+                                    t = tool_registry.get_tool(name) if tool_registry else None
+                                    if t is None:
+                                        continue
+                                    setter = getattr(t, "set_reasoning_tool", None)
+                                    if callable(setter):
+                                        setter(reasoning_tool)
+                                    set_exp = getattr(t, "set_experience_logger", None)
+                                    if callable(set_exp):
+                                        set_exp(exp_logger)
+                            except Exception as e:
+                                logger.debug(f"Failed to wire cognition macros to reasoning tool: {e}")
+                    except Exception as e:
+                        logger.warning(f"Failed to register primitive macro tools: {e}", exc_info=True)
                     
                     # Wire tool selection guidance if enabled and not already initialized
                     if (tool_registry and 
@@ -1447,8 +1567,8 @@ def main() -> None:
                 learning_tool_standalone = LearningTool()
                 logger.info("✓ Learning tool initialized")
                 
-                # Register learning tool in tool registry if not already registered
-                if tool_registry:
+                # Register legacy learning tool only in legacy toolset.
+                if tool_registry and str(getattr(app_config.tools, "toolset", "legacy")).lower() != "primitive":
                     # Check if learning tool was already registered via reasoning system
                     existing_learning_tool = tool_registry.get_tool("learning")
                     if not existing_learning_tool:

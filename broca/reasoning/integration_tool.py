@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import json
+import time
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -190,6 +191,9 @@ class ReasoningTool:
         Returns:
             Dictionary with results
         """
+        import os
+        t0 = time.perf_counter()
+        log_timings = os.getenv("BROCA_LOG_REASONING_TIMINGS", "false").lower() == "true"
         try:
             if action == "add_rule":
                 return self._add_rule(**kwargs)
@@ -211,6 +215,8 @@ class ReasoningTool:
                 return self._execute_cycle(**kwargs)
             elif action == "get_state":
                 return self._get_state(**kwargs)
+            elif action == "get_state_summary":
+                return self._get_state_summary(**kwargs)
             elif action == "clear_memory":
                 return self._clear_memory(**kwargs)
             elif action == "start_daemon":
@@ -234,6 +240,17 @@ class ReasoningTool:
                 "success": False,
                 "error": str(e)
             }
+        finally:
+            if log_timings:
+                dt_ms = (time.perf_counter() - t0) * 1000.0
+                logger.info(
+                    "REASONING_ACTION_TIMING",
+                    extra={
+                        "event": "reasoning_action_timing",
+                        "action": action,
+                        "duration_ms": round(dt_ms, 2),
+                    },
+                )
     
     def _add_rule(self, rule: Dict[str, Any]) -> Dict[str, Any]:
         """Add a production rule."""
@@ -431,6 +448,123 @@ class ReasoningTool:
                 "last_cycle_time": self.last_cycle_time.isoformat()
             }
         }
+
+    def _get_state_summary(
+        self,
+        max_active_goals: int = 5,
+        max_goal_desc_chars: int = 100,
+        lock_timeout_s: float = 0.02,
+    ) -> Dict[str, Any]:
+        """
+        Get a lightweight reasoning state summary.
+
+        This avoids deep serialization (`to_dict()` of rule system / working memory),
+        which can be a major latency source when building world state prompts.
+        """
+        max_active_goals = max(0, min(20, int(max_active_goals)))
+        max_goal_desc_chars = max(0, min(500, int(max_goal_desc_chars)))
+        try:
+            lock_timeout_s = float(lock_timeout_s)
+        except Exception:
+            lock_timeout_s = 0.02
+        lock_timeout_s = max(0.0, min(0.5, lock_timeout_s))
+
+        # Best-effort non-blocking lock acquisition to avoid UI hangs.
+        # If a lock cannot be acquired quickly, return partial state rather than blocking.
+        busy = False
+        active_goals: list[dict[str, Any]] = []
+        active_goals_count = 0
+        ready_goals_count = 0
+        total_rules = 0
+        working_memory_size = 0
+
+        # Goals
+        acquired = False
+        try:
+            acquired = bool(self.goal_manager._state_lock.acquire(timeout=lock_timeout_s))
+            if acquired:
+                goals = list(self.goal_manager.get_active_goals() or [])
+                goals.sort(key=lambda g: (getattr(g, "priority", 0.0), getattr(g, "created_at", 0)), reverse=True)
+                active_goals_count = len(goals)
+                for goal in goals[:max_active_goals]:
+                    gd = {
+                        "name": getattr(goal, "name", "") or "",
+                        "description": (getattr(goal, "description", "") or "")[:max_goal_desc_chars],
+                        "priority": float(getattr(goal, "priority", 0.0) or 0.0),
+                    }
+                    progress = getattr(goal, "progress", None)
+                    if progress is not None:
+                        try:
+                            gd["progress"] = float(progress)
+                        except Exception:
+                            pass
+                    active_goals.append(gd)
+                try:
+                    ready_goals_count = len(self.goal_manager.get_ready_goals() or [])
+                except Exception:
+                    ready_goals_count = 0
+            else:
+                busy = True
+        except Exception:
+            busy = True
+        finally:
+            try:
+                if acquired:
+                    self.goal_manager._state_lock.release()
+            except Exception:
+                pass
+
+        # Rules + working memory size
+        acquired = False
+        try:
+            acquired = bool(self.rule_system._state_lock.acquire(timeout=lock_timeout_s))
+            if acquired:
+                try:
+                    total_rules = len(getattr(self.rule_system, "rules", []) or [])
+                except Exception:
+                    total_rules = 0
+
+                # Working memory has its own lock; avoid nested lock stalls.
+                wm = getattr(self.rule_system, "working_memory", None)
+                if wm is not None:
+                    wm_acquired = False
+                    try:
+                        wm_acquired = bool(getattr(wm, "_state_lock", None).acquire(timeout=lock_timeout_s))  # type: ignore[union-attr]
+                        if wm_acquired:
+                            working_memory_size = len(getattr(wm, "items", []) or [])
+                        else:
+                            busy = True
+                    except Exception:
+                        busy = True
+                    finally:
+                        try:
+                            if wm_acquired:
+                                getattr(wm, "_state_lock").release()  # type: ignore[union-attr]
+                        except Exception:
+                            pass
+            else:
+                busy = True
+        except Exception:
+            busy = True
+        finally:
+            try:
+                if acquired:
+                    self.rule_system._state_lock.release()
+            except Exception:
+                pass
+
+        state: Dict[str, Any] = {
+            "active_goals": active_goals,
+            "active_goals_count": int(active_goals_count),
+            "ready_goals_count": int(ready_goals_count),
+            "total_rules": int(total_rules),
+            "working_memory_size": int(working_memory_size),
+            "last_cycle_time": self.last_cycle_time.isoformat(),
+        }
+        if busy:
+            state["busy"] = True
+
+        return {"success": True, "state": state}
     
     def _clear_memory(self) -> Dict[str, Any]:
         """Clear working memory."""
