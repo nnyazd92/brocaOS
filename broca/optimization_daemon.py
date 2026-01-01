@@ -88,6 +88,15 @@ class OptimizationDaemon:
             _initialize_environment_system,
             _initialize_tool_registry
         )
+        # Apply persisted reward design (if present) so reward shaping survives restarts.
+        try:
+            from .rl.reward_design import apply_persisted_reward_design
+
+            applied, changes = apply_persisted_reward_design()
+            if applied:
+                logger.info(f"✓ Applied persisted reward design ({len(changes)} change(s))")
+        except Exception as e:
+            logger.debug(f"Failed to apply persisted reward design: {e}")
         
         # Initialize storage
         storage = _initialize_storage()
@@ -633,6 +642,15 @@ def main() -> None:
     
     # Set up logging
     setup_logging()
+    # Apply persisted reward design (if present) so reward shaping survives restarts.
+    try:
+        from .rl.reward_design import apply_persisted_reward_design
+
+        applied, changes = apply_persisted_reward_design()
+        if applied:
+            logger.info(f"✓ Applied persisted reward design ({len(changes)} change(s))")
+    except Exception as e:
+        logger.debug(f"Failed to apply persisted reward design: {e}")
     
     # Create managers
     goal_manager = GoalManager(goals_file_path=args.goals_file) if args.goals_file else GoalManager()
@@ -653,4 +671,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

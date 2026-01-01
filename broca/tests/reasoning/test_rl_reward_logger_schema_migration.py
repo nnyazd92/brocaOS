@@ -13,19 +13,21 @@ from broca.reasoning.rl_reward_logger import RLRewardLogger
 
 
 class DummyMetrics:
-    # minimal v4-ish metrics
-    schema_version = 4
+    # minimal v5-ish metrics
+    schema_version = 5
     dissonance_reward = 0.1
     surprise_reward = 0.2
     curiosity_reward = 0.3
     information_gain_reward = 0.4
     coherence_reward = 0.5
+    valence_reward = 0.5
     composite_reward = 0.6
     weight_dissonance = 0.3
     weight_surprise = 0.2
     weight_curiosity = 0.2
     weight_info_gain = 0.15
     weight_coherence = 0.15
+    weight_valence = 0.0
 
     # New epistemic uncertainty fields (v4)
     epistemic_uncertainty_total = 0.4
@@ -71,33 +73,37 @@ def test_rl_rewards_inplace_migration_preserves_rows(tmp_path):
 def test_rl_rewards_repairs_headerless_v4_file(tmp_path):
     p = Path(tmp_path) / "rl_rewards.csv"
 
-    # Create a headerless file that matches the current v4 schema positionally (52 columns).
+    # Create a headerless file that matches the current schema positionally.
     # (This mirrors what the user observed in data/rl_rewards.csv.)
     _ = RLRewardLogger(log_file=str(p), enabled=True, append=True)
 
     # Get fieldnames from logger to ensure correct count
     from broca.reasoning.rl_reward_logger import RLRewardLogger as RRL
-    expected_cols = len(RRL(log_file=str(p), enabled=False)._fieldnames_v4)
+    fieldnames = list(RRL(log_file=str(p), enabled=False)._fieldnames_v5)
+    expected_cols = len(fieldnames)
+    idx = {k: i for i, k in enumerate(fieldnames)}
 
     # Build two rows positionally (all 52 columns)
     def make_row(ctx: str, diss: str, ts: str) -> list:
         # Fill with blanks, set specific positions
         row = [""] * expected_cols
-        row[0] = ts  # timestamp
-        row[1] = diss  # dissonance_reward
-        row[2] = "0.2"  # surprise_reward
-        row[3] = "0.3"  # curiosity_reward
-        row[4] = "0.4"  # information_gain_reward
-        row[5] = "0.5"  # coherence_reward
-        row[6] = "0.6"  # composite_reward
-        row[7] = "0.7"  # exploration_balance
-        row[8] = "0.3"  # weight_dissonance
-        row[9] = "0.2"  # weight_surprise
-        row[10] = "0.2"  # weight_curiosity
-        row[11] = "0.15"  # weight_info_gain
-        row[12] = "0.15"  # weight_coherence
-        row[13] = ctx  # context
-        row[14] = "4"  # schema_version
+        row[idx["timestamp"]] = ts
+        row[idx["dissonance_reward"]] = diss
+        row[idx["surprise_reward"]] = "0.2"
+        row[idx["curiosity_reward"]] = "0.3"
+        row[idx["information_gain_reward"]] = "0.4"
+        row[idx["coherence_reward"]] = "0.5"
+        row[idx["valence_reward"]] = "0.5"
+        row[idx["composite_reward"]] = "0.6"
+        row[idx["exploration_balance"]] = "0.7"
+        row[idx["weight_dissonance"]] = "0.3"
+        row[idx["weight_surprise"]] = "0.2"
+        row[idx["weight_curiosity"]] = "0.2"
+        row[idx["weight_info_gain"]] = "0.15"
+        row[idx["weight_coherence"]] = "0.15"
+        row[idx["weight_valence"]] = "0.0"
+        row[idx["context"]] = ctx
+        row[idx["schema_version"]] = "5"
         return row
 
     rows = [
@@ -122,5 +128,4 @@ def test_rl_rewards_repairs_headerless_v4_file(tmp_path):
     assert len(out) == 2
     assert out[0]["context"] == "ctx"
     assert out[1]["context"] == "ctx2"
-
 

@@ -1,6 +1,6 @@
 import logging
 import json
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timezone
 from logging.handlers import RotatingFileHandler
 from .config import config
 
@@ -41,6 +41,7 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         base = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

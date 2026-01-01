@@ -302,7 +302,10 @@ class MemoryManager:
         conflict_check: bool = False,
         auto_resolve: bool = False,
         auto_link: bool = True,
-        source: Optional[SourceMetadata] = None
+        source: Optional[SourceMetadata] = None,
+        valid_from: Optional[datetime] = None,
+        valid_until: Optional[datetime] = None,
+        temporal_scope: Optional[str] = None,
     ) -> Tuple[int, bool, List[Any]]:
         """
         Store a new memory with optional deduplication.
@@ -350,6 +353,30 @@ class MemoryManager:
                     # Update the existing memory
                     success = self.storage.update_memory(duplicate_id, merged_importance, merged_tags)
                     if success:
+                        # Optionally update temporal metadata if provided.
+                        if valid_from is not None or valid_until is not None or temporal_scope is not None:
+                            try:
+                                cursor = self.storage._connection.cursor()
+                                cursor.execute(
+                                    """
+                                    UPDATE memories
+                                    SET valid_from = COALESCE(?, valid_from),
+                                        valid_until = COALESCE(?, valid_until),
+                                        temporal_scope = COALESCE(?, temporal_scope)
+                                    WHERE id = ?
+                                    """,
+                                    (
+                                        valid_from.isoformat() if valid_from else None,
+                                        valid_until.isoformat() if valid_until else None,
+                                        temporal_scope,
+                                        duplicate_id,
+                                    ),
+                                )
+                                self.storage._connection.commit()
+                            except Exception:
+                                # Don't fail duplicate update if temporal metadata update fails.
+                                pass
+
                         # Update last_used timestamp
                         self.storage.update_last_used(duplicate_id)
                         
@@ -371,7 +398,10 @@ class MemoryManager:
                 tags=tags,
                 text=text,
                 importance=importance,
-                source=source
+                source=source,
+                valid_from=valid_from,
+                valid_until=valid_until,
+                temporal_scope=temporal_scope,
             )
             
             # Generate embedding
@@ -1370,7 +1400,10 @@ Return JSON only:
         text: Optional[str] = None,
         namespace: Optional[str] = None,
         importance: Optional[float] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        valid_from: Optional[datetime] = None,
+        valid_until: Optional[datetime] = None,
+        temporal_scope: Optional[str] = None,
     ) -> bool:
         """
         Update a memory's content and/or metadata.
@@ -1405,6 +1438,9 @@ Return JSON only:
             new_namespace = namespace if namespace is not None else memory.namespace
             new_importance = importance if importance is not None else memory.importance
             new_tags = tags if tags is not None else memory.tags
+            new_valid_from = valid_from if valid_from is not None else memory.valid_from
+            new_valid_until = valid_until if valid_until is not None else memory.valid_until
+            new_temporal_scope = temporal_scope if temporal_scope is not None else memory.temporal_scope
             
             # If text changed, regenerate embedding and update index
             if update_embedding:
@@ -1416,7 +1452,7 @@ Return JSON only:
                 cursor.execute("""
                     UPDATE memories 
                     SET text = ?, namespace = ?, importance = ?, tags = ?, 
-                        embedding = ?, last_used_at = ?
+                        embedding = ?, valid_from = ?, valid_until = ?, temporal_scope = ?, last_used_at = ?
                     WHERE id = ?
                 """, (
                     new_text,
@@ -1424,6 +1460,9 @@ Return JSON only:
                     new_importance,
                     json.dumps(new_tags),
                     json.dumps(new_embedding),
+                    new_valid_from.isoformat() if new_valid_from else None,
+                    new_valid_until.isoformat() if new_valid_until else None,
+                    new_temporal_scope,
                     datetime.now(timezone.utc).isoformat(),
                     memory_id
                 ))
@@ -1457,22 +1496,38 @@ Return JSON only:
             else:
                 # Metadata-only update (no embedding change needed)
                 # Use existing update_memory method for metadata
-                if namespace is not None or importance is not None or tags is not None:
+                if (
+                    namespace is not None
+                    or importance is not None
+                    or tags is not None
+                    or valid_from is not None
+                    or valid_until is not None
+                    or temporal_scope is not None
+                ):
                     # Use storage's update_memory for metadata
                     update_importance = importance if importance is not None else memory.importance
                     update_tags = tags if tags is not None else memory.tags
                     
                     # Also update namespace if provided
-                    if namespace is not None and namespace != memory.namespace:
+                    if (
+                        (namespace is not None and namespace != memory.namespace)
+                        or valid_from is not None
+                        or valid_until is not None
+                        or temporal_scope is not None
+                    ):
                         cursor = self.storage._connection.cursor()
                         cursor.execute("""
                             UPDATE memories 
-                            SET namespace = ?, importance = ?, tags = ?, last_used_at = ?
+                            SET namespace = ?, importance = ?, tags = ?,
+                                valid_from = ?, valid_until = ?, temporal_scope = ?, last_used_at = ?
                             WHERE id = ?
                         """, (
-                            namespace,
+                            namespace if namespace is not None else memory.namespace,
                             update_importance,
                             json.dumps(update_tags),
+                            new_valid_from.isoformat() if new_valid_from else None,
+                            new_valid_until.isoformat() if new_valid_until else None,
+                            new_temporal_scope,
                             datetime.now(timezone.utc).isoformat(),
                             memory_id
                         ))

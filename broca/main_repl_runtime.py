@@ -2,6 +2,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 import logging
+import os
+from contextlib import contextmanager
+import time
 
 from .logging_config import setup_logging
 from .repl.session import ConversationSession
@@ -31,56 +34,10 @@ def _initialize_online_policy_ranker() -> Optional[Any]:
     Returns:
         OnlinePolicyRanker instance if successfully initialized, None otherwise.
     """
-    if not config.rl.enabled:
-        logger.debug("RL-primary tool selection is disabled (BROCA_RL_ENABLED=false)")
-        return None
-    
     try:
-        if config.rl.algorithm == "ppo":
-            from .rl.ppo_online_policy import PPOOnlinePolicyRanker
+        from .rl.policy_init import initialize_online_policy_ranker
 
-            ranker = PPOOnlinePolicyRanker(
-                model_path=config.rl.ppo_model_path,
-                force_threshold=config.rl.force_threshold,
-                suggest_threshold=config.rl.suggest_threshold,
-                top_k_suggest=config.rl.top_k_suggest,
-                hidden_dim=config.rl.ppo_hidden_dim,
-                learning_rate=config.rl.ppo_learning_rate,
-                buffer_size=config.rl.ppo_buffer_size,
-                batch_size=config.rl.ppo_batch_size,
-            )
-            logger.info(
-                f"✓ PPOOnlinePolicyRanker initialized: "
-                f"force>={config.rl.force_threshold:.0%}, "
-                f"suggest>={config.rl.suggest_threshold:.0%}, "
-                f"<{config.rl.suggest_threshold:.0%}=LLM full choice"
-            )
-            return ranker
-
-        # Default: existing OnlinePolicyRanker
-        from .rl.online_policy import OnlinePolicyRanker
-
-        ranker = OnlinePolicyRanker(
-            model_path=config.rl.model_path,
-            buffer_path=config.rl.buffer_path,
-            force_threshold=config.rl.force_threshold,
-            suggest_threshold=config.rl.suggest_threshold,
-            top_k_suggest=config.rl.top_k_suggest,
-            replay_buffer_size=config.rl.replay_buffer_size,
-            batch_size=config.rl.batch_size,
-            update_frequency=config.rl.update_frequency,
-            learning_rate=config.rl.learning_rate,
-            hidden_dims=tuple(config.rl.hidden_dims),
-            dropout_rate=config.rl.dropout_rate,
-            mc_samples=config.rl.mc_samples,
-        )
-        logger.info(
-            f"✓ OnlinePolicyRanker initialized: "
-            f"force>={config.rl.force_threshold:.0%}, "
-            f"suggest>={config.rl.suggest_threshold:.0%}, "
-            f"<{config.rl.suggest_threshold:.0%}=LLM full choice"
-        )
-        return ranker
+        return initialize_online_policy_ranker()
     except ImportError as e:
         logger.warning(f"PyTorch not available, RL-primary tool selection disabled: {e}")
         return None
@@ -120,51 +77,81 @@ class BrocaRuntime:
     recursive_improvement: Any | None = None
 
 
-def initialize_runtime() -> BrocaRuntime:
+@contextmanager
+def _startup_span(startup_profiler: Any, name: str):
+    if startup_profiler is not None and hasattr(startup_profiler, "span"):
+        with startup_profiler.span(name):
+            yield
+        return
+
+    # Fallback: keep overhead minimal.
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        _ = time.perf_counter() - start
+
+
+def initialize_runtime(startup_profiler: Optional[Any] = None) -> BrocaRuntime:
     """Initialize the BrocaOS runtime for non-REPL surfaces (e.g. web API).
 
     This mirrors the initialization path in main_repl.main(), but returns a
     ConversationSession and its core components instead of starting the
     terminal loop.
     """
-    setup_logging()
+    with _startup_span(startup_profiler, "setup_logging"):
+        setup_logging()
+    # Apply persisted reward design (if present) so reward shaping survives restarts.
+    try:
+        from .rl.reward_design import apply_persisted_reward_design
+
+        applied, changes = apply_persisted_reward_design()
+        if applied:
+            logger.info(f"✓ Applied persisted reward design ({len(changes)} change(s))")
+    except Exception as e:
+        logger.debug(f"Failed to apply persisted reward design: {e}")
 
     workspace_root = Path(__file__).parent.parent.resolve()
     logger.info(f"Detected workspace root: {workspace_root}")
 
     # Initialize storage
-    conversation_storage = _initialize_storage()
+    with _startup_span(startup_profiler, "storage"):
+        conversation_storage = _initialize_storage()
     if conversation_storage:
         logger.info("✓ Conversation storage initialized successfully")
     else:
         logger.warning("✗ Conversation storage initialization failed or disabled")
     
     # Initialize memory manager
-    memory_manager = _initialize_memory_manager()
+    with _startup_span(startup_profiler, "memory_manager"):
+        memory_manager = _initialize_memory_manager()
     if memory_manager:
         logger.info("✓ Memory manager initialized successfully")
     else:
         logger.warning("✗ Memory manager initialization failed or disabled - will not be included in world state")
     
     # Initialize self-model system
-    self_model, self_model_storage, epistemic_engine = _initialize_self_model()
+    with _startup_span(startup_profiler, "self_model"):
+        self_model, self_model_storage, epistemic_engine = _initialize_self_model()
     if self_model:
         logger.info("✓ Self-model initialized successfully")
     else:
         logger.warning("✗ Self-model initialization failed or disabled - will not be included in world state")
     
     # Initialize internal sensing system
-    internal_sensing = _initialize_internal_sensing(
-        embedding_service=memory_manager.embedding_service if memory_manager else None,
-        epistemic_engine=epistemic_engine,
-    )
+    with _startup_span(startup_profiler, "internal_sensing"):
+        internal_sensing = _initialize_internal_sensing(
+            embedding_service=memory_manager.embedding_service if memory_manager else None,
+            epistemic_engine=epistemic_engine,
+        )
     if internal_sensing:
         logger.info("✓ Internal sensing framework initialized successfully")
     else:
         logger.warning("✗ Internal sensing framework initialization failed or disabled - will not be included in world state")
     
     # Initialize environment access system
-    environment_system = _initialize_environment_system()
+    with _startup_span(startup_profiler, "environment_system"):
+        environment_system = _initialize_environment_system()
     if environment_system:
         logger.info("✓ Environment access system initialized successfully")
     else:
@@ -174,13 +161,14 @@ def initialize_runtime() -> BrocaRuntime:
     from .main_repl import _initialize_tool_registry  # type: ignore
 
     try:
-        tool_registry = _initialize_tool_registry(
-            memory_manager=memory_manager,
-            epistemic_engine=epistemic_engine,
-            self_model=self_model,
-            storage=self_model_storage,
-            internal_sensing=internal_sensing,
-        )
+        with _startup_span(startup_profiler, "tool_registry"):
+            tool_registry = _initialize_tool_registry(
+                memory_manager=memory_manager,
+                epistemic_engine=epistemic_engine,
+                self_model=self_model,
+                storage=self_model_storage,
+                internal_sensing=internal_sensing,
+            )
         if tool_registry:
             logger.info("✓ Tool registry initialized successfully")
         else:
@@ -189,8 +177,9 @@ def initialize_runtime() -> BrocaRuntime:
         logger.warning(f"Failed to initialize tool registry: {e}", exc_info=True)
         tool_registry = None
 
-    # Register environment access tool if environment system is enabled
-    if environment_system and tool_registry:
+    # Register legacy environment access tool only in legacy toolset.
+    # In the primitive toolset, environment interaction must occur via explicit macro tools.
+    if environment_system and tool_registry and str(getattr(config.tools, "toolset", "legacy")).lower() != "primitive":
         try:
             from .environment.tools.environment_tool import EnvironmentAccessTool
             env_tool = EnvironmentAccessTool(access_system=environment_system)
@@ -204,8 +193,9 @@ def initialize_runtime() -> BrocaRuntime:
     try:
         from .world_state.directory_structure import DirectoryStructureGenerator
 
-        directory_structure_generator = DirectoryStructureGenerator(root_path=str(workspace_root))
-        logger.info(f"✓ Directory structure generator initialized successfully for workspace: {workspace_root}")
+        with _startup_span(startup_profiler, "directory_structure_generator"):
+            directory_structure_generator = DirectoryStructureGenerator(root_path=str(workspace_root))
+            logger.info(f"✓ Directory structure generator initialized successfully for workspace: {workspace_root}")
     except Exception as e:
         logger.warning(f"✗ Failed to initialize directory structure generator: {e} - will not be included in world state", exc_info=True)
         directory_structure_generator = None
@@ -232,37 +222,83 @@ def initialize_runtime() -> BrocaRuntime:
     reasoning_tool = None
     if config.reasoning.enabled:
         try:
-            reasoning_tool = _initialize_reasoning_system(
-                memory_manager=memory_manager,
-                self_model=self_model,
-                self_model_storage=self_model_storage,
-                internal_sensing=internal_sensing
-            )
+            with _startup_span(startup_profiler, "reasoning_system"):
+                reasoning_tool = _initialize_reasoning_system(
+                    memory_manager=memory_manager,
+                    self_model=self_model,
+                    self_model_storage=self_model_storage,
+                    internal_sensing=internal_sensing
+                )
             if reasoning_tool:
                 logger.info("✓ Reasoning system initialized successfully")
                 
-                # Register reasoning tool in tool registry
-                if tool_registry:
+                # Register legacy reasoning tool only in legacy toolset.
+                # In the primitive toolset, reasoning is accessed via SOLVE/VERIFY/INTERPRET macros.
+                if tool_registry and str(getattr(config.tools, "toolset", "legacy")).lower() != "primitive":
                     try:
                         tool_registry.register_tool(reasoning_tool)
                         logger.info("Registered reasoning tool")
                     except Exception as e:
                         logger.warning(f"Failed to register reasoning tool: {e}", exc_info=True)
                 
-                # Register learning tool if available
-                if tool_registry and hasattr(reasoning_tool, 'learning_tool') and reasoning_tool.learning_tool:
+                # Register legacy learning tool only in legacy toolset.
+                # In the primitive toolset, learning/goals/policy are accessed via macro tools.
+                if (
+                    tool_registry
+                    and hasattr(reasoning_tool, "learning_tool")
+                    and reasoning_tool.learning_tool
+                    and str(getattr(config.tools, "toolset", "legacy")).lower() != "primitive"
+                ):
                     try:
                         tool_registry.register_tool(reasoning_tool.learning_tool)
                         logger.info("Registered learning tool")
                     except Exception as e:
                         logger.warning(f"Failed to register learning tool: {e}", exc_info=True)
                     
-                    # Wire learning tool from reasoning system to tool registry for automatic observation
+                # Wire learning tool from reasoning system to tool registry for automatic observation
+                try:
+                    tool_registry.set_learning_tool(reasoning_tool.learning_tool)
+                    logger.info("✓ Learning tool (from reasoning) wired to tool registry for automatic observation (runtime)")
+                except Exception as e:
+                    logger.warning(f"Failed to wire reasoning learning tool to tool registry: {e}", exc_info=True)
+
+                # Wire cognition macros to the shared reasoning tool (primitive toolset).
+                if tool_registry:
                     try:
-                        tool_registry.set_learning_tool(reasoning_tool.learning_tool)
-                        logger.info("✓ Learning tool (from reasoning) wired to tool registry for automatic observation (runtime)")
+                        exp_logger = None
+                        if hasattr(reasoning_tool, "learning_tool") and reasoning_tool.learning_tool:
+                            exp_logger = getattr(reasoning_tool.learning_tool, "experience_logger", None)
+                        for name in ("SOLVE", "VERIFY", "INTERPRET"):
+                            t = tool_registry.get_tool(name)
+                            if t is None:
+                                continue
+                            setter = getattr(t, "set_reasoning_tool", None)
+                            if callable(setter):
+                                setter(reasoning_tool)
+                            set_exp = getattr(t, "set_experience_logger", None)
+                            if callable(set_exp):
+                                set_exp(exp_logger)
                     except Exception as e:
-                        logger.warning(f"Failed to wire reasoning learning tool to tool registry: {e}", exc_info=True)
+                        logger.debug(f"Failed to wire cognition macros to reasoning tool (runtime): {e}")
+
+                # Register primitive macros that require reasoning/learning components.
+                if tool_registry and str(getattr(config.tools, "toolset", "legacy")).lower() == "primitive":
+                    try:
+                        from .tools.goal_reward_tools import DesignRewardTool, SetGoalsTool
+
+                        goal_manager = getattr(reasoning_tool, "goal_manager", None)
+                        exp_logger = None
+                        if hasattr(reasoning_tool, "learning_tool") and reasoning_tool.learning_tool:
+                            exp_logger = getattr(reasoning_tool.learning_tool, "experience_logger", None)
+
+                        if goal_manager is not None and tool_registry.get_tool("SET_GOALS") is None:
+                            tool_registry.register_tool(SetGoalsTool(goal_manager=goal_manager, experience_logger=exp_logger))
+                            logger.info("Registered SET_GOALS tool (primitive macro, runtime)")
+                        if tool_registry.get_tool("DESIGN_REWARD") is None:
+                            tool_registry.register_tool(DesignRewardTool(experience_logger=exp_logger))
+                            logger.info("Registered DESIGN_REWARD tool (primitive macro, runtime)")
+                    except Exception as e:
+                        logger.warning(f"Failed to register primitive macro tools (runtime): {e}", exc_info=True)
                 
                 # Wire tool selection guidance if enabled and not already initialized
                 if (tool_registry and 
@@ -379,7 +415,8 @@ def initialize_runtime() -> BrocaRuntime:
             consistency_layer = None
     
     # Initialize OnlinePolicyRanker for RL-primary tool selection
-    online_policy_ranker = _initialize_online_policy_ranker()
+    with _startup_span(startup_profiler, "online_policy_ranker"):
+        online_policy_ranker = _initialize_online_policy_ranker()
     if online_policy_ranker and tool_registry:
         try:
             tool_registry.set_online_policy_ranker(online_policy_ranker)
@@ -392,11 +429,12 @@ def initialize_runtime() -> BrocaRuntime:
     if config.learning.enabled:
         try:
             from .learning.integration_tool import LearningTool
-            learning_tool_standalone = LearningTool()
-            logger.info("✓ Learning tool initialized")
+            with _startup_span(startup_profiler, "learning_tool"):
+                learning_tool_standalone = LearningTool()
+                logger.info("✓ Learning tool initialized")
             
-            # Register learning tool in tool registry if not already registered
-            if tool_registry:
+            # Register legacy learning tool only in legacy toolset.
+            if tool_registry and str(getattr(config.tools, "toolset", "legacy")).lower() != "primitive":
                 # Check if learning tool was already registered via reasoning system
                 existing_learning_tool = tool_registry.get_tool("learning")
                 if not existing_learning_tool:
@@ -440,17 +478,19 @@ def initialize_runtime() -> BrocaRuntime:
         except Exception as e:
             logger.warning(f"Failed to initialize self-model size manager: {e}", exc_info=True)
     
-    world_state_aggregator = WorldStateAggregator(
-        internal_sensing=internal_sensing,
-        self_model=self_model,
-        tool_registry=tool_registry,
-        memory_manager=memory_manager,
-        directory_structure_generator=directory_structure_generator,
-        self_model_reduction_level=config.self_model.self_model_reduction_level,
-        reasoning_tool=reasoning_tool,
-        size_manager=size_manager,
-        config=config,
-    )
+    with _startup_span(startup_profiler, "world_state_aggregator"):
+        world_state_aggregator = WorldStateAggregator(
+            internal_sensing=internal_sensing,
+            self_model=self_model,
+            tool_registry=tool_registry,
+            memory_manager=memory_manager,
+            directory_structure_generator=directory_structure_generator,
+            self_model_reduction_level=config.self_model.self_model_reduction_level,
+            reasoning_tool=reasoning_tool,
+            size_manager=size_manager,
+            config=config,
+            repo_tree_hash_enabled=os.getenv("BROCA_RUNTIME_REPO_TREE_HASH_ENABLED", "false").lower() == "true",
+        )
     
     # Extract cognitive architecture components from reasoning tool for runtime
     hierarchical_controller = None
@@ -486,7 +526,8 @@ def initialize_runtime() -> BrocaRuntime:
     # Initialize color manager
     try:
         from .repl.color_profile import ColorManager, CustomColorProfile
-        color_manager = ColorManager()
+        with _startup_span(startup_profiler, "color_manager"):
+            color_manager = ColorManager()
         
         # Load profile from config
         color_config = config.repl_color
@@ -509,14 +550,16 @@ def initialize_runtime() -> BrocaRuntime:
         logger.debug(f"Failed to initialize color manager: {e}", exc_info=True)
         color_manager = None
 
-    session = ConversationSession(
-        system_prompt=None,
-        storage=conversation_storage,
-        tool_registry=tool_registry,
-        internal_sensing_framework=internal_sensing,
-        world_state_aggregator=world_state_aggregator,
-        color_manager=color_manager,
-    )
+    with _startup_span(startup_profiler, "conversation_session"):
+        session = ConversationSession(
+            system_prompt=None,
+            storage=conversation_storage,
+            tool_registry=tool_registry,
+            internal_sensing_framework=internal_sensing,
+            world_state_aggregator=world_state_aggregator,
+            color_manager=color_manager,
+            startup_profiler=startup_profiler,
+        )
 
     return BrocaRuntime(
         session=session,

@@ -121,6 +121,7 @@ class ComputationalAffectMonitor:
         # Emotional appraisal and regulation (optional, for dissonance/learning integration)
         self._emotional_appraisal_engine: Optional[Any] = None
         self._emotional_regulator: Optional[Any] = None
+        self._dissonance_emotional_mapper: Optional[Any] = None
         
         # Emotional regulation history
         self._regulation_history: deque = deque(maxlen=100)
@@ -1487,9 +1488,10 @@ class ComputationalAffectMonitor:
                 coping_resources=coping_resources or {}
             )
             
-            # Map to emotional changes
-            mapper = DissonanceEmotionalMapper()
-            emotion_mapping = mapper.map_to_emotion(metrics, appraisal)
+            # Map to emotional changes (cache mapper; constructing it each time is a pure overhead + log spam)
+            if self._dissonance_emotional_mapper is None:
+                self._dissonance_emotional_mapper = DissonanceEmotionalMapper()
+            emotion_mapping = self._dissonance_emotional_mapper.map_to_emotion(metrics, appraisal)
             
             # Apply emotional changes
             old_valence = self.affective_states["valence"]
@@ -1666,4 +1668,3 @@ class ComputationalAffectMonitor:
             f"Recorded emotional response: dissonance {dissonance_before:.3f}→{dissonance_after:.3f}, "
             f"valence={emotion_state.get('valence', 0.0):.3f}"
         )
-

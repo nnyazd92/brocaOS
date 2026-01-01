@@ -1,3 +1,6 @@
+import pytest
+
+from broca.config import config as app_config
 from broca.tools.registry import ToolRegistry
 
 
@@ -46,7 +49,10 @@ def _tool_call(name: str, call_id: str) -> dict:
     return {"id": call_id, "type": "function", "function": {"name": name, "arguments": "{}"}}
 
 
-def test_sticky_forced_exploration_persists_until_forced_tool_executes():
+def test_sticky_forced_exploration_persists_until_forced_tool_executes(monkeypatch: pytest.MonkeyPatch):
+    # This test exercises legacy-tool forced exploration mechanics; ensure legacy toolset visibility.
+    monkeypatch.setattr(app_config.tools, "toolset", "legacy", raising=False)
+
     reg = ToolRegistry()
     reg.register_tool(_Tool("planning"))
     reg.register_tool(_Tool("terminal"))
@@ -81,3 +87,25 @@ def test_sticky_forced_exploration_persists_until_forced_tool_executes():
     # Next selection should consult the ranker again.
     _ = reg.get_rl_selection(context={"rl_signals": {"composite_reward": 0.1}})
     assert ranker.select_calls == 2
+
+
+def test_start_turn_clears_sticky_forced_exploration(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(app_config.tools, "toolset", "legacy", raising=False)
+
+    reg = ToolRegistry()
+    reg.register_tool(_Tool("planning"))
+    reg.register_tool(_Tool("terminal"))
+
+    ranker = _Ranker()
+    reg.set_online_policy_ranker(ranker)
+
+    sel1 = reg.get_rl_selection(context={"rl_signals": {"composite_reward": 0.1}})
+    assert sel1.mode == "forced"
+    assert ranker.select_calls == 1
+
+    # Start a new user turn without executing the forced tool: sticky state should clear.
+    reg.start_turn(2)
+
+    sel2 = reg.get_rl_selection(context={"rl_signals": {"composite_reward": 0.1}})
+    assert ranker.select_calls == 2
+    assert sel2.mode == "fallback"

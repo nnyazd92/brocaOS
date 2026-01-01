@@ -67,7 +67,7 @@ class PolicyRanker:
             rl = context.get('rl_signals') or {}
             feat = []
             if rl:
-                keys = ['composite_reward','dissonance_reward','surprise_reward','curiosity_reward','information_gain_reward','coherence_reward','exploration_balance']
+                keys = ['composite_reward','dissonance_reward','surprise_reward','curiosity_reward','information_gain_reward','coherence_reward','valence_reward','exploration_balance']
                 for k in keys:
                     feat.append(float(rl.get(k,0.0)))
             else:

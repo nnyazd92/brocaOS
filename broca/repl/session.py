@@ -6,6 +6,7 @@ import uuid
 import time
 import sys
 import re
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from ..llm import create_llm_client, LLMClient
 from .response_guard import ensure_non_empty
@@ -66,25 +67,30 @@ class ConversationSession:
         goal_manager: Optional[Any] = None,
         skill_manager: Optional[Any] = None,
         experience_logger: Optional[Any] = None,
+        startup_profiler: Optional[Any] = None,
     ) -> None:
         # Import config early for use throughout initialization
         from ..config import config
+
+        # Optional startup profiler (used by web_api startup diagnostics).
+        self._startup_profiler = startup_profiler
         
         # If an LLM client is provided, use it directly.
         # Otherwise, if a world_state_aggregator is available, wrap the
         # underlying client with a world-state-aware caching layer.
-        if llm is not None:
-            self.llm = llm
-        else:
-            if world_state_aggregator is not None:
-                from ..llm import create_cached_llm_client
-                self.llm = create_cached_llm_client(
-                    scope="broca:repl_interactive",
-                    world_state_aggregator=world_state_aggregator,
-                )
+        with self._startup_span("conversation_session.llm_client"):
+            if llm is not None:
+                self.llm = llm
             else:
-                from ..llm import create_llm_client
-                self.llm = create_llm_client()
+                if world_state_aggregator is not None:
+                    from ..llm import create_cached_llm_client
+                    self.llm = create_cached_llm_client(
+                        scope="broca:repl_interactive",
+                        world_state_aggregator=world_state_aggregator,
+                    )
+                else:
+                    from ..llm import create_llm_client
+                    self.llm = create_llm_client()
         self.messages: List[Dict[str, str]] = []
         self.storage = storage
         self.tool_registry = tool_registry
@@ -170,20 +176,22 @@ class ConversationSession:
                 logger.warning(f"Failed to initialize context graph: {e}", exc_info=True)
 
         # Initialize formatter for world state
-        if world_state_aggregator:
-            from ..world_state.formatter import WorldStateFormatter
+        with self._startup_span("conversation_session.world_state_formatter"):
+            if world_state_aggregator:
+                from ..world_state.formatter import WorldStateFormatter
 
-            self._world_state_formatter = WorldStateFormatter()
-        else:
-            self._world_state_formatter = None
+                self._world_state_formatter = WorldStateFormatter()
+            else:
+                self._world_state_formatter = None
 
         # Initialize tool status display for visual feedback
-        try:
-            from .tool_status import ToolStatusDisplay
-            self._tool_status_display = ToolStatusDisplay(color_manager=color_manager)
-        except Exception as e:
-            logger.debug(f"Failed to initialize tool status display: {e}", exc_info=True)
-            self._tool_status_display = None
+        with self._startup_span("conversation_session.tool_status_display"):
+            try:
+                from .tool_status import ToolStatusDisplay
+                self._tool_status_display = ToolStatusDisplay(color_manager=color_manager)
+            except Exception as e:
+                logger.debug(f"Failed to initialize tool status display: {e}", exc_info=True)
+                self._tool_status_display = None
 
         # Store color manager for colorizing output
         self._color_manager = color_manager
@@ -202,7 +210,8 @@ class ConversationSession:
         # create the system message from base_system_prompt + world state + summary.
         # This prevents duplicate system messages if _update_system_prompt() is called.
         if self.world_state_aggregator and self._world_state_formatter:
-            self._update_system_prompt()
+            with self._startup_span("conversation_session.update_system_prompt"):
+                self._update_system_prompt()
         elif system_prompt and not self.world_state_aggregator:
             # Only add system_prompt directly if world_state_aggregator is not available
             # (in which case _update_system_prompt() won't run)
@@ -241,6 +250,16 @@ When you need to use tools to complete a task:
                 "world_state_enabled": world_state_aggregator is not None,
             },
         )
+
+    @contextmanager
+    def _startup_span(self, name: str):
+        profiler = getattr(self, "_startup_profiler", None)
+        if profiler is not None and hasattr(profiler, "span"):
+            with profiler.span(name):
+                yield
+            return
+        with nullcontext():
+            yield
     
     @classmethod
     def from_storage(
@@ -508,7 +527,7 @@ When you need to use tools to complete a task:
         trace_id = getattr(self, "_current_response_id", None) or None
         return ensure_non_empty(content, trace_id=trace_id)
 
-    def send(self, user_text: str, stream: bool = None) -> str:
+    def send(self, user_text: str, stream: bool = None, *, hidden_user_message: bool = False) -> str:
         """
         Append a user message, call the LLM, handle tool calls if needed, and return final reply.
 
@@ -521,6 +540,9 @@ When you need to use tools to complete a task:
         """
         from ..config import config
         self._log_context_before_turn(user_text=user_text)
+
+        # Per-turn macro state (used by RESPOND_AND_CONTINUE).
+        self._pending_auto_continue_prompt = None
 
         # Clear reasoning_content when starting a new user turn (prevents 400 errors)
         # For deepseek-reasoner, reasoning_content should only be used within a single turn
@@ -542,6 +564,8 @@ When you need to use tools to complete a task:
                 logger.warning(f"Failed to log user message event: {e}", exc_info=True)
 
         user_message = {"role": "user", "content": user_text}
+        if hidden_user_message:
+            user_message["hidden"] = True
         if user_event_id:
             user_message["event_ids"] = [user_event_id]
         
@@ -615,29 +639,11 @@ When you need to use tools to complete a task:
             except Exception as e:
                 logger.debug(f"Error in pre-LLM instrumentation: {e}", exc_info=True)
 
-        # Prepare tools for LLM if registry is available
+        # Tools are computed per-iteration (parity with web_api.py) so RL selection and DONE can
+        # influence the available tool buffer between tool calls.
         tools = None
-        if self.tool_registry:
-            # Gather context for tool filtering/ranking if guidance is enabled
-            context = None
-            if (config.tools.pre_filtering_enabled and 
-                hasattr(self.tool_registry, 'tool_selection_guidance') and
-                self.tool_registry.tool_selection_guidance is not None):
-                try:
-                    context = self.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
-                except Exception as e:
-                    logger.debug(f"Error gathering context for tool filtering: {e}", exc_info=True)
-            
-            tools = self.tool_registry.to_openai_format(context=context)
-            tool_names = [tool["function"]["name"] for tool in tools]
-            logger.info(
-                f"Prepared {len(tools)} tools for LLM",
-                extra={
-                    "event": "tools_prepared",
-                    "tool_count": len(tools),
-                    "available_tools": tool_names,
-                },
-            )
+        tool_choice = None
+        rl_selection = None
 
         # Determine if streaming should be used (default from config if not specified)
         if stream is None:
@@ -666,6 +672,82 @@ When you need to use tools to complete a task:
         last_warning_iteration = 0
         while iterations < self._max_tool_iterations:
             iterations += 1
+
+            # Compute RL selection + tool buffer per iteration (parity with web_api.py).
+            if self.tool_registry:
+                context = None
+                if (
+                    config.tools.pre_filtering_enabled
+                    and hasattr(self.tool_registry, "tool_selection_guidance")
+                    and self.tool_registry.tool_selection_guidance is not None
+                ):
+                    try:
+                        context = self.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+                        if isinstance(context, dict):
+                            last_assistant = ""
+                            try:
+                                for m in reversed(self.messages):
+                                    if (
+                                        isinstance(m, dict)
+                                        and m.get("role") == "assistant"
+                                        and isinstance(m.get("content"), str)
+                                        and m.get("content")
+                                    ):
+                                        last_assistant = m["content"]
+                                        break
+                            except Exception:
+                                last_assistant = ""
+                            context["text_features"] = {
+                                "user_prompt": user_text or "",
+                                "last_assistant": last_assistant,
+                            }
+                    except Exception as e:
+                        logger.debug(f"Error gathering context for tool filtering (iteration {iterations}): {e}", exc_info=True)
+                        context = None
+
+                forced_tool_name = None
+                rl_selection = None
+                if config.rl.enabled:
+                    try:
+                        rl_selection = self.tool_registry.get_rl_selection(context=context)
+                        if rl_selection and getattr(rl_selection, "mode", None) == "forced":
+                            forced_tool_name = getattr(rl_selection, "tool_name", None)
+                    except Exception as e:
+                        logger.debug(f"Error getting RL selection in REPL (iteration {iterations}): {e}", exc_info=True)
+                        rl_selection = None
+                        forced_tool_name = None
+
+                tools = self.tool_registry.to_openai_format(context=context, rl_selection=rl_selection)
+
+                # Surface RL suggestion in mutable system prompt via world state (parity with web_api.py).
+                try:
+                    if rl_selection and self.world_state_aggregator:
+                        suggested_tools = [rl_selection.tool_name] + [n for n, _ in (rl_selection.alternatives or [])]
+                        self.world_state_aggregator.set_rl_guidance(
+                            suggested_tool=rl_selection.tool_name,
+                            mode=getattr(rl_selection, "mode", None),
+                            confidence=getattr(rl_selection, "confidence", None),
+                            reason=getattr(rl_selection, "reason", None),
+                            selection_id=getattr(self.tool_registry, "_last_format_selection_id", None),
+                            suggested_tools=suggested_tools,
+                        )
+                except Exception as e:
+                    logger.debug(f"Failed to update RL guidance in system prompt (iteration {iterations}): {e}", exc_info=True)
+
+                tool_choice = (
+                    {"type": "function", "function": {"name": forced_tool_name}}
+                    if isinstance(forced_tool_name, str) and forced_tool_name
+                    else None
+                )
+
+                # DONE macro: if latched, tools list is already empty, but also clear tool_choice for safety.
+                if hasattr(self.tool_registry, "force_final_response") and self.tool_registry.force_final_response:
+                    tools = []
+                    tool_choice = None
+            else:
+                tools = None
+                tool_choice = None
+                rl_selection = None
 
             # Update system prompt with current world state before each LLM call
             self._update_system_prompt()
@@ -994,6 +1076,7 @@ When you need to use tools to complete a task:
                             non_stream_response = self.llm.chat(
                                 messages_for_llm, 
                                 tools=tools,
+                                tool_choice=tool_choice,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None,
                                 thought_signature=self._current_thought_signature if is_gemini else None
                             )
@@ -1126,12 +1209,14 @@ When you need to use tools to complete a task:
                         response = self.llm.chat(
                             messages_for_llm, 
                             tools=tools,
+                            tool_choice=tool_choice,
                             reasoning_content=self._current_reasoning_content if is_reasoner else None,
                             thought_signature=self._current_thought_signature if is_gemini else None
                         )
                     else:
                         response = self.llm.chat(
                             messages_for_llm,
+                            tool_choice=tool_choice,
                             reasoning_content=self._current_reasoning_content if is_reasoner else None,
                             thought_signature=self._current_thought_signature if is_gemini else None
                         )
@@ -1906,6 +1991,19 @@ When you need to use tools to complete a task:
                 return True
         
         return False
+
+    def consume_auto_continue_prompt(self) -> Optional[str]:
+        """
+        Consume and clear any pending auto-continue prompt captured during this turn.
+
+        Used by RESPOND_AND_CONTINUE in surfaces that schedule background continuation work.
+        """
+        p = getattr(self, "_pending_auto_continue_prompt", None)
+        if isinstance(p, str) and p.strip():
+            self._pending_auto_continue_prompt = None
+            return p.strip()
+        self._pending_auto_continue_prompt = None
+        return None
     
     def _summarize_history(self, max_tokens: int = 250) -> str:
         """Summarize recent conversation history (opt-in, read-only)."""
@@ -3897,28 +3995,32 @@ When you need to use tools to complete a task:
             return
 
         try:
-            
             # Runtime monitoring: validate state before update
-            self._validate_before_update()
+            with self._startup_span("system_prompt.validate_before_update"):
+                self._validate_before_update()
             # Ensure single system message before update (fixes any accumulation issues)
-            self._ensure_single_system_message()
-            
+            with self._startup_span("system_prompt.ensure_single_system_message"):
+                self._ensure_single_system_message()
+
             # Aggregate current world state
-            world_state = self.world_state_aggregator.aggregate()
+            with self._startup_span("system_prompt.aggregate_world_state"):
+                world_state = self.world_state_aggregator.aggregate()
 
             # Calculate stable hash of world state to detect changes
-            world_state_hash = self._calculate_stable_world_state_hash(world_state)
-            
+            with self._startup_span("system_prompt.world_state_hash"):
+                world_state_hash = self._calculate_stable_world_state_hash(world_state)
+
             # Skip update if world state hasn't changed (hash-based change detection)
             if world_state_hash == self._last_world_state_hash:
                 logger.debug("World state unchanged, skipping system prompt update")
                 return
-            
+
             self._last_world_state_hash = world_state_hash
             self._last_world_state_raw = world_state
 
             # Format world state for prompt (formatter handles its own size limits)
-            formatted_world_state = self._world_state_formatter.format(world_state)
+            with self._startup_span("system_prompt.format_world_state"):
+                formatted_world_state = self._world_state_formatter.format(world_state)
 
             # Combine base prompt, summary context, and world state
             parts = []
@@ -3993,20 +4095,23 @@ When you need to use tools to complete a task:
             # PEA/PFREA removed - no PFREA policy needed
             
             # 1.6. Add tool selection guidance (if enabled and available)
-            if (config.tools.selection_guidance_enabled and 
-                self.tool_registry and 
-                hasattr(self.tool_registry, 'tool_selection_guidance') and
-                self.tool_registry.tool_selection_guidance is not None):
+            if (
+                config.tools.selection_guidance_enabled
+                and self.tool_registry
+                and hasattr(self.tool_registry, "tool_selection_guidance")
+                and self.tool_registry.tool_selection_guidance is not None
+            ):
                 try:
-                    # Gather context for guidance generation
-                    context = self.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
-                    available_tools = self.tool_registry.list_tools()
-                    
-                    guidance_text = self.tool_registry.tool_selection_guidance.generate_guidance_text(
-                        context=context,
-                        available_tools=available_tools
-                    )
-                    
+                    with self._startup_span("system_prompt.tool_guidance"):
+                        available_tools = self.tool_registry.list_tools()
+
+                        with self._startup_span("system_prompt.tool_guidance.generate_text"):
+                            # Let ToolSelectionGuidance handle context caching; guidance should never block on LLM estimation.
+                            guidance_text = self.tool_registry.tool_selection_guidance.generate_guidance_text(
+                                context=None,
+                                available_tools=available_tools,
+                            )
+
                     if guidance_text and guidance_text.strip():
                         # Apply guidance weight to control how prominent it is
                         if config.tools.guidance_weight > 0:
@@ -4018,31 +4123,33 @@ When you need to use tools to complete a task:
                                     "event": "tool_guidance_added",
                                     "guidance_length": len(guidance_text),
                                     "guidance_weight": config.tools.guidance_weight,
-                                }
+                                },
                             )
                 except Exception as e:
                     logger.debug(
                         f"Error generating tool selection guidance: {e}",
                         exc_info=True,
-                        extra={"event": "tool_guidance_error"}
+                        extra={"event": "tool_guidance_error"},
                     )
                     # Continue without guidance on error
-            
+
             # 2. Add summary context if summarization is enabled
             if self._summarization_manager:
                 try:
-                    from ..summarization.prompt_builder import PromptBuilder
-                    
-                    prompt_builder = PromptBuilder(
-                        summary_storage=self._summarization_manager.summary_storage,
-                        last_turns_count=config.summarization.last_turns_count
-                    )
-                    # Get summary context (without base system prompt to avoid duplication)
-                    summary_context = prompt_builder.build_context(
-                        self.session_id,
-                        self.messages,
-                        system_prompt=None
-                    )
+                    with self._startup_span("system_prompt.build_summary_context"):
+                        from ..summarization.prompt_builder import PromptBuilder
+
+                        prompt_builder = PromptBuilder(
+                            summary_storage=self._summarization_manager.summary_storage,
+                            last_turns_count=config.summarization.last_turns_count,
+                        )
+                        # Get summary context (without base system prompt to avoid duplication)
+                        summary_context = prompt_builder.build_context(
+                            self.session_id,
+                            self.messages,
+                            system_prompt=None,
+                        )
+
                     if summary_context and summary_context.strip():
                         # Deduplicate: check if summary context duplicates base prompt
                         summary_clean = summary_context.strip()
@@ -5021,6 +5128,14 @@ When you need to use tools to complete a task:
                         logger.warning(f"Failed to log tool call event: {e}", exc_info=True)
                 
                 tool_result = self.tool_registry.execute_tool_call(tool_call)
+
+                # RESPOND_AND_CONTINUE: capture pending auto-continue prompt for the caller.
+                try:
+                    ap = tool_result.get("_auto_continue_prompt")
+                    if isinstance(ap, str) and ap.strip():
+                        self._pending_auto_continue_prompt = ap.strip()
+                except Exception:
+                    pass
                 
                 # Log RL reward signals for tool call execution
                 try:

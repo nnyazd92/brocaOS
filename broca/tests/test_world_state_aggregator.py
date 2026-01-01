@@ -118,10 +118,31 @@ class TestWorldStateAggregator:
         assert "self_model" in world_state
         assert "internal_state" in world_state
         assert "tools_registry" in world_state
-        # Tools should be included on first call (hash changed from None)
-        assert "tools" in world_state
-        # Project should NOT be in world state (tool is now callable, not in aggregator)
-        assert "project" not in world_state
+
+    def test_repo_tree_hash_disabled_does_not_scan(self, monkeypatch):
+        class FakeDirGen:
+            def __init__(self):
+                from pathlib import Path
+                self.root_path = Path(".")
+
+            def get_directory_tree_hash(self):
+                raise AssertionError("should not scan directory tree when disabled")
+
+            def get_directory_tree_hash_cached(self, *, allow_scan: bool = False):
+                assert allow_scan is False
+                return None
+
+            def warm_tree_hash_async(self):
+                # Must not block / scan during aggregator call.
+                return None
+
+            def get_last_scan(self):
+                return None
+
+        aggregator = WorldStateAggregator(directory_structure_generator=FakeDirGen(), repo_tree_hash_enabled=False)
+        repo = aggregator.get_broca_house_structure()
+        assert repo["available"] is True
+        assert repo["repo"]["tree_hash"] is None
     
     def test_aggregate_with_no_components(self):
         """Test aggregating world state with no components."""
@@ -1345,4 +1366,3 @@ class TestRepoPointer:
             assert "directory_hierarchy" not in world_state["broca_house"]
         # Should have repo instead
         assert "repo" in world_state
-

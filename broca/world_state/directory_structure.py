@@ -10,9 +10,12 @@ from __future__ import annotations
 import logging
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime, timezone
+import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,10 @@ class DirectoryStructureGenerator:
         """
         self.root_path = Path(root_path)
         self._last_scan: Optional[datetime] = None
+        self._cached_tree_hash: Optional[str] = None
+        self._cached_tree_hash_at: Optional[float] = None
+        self._cache_lock = threading.Lock()
+        self._scan_inflight: bool = False
         # Default ignore patterns for directories and files to avoid scanning
         # common build/artifact and binary directories.
         self.ignore_dirs = set([
@@ -50,6 +57,12 @@ class DirectoryStructureGenerator:
         # files will be skipped when producing prompt-ready file lists.
         self.max_text_file_size = 10 * 1024 * 1024  # 10 MB
         logger.debug(f"Initialized DirectoryStructureGenerator with root: {root_path}")
+
+        # Cache TTL for expensive scans/hash computation.
+        # Keep this fairly long; it's meant as a cache key input, not a live file watcher.
+        self.tree_hash_ttl_seconds: float = float(
+            os.getenv("BROCA_DIRECTORY_TREE_HASH_TTL_SECONDS", "600.0")
+        )
     
     def scan_directory(self) -> Tuple[List[Dict[str, str]], List[str]]:
         """
@@ -229,6 +242,45 @@ class DirectoryStructureGenerator:
         tree_json = json.dumps(tree, sort_keys=True)
         hash_obj = hashlib.sha256(tree_json.encode())
         return hash_obj.hexdigest()
+
+    def get_directory_tree_hash_cached(self, *, allow_scan: bool = False) -> Optional[str]:
+        """Return a cached directory tree hash without forcing a scan unless allowed."""
+        now = time.time()
+        with self._cache_lock:
+            if self._cached_tree_hash is not None and self._cached_tree_hash_at is not None:
+                age = now - self._cached_tree_hash_at
+                if age < self.tree_hash_ttl_seconds:
+                    return self._cached_tree_hash
+
+            if not allow_scan:
+                return self._cached_tree_hash
+
+        # Compute outside lock to avoid blocking other readers.
+        try:
+            tree_hash = self.get_directory_tree_hash()
+        except Exception:
+            return None
+
+        with self._cache_lock:
+            self._cached_tree_hash = tree_hash
+            self._cached_tree_hash_at = now
+        return tree_hash
+
+    def warm_tree_hash_async(self) -> None:
+        """Best-effort background warm of the cached tree hash."""
+        with self._cache_lock:
+            if self._scan_inflight:
+                return
+            self._scan_inflight = True
+
+        def _run() -> None:
+            try:
+                self.get_directory_tree_hash_cached(allow_scan=True)
+            finally:
+                with self._cache_lock:
+                    self._scan_inflight = False
+
+        threading.Thread(target=_run, daemon=True, name="broca-dir-tree-hash").start()
     
     def get_last_scan(self) -> Optional[str]:
         """
@@ -240,4 +292,3 @@ class DirectoryStructureGenerator:
         if self._last_scan:
             return self._last_scan.isoformat()
         return None
-

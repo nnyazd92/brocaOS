@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import logging
 import platform
 import os
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class WorldStateAggregator:
         reasoning_tool: Optional["ReasoningTool"] = None,
         size_manager: Optional[Any] = None,
         config: Optional[Any] = None,
+        repo_tree_hash_enabled: bool = True,
     ) -> None:
         """
         Initialize world state aggregator.
@@ -67,13 +69,75 @@ class WorldStateAggregator:
         self.tool_registry = tool_registry
         self.memory_manager = memory_manager
         self.directory_structure_generator = directory_structure_generator
+        self.repo_tree_hash_enabled = repo_tree_hash_enabled
         self.self_model_reduction_level = self_model_reduction_level or "mild"
         self.reasoning_tool = reasoning_tool
         self.size_manager = size_manager
         self.config = config
         self._last_tool_registry_hash: Optional[str] = None
+        self._runtime_lock = threading.Lock()
+        self._runtime_state: Dict[str, Any] = {}
         
         logger.info("Initialized WorldStateAggregator")
+
+    def set_rl_guidance(
+        self,
+        *,
+        suggested_tool: str,
+        mode: Optional[str] = None,
+        confidence: Optional[float] = None,
+        reason: Optional[str] = None,
+        selection_id: Optional[int] = None,
+        suggested_tools: Optional[List[str]] = None,
+        ppo_status: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Set the latest RL guidance for inclusion in the mutable system prompt.
+
+        This is intentionally compact and overwrites previous guidance so the system prompt
+        does not grow unbounded.
+        """
+        suggested_tool_clean = (suggested_tool or "").strip()
+        if not suggested_tool_clean:
+            return
+
+        payload: Dict[str, Any] = {
+            "reward_system_suggests_tool": suggested_tool_clean,
+            "reward_system_suggests_line": f"REWARD SYSTEM SUGGESTS: {suggested_tool_clean}",
+        }
+        if mode:
+            payload["mode"] = str(mode)
+        if confidence is not None:
+            try:
+                payload["confidence"] = float(confidence)
+            except Exception:
+                pass
+        if reason:
+            payload["reason"] = str(reason)[:300]
+        if selection_id is not None:
+            try:
+                payload["selection_id"] = int(selection_id)
+            except Exception:
+                pass
+        if suggested_tools:
+            uniq: List[str] = []
+            for t in suggested_tools:
+                if isinstance(t, str):
+                    tt = t.strip()
+                    if tt and tt not in uniq:
+                        uniq.append(tt)
+            if uniq:
+                payload["suggested_tools"] = uniq[:10]
+        if isinstance(ppo_status, dict) and ppo_status:
+            # Keep this tiny; it's just for operator visibility.
+            payload["ppo"] = {k: ppo_status[k] for k in list(ppo_status.keys())[:10]}
+
+        with self._runtime_lock:
+            self._runtime_state["rl_guidance"] = payload
+
+    def clear_rl_guidance(self) -> None:
+        with self._runtime_lock:
+            self._runtime_state.pop("rl_guidance", None)
     
     def _validate_metric_quality(self, state_dict: Dict[str, Any], component_name: str) -> bool:
         """
@@ -117,6 +181,12 @@ class WorldStateAggregator:
         world_state: Dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+        # Runtime overrides (compact, non-growing)
+        with self._runtime_lock:
+            rl_guidance = self._runtime_state.get("rl_guidance")
+        if isinstance(rl_guidance, dict) and rl_guidance:
+            world_state["rl_guidance"] = rl_guidance
         
         # System info (always available)
         system_info = self.get_system_info()
@@ -191,6 +261,7 @@ class WorldStateAggregator:
         if internal_sensing_state.get("available"):
             current_state = internal_sensing_state.get("current_state", {})
             world_state["internal_state"] = {
+                "interoceptive_report": internal_sensing_state.get("interoceptive_report"),
                 "tool_statistics": internal_sensing_state.get("tool_statistics", {}),
             }
             # Add physiology, cognition, affect from current_state if available
@@ -201,10 +272,14 @@ class WorldStateAggregator:
                     # Preserve cognitive state including data_quality indicators
                     cognitive_state = current_state["cognitive"]
                     # Ensure data_quality is preserved if present
-                    if "data_quality" not in cognitive_state and hasattr(self.internal_sensing.interoception.cognition, 'states'):
+                    if (
+                        isinstance(cognitive_state, dict)
+                        and "data_quality" not in cognitive_state
+                        and hasattr(self.internal_sensing.interoception.cognition, "states")
+                    ):
                         # Try to extract data_quality from cognitive monitor if not in state
                         cog_states = self.internal_sensing.interoception.cognition.states
-                        if "data_quality" in cog_states:
+                        if isinstance(cog_states, dict) and "data_quality" in cog_states:
                             cognitive_state["data_quality"] = cog_states["data_quality"]
                     # Validate and include
                     if self._validate_metric_quality(cognitive_state, "cognition"):
@@ -213,10 +288,14 @@ class WorldStateAggregator:
                     # Preserve affective state including data_quality indicators
                     affective_state = current_state["affective"]
                     # Ensure data_quality is preserved if present
-                    if "data_quality" not in affective_state and hasattr(self.internal_sensing.interoception.affect, 'affective_states'):
+                    if (
+                        isinstance(affective_state, dict)
+                        and "data_quality" not in affective_state
+                        and hasattr(self.internal_sensing.interoception.affect, "affective_states")
+                    ):
                         # Try to extract data_quality from affective monitor if not in state
                         aff_states = self.internal_sensing.interoception.affect.affective_states
-                        if "data_quality" in aff_states:
+                        if isinstance(aff_states, dict) and "data_quality" in aff_states:
                             affective_state["data_quality"] = aff_states["data_quality"]
                     # Validate and include
                     if self._validate_metric_quality(affective_state, "affect"):
@@ -226,9 +305,14 @@ class WorldStateAggregator:
             if "predictive" in internal_sensing_state:
                 world_state["internal_state"]["predictive"] = internal_sensing_state["predictive"]
             
-            # Note: behavioral_patterns and reasoning_patterns are excluded from world state
-            # to prevent unbounded growth. These accumulate over time and represent historical
-            # data rather than current state, violating AGENTS.md guidelines for system prompt size limits.
+            # Add behavioral/reasoning patterns in a bounded form (to avoid unbounded growth).
+            behavioral_patterns = internal_sensing_state.get("behavioral_patterns")
+            if isinstance(behavioral_patterns, list) and behavioral_patterns:
+                world_state["internal_state"]["behavioral_patterns"] = behavioral_patterns[:10]
+
+            reasoning_patterns = internal_sensing_state.get("reasoning_patterns")
+            if isinstance(reasoning_patterns, list) and reasoning_patterns:
+                world_state["internal_state"]["reasoning_patterns"] = reasoning_patterns[:10]
             
             # Add anomalies if detected
             if "anomalies" in internal_sensing_state:
@@ -319,14 +403,14 @@ class WorldStateAggregator:
             # Detect anomalies
             anomalies = self.internal_sensing.interoception.detect_anomalies()
             
-            # Get quality metrics (always include since measure_self_awareness_quality() always returns a value)
+            # Get quality metrics (omit when empty to keep world state compact)
             self_awareness_quality = self.internal_sensing.interoception.measure_self_awareness_quality()
             interoceptive_accuracy = self.internal_sensing.interoception.track_interoceptive_accuracy()
-            
-            quality_metrics = {
-                "self_awareness_quality": self_awareness_quality,
-                "interoceptive_accuracy": interoceptive_accuracy,
-            }
+            quality_metrics: Dict[str, Any] = {}
+            if self_awareness_quality is not None:
+                quality_metrics["self_awareness_quality"] = self_awareness_quality
+            if interoceptive_accuracy:
+                quality_metrics["interoceptive_accuracy"] = interoceptive_accuracy
             
             # Extract motivational state
             motivational_drives = self.internal_sensing.interoception.affect.get_motivational_drives()
@@ -905,7 +989,19 @@ class WorldStateAggregator:
         
         try:
             generator = self.directory_structure_generator
-            tree_hash = generator.get_directory_tree_hash()
+            # Repo tree hashing is expensive (recursive scan). For most runtime paths
+            # (especially web_api startup), we must not block on scanning the whole repo.
+            # When disabled, we return the cached hash if present, otherwise None.
+            enable_hash = bool(getattr(self, "repo_tree_hash_enabled", True))
+            if enable_hash and hasattr(generator, "get_directory_tree_hash_cached"):
+                tree_hash = generator.get_directory_tree_hash_cached(allow_scan=True)
+            elif hasattr(generator, "get_directory_tree_hash_cached"):
+                tree_hash = generator.get_directory_tree_hash_cached(allow_scan=False)
+                if tree_hash is None and hasattr(generator, "warm_tree_hash_async"):
+                    # Best-effort warmup without blocking.
+                    generator.warm_tree_hash_async()
+            else:
+                tree_hash = generator.get_directory_tree_hash() if enable_hash else None
             
             return {
                 "available": True,
@@ -1016,7 +1112,7 @@ class WorldStateAggregator:
         Returns:
             Compact summary with tool and memory reliability averages
         """
-        if not source_reliability:
+        if not isinstance(source_reliability, dict) or not source_reliability:
             return {}
         
         tool_reliabilities = []
@@ -1059,7 +1155,7 @@ class WorldStateAggregator:
         
         # Extract uncertainty summary
         uncertainty = epistemic_data.get("uncertainty", {})
-        if uncertainty:
+        if isinstance(uncertainty, dict) and uncertainty:
             # Include only essential uncertainty metrics
             uncertainty_summary = {
                 "epistemic": uncertainty.get("epistemic"),
@@ -1078,7 +1174,7 @@ class WorldStateAggregator:
         
         # Extract confidence summary
         confidence = epistemic_data.get("confidence", {})
-        if confidence:
+        if isinstance(confidence, dict) and confidence:
             # Include only essential confidence metrics
             confidence_summary = {
                 "overall_confidence": confidence.get("overall_confidence"),
@@ -1103,7 +1199,7 @@ class WorldStateAggregator:
         
         # Include source reliability summary (already aggregated)
         source_reliability = epistemic_data.get("source_reliability", {})
-        if source_reliability:
+        if isinstance(source_reliability, dict) and source_reliability:
             summary["source_reliability"] = source_reliability
         
         return summary
@@ -1118,56 +1214,113 @@ class WorldStateAggregator:
         """
         if not self.reasoning_tool:
             return {"available": False}
+
+        # Cache to avoid repeated lock contention / serialization during tight tool-call loops.
+        # Default TTL keeps the UI responsive while still reflecting recent changes.
+        import os
+        import time as _time
+
+        try:
+            ttl_ms = int(os.getenv("BROCA_WORLD_STATE_REASONING_STATE_CACHE_MS", "250"))
+        except Exception:
+            ttl_ms = 250
+        ttl_ms = max(0, min(10_000, ttl_ms))
+
+        now = _time.monotonic()
+        cache_ts = getattr(self, "_reasoning_state_cache_ts", None)
+        cache_val = getattr(self, "_reasoning_state_cache", None)
+        if ttl_ms > 0 and isinstance(cache_ts, (int, float)) and cache_val is not None:
+            if (now - float(cache_ts)) * 1000.0 < ttl_ms:
+                return cache_val
+
+        t0 = _time.perf_counter()
         
         try:
-            # Get state from reasoning tool
-            state_result = self.reasoning_tool.execute("get_state")
+            # Get state from reasoning tool (prefer lightweight summary to avoid deep serialization costs).
+            state_result = None
+            try:
+                state_result = self.reasoning_tool.execute(
+                    "get_state_summary",
+                    max_active_goals=5,
+                    max_goal_desc_chars=100,
+                    lock_timeout_s=0.02,
+                )
+            except Exception:
+                state_result = None
+            if not isinstance(state_result, dict) or not state_result.get("success"):
+                state_result = self.reasoning_tool.execute("get_state")
             if not state_result.get("success"):
                 return {"available": False}
             
             state = state_result.get("state", {})
-            goal_manager_dict = state.get("goal_manager", {})
-            rule_system_dict = state.get("rule_system", {})
             
             # Extract key information (size-limited)
             reasoning_state = {}
             
             # Active goals (limited count and description length)
             # Only include progress if it's been computed (not None/0.0 default)
-            goals = goal_manager_dict.get("goals", {})
             active_goals = []
-            for goal in goals.values():
-                if goal.get("status") == "active":
-                    goal_dict = {
-                        "name": goal.get("name", ""),
-                        "description": goal.get("description", "")[:100],  # Limit description
-                        "priority": goal.get("priority", 0.0),
-                    }
-                    # Only include progress if it's been computed (not None or default 0.0)
-                    progress = goal.get("progress")
-                    if progress is not None:
-                        goal_dict["progress"] = progress
-                    active_goals.append(goal_dict)
-                    if len(active_goals) >= 5:  # Limit to top 5 active goals
-                        break
+            # get_state_summary returns pre-trimmed goals; get_state returns full goal_manager/goals dict.
+            if isinstance(state.get("active_goals"), list):
+                for goal in state.get("active_goals", [])[:5]:
+                    if isinstance(goal, dict):
+                        goal_dict = {
+                            "name": goal.get("name", ""),
+                            "description": (goal.get("description", "") or "")[:100],
+                            "priority": goal.get("priority", 0.0),
+                        }
+                        progress = goal.get("progress")
+                        if progress is not None:
+                            goal_dict["progress"] = progress
+                        active_goals.append(goal_dict)
+            else:
+                goal_manager_dict = state.get("goal_manager", {})
+                goals = goal_manager_dict.get("goals", {})
+                for goal in goals.values():
+                    if goal.get("status") == "active":
+                        goal_dict = {
+                            "name": goal.get("name", ""),
+                            "description": goal.get("description", "")[:100],  # Limit description
+                            "priority": goal.get("priority", 0.0),
+                        }
+                        progress = goal.get("progress")
+                        if progress is not None:
+                            goal_dict["progress"] = progress
+                        active_goals.append(goal_dict)
+                        if len(active_goals) >= 5:
+                            break
             
             if active_goals:
                 reasoning_state["active_goals"] = active_goals
                 reasoning_state["active_goals_count"] = len(active_goals)
             
             # Ready goals count
-            ready_goals_count = goal_manager_dict.get("ready_goals_count", 0)
+            ready_goals_count = state.get("ready_goals_count", 0)
+            if ready_goals_count in (0, None):
+                goal_manager_dict = state.get("goal_manager", {}) if isinstance(state.get("goal_manager"), dict) else {}
+                ready_goals_count = goal_manager_dict.get("ready_goals_count", 0)
             if ready_goals_count > 0:
                 reasoning_state["ready_goals_count"] = ready_goals_count
             
             # Rule system summary
-            rules = rule_system_dict.get("rules", [])
-            reasoning_state["total_rules"] = len(rules)
+            if "total_rules" in state:
+                try:
+                    reasoning_state["total_rules"] = int(state.get("total_rules") or 0)
+                except Exception:
+                    reasoning_state["total_rules"] = 0
+            else:
+                rule_system_dict = state.get("rule_system", {})
+                rules = rule_system_dict.get("rules", [])
+                reasoning_state["total_rules"] = len(rules)
             
             # Working memory size
             working_memory_size = state.get("working_memory_size", 0)
+            if working_memory_size in (0, None) and "working_memory_size" not in state:
+                working_memory_size = state.get("working_memory_size", 0)
             if working_memory_size > 0:
                 reasoning_state["working_memory_size"] = working_memory_size
+            if state.get("busy"):
+                reasoning_state["busy"] = True
             
             # Daemon status (if available)
             if hasattr(self.reasoning_tool, 'daemon') and self.reasoning_tool.daemon:
@@ -1331,10 +1484,28 @@ class WorldStateAggregator:
                 if "z3_validation" in reasoning_state and total_size_estimate > 2000:
                     del reasoning_state["z3_validation"]
             
-            return {
+            result = {
                 "available": True,
                 "reasoning": reasoning_state
             }
+            # Cache result for a short TTL.
+            if ttl_ms > 0:
+                setattr(self, "_reasoning_state_cache_ts", now)
+                setattr(self, "_reasoning_state_cache", result)
+
+            # Optional timing logs for bottleneck hunting.
+            if os.getenv("BROCA_LOG_WORLD_STATE_TIMINGS", "false").lower() == "true":
+                dt_ms = (_time.perf_counter() - t0) * 1000.0
+                logger.info(
+                    "WORLD_STATE_TIMING",
+                    extra={
+                        "event": "world_state_timing",
+                        "component": "reasoning_state",
+                        "duration_ms": round(dt_ms, 2),
+                    },
+                )
+
+            return result
             
         except Exception as e:
             logger.warning(f"Error getting reasoning state: {e}", exc_info=True)
@@ -1477,4 +1648,3 @@ class WorldStateAggregator:
             }
         else:
             return {"available": False}
-

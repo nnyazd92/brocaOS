@@ -1,7 +1,0 @@
-rescaled:
-(hbar**2*Derivative(R(x, t), (x, 2)) + I*hbar*R(x, t)*Derivative(S(x, t), (x, 2)) + 2*I*hbar*Derivative(R(x, t), x)*Derivative(S(x, t), x) + 2*m*(I*hbar*Derivative(R(x, t), t) - R(x, t)*V(x) - R(x, t)*Derivative(S(x, t), t)) - R(x, t)*Derivative(S(x, t), x)**2)/(2*m)
-
-rescaled * hbar:
-hbar**3*Derivative(R(x, t), (x, 2))/(2*m) + I*hbar**2*Derivative(R(x, t), t) + I*hbar**2*R(x, t)*Derivative(S(x, t), (x, 2))/(2*m) + I*hbar**2*Derivative(R(x, t), x)*Derivative(S(x, t), x)/m - hbar*R(x, t)*V(x) - hbar*R(x, t)*Derivative(S(x, t), t) - hbar*R(x, t)*Derivative(S(x, t), x)**2/(2*m)
-
-Interpretation: leading order in 1/hbar yields Hamilton-Jacobi: S_t + (S_x^2)/(2m) + V = 0

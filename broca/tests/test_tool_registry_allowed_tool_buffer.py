@@ -1,3 +1,4 @@
+from broca.config import config
 from broca.tools.registry import ToolRegistry
 
 
@@ -26,7 +27,9 @@ def _tool_call(name: str, call_id: str = "call_1") -> dict:
     return {"id": call_id, "type": "function", "function": {"name": name, "arguments": "{}"}}
 
 
-def test_registry_blocks_tool_not_in_allowed_buffer_suggested_mode():
+def test_registry_blocks_tool_not_in_allowed_buffer_suggested_mode(monkeypatch):
+    # This test uses synthetic tool names; ensure the registry is in legacy toolset mode.
+    monkeypatch.setattr(config.tools, "toolset", "legacy", raising=False)
     reg = ToolRegistry()
     reg.register_tool(_Tool("a"))
     reg.register_tool(_Tool("b"))
@@ -41,7 +44,9 @@ def test_registry_blocks_tool_not_in_allowed_buffer_suggested_mode():
     assert "allowed tools" in blocked["content"].lower()
 
 
-def test_registry_allows_tool_in_allowed_buffer_suggested_mode():
+def test_registry_allows_tool_in_allowed_buffer_suggested_mode(monkeypatch):
+    # This test uses synthetic tool names; ensure the registry is in legacy toolset mode.
+    monkeypatch.setattr(config.tools, "toolset", "legacy", raising=False)
     reg = ToolRegistry()
     reg.register_tool(_Tool("a"))
     reg.register_tool(_Tool("b"))
@@ -53,4 +58,3 @@ def test_registry_allows_tool_in_allowed_buffer_suggested_mode():
     ok = reg.execute_tool_call(_tool_call("b"))
     assert ok.get("_success", True) is True
     assert ok["name"] == "b"
-

@@ -31,7 +31,8 @@ class RuleEngine:
         declarative_memory: Optional["DeclarativeMemoryInterface"] = None,
         pattern_matcher: Optional["LLMPatternMatcher"] = None,
         working_memory: Optional[WorkingMemory] = None,
-        loop_detector: Optional["LoopDetector"] = None
+        loop_detector: Optional["LoopDetector"] = None,
+        enable_z3_validation: Optional[bool] = None,
     ):
         """
         Initialize rule engine.
@@ -41,26 +42,37 @@ class RuleEngine:
             declarative_memory: Optional DeclarativeMemoryInterface for memory integration
             pattern_matcher: Optional LLMPatternMatcher for semantic pattern matching
             working_memory: Optional WorkingMemory instance (if None, uses rule_system's WM)
+            enable_z3_validation: Deprecated/ignored (Z3 validation is performed via Z3LogicalValidator / tools)
         """
+        _ = enable_z3_validation  # backward-compatible kwarg (ignored)
         # Initialize pattern matcher if not provided
         if pattern_matcher is None:
-            try:
-                from .llm_pattern_matcher import LLMPatternMatcher
-                from ..llm import create_llm_client
-                from ..config import config
-                
-                llm_client = create_llm_client(
-                    model=config.reasoning.llm_pattern_matching_model,
-                    provider="openai",  # Always use OpenAI for pattern matching
-                )
-                pattern_matcher = LLMPatternMatcher(
-                    llm_client=llm_client,
-                    model=config.reasoning.llm_pattern_matching_model
-                )
-                logger.info(f"Initialized LLM pattern matcher with model: {config.reasoning.llm_pattern_matching_model}")
-            except Exception as e:
-                logger.warning(f"Failed to initialize LLM pattern matcher: {e}. Pattern matching will use legacy dict matching.")
+            from ..config import config
+
+            if not getattr(config.reasoning, "llm_pattern_matching_enabled", True):
+                logger.info("LLM pattern matching disabled; using legacy dict matching")
                 pattern_matcher = None
+            else:
+                try:
+                    from .llm_pattern_matcher import LLMPatternMatcher
+                    from ..llm import create_llm_client
+
+                    llm_client = create_llm_client(
+                        model=config.reasoning.llm_pattern_matching_model,
+                        provider="openai",  # Always use OpenAI for pattern matching
+                    )
+                    pattern_matcher = LLMPatternMatcher(
+                        llm_client=llm_client,
+                        model=config.reasoning.llm_pattern_matching_model
+                    )
+                    logger.info(
+                        f"Initialized LLM pattern matcher with model: {config.reasoning.llm_pattern_matching_model}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to initialize LLM pattern matcher: {e}. Pattern matching will use legacy dict matching."
+                    )
+                    pattern_matcher = None
         
         self.pattern_matcher = pattern_matcher
         
@@ -134,8 +146,11 @@ class RuleEngine:
         # Sort by priority (highest first), then strength
         matched_rules.sort(key=lambda r: (r.priority, r.strength), reverse=True)
         top_priority = matched_rules[0].priority if matched_rules else 0.0
-        
-        logger.info(
+
+        # Avoid spamming INFO logs when nothing matches (common in idle/background cycles).
+        log_level = logging.INFO if matched_rules else logging.DEBUG
+        logger.log(
+            log_level,
             f"Rule engine matched rules: evaluated={len(self.rule_system.rules)}, "
             f"matched={len(matched_rules)}, "
             f"top_priority={top_priority:.3f}, "
@@ -147,7 +162,7 @@ class RuleEngine:
                 "matched_rule_names": [r.name for r in matched_rules],
                 "top_priority": top_priority,
                 "llm_pattern_matching": self.pattern_matcher is not None,
-            }
+            },
         )
         
         return matched_rules

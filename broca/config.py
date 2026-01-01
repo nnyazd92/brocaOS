@@ -7,6 +7,18 @@ load_dotenv()
 from .reasoning.config import ReasoningConfig
 
 
+def parse_execute_whitelist_env() -> list[str]:
+    """
+    Parse the EXECUTE base-command whitelist from environment variables.
+
+    Precedence:
+    - BROCA_EXECUTE_WHITELIST (preferred)
+    - BROCA_EXECUTE_COMMAND_WHITELIST (back-compat)
+    """
+    raw = os.getenv("BROCA_EXECUTE_WHITELIST") or os.getenv("BROCA_EXECUTE_COMMAND_WHITELIST") or ""
+    return [v.strip() for v in raw.split(",") if v.strip()]
+
+
 
 class LLMConfig(BaseModel):
     provider: str = os.getenv("BROCA_LLM_PROVIDER", "deepseek")  # "deepseek", "openai", or "gemini"
@@ -21,6 +33,12 @@ class LLMConfig(BaseModel):
     # Gemini 3 specific configuration
     thinking_level: str = os.getenv("BROCA_GEMINI_THINKING_LEVEL", "low")  # "low" for fast system calls, "high" for ToE logic
     use_sdk: bool = os.getenv("BROCA_GEMINI_USE_SDK", "true").lower() == "true"  # Use google-genai SDK (True) or REST API (False)
+    # Gemini retry / backoff configuration (primarily for 429 TPM rate limits)
+    gemini_max_retries: int = int(os.getenv("BROCA_GEMINI_MAX_RETRIES", "6"))
+    gemini_backoff_base_seconds: float = float(os.getenv("BROCA_GEMINI_BACKOFF_BASE_SECONDS", "1.0"))
+    gemini_backoff_max_seconds: float = float(os.getenv("BROCA_GEMINI_BACKOFF_MAX_SECONDS", "60.0"))
+    gemini_backoff_jitter: float = float(os.getenv("BROCA_GEMINI_BACKOFF_JITTER", "0.25"))
+    gemini_respect_retry_after: bool = os.getenv("BROCA_GEMINI_RESPECT_RETRY_AFTER", "true").lower() == "true"
 
     def __init__(self, **kwargs):
         # Get provider first
@@ -113,6 +131,7 @@ class LoggingConfig(BaseModel):
     log_tool_schemas: bool = os.getenv("BROCA_LOG_TOOL_SCHEMAS", "false").lower() == "true"
     log_tool_results_full: bool = os.getenv("BROCA_LOG_TOOL_RESULTS_FULL", "false").lower() == "true"
     suppress_console_logging: bool = os.getenv("BROCA_SUPPRESS_CONSOLE_LOGGING", "true").lower() == "true"
+    log_llm_timings: bool = os.getenv("BROCA_LOG_LLM_TIMINGS", "false").lower() == "true"
 
 
 class StorageConfig(BaseModel):
@@ -137,8 +156,14 @@ class ToolsConfig(BaseModel):
     terminal_working_directory: str | None = os.getenv("BROCA_TERMINAL_WORKING_DIR", None)
     enable_critic: bool = os.getenv("BROCA_ENABLE_CRITIC", "false").lower() == "true"
     critic_system_prompt_template: str | None = os.getenv("BROCA_CRITIC_SYSTEM_PROMPT", None)
+    # Toolset selection
+    # Default to the "primitive" macro toolset so RL operates on explicit macros rather than
+    # universal actuators like `terminal` / `environment_access`.
+    toolset: str = os.getenv("BROCA_TOOLSET", "primitive")  # "legacy" | "primitive"
     # Policy: read-only mode
     tools_mode: str = os.getenv("BROCA_TOOLS_MODE", "normal")  # "normal" or "read_only"
+    # Primitive EXECUTE tool (optional) allowlist. If empty, EXECUTE allows any base command.
+    execute_command_whitelist: list[str] = parse_execute_whitelist_env()
     # Browser navigation tool configuration
     enable_browser_navigation: bool = os.getenv("BROCA_ENABLE_BROWSER_NAVIGATION", "false").lower() == "true"
     browser_headless: bool = os.getenv("BROCA_BROWSER_HEADLESS", "true").lower() == "true"
@@ -174,6 +199,13 @@ class ToolsConfig(BaseModel):
 
     # Auto-observe tool calls for the learning system (runtime toggle)
     auto_observe_tool_calls: bool = os.getenv("BROCA_AUTO_OBSERVE_TOOL_CALLS", "false").lower() == "true"
+
+    # Governance policy (capability gating / budgets / scopes)
+    governance_policy_path: str = os.getenv("BROCA_GOVERNANCE_POLICY_PATH", "data/governance/policy.json")
+    governance_requests_path: str = os.getenv("BROCA_GOVERNANCE_POLICY_REQUESTS_PATH", "data/governance/policy_requests.json")
+    governance_audit_log_path: str = os.getenv("BROCA_GOVERNANCE_AUDIT_LOG_PATH", "data/governance/audit_log.jsonl")
+    governance_project_root: str = os.getenv("BROCA_PROJECT_ROOT", "")
+    enable_rl_policy_debug_tools: bool = os.getenv("BROCA_ENABLE_RL_POLICY_DEBUG_TOOLS", "false").lower() == "true"
 
 class EmbeddingConfig(BaseModel):
     """Configuration for embedding service API (separate from chat LLM API)."""
@@ -475,6 +507,12 @@ class RLConfig(BaseModel):
     # Model persistence
     model_path: str = os.getenv("BROCA_RL_MODEL_PATH", "models/rl/online_policy.pt")
     buffer_path: str = os.getenv("BROCA_RL_BUFFER_PATH", "data/rl/replay_buffer.json")
+    # Reward design persistence (applied on startup when present)
+    reward_design_path: str = os.getenv("BROCA_RL_REWARD_DESIGN_PATH", "data/rl/reward_design.json")
+    # Policy lifecycle persistence (promotion/rollback/evaluation)
+    policy_versions_path: str = os.getenv("BROCA_RL_POLICY_VERSIONS_PATH", "data/rl/policy_versions.json")
+    policy_archive_dir: str = os.getenv("BROCA_RL_POLICY_ARCHIVE_DIR", "models/rl/policy_versions")
+    policy_evaluations_path: str = os.getenv("BROCA_RL_POLICY_EVALUATIONS_PATH", "data/rl/policy_evaluations.json")
 
     # PPO persistence + hyperparameters (used when algorithm == "ppo")
     ppo_model_path: str = os.getenv("BROCA_RL_PPO_MODEL_PATH", "models/rl/policy_ppo.pt")

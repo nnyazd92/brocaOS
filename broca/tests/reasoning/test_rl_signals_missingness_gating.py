@@ -35,4 +35,21 @@ class TestRLMissingnessGating:
         assert 0.55 <= metrics.dissonance_reward <= 0.65
         assert metrics.dissonance_reward != 1.0
 
+    def test_allow_estimation_false_never_calls_estimator(self):
+        class Monitor:
+            def get_aggregated_dissonance(self):
+                return {
+                    "overall_dissonance": 0.0,
+                    "has_data": True,
+                    "has_sufficient_data": False,
+                    "measurement_quality": "estimated",
+                }
+
+        class ExplodingEstimator:
+            def estimate_dissonance(self, *, context):  # noqa: ANN001
+                raise AssertionError("estimator should not be called when allow_estimation=False")
+
+        agg = RLSignalAggregator(cognitive_dissonance_monitor=Monitor(), estimator=ExplodingEstimator())
+        metrics = agg.compute_signals(allow_estimation=False)
+        assert metrics.dissonance_reward == 0.5
 
