@@ -1510,12 +1510,32 @@ When you need to use tools to complete a task:
             except Exception:
                 pass
 
+        def _hide_all_turn_messages_for_hidden_turn() -> None:
+            """
+            Hidden internal turns (e.g., RESPOND_AND_CONTINUE auto-continue) must not
+            produce user-visible messages in the web UI, and should not print in the REPL.
+
+            This marks all messages created during this send() call as hidden (except system).
+            """
+            if not hidden_user_message:
+                return
+            try:
+                for m in self.messages[turn_message_start_idx:]:
+                    if not isinstance(m, dict):
+                        continue
+                    if m.get("role") == "system":
+                        continue
+                    m["hidden"] = True
+            except Exception:
+                pass
+
         # Per-turn macro state (used by RESPOND_AND_CONTINUE).
         self._pending_auto_continue_prompt = None
         # When tools are disabled (DONE/RESPOND_AND_CONTINUE), some models may still emit tool_calls.
         # Track retries so we can reprompt a few times and then force an answer.
         force_final_response_reprompt_attempts = 0
         require_done_reprompt_attempts = 0
+        background_contract_reprompt_attempts = 0
 
         # Clear reasoning_content when starting a new user turn (prevents 400 errors)
         # For deepseek-reasoner, reasoning_content should only be used within a single turn
@@ -2568,6 +2588,61 @@ When you need to use tools to complete a task:
                         assistant_text = repair_ansi_codes(assistant_text)
                 else:
                     logger.debug(f"Using existing assistant_text (length={len(assistant_text) if assistant_text else 0}, used_streaming={used_streaming})")
+
+                # Background-turn response contract (web auto-continue):
+                # When running a hidden internal turn, do NOT allow a plain-text response unless the model
+                # first calls DONE or RESPOND_AND_CONTINUE. This prevents the web UI from receiving a
+                # second user-visible assistant message "for free" after a continuation.
+                try:
+                    if (
+                        hidden_user_message
+                        and assistant_text
+                        and self.tool_registry
+                        and not getattr(self.tool_registry, "force_final_response", False)
+                        and getattr(config.tools, "toolset", "legacy") == "primitive"
+                    ):
+                        allowed_tool_names = set()
+                        if isinstance(tools, list):
+                            for t in tools:
+                                try:
+                                    allowed_tool_names.add(t.get("function", {}).get("name"))
+                                except Exception:
+                                    pass
+
+                        if allowed_tool_names.intersection({"DONE", "RESPOND_AND_CONTINUE"}):
+                            background_contract_reprompt_attempts += 1
+                            logger.warning(
+                                "Hidden background turn attempted plain-text response without DONE/RESPOND_AND_CONTINUE",
+                                extra={
+                                    "event": "background_response_contract_missing_done",
+                                    "attempt": background_contract_reprompt_attempts,
+                                    "iteration": iterations,
+                                    "allowed_tools": sorted([n for n in allowed_tool_names if isinstance(n, str)]),
+                                },
+                            )
+
+                            # Record attempted assistant output (hidden), then reprompt.
+                            self.messages.append({"role": "assistant", "content": assistant_text, "hidden": True})
+                            assistant_text = None
+
+                            if background_contract_reprompt_attempts <= 3:
+                                self.messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "[SYSTEM DIRECTIVE - BACKGROUND RESPONSE CONTRACT] "
+                                            "This is a hidden/internal continuation turn.\n"
+                                            "You MUST end this message by calling one of these tools:\n"
+                                            "- DONE (stop background work)\n"
+                                            "- RESPOND_AND_CONTINUE (continue background work)\n"
+                                            "Do NOT output a plain-text response in this message."
+                                        ),
+                                        "hidden": True,
+                                    }
+                                )
+                                continue
+                except Exception as e:
+                    logger.debug(f"Failed to enforce background response contract: {e}", exc_info=True)
                 
                 # RL response contract: if DONE/RESPOND_AND_CONTINUE are available and RL policy is active,
                 # do not allow the model to respond directly without first calling DONE/RESPOND_AND_CONTINUE.
@@ -2643,7 +2718,7 @@ When you need to use tools to complete a task:
                 else:
                     # Non-streaming: print with prompt only if we have content
                     # Response guard ensures assistant_text is never None/empty, but check anyway
-                    if assistant_text:
+                    if assistant_text and not hidden_user_message:
                         prompt = "BrocaOS> "
                         if self._color_manager:
                             prompt = self._color_manager.colorize(prompt, "brocaos_prompt")
@@ -3151,6 +3226,8 @@ When you need to use tools to complete a task:
                     self.messages.append({"role": "assistant", "content": fallback})
                     final_reply = fallback
 
+                _hide_duplicate_assistant_for_hidden_turn()
+                _hide_all_turn_messages_for_hidden_turn()
                 return final_reply
 
         # Max iterations reached
@@ -3220,6 +3297,7 @@ When you need to use tools to complete a task:
             logger.error(f"Error in max iterations post-processing: {e}", exc_info=True)
         
         _hide_duplicate_assistant_for_hidden_turn()
+        _hide_all_turn_messages_for_hidden_turn()
         self._save_conversation()
         return assistant_text
 
@@ -5364,6 +5442,15 @@ When you need to use tools to complete a task:
                             else:
                                 primed_memory_prompt = "PRIMED MEMORY:\n" + cleaned
 
+                            # Hard cap: primed memory text can be large and change frequently;
+                            # keep it bounded to avoid system prompt growth in long autonomous loops.
+                            try:
+                                max_pm = int(getattr(config.memory, "max_primed_memory_prompt_chars", 1200))
+                            except Exception:
+                                max_pm = 1200
+                            if max_pm > 0 and len(primed_memory_prompt) > max_pm:
+                                primed_memory_prompt = primed_memory_prompt[:max_pm] + "...[truncated]"
+
                             # Avoid duplicating full primed texts in JSON; keep metadata only for all slots.
                             world_state_for_prompt = dict(world_state)
                             try:
@@ -5398,6 +5485,13 @@ When you need to use tools to complete a task:
 
             # Combine base prompt, summary context, and world state
             parts = []
+            # Component sizes (tracked explicitly; do NOT infer by splitting on "\n\n")
+            base_prompt_size_for_log = 0
+            tool_calling_instructions_size_for_log = 0
+            tool_guidance_size_for_log = 0
+            summary_context_size_for_log = 0
+            world_state_size_for_log = len(formatted_world_state) if isinstance(formatted_world_state, str) else 0
+            primed_memory_prompt_size_for_log = len(primed_memory_prompt) if isinstance(primed_memory_prompt, str) else 0
             
             # 1. Base system prompt (only include once, no duplicates)
             # Enforce size limit to prevent unbounded growth
@@ -5449,6 +5543,7 @@ When you need to use tools to complete a task:
                         )
                     
                     parts.append(base_prompt)
+                    base_prompt_size_for_log = len(base_prompt)
             
             # 1.5. Add tool calling behavior instructions
             # This ensures the LLM understands it should automatically continue after tool results
@@ -5465,6 +5560,7 @@ When you need to use tools to complete a task:
 - The system will automatically continue after tool results are returned - you don't need to wait for explicit "proceed" or "continue" prompts"""
             
             parts.append(tool_calling_instructions)
+            tool_calling_instructions_size_for_log = len(tool_calling_instructions)
             
             # PEA/PFREA removed - no PFREA policy needed
             
@@ -5491,6 +5587,7 @@ When you need to use tools to complete a task:
                         if config.tools.guidance_weight > 0:
                             guidance_section = f"## TOOL SELECTION GUIDANCE\n\n{guidance_text}"
                             parts.append(guidance_section)
+                            tool_guidance_size_for_log = len(guidance_section)
                             logger.debug(
                                 f"Added tool selection guidance ({len(guidance_text)} chars)",
                                 extra={
@@ -5531,6 +5628,7 @@ When you need to use tools to complete a task:
                             summary_clean, self.base_system_prompt
                         ):
                             parts.append(summary_context)
+                            summary_context_size_for_log = len(summary_context)
                 except Exception as e:
                     logger.debug(f"Failed to add summary context to prompt: {e}", exc_info=True)
             
@@ -5771,17 +5869,15 @@ When you need to use tools to complete a task:
                     "max_size": config.storage.max_system_prompt_size,
                     "max_size_kb": round(max_size_kb, 2),
                     "size_percentage": round(prompt_size / config.storage.max_system_prompt_size * 100, 1),
-                    "component_count": len(final_parts),
+                    "component_count": len(parts),
                     "history_size": len(self._system_prompt_size_history),
+                    "base_prompt_size": base_prompt_size_for_log,
+                    "tool_calling_instructions_size": tool_calling_instructions_size_for_log,
+                    "tool_guidance_size": tool_guidance_size_for_log,
+                    "summary_context_size": summary_context_size_for_log,
+                    "world_state_size": world_state_size_for_log,
+                    "primed_memory_prompt_size": primed_memory_prompt_size_for_log,
                 }
-                
-                # Add component sizes if we have them
-                if len(final_parts) >= 1:
-                    log_extra["base_prompt_size"] = final_component_sizes[0]
-                if len(final_parts) >= 2:
-                    log_extra["summary_context_size"] = final_component_sizes[1]
-                if len(final_parts) >= 3:
-                    log_extra["world_state_size"] = final_component_sizes[2]
                 
                 # Add growth warning if detected
                 if growth_warning:
@@ -5878,6 +5974,15 @@ When you need to use tools to complete a task:
         
         sizes = [size for _, size in recent_history]
         
+        # Avoid noisy warnings when far below the configured cap.
+        # We care about unbounded accumulation only when it risks exhausting the cap.
+        try:
+            max_size = int(getattr(config.storage, "max_system_prompt_size", 0))
+        except Exception:
+            max_size = 0
+        if max_size > 0 and current_size < int(max_size * 0.5):
+            return None
+
         # Check for consistent growth trend
         if len(sizes) >= 5:
             # Calculate average growth rate

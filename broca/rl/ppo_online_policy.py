@@ -323,6 +323,9 @@ class PPOOnlinePolicyRanker:
             self._buffer_path = Path("data/rl/ppo_buffer.json")
 
         _ranker_instances.append(weakref.ref(self))
+        # Keep a stable action space once established to avoid wiping buffers when the
+        # available-tool set is temporarily filtered (e.g., forced-tool mode, allowlists).
+        self._stable_action_space: bool = True
 
     def _mapping_fingerprint(self) -> str:
         try:
@@ -331,7 +334,31 @@ class PPOOnlinePolicyRanker:
             return ""
 
     def _ensure_policy(self, tools: List[Any]) -> None:
-        tool_names = sorted([t.name for t in tools])
+        tool_names = sorted([t.name for t in tools if getattr(t, "name", None)])
+        if not tool_names:
+            return
+
+        # Stabilize the action mapping: if tools are a subset of the existing mapping,
+        # do NOT rebuild the policy (that would reset the rollout buffer and can
+        # overwrite persisted buffers with tiny new ones).
+        if self._stable_action_space and self._policy is not None and self._tool_to_idx:
+            existing = set(self._tool_to_idx.keys())
+            current = set(tool_names)
+            if current.issubset(existing):
+                return
+            # If new tools appear, keep the existing mapping for stability. The ranker will
+            # still only select among tools that are actually available.
+            if not current.issubset(existing):
+                try:
+                    tool_selection_logger.info(
+                        "PPO_MAPPING_EXTEND_SKIP | "
+                        f"existing_n={len(existing)} | current_n={len(current)} | "
+                        f"new_tools={sorted(list(current - existing))[:20]}"
+                    )
+                except Exception:
+                    pass
+                return
+
         new_mapping = {name: i for i, name in enumerate(tool_names)}
 
         if self._policy is None or new_mapping != self._tool_to_idx:
@@ -579,6 +606,8 @@ class PPOOnlinePolicyRanker:
                             post_rl_signals = maybe
 
                     r, _ = compute_reward_from_outcome(
+                        pre_rl_signals=(pre_ctx.get("rl_signals") if isinstance(pre_ctx, dict) else None),
+                        post_rl_signals=post_rl_signals,
                         rl_signals=post_rl_signals,
                         intrinsic_keys=RL_SIGNAL_KEYS,
                         success=success,
@@ -593,6 +622,9 @@ class PPOOnlinePolicyRanker:
                             extrinsic_weight=_config.rl.extrinsic_reward_weight,
                             intrinsic_weight=_config.rl.intrinsic_reward_weight,
                         ),
+                        shaping_beta=float(getattr(_config.rl, "reward_shaping_beta", 0.2)),
+                        shaping_gamma=float(getattr(_config.rl, "reward_shaping_gamma", 0.99)),
+                        use_varnorm_phi=bool(getattr(_config.rl, "reward_use_varnorm_phi", True)),
                     )
 
                     states.append(s)
@@ -732,6 +764,11 @@ class PPOOnlinePolicyRanker:
         if probs.ndim != 1 or len(probs) != self._n_actions:
             probs = np.ones(self._n_actions, dtype=np.float32) / max(1, self._n_actions)
 
+        # Allowed action indices for the current call (tools can be a filtered subset).
+        allowed_names = {t.name for t in tools if getattr(t, "name", None)}
+        allowed_indices = [self._tool_to_idx[n] for n in allowed_names if n in self._tool_to_idx]
+        allowed_indices.sort()
+
         # Forced exploration: occasionally force a PPO-sampled action even at low confidence.
         # This guarantees early on-policy data collection for PPO.
         try:
@@ -759,13 +796,27 @@ class PPOOnlinePolicyRanker:
                 # Evidence-based: during the "pre-training" phase, sample uniformly to avoid inheriting
                 # BC/action-frequency priors; switch to policy sampling once training_step > 0.
                 mode = str(getattr(_config.rl, "ppo_forced_exploration_mode", "uniform") or "uniform").strip().lower()
-                a = _sample_forced_exploration_action(
-                    probs=probs,
-                    n_actions=self._n_actions,
-                    training_step=ts,
-                    mode=mode,
-                    rng=None,
-                )
+                if not allowed_indices:
+                    return ToolSelection(
+                        tool_name="",
+                        score=0.0,
+                        confidence=0.0,
+                        mode="fallback",
+                        reason="No tools available",
+                    )
+
+                if mode == "uniform" or ts <= 0:
+                    a = int(random.choice(allowed_indices))
+                else:
+                    # Sample from policy distribution but only over allowed actions.
+                    sub = probs[allowed_indices].astype(np.float32)
+                    s = float(sub.sum())
+                    if s <= 0 or not np.isfinite(s):
+                        a = int(random.choice(allowed_indices))
+                    else:
+                        sub = sub / s
+                        a = int(np.random.choice(allowed_indices, p=sub))
+
                 forced_tool = self._idx_to_tool.get(int(a), "")
                 if forced_tool:
                     selection = ToolSelection(
@@ -972,6 +1023,8 @@ class PPOOnlinePolicyRanker:
                 post_rl_signals = maybe
 
         r, _parts = compute_reward_from_outcome(
+            pre_rl_signals=(ctx.get("rl_signals") if isinstance(ctx, dict) else None),
+            post_rl_signals=post_rl_signals if isinstance(post_rl_signals, dict) else None,
             rl_signals=post_rl_signals if isinstance(post_rl_signals, dict) else None,
             intrinsic_keys=RL_SIGNAL_KEYS,
             success=bool(success),
@@ -986,6 +1039,9 @@ class PPOOnlinePolicyRanker:
                 extrinsic_weight=_config.rl.extrinsic_reward_weight,
                 intrinsic_weight=_config.rl.intrinsic_reward_weight,
             ),
+            shaping_beta=float(getattr(_config.rl, "reward_shaping_beta", 0.2)),
+            shaping_gamma=float(getattr(_config.rl, "reward_shaping_gamma", 0.99)),
+            use_varnorm_phi=bool(getattr(_config.rl, "reward_use_varnorm_phi", True)),
         )
 
         if self._policy is None:
@@ -1079,6 +1135,33 @@ class PPOOnlinePolicyRanker:
 
         with self._policy.buffer_lock:
             exps = list(self._policy.buffer)
+
+        # Monotonic persistence: never overwrite a larger compatible on-disk buffer with a smaller
+        # in-memory buffer. This protects manual recoveries/merges from being clobbered by a
+        # long-running process that loaded an older snapshot.
+        try:
+            if path.exists():
+                existing = json.loads(path.read_text(encoding="utf-8"))
+                if (
+                    isinstance(existing, dict)
+                    and existing.get("mapping") == self._mapping_fingerprint()
+                    and int(existing.get("input_dim", -1)) == int(getattr(self._policy.config, "input_dim", self._input_dim))
+                    and int(existing.get("output_dim", -1)) == int(getattr(self._policy.config, "output_dim", self._n_actions))
+                    and isinstance(existing.get("experiences"), list)
+                ):
+                    on_disk = [e for e in existing.get("experiences", []) if isinstance(e, dict)]
+                    if len(on_disk) > len(exps):
+                        cap = int(getattr(self._policy.config, "buffer_size", self._buffer_size))
+                        merged_exps = (on_disk + [e for e in exps if isinstance(e, dict)])[-cap:]
+                        exps = merged_exps
+                        try:
+                            tool_selection_logger.info(
+                                f"PPO_BUFFER_MERGE_ON_SAVE | disk_n={len(on_disk)} | mem_n={len(getattr(self._policy, 'buffer', []))} | out_n={len(exps)}"
+                            )
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
         payload: Dict[str, Any] = {
             "version": 1,
@@ -1218,6 +1301,29 @@ class PPOOnlinePolicyRanker:
             self._policy.buffer.extend(restored)
 
         tool_selection_logger.info(f"PPO_BUFFER_LOAD | path={str(path)} | n={len(restored)}")
+
+        # Best-effort recovery: if preserved incompatible buffers exist in the same directory,
+        # attempt to merge them (by tool-name mapping) into the active buffer file, then reload.
+        try:
+            from broca.rl.ppo_buffer_recovery import recover_into_current_buffer
+
+            stats = recover_into_current_buffer(
+                current_path=path,
+                max_buffer_size=int(getattr(self._policy.config, "buffer_size", self._buffer_size)),
+                backup=True,
+            )
+            if getattr(stats, "added", 0) > 0:
+                try:
+                    tool_selection_logger.info(
+                        "PPO_BUFFER_RECOVER | "
+                        f"added={stats.added} | deduped={stats.deduped} | dropped_unknown_tool={stats.dropped_unknown_tool}"
+                    )
+                except Exception:
+                    pass
+                # Reload once to reflect recovered experiences in-memory.
+                self._load_buffer()
+        except Exception:
+            pass
 
 
 __all__ = ["PPOOnlinePolicyRanker", "ToolSelection"]

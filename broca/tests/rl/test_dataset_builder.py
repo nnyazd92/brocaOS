@@ -8,6 +8,9 @@ from hypothesis import given, strategies as st
 
 def test_dataset_builder_prefers_post_context_reward_over_csv():
     from broca.rl.dataset_builder import build_dataset
+    from broca.rl.reward import compute_reward_from_outcome
+    from broca.rl.features import RL_SIGNAL_KEYS
+    from broca.config import config as _config
 
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
@@ -45,8 +48,24 @@ def test_dataset_builder_prefers_post_context_reward_over_csv():
 
         ds = build_dataset(root)
         assert ds.rewards.shape == (1,)
-        # Reward is derived from rl_signals only (tool/outcome shaping disabled).
-        assert abs(float(ds.rewards[0]) - 0.4) < 1e-6
+        expected, _ = compute_reward_from_outcome(
+            pre_rl_signals=exp["pre_context"]["rl_signals"],
+            post_rl_signals=exp["post_context"]["rl_signals"],
+            intrinsic_keys=RL_SIGNAL_KEYS,
+            success=True,
+            execution_time_ms=0.0,
+            result_quality=0.5,
+            reward_success=_config.rl.reward_success,
+            reward_failure=_config.rl.reward_failure,
+            time_penalty_factor=_config.rl.time_penalty_factor,
+            max_latency_penalty=_config.rl.max_latency_penalty,
+            quality_bonus_factor=_config.rl.quality_bonus_factor,
+            shaping_beta=_config.rl.reward_shaping_beta,
+            shaping_gamma=_config.rl.reward_shaping_gamma,
+            use_varnorm_phi=_config.rl.reward_use_varnorm_phi,
+        )
+        # Post_context rl_signals should be used (not CSV), so the computed reward should match.
+        assert abs(float(ds.rewards[0]) - float(expected)) < 1e-6
 
 
 @given(

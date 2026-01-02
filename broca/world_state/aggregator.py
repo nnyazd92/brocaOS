@@ -133,6 +133,65 @@ class WorldStateAggregator:
             return [WorldStateAggregator._clamp_shared_value(v, max_string_len=max_string_len) for v in value[:50]]
         return value
 
+    @staticmethod
+    def _clamp_for_prompt(
+        value: Any,
+        *,
+        max_string_len: int = 2000,
+        max_list_len: int = 50,
+        max_dict_items: int = 50,
+        _depth: int = 0,
+        _max_depth: int = 6,
+    ) -> Any:
+        """
+        Clamp world-state values to prevent unbounded growth in the mutable system prompt.
+
+        This is intentionally conservative (best-effort) and only applies to the world-state
+        object returned by aggregate(). It does NOT affect persisted state formats, only
+        what is injected into prompts.
+        """
+        if _depth >= _max_depth:
+            # Depth cap: stringify anything too deep.
+            try:
+                s = json.dumps(value, ensure_ascii=False)
+            except Exception:
+                s = str(value)
+            return s[:max_string_len] + ("...[truncated]" if len(s) > max_string_len else "")
+
+        if isinstance(value, str):
+            return value[:max_string_len] + ("...[truncated]" if len(value) > max_string_len else "")
+        if isinstance(value, (int, float, bool)) or value is None:
+            return value
+        if isinstance(value, dict):
+            out: Dict[str, Any] = {}
+            for k in list(value.keys())[:max_dict_items]:
+                kk = str(k)
+                out[kk] = WorldStateAggregator._clamp_for_prompt(
+                    value.get(k),
+                    max_string_len=max_string_len,
+                    max_list_len=max_list_len,
+                    max_dict_items=max_dict_items,
+                    _depth=_depth + 1,
+                    _max_depth=_max_depth,
+                )
+            return out
+        if isinstance(value, list):
+            return [
+                WorldStateAggregator._clamp_for_prompt(
+                    v,
+                    max_string_len=max_string_len,
+                    max_list_len=max_list_len,
+                    max_dict_items=max_dict_items,
+                    _depth=_depth + 1,
+                    _max_depth=_max_depth,
+                )
+                for v in value[:max_list_len]
+            ]
+
+        # Fallback: stringify unknown types (and clamp).
+        s = str(value)
+        return s[:max_string_len] + ("...[truncated]" if len(s) > max_string_len else "")
+
     def set_shared_state(self, key: str, value: Any, *, source: Optional[str] = None) -> None:
         """
         Set a persisted shared-world-state field.
@@ -571,7 +630,11 @@ class WorldStateAggregator:
         if cognitive_arch_state.get("available"):
             world_state["cognitive_architecture"] = cognitive_arch_state.get("components", {})
         
-        return world_state
+        # Final clamp for prompt stability (prevents unbounded growth during long autonomous loops).
+        try:
+            return WorldStateAggregator._clamp_for_prompt(world_state)
+        except Exception:
+            return world_state
     
     def get_internal_sensing_state(self) -> Dict[str, Any]:
         """

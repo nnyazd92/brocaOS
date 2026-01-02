@@ -9,6 +9,7 @@ class _Tool:
 def test_ppo_logs_exploration_check_when_not_triggered(tmp_path, caplog, monkeypatch):
     from broca.rl import ppo_online_policy
     from broca.rl.ppo_online_policy import PPOOnlinePolicyRanker
+    from broca.config import config as _config
 
     caplog.set_level(logging.INFO)
     ppo_online_policy.tool_selection_logger = logging.getLogger("test.ppo.explore")
@@ -17,6 +18,9 @@ def test_ppo_logs_exploration_check_when_not_triggered(tmp_path, caplog, monkeyp
 
     # Ensure exploration doesn't trigger (roll > p).
     monkeypatch.setattr(ppo_online_policy.random, "random", lambda: 0.999)
+    monkeypatch.setattr(_config.rl, "ppo_forced_exploration_prob", 0.05)
+    monkeypatch.setattr(_config.rl, "ppo_forced_exploration_min_prob", 0.0)
+    monkeypatch.setattr(_config.rl, "ppo_forced_exploration_decay", 1.0)
 
     tools = [_Tool("a"), _Tool("b")]
     ranker = PPOOnlinePolicyRanker(

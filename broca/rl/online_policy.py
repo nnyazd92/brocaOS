@@ -852,6 +852,8 @@ class OnlinePolicyRanker:
                     post_rl_signals = maybe
 
             shaped, parts = compute_reward_from_outcome(
+                pre_rl_signals=(ctx.get("rl_signals") if isinstance(ctx, dict) else None),
+                post_rl_signals=post_rl_signals,
                 rl_signals=post_rl_signals,
                 intrinsic_keys=RL_SIGNAL_KEYS,
                 success=bool(success),
@@ -866,6 +868,9 @@ class OnlinePolicyRanker:
                     extrinsic_weight=_config.rl.extrinsic_reward_weight,
                     intrinsic_weight=_config.rl.intrinsic_reward_weight,
                 ),
+                shaping_beta=float(getattr(_config.rl, "reward_shaping_beta", 0.2)),
+                shaping_gamma=float(getattr(_config.rl, "reward_shaping_gamma", 0.99)),
+                use_varnorm_phi=bool(getattr(_config.rl, "reward_use_varnorm_phi", True)),
             )
             reward_value = float(shaped)
             reward_source = f"shaped:{parts}"

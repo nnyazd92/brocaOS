@@ -23,7 +23,8 @@ class _DummyToolSelectionGuidance:
 def test_registry_passes_rl_signals_as_reward_override():
     """
     ToolRegistry.record_rl_outcome should pass post-tool RL signals into the ranker,
-    and the ranker should compute shaped reward (signals + success/failure - latency).
+    and the ranker should compute shaped reward:
+    extrinsic(success/quality) + beta*(gamma*phi_post - phi_pre) - latency.
     """
     from broca.rl.online_policy import OnlinePolicyRanker
     from broca.tools.registry import ToolRegistry
@@ -50,8 +51,10 @@ def test_registry_passes_rl_signals_as_reward_override():
         mock_tool.parameters = {"type": "object", "properties": {}}
         registry._tools["test_tool"] = mock_tool  # type: ignore[attr-defined]
 
-        # Ensure ranker knows about the tool
-        ranker.select_tool([mock_tool], {"rl_signals": {"dissonance_reward": 0.1}})
+        # Ensure ranker knows about the tool (creates mapping), and seed registry's cached pre-tool context.
+        pre_ctx = {"rl_signals": {"dissonance_reward": 0.1}}
+        ranker.select_tool([mock_tool], dict(pre_ctx))
+        registry._last_rl_context = dict(pre_ctx)  # type: ignore[attr-defined]
 
         before = len(ranker.replay_buffer)
         registry.record_rl_outcome(tool_name="test_tool", success=True, execution_time_ms=10.0, result_quality=0.5)
