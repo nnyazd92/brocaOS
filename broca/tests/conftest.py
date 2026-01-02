@@ -15,7 +15,45 @@ from unittest.mock import Mock, MagicMock
 import httpx
 import pytest
 
+_ALLOW = os.getenv("BROCA_TEST_ALLOW_WORKSPACE_RL_WRITES", "false").lower() == "true"
+if not _ALLOW:
+    run_dir = os.getenv("BROCA_TEST_ARTIFACTS_DIR")
+    if not run_dir:
+        run_dir = tempfile.mkdtemp(prefix="broca_pytest_")
+        os.environ["BROCA_TEST_ARTIFACTS_DIR"] = run_dir
+    rl_dir = os.path.join(run_dir, "rl")
+    os.makedirs(rl_dir, exist_ok=True)
+    os.environ["BROCA_RL_PPO_BUFFER_PATH"] = os.path.join(rl_dir, "ppo_buffer.json")
+    os.environ["BROCA_RL_BUFFER_PATH"] = os.path.join(rl_dir, "replay_buffer.json")
+    os.environ["BROCA_RL_REWARD_DESIGN_PATH"] = os.path.join(rl_dir, "reward_design.json")
+    os.environ["BROCA_RL_LOG_FILE"] = os.path.join(rl_dir, "selections.jsonl")
+    os.environ["BROCA_RL_MODEL_PATH"] = os.path.join(rl_dir, "online_policy.pt")
+    os.environ["BROCA_RL_PPO_MODEL_PATH"] = os.path.join(rl_dir, "policy_ppo.pt")
+
 from broca.llm.deepseek_client import DeepSeekClient
+
+
+@pytest.fixture(autouse=True)
+def _reset_gemini_global_rate_limit():
+    """
+    GeminiClient coordinates a process-wide 429 backoff window across instances.
+    Reset between tests to avoid cross-test interference.
+    """
+    try:
+        from broca.llm.gemini_client import GeminiClient
+
+        with GeminiClient._global_rate_limit_lock:
+            GeminiClient._global_rate_limit_until_monotonic = 0.0
+    except Exception:
+        pass
+    yield
+    try:
+        from broca.llm.gemini_client import GeminiClient
+
+        with GeminiClient._global_rate_limit_lock:
+            GeminiClient._global_rate_limit_until_monotonic = 0.0
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Compatibility patches

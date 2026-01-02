@@ -175,6 +175,24 @@ class TestEventLogger:
         with open(log_file, 'r') as f:
             event = json.loads(f.readlines()[0])
             assert event["sha256"] == expected_hash
+
+    def test_log_priming_selected_and_outcome(self, event_logger, temp_event_log_dir):
+        session_id = "test_session_priming"
+        sel_id = event_logger.log_priming_selected(session_id, {"mode": "chat", "selected_ids": [1]})
+        out_id = event_logger.log_priming_outcome(session_id, {"mode": "chat", "used_score": 0.5})
+
+        log_file = Path(temp_event_log_dir) / f"{session_id}_raw.jsonl"
+        with open(log_file, "r", encoding="utf-8") as f:
+            lines = [json.loads(ln) for ln in f.read().splitlines() if ln.strip()]
+
+        assert len(lines) == 2
+        assert lines[0]["event_id"] == sel_id
+        assert lines[0]["type"] == "priming_selected"
+        assert isinstance(lines[0]["payload"], dict)
+
+        assert lines[1]["event_id"] == out_id
+        assert lines[1]["type"] == "priming_outcome"
+        assert isinstance(lines[1]["payload"], dict)
     
     def test_tool_result_sha256(self, event_logger, temp_event_log_dir):
         """Test SHA256 for tool results (JSON serialized)."""

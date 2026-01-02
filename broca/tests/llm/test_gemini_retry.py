@@ -85,6 +85,34 @@ def test_chat_exponential_backoff_no_retry_after(monkeypatch):
     assert [c.args[0] for c in sleep_mock.call_args_list] == [1.0, 2.0]
 
 
+def test_chat_injects_user_message_when_only_system_messages(monkeypatch):
+    client = GeminiClient(
+        api_key="test-key",
+        base_url="https://example.com",
+        model="gemini-3.0-flash-001",
+        use_sdk=False,
+        max_retries=0,
+        backoff_jitter=0.0,
+    )
+
+    captured = {}
+
+    def fake_post(path, json=None, headers=None):  # type: ignore[override]
+        captured["payload"] = json
+        return _ok_response({"choices": [{"message": {"role": "assistant", "content": "ok"}}]})
+
+    monkeypatch.setattr(client._client, "post", fake_post)
+
+    resp = client.chat(messages=[{"role": "system", "content": "You are a helper."}])
+    assert resp["choices"][0]["message"]["content"] == "ok"
+
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    msgs = payload.get("messages")
+    assert isinstance(msgs, list)
+    assert any(m.get("role") == "user" for m in msgs)
+
+
 def test_retry_after_parse_fault_injection_does_not_crash(monkeypatch):
     sleep_mock = Mock()
     client = GeminiClient(

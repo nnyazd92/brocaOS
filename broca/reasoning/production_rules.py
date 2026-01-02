@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import logging
 import json
+import hashlib
 import threading
-from typing import Dict, Any, List, Optional, Union, Callable, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, Union, Callable, TYPE_CHECKING, Set
 from enum import Enum
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
@@ -253,6 +254,13 @@ class ProductionRuleSystem:
         
         # Thread safety for state synchronization
         self._state_lock = threading.RLock()
+
+        # Cached compiled index over all rule condition patterns (rebuilt when rules change).
+        self._compiled_conditions_key: Optional[str] = None
+        self._compiled_conditions_set: Optional[Any] = None
+        self._compiled_condition_patterns: List[Dict[str, Any]] = []
+        self._compiled_condition_meta: List[tuple[int, int]] = []  # (rule_idx, condition_idx)
+        self._compiled_condition_counts: List[int] = []
         
         # Default inference rules
         self._add_default_rules()
@@ -372,6 +380,8 @@ class ProductionRuleSystem:
             if self.pattern_matcher is not None:
                 rule.pattern_matcher = self.pattern_matcher
             self.rules.append(rule)
+            # Invalidate compiled condition index (rules changed)
+            self._compiled_conditions_key = None
             logger.info(
                 f"Added production rule: name={rule.name}, type={rule.rule_type.value}, "
                 f"priority={rule.priority:.3f}, strength={rule.strength:.3f}, "
@@ -397,6 +407,8 @@ class ProductionRuleSystem:
             removed_count -= len(self.rules)
             
             if removed_count > 0:
+                # Invalidate compiled condition index (rules changed)
+                self._compiled_conditions_key = None
                 logger.info(
                     f"Removed production rule: name={rule_name}, "
                     f"remaining_rules={len(self.rules)}",
@@ -407,37 +419,199 @@ class ProductionRuleSystem:
                     }
                 )
     
-    def match_rules(self) -> List[ProductionRule]:
-        """Find rules whose conditions match current working memory."""
-        matched_rules = []
-        evaluated_count = 0
-        for rule in self.rules:
-            evaluated_count += 1
+    def _ensure_compiled_condition_index(self) -> None:
+        """
+        Build (or reuse) a compiled index over all rule condition patterns.
+
+        This enables conservative prefiltering of condition candidates per working-memory item,
+        avoiding an O(rules × conditions × wm_items) scan.
+        """
+        patterns: List[Dict[str, Any]] = []
+        meta: List[tuple[int, int]] = []
+        counts: List[int] = []
+
+        for ridx, rule in enumerate(self.rules):
+            ccount = 0
+            for cidx, cond in enumerate(rule.conditions or []):
+                if isinstance(cond, dict):
+                    patterns.append(cond)
+                else:
+                    patterns.append({"text": str(cond)})
+                meta.append((ridx, cidx))
+                ccount += 1
+            counts.append(ccount)
+
+        try:
+            payload = json.dumps(patterns, sort_keys=True, ensure_ascii=False, default=str)
+            key = hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()
+        except Exception:
+            key = None
+
+        if key and key == self._compiled_conditions_key and self._compiled_conditions_set is not None:
+            return
+
+        try:
+            from broca.matching import CompiledPatternSet
+
+            cps = CompiledPatternSet(patterns)
+        except Exception as e:
+            logger.warning(f"Failed to compile rule condition patterns: {e}", exc_info=True)
+            cps = None
+
+        self._compiled_conditions_key = key
+        self._compiled_conditions_set = cps
+        self._compiled_condition_patterns = patterns
+        self._compiled_condition_meta = meta
+        self._compiled_condition_counts = counts
+
+    def match_rules(self, working_memory: Optional[WorkingMemory] = None) -> List[ProductionRule]:
+        """
+        Find rules whose conditions match working memory.
+
+        Uses a conservative compiled prefilter (hard constraints + keyword/regex) to avoid
+        repeated cartesian scans each cycle. When available, ranks candidates by text
+        similarity (ANN/text ranking) to enable early-stop evaluation.
+        """
+        wm = working_memory or self.working_memory
+        with self._state_lock:
+            self._ensure_compiled_condition_index()
+            cps = self._compiled_conditions_set
+            patterns = self._compiled_condition_patterns
+            meta = self._compiled_condition_meta
+            counts = self._compiled_condition_counts
+
+        if not self.rules or not patterns or not meta:
+            return []
+
+        # Track which conditions have been satisfied per rule.
+        satisfied: List[Set[int]] = [set() for _ in self.rules]
+        remaining_rules = set(i for i, c in enumerate(counts) if c > 0)
+
+        # Optional ranking surface (LocalPatternMatcher exposes it; LLM matcher may not).
+        ranker = getattr(self.pattern_matcher, "rank_text_candidates", None) if self.pattern_matcher is not None else None
+        pattern_texts: Optional[List[str]] = getattr(cps, "pattern_texts", None) if cps is not None else None
+
+        # Iterate over working-memory items once; mark any matched conditions.
+        evaluated_conditions = 0
+        matched_conditions = 0
+
+        def _legacy_match(pattern: Any, content: Any) -> bool:
+            if pattern is None or content is None:
+                return False
+            if isinstance(pattern, str):
+                if isinstance(content, str):
+                    return pattern == content
+                if isinstance(content, dict):
+                    s = str(content)
+                    return pattern in s or pattern == s
+                return str(pattern) == str(content)
+            if isinstance(content, str):
+                return False
+            if not isinstance(pattern, dict) or not isinstance(content, dict):
+                return False
+            for k, v in pattern.items():
+                if k not in content:
+                    return False
+                cv = content.get(k)
+                if isinstance(v, dict) and isinstance(cv, dict):
+                    if not _legacy_match(v, cv):
+                        return False
+                elif v != cv:
+                    return False
+            return True
+
+        def _extract_query_text(content: Dict[str, Any]) -> str:
+            # Keep this conservative + cheap: prefer explicit text fields, otherwise fall back to a small dump.
+            for k, v in (content or {}).items():
+                if isinstance(v, str) and k.lower() in {"text", "message", "query"} and v.strip():
+                    return v
             try:
-                if rule.matches(self.working_memory):
-                    matched_rules.append(rule)
-            except Exception as e:
-                logger.error(f"Error matching rule '{rule.name}': {e}", exc_info=True)
+                return json.dumps(content, ensure_ascii=False, default=str)[:2000]
+            except Exception:
+                return str(content)[:2000]
+
+        for wm_item in wm.items:
+            content = wm_item.content
+            if not isinstance(content, dict):
                 continue
-        
-        # Sort by priority (highest first), then strength
+
+            # Stage (1): hard-key + conservative prefiltering to find candidate conditions for this content.
+            try:
+                candidate_idxs = cps.candidate_indices_for_content(content) if cps is not None else list(range(len(patterns)))
+            except Exception:
+                candidate_idxs = list(range(len(patterns)))
+
+            if not candidate_idxs:
+                continue
+
+            # Stage (2): rank candidates by text similarity (ordering only; never drops candidates).
+            ordered_idxs: List[int] = list(candidate_idxs)
+            if ranker is not None and pattern_texts is not None and any(pattern_texts[i] for i in candidate_idxs):
+                q = _extract_query_text(content)
+                if q.strip():
+                    try:
+                        ranked = ranker(q, pattern_texts, top_k=min(max(25, len(candidate_idxs)), len(pattern_texts)))
+                        ranked_set = set(ordered_idxs)
+                        ordered_idxs = [i for i in getattr(ranked, "indices", []) if i in ranked_set] + [i for i in ordered_idxs if i not in set(getattr(ranked, "indices", []))]
+                    except Exception:
+                        ordered_idxs = list(candidate_idxs)
+
+            # Stage (3): full structured/operator match, early-stopping when possible.
+            for cond_idx in ordered_idxs:
+                if cond_idx < 0 or cond_idx >= len(meta):
+                    continue
+                rule_idx, condition_idx = meta[cond_idx]
+                if rule_idx not in remaining_rules:
+                    continue
+                if condition_idx in satisfied[rule_idx]:
+                    continue
+
+                evaluated_conditions += 1
+                try:
+                    if self.pattern_matcher is not None:
+                        ok = self.pattern_matcher.match(patterns[cond_idx], content)
+                    else:
+                        ok = _legacy_match(patterns[cond_idx], content)
+                except Exception:
+                    ok = False
+
+                if ok:
+                    matched_conditions += 1
+                    satisfied[rule_idx].add(condition_idx)
+                    if len(satisfied[rule_idx]) >= counts[rule_idx]:
+                        remaining_rules.discard(rule_idx)
+                        if not remaining_rules:
+                            break
+            if not remaining_rules:
+                break
+
+        matched_rules: List[ProductionRule] = []
+        for ridx, rule in enumerate(self.rules):
+            if counts[ridx] > 0 and len(satisfied[ridx]) >= counts[ridx]:
+                matched_rules.append(rule)
+
         matched_rules.sort(key=lambda r: (r.priority, r.strength), reverse=True)
         top_priority = matched_rules[0].priority if matched_rules else 0.0
-        
-        logger.info(
-            f"Rule matching complete: evaluated={evaluated_count}, matched={len(matched_rules)}, "
-            f"total_rules={len(self.rules)}, "
-            f"top_priority={top_priority:.3f}",
+
+        log_level = logging.INFO if matched_rules else logging.DEBUG
+        logger.log(
+            log_level,
+            f"Rule matching complete: evaluated_rules={len(self.rules)}, matched={len(matched_rules)}, "
+            f"evaluated_conditions={evaluated_conditions}, matched_conditions={matched_conditions}, "
+            f"total_conditions={len(patterns)}, top_priority={top_priority:.3f}",
             extra={
                 "event": "production_rules_matched",
-                "evaluated_count": evaluated_count,
+                "evaluated_count": len(self.rules),
                 "matched_count": len(matched_rules),
                 "total_rules": len(self.rules),
                 "matched_rule_names": [r.name for r in matched_rules],
                 "top_priority": top_priority,
-            }
+                "evaluated_conditions": evaluated_conditions,
+                "matched_conditions": matched_conditions,
+                "total_conditions": len(patterns),
+            },
         )
-        
+
         return matched_rules
     
     def execute_cycle(self, max_rules: int = 5) -> List[Dict[str, Any]]:

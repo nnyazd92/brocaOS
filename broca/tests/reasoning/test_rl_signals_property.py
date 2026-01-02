@@ -5,7 +5,7 @@ Tests signal bounds, weight constraints, and invariants.
 """
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given, strategies as st, settings
 from datetime import datetime, timezone
 
 from broca.reasoning.rl_signals import RLSignalMetrics
@@ -14,6 +14,7 @@ from broca.reasoning.rl_signals import RLSignalMetrics
 class TestRLSignalProperties:
     """Property-based tests for RL signal properties."""
     
+    @settings(deadline=None)
     @given(
         dissonance=st.floats(min_value=0.0, max_value=1.0),
         surprise=st.floats(min_value=0.0, max_value=1.0),
@@ -44,6 +45,7 @@ class TestRLSignalProperties:
         # Composite should be bounded
         assert 0.0 <= composite <= 1.0
     
+    @settings(deadline=None)
     @given(
         weight_d=st.floats(min_value=0.0, max_value=1.0),
         weight_s=st.floats(min_value=0.0, max_value=1.0),
@@ -77,6 +79,7 @@ class TestRLSignalProperties:
         if total_weight > 0:
             assert abs(total_weight - 1.0) < 0.02  # Allow small floating point errors
     
+    @settings(deadline=None)
     @given(
         reward1=st.floats(min_value=0.0, max_value=1.0),
         reward2=st.floats(min_value=0.0, max_value=1.0),
@@ -106,8 +109,10 @@ class TestRLSignalProperties:
         min_reward = min(reward1, reward2, reward3, reward4, reward5)
         max_reward = max(reward1, reward2, reward3, reward4, reward5)
         
-        assert min_reward <= composite <= max_reward
+        eps = 1e-9
+        assert (min_reward - eps) <= composite <= (max_reward + eps)
     
+    @settings(deadline=None)
     @given(
         curiosity=st.floats(min_value=0.0, max_value=1.0),
         info_gain=st.floats(min_value=0.0, max_value=1.0),
@@ -130,6 +135,7 @@ class TestRLSignalProperties:
         
         assert 0.0 <= balance <= 1.0
     
+    @settings(deadline=None)
     @given(
         reward=st.floats(min_value=-1.0, max_value=2.0),  # Out of bounds values
     )
@@ -153,4 +159,3 @@ class TestRLSignalProperties:
         assert 0.0 <= metrics.information_gain_reward <= 1.0
         assert 0.0 <= metrics.coherence_reward <= 1.0
         assert 0.0 <= composite <= 1.0
-

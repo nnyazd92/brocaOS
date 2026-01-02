@@ -163,7 +163,11 @@ class RespondAndContinueTool:
     def execute(self, continue_prompt: str = "", **kwargs):
         prompt = (continue_prompt or "").strip()
         if not prompt:
-            prompt = "Now continue with the task at hand."
+            prompt = (
+                "Continue working in the background on the same task. "
+                "Do not repeat the user-facing response. "
+                "Use tools as needed; if there is nothing more to do, stop."
+            )
         return {"success": True, "continue_prompt": prompt}
 
     def format_result(self, result):

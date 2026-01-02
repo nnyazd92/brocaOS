@@ -69,20 +69,15 @@ class ConflictDetector:
         self.llm_client = llm_client
         self.pattern_matcher = pattern_matcher
         
-        # Initialize pattern matcher if not provided but LLM client is available
-        if self.pattern_matcher is None and llm_client is not None:
+        # Prefer deterministic local pattern matching by default (no network calls).
+        if self.pattern_matcher is None:
             try:
-                from ...reasoning.llm_pattern_matcher import LLMPatternMatcher
-                from ...config import config
-                
-                model = getattr(config.reasoning, 'llm_pattern_matching_model', 'gpt-5-nano')
-                self.pattern_matcher = LLMPatternMatcher(
-                    llm_client=llm_client,
-                    model=model
-                )
-                logger.info(f"Initialized LLM pattern matcher for conflict detection (model: {model})")
+                from ...reasoning.local_pattern_matcher import LocalPatternMatcher
+
+                self.pattern_matcher = LocalPatternMatcher()
+                logger.info("Initialized local pattern matcher for conflict detection (LLM-free)")
             except Exception as e:
-                logger.warning(f"Failed to initialize LLM pattern matcher: {e}. Will use fallback regex patterns.")
+                logger.warning(f"Failed to initialize local pattern matcher: {e}. Will use fallback regex patterns.")
                 self.pattern_matcher = None
         
         logger.info(
@@ -629,4 +624,3 @@ JSON response:"""
                 conflict.conflict_type = "update"
                 conflict.confidence = min(conflict.confidence, 0.8)  # Lower confidence for updates
                 conflict.evidence += " (Different time periods suggest update rather than contradiction)"
-

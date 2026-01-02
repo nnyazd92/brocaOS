@@ -17,6 +17,13 @@ from broca.tools.registry import ToolRegistry
 from broca.tools import Tool
 
 
+@pytest.fixture(autouse=True)
+def _legacy_toolset_for_integration_tests(monkeypatch):
+    # This integration suite uses synthetic / legacy tool names.
+    from broca.config import config
+    monkeypatch.setattr(config.tools, "toolset", "legacy", raising=False)
+
+
 class MockTool:
     """Mock tool for testing."""
     def __init__(self, name: str, description: str = "Test tool"):
@@ -256,4 +263,3 @@ class TestCoverage:
         
         text = guidance.generate_guidance_text()
         assert len(text) <= 10
-

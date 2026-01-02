@@ -944,6 +944,31 @@ class ToolRegistry:
             if not tool_name:
                 raise ValueError("Tool call missing 'function.name'")
 
+            # DONE/RESPOND_AND_CONTINUE latch: once tools are disabled for the remainder of the
+            # current user turn, enforce that at execution time too. Some model clients may emit
+            # tool_calls even when no tools were advertised.
+            if self._force_final_response:
+                try:
+                    ts_logger.warning(
+                        f"TOOL_CALL_BLOCKED | tool_call_id={tool_call_id} | tool={tool_name} | "
+                        f"reason=force_final_response | selection_id={selection_id}"
+                    )
+                except Exception:
+                    pass
+                return {
+                    "tool_call_id": tool_call_id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": (
+                        "Tool call blocked: tools are disabled because DONE/RESPOND_AND_CONTINUE was invoked.\n"
+                        "You MUST provide the final user-visible response now (no more tool calls).\n"
+                        f"Requested tool: {tool_name}\n"
+                        f"selection_id: {selection_id}"
+                    ),
+                    "_success": False,
+                    "_error": "force_final_response",
+                }
+
             # Toolset visibility enforcement (macro toolset must not execute legacy tools).
             if isinstance(tool_name, str) and not self._is_tool_visible(tool_name):
                 allowed = sorted(list(self._primitive_allowed_tool_names()))

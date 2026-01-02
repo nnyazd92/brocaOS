@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import json
+import hashlib
 import os
 import tempfile
 from pathlib import Path
@@ -232,24 +233,22 @@ class SkillManager:
         # Initialize pattern matcher if not provided
         if pattern_matcher is None:
             try:
-                from ..reasoning.llm_pattern_matcher import LLMPatternMatcher
-                from ..llm import create_llm_client
-                from ..config import config
-                
-                llm_client = create_llm_client(
-                    model=getattr(config.reasoning, 'llm_pattern_matching_model', 'gpt-5-nano'),
-                    provider="openai",  # Always use OpenAI for pattern matching
-                )
-                pattern_matcher = LLMPatternMatcher(
-                    llm_client=llm_client,
-                    model=getattr(config.reasoning, 'llm_pattern_matching_model', 'gpt-5-nano')
-                )
-                logger.info("Initialized LLM pattern matcher for SkillManager")
+                from ..reasoning.local_pattern_matcher import LocalPatternMatcher
+
+                pattern_matcher = LocalPatternMatcher()
+                logger.info("Initialized local pattern matcher for SkillManager (LLM-free)")
             except Exception as e:
-                logger.warning(f"Failed to initialize LLM pattern matcher for SkillManager: {e}. Will use legacy dict matching.")
+                logger.warning(
+                    f"Failed to initialize local pattern matcher for SkillManager: {e}. "
+                    f"Will use legacy dict matching."
+                )
                 pattern_matcher = None
         
         self.pattern_matcher = pattern_matcher
+
+        # Compiled pattern cache for conservative prefiltering (cuts cartesian matching cost).
+        self._compiled_patterns_key: Optional[str] = None
+        self._compiled_pattern_set: Optional[Any] = None
         
         # Set storage path
         if storage_path is None:
@@ -368,7 +367,7 @@ class SkillManager:
         """
         applicable = []
         
-        # If we have LLM matcher, we can batch pattern matching across all skills
+        # If we have a matcher, we can prefilter pattern/content pairs to avoid cartesian matching.
         if self.pattern_matcher is not None:
             # Collect all patterns to check
             all_patterns_to_check: List[Tuple[Skill, Dict[str, Any], str]] = []  # (skill, pattern, pattern_type)
@@ -388,49 +387,70 @@ class SkillManager:
             memory_items = context.get("memory_items", [])
             active_goals = context.get("active_goals", [])
             system_state = context.get("system_state", {})
-            all_context_items = memory_items + active_goals + [system_state]
+            all_context_items = memory_items + active_goals + ([system_state] if system_state else [])
             
             # Batch match patterns against context items
             if all_patterns_to_check and all_context_items:
-                pattern_content_pairs = [
-                    (pattern, item)
-                    for skill, pattern, pattern_type in all_patterns_to_check
-                    for item in all_context_items
-                ]
-                if pattern_content_pairs:
-                    batch_results = self.pattern_matcher.match_batch(pattern_content_pairs)
-                    # Process results to determine skill applicability
-                    result_idx = 0
-                    skill_matches: Dict[str, Dict[str, bool]] = {}  # skill_name -> {trigger: bool, required: bool, excluded: bool}
-                    
-                    for skill, pattern, pattern_type in all_patterns_to_check:
-                        if skill.name not in skill_matches:
-                            skill_matches[skill.name] = {"trigger": False, "required": True, "excluded": False}
-                        
-                        # Check matches for this pattern against all context items
-                        matches_for_pattern = any(
-                            batch_results[result_idx + i][0]
-                            for i in range(len(all_context_items))
-                        )
-                        result_idx += len(all_context_items)
-                        
-                        if pattern_type == "trigger" and matches_for_pattern:
-                            skill_matches[skill.name]["trigger"] = True
-                        elif pattern_type == "required" and not matches_for_pattern:
-                            skill_matches[skill.name]["required"] = False
-                        elif pattern_type == "excluded" and matches_for_pattern:
-                            skill_matches[skill.name]["excluded"] = True
-                    
-                    # Determine applicable skills based on batch results
-                    for skill in self.skills.values():
-                        matches = skill_matches.get(skill.name, {"trigger": False, "required": True, "excluded": False})
-                        if matches["trigger"] and matches["required"] and not matches["excluded"]:
-                            applicable.append(skill)
-                else:
-                    # No patterns to check, use individual matching
-                    for skill in self.skills.values():
-                        if self._skill_applicable(skill, context):
-                            applicable.append(skill)
+                patterns_only = [p for _s, p, _t in all_patterns_to_check]
+                cps = self._get_compiled_pattern_set(patterns_only)
+
+                pattern_matched = [False] * len(patterns_only)
+                for item in all_context_items:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        candidate_idxs = cps.candidate_indices_for_content(item)
+                    except Exception:
+                        candidate_idxs = list(range(len(patterns_only)))
+
+                    # Stage (2): optional ANN/text ranking of pattern candidates (ordering only).
+                    ranker = getattr(self.pattern_matcher, "rank_text_candidates", None) if self.pattern_matcher is not None else None
+                    pattern_texts = getattr(cps, "pattern_texts", None)
+                    if ranker is not None and isinstance(pattern_texts, list) and pattern_texts and any(pattern_texts[i] for i in candidate_idxs):
+                        q = ""
+                        for k in ("text", "message", "query"):
+                            if isinstance(item.get(k), str) and item.get(k).strip():
+                                q = item.get(k)
+                                break
+                        if not q:
+                            try:
+                                q = json.dumps(item, ensure_ascii=False, default=str)[:2000]
+                            except Exception:
+                                q = str(item)[:2000]
+                        if q.strip():
+                            try:
+                                ranked = ranker(q, pattern_texts, top_k=min(max(25, len(candidate_idxs)), len(pattern_texts)))
+                                ranked_idxs = list(getattr(ranked, "indices", []))
+                                cand_set = set(candidate_idxs)
+                                candidate_idxs = [i for i in ranked_idxs if i in cand_set] + [i for i in candidate_idxs if i not in set(ranked_idxs)]
+                            except Exception:
+                                pass
+
+                    for idx in candidate_idxs:
+                        if pattern_matched[idx]:
+                            continue
+                        try:
+                            if self.pattern_matcher.match(patterns_only[idx], item):
+                                pattern_matched[idx] = True
+                        except Exception:
+                            continue
+
+                skill_matches: Dict[str, Dict[str, bool]] = {}
+                for idx, (skill, _pattern, pattern_type) in enumerate(all_patterns_to_check):
+                    if skill.name not in skill_matches:
+                        skill_matches[skill.name] = {"trigger": False, "required": True, "excluded": False}
+                    matches_for_pattern = bool(pattern_matched[idx])
+                    if pattern_type == "trigger" and matches_for_pattern:
+                        skill_matches[skill.name]["trigger"] = True
+                    elif pattern_type == "required" and not matches_for_pattern:
+                        skill_matches[skill.name]["required"] = False
+                    elif pattern_type == "excluded" and matches_for_pattern:
+                        skill_matches[skill.name]["excluded"] = True
+
+                for skill in self.skills.values():
+                    matches = skill_matches.get(skill.name, {"trigger": False, "required": True, "excluded": False})
+                    if matches["trigger"] and matches["required"] and not matches["excluded"]:
+                        applicable.append(skill)
             else:
                 # No patterns or context items, use individual matching
                 for skill in self.skills.values():
@@ -525,18 +545,38 @@ class SkillManager:
     
     def _pattern_matches_any(self, pattern: Dict[str, Any], items: List[Dict[str, Any]]) -> bool:
         """Check if pattern matches any item in list."""
-        # Use LLM pattern matcher with batching if available
+        # Use matcher with early-stop to avoid batching overhead.
         if self.pattern_matcher is not None and items:
-            # Batch all pattern matches
-            pattern_content_pairs = [(pattern, item) for item in items]
-            results = self.pattern_matcher.match_batch(pattern_content_pairs)
-            return any(match for match, _ in results)
+            for item in items:
+                try:
+                    if self.pattern_matcher.match(pattern, item):
+                        return True
+                except Exception:
+                    continue
+            return False
         
         # Fallback to individual matching
         for item in items:
             if self._pattern_matches(pattern, item):
                 return True
         return False
+
+    def _get_compiled_pattern_set(self, patterns: List[Dict[str, Any]]):
+        try:
+            payload = json.dumps(patterns, sort_keys=True, ensure_ascii=False, default=str)
+            key = hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()
+        except Exception:
+            key = None
+
+        if key and self._compiled_patterns_key == key and self._compiled_pattern_set is not None:
+            return self._compiled_pattern_set
+
+        from broca.matching import CompiledPatternSet
+
+        cps = CompiledPatternSet(patterns)
+        self._compiled_pattern_set = cps
+        self._compiled_patterns_key = key
+        return cps
     
     def suggest_skill_actions(self, skill: Skill, context: Dict[str, Any]) -> List[Dict[str, Any]]:
         """

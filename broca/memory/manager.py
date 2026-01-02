@@ -660,7 +660,8 @@ class MemoryManager:
         min_importance: Optional[float] = None,
         max_importance: Optional[float] = None,
         order_by_temporal: bool = False,
-        source_types: Optional[List[SourceType]] = None
+        source_types: Optional[List[SourceType]] = None,
+        query_embedding: Optional[List[float]] = None,
     ) -> List[MemoryRecord]:
         """
         Retrieve memories using combined search with temporal weighting.
@@ -702,15 +703,17 @@ class MemoryManager:
             if query_phrases is None:
                 query_phrases = parsed_query.get("phrases", [])
             
-            # Generate query embedding from base query
-            if base_query:
-                query_embedding = self.embedding_service.generate_embedding(base_query)
-            else:
-                # If no base query, use first phrase or empty query
-                if query_phrases:
-                    query_embedding = self.embedding_service.generate_embedding(query_phrases[0])
+            # Generate query embedding unless caller provided one (used to avoid duplicate
+            # embedding calls in higher-level features like prompt priming).
+            if query_embedding is None:
+                if base_query:
+                    query_embedding = self.embedding_service.generate_embedding(base_query)
                 else:
-                    query_embedding = self.embedding_service.generate_embedding("")
+                    # If no base query, use first phrase or empty query
+                    if query_phrases:
+                        query_embedding = self.embedding_service.generate_embedding(query_phrases[0])
+                    else:
+                        query_embedding = self.embedding_service.generate_embedding("")
             
             # Get candidates from different sources
             candidates: List[MemoryRecord] = []

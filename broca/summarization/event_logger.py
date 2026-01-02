@@ -189,6 +189,28 @@ class EventLogger:
             "sha256": self._compute_sha256(tool_result),
         }
         return self._write_event(session_id, event)
+
+    def log_priming_selected(self, session_id: str, payload: Dict[str, Any]) -> str:
+        """
+        Log a priming selection event (which memories were injected and why).
+        """
+        event = {
+            "type": "priming_selected",
+            "payload": payload,
+            "sha256": self._compute_sha256(payload),
+        }
+        return self._write_event(session_id, event)
+
+    def log_priming_outcome(self, session_id: str, payload: Dict[str, Any]) -> str:
+        """
+        Log a priming outcome event (whether priming appeared to be used).
+        """
+        event = {
+            "type": "priming_outcome",
+            "payload": payload,
+            "sha256": self._compute_sha256(payload),
+        }
+        return self._write_event(session_id, event)
     
     def get_events(self, session_id: str) -> List[Dict[str, Any]]:
         """

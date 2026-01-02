@@ -40,6 +40,95 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _inject_thought_signature_into_tool_calls(
+    tool_calls: List[Dict[str, Any]],
+    thought_signature: Optional[str],
+) -> bool:
+    """
+    Ensure each OpenAI-format tool_call dict contains `thought_signature` (Gemini requirement).
+
+    Returns True if at least one tool_call was modified.
+    """
+    if not tool_calls or not isinstance(thought_signature, str) or not thought_signature.strip():
+        return False
+    changed = False
+    for tc in tool_calls:
+        if isinstance(tc, dict) and "thought_signature" not in tc:
+            tc["thought_signature"] = thought_signature
+            changed = True
+    return changed
+
+def _truncate_text_with_marker(text: str, max_len: int, marker: str) -> str:
+    """
+    Truncate text to max_len, appending marker on a new line if possible.
+    Always returns a string of length <= max_len (unless max_len is non-positive).
+    """
+    if max_len <= 0:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    if len(text) <= max_len:
+        return text
+    marker_line = "\n" + marker
+    reserve = len(marker_line)
+    if reserve >= max_len:
+        return marker_line[:max_len]
+    truncated = text[: max_len - reserve]
+    # Prefer a clean boundary.
+    last_nl = truncated.rfind("\n")
+    if last_nl > (max_len - reserve) * 0.8:
+        truncated = truncated[:last_nl]
+    truncated = truncated.rstrip()
+    if marker not in truncated:
+        truncated = truncated + marker_line
+    return truncated[:max_len]
+
+
+def _truncate_json_with_truncated_flag(raw_json: str, max_len: int) -> str:
+    """
+    Best-effort: truncate JSON string to max_len while keeping it valid JSON by adding
+    a `_truncated: true` flag when possible.
+    """
+    if max_len <= 0:
+        return ""
+    if not isinstance(raw_json, str):
+        raw_json = str(raw_json)
+    if len(raw_json) <= max_len:
+        return raw_json
+
+    minimal = '{"_truncated": true}'
+    if max_len < len(minimal):
+        return minimal[:max_len]
+
+    prefix = raw_json[:max_len]
+    last_brace = prefix.rfind("}")
+    if last_brace == -1:
+        return minimal
+    prefix = prefix[: last_brace + 1].rstrip()
+
+    # Replace the final '}' with ', "_truncated": true }'
+    marker_suffix = ',\n  "_truncated": true\n}'
+    if not prefix.endswith("}"):
+        return minimal
+
+    base = prefix[:-1].rstrip()
+    # Avoid dangling commas.
+    if base.endswith(","):
+        base = base[:-1].rstrip()
+
+    # Ensure we stay within max_len.
+    allowed_base = max_len - len(marker_suffix)
+    if allowed_base <= 0:
+        return minimal
+    if len(base) > allowed_base:
+        base = base[:allowed_base].rstrip()
+        if base.endswith(","):
+            base = base[:-1].rstrip()
+    candidate = base + marker_suffix
+    if len(candidate) > max_len:
+        candidate = candidate[:max_len]
+    return candidate
+
 class ConversationSession:
     """
     Maintains chat history and exposes a simple .send(user_text) → assistant_text interface.
@@ -129,7 +218,8 @@ class ConversationSession:
 
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = self.created_at
-        self._max_tool_iterations = 100
+        # Hard cap tool-call iterations per user turn to prevent infinite loops.
+        self._max_tool_iterations = 30
         
         # Initialize summarization components if enabled (for manual /summarize command only)
         self._event_logger = None
@@ -527,6 +617,842 @@ When you need to use tools to complete a task:
         trace_id = getattr(self, "_current_response_id", None) or None
         return ensure_non_empty(content, trace_id=trace_id)
 
+    def _prime_memory_for_user_prompt(self, user_text: str, *, hidden_user_message: bool) -> None:
+        """
+        Prime memory for the current (operator) user prompt.
+
+        If enabled, this embeds the user prompt and retrieves the top-1 most similar
+        memory, storing it as session-scoped state in the world state aggregator.
+        The primed memory is stable until the next non-hidden user prompt.
+        """
+        from ..config import config
+
+        if hidden_user_message:
+            return
+
+        if not getattr(config.memory, "prompt_priming_enabled", False):
+            return
+
+        if not self.world_state_aggregator:
+            return
+
+        is_internal_monologue = "INTERNAL SIMULATED MONOLOGUE" in str(user_text or "")
+        priming_mode = "chat"
+        if is_internal_monologue:
+            if getattr(config.memory, "thought_priming_enabled", False):
+                priming_mode = "thought"
+            elif getattr(config.memory, "prompt_priming_skip_internal_monologue", True):
+                return
+
+        session_id = str(getattr(self, "session_id", "") or "").strip()
+        if not session_id:
+            return
+
+        memory_manager = getattr(self.world_state_aggregator, "memory_manager", None)
+        if memory_manager is None or not hasattr(memory_manager, "retrieve_memories"):
+            return
+
+        user_prompt = str(user_text or "").strip()
+        if not user_prompt:
+            self.world_state_aggregator.clear_primed_memory(session_id, mode=priming_mode)
+            return
+
+        # Build a cue-dependent query for embedding/retrieval.
+        from ..memory.priming import build_cue_query
+
+        recent_messages = []
+        try:
+            for m in reversed(self.messages[:-1]):
+                if not isinstance(m, dict):
+                    continue
+                if m.get("hidden") is True:
+                    continue
+                role = m.get("role")
+                content = m.get("content")
+                if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                    recent_messages.append({"role": role, "content": content})
+                if len(recent_messages) >= 6:
+                    break
+            recent_messages = list(reversed(recent_messages))
+        except Exception:
+            recent_messages = []
+
+        affect = None
+        try:
+            framework = getattr(self, "internal_sensing_framework", None)
+            if framework is not None:
+                affect_states = getattr(getattr(framework, "interoception", None), "affect", None)
+                if affect_states is not None:
+                    affect = getattr(affect_states, "affective_states", None)
+        except Exception:
+            affect = None
+
+        goals = []
+        try:
+            gm = getattr(self, "_goal_manager", None)
+            if gm is not None and hasattr(gm, "get_active_goals"):
+                active = gm.get_active_goals()
+                if isinstance(active, list):
+                    for g in active[:5]:
+                        if isinstance(g, dict):
+                            title = g.get("goal") or g.get("title") or ""
+                        else:
+                            title = getattr(g, "goal", None) or getattr(g, "title", None) or ""
+                        title = str(title or "").strip()
+                        if title:
+                            goals.append(title)
+        except Exception:
+            goals = []
+
+        cue_query, cue_meta = build_cue_query(
+            user_text=user_prompt,
+            recent_messages=recent_messages,
+            affect=affect,
+            goals=goals,
+        )
+
+        max_tokens = int(getattr(config.memory, "prompt_priming_max_query_tokens", 8192) or 8192)
+        max_chars = max(0, max_tokens * 4) if max_tokens > 0 else 0
+        was_truncated = False
+        if max_chars and len(cue_query) > max_chars:
+            cue_query = cue_query[:max_chars]
+            was_truncated = True
+
+        try:
+            embedding_service = getattr(memory_manager, "embedding_service", None)
+            if embedding_service is None or not hasattr(embedding_service, "generate_embedding"):
+                self.world_state_aggregator.clear_primed_memory(session_id, mode=priming_mode)
+                return
+
+            query_embedding = embedding_service.generate_embedding(cue_query)
+
+            top_k = int(getattr(config.memory, "prompt_priming_top_k", 8) or 8)
+            top_k = max(1, min(50, top_k))
+
+            results = memory_manager.retrieve_memories(query=cue_query, limit=top_k, query_embedding=query_embedding)
+        except Exception:
+            self.world_state_aggregator.clear_primed_memory(session_id, mode=priming_mode)
+            return
+
+        if not results:
+            self.world_state_aggregator.clear_primed_memory(session_id, mode=priming_mode)
+            return
+
+        from ..memory.priming import (
+            affect_congruency_score,
+            bm25_scores,
+            build_priming_card,
+            build_structured_priming_card,
+            build_thought_priming_card,
+            build_topic_signature,
+            cosine_similarity,
+            goal_congruency_score,
+            half_life_decay,
+            is_self_hit,
+            priming_used_score,
+            token_jaccard,
+            mmr_select,
+        )
+        from ..memory.priming_learning import PrimingPolicyStore
+
+        max_items = int(getattr(config.memory, "prompt_priming_max_items", 1) or 1)
+        max_items = max(1, min(5, max_items))
+        mmr_lambda = float(getattr(config.memory, "prompt_priming_mmr_lambda", 0.7) or 0.7)
+
+        vector_index = getattr(memory_manager, "vector_index", None)
+
+        # Candidate pool from semantic retrieval.
+        candidates = []
+        candidate_vectors = []
+        base_scores: dict[int, float] = {}
+        for m in results:
+            mid = getattr(m, "id", None)
+            if not isinstance(mid, int):
+                continue
+            vec = None
+            if vector_index is not None and hasattr(vector_index, "get_vector_by_memory_id"):
+                try:
+                    vec = vector_index.get_vector_by_memory_id(mid)
+                except Exception:
+                    vec = None
+            if not isinstance(vec, list) or not vec:
+                # If we can't score/diversify, still keep as a fallback candidate.
+                candidates.append(m)
+                candidate_vectors.append([])
+                continue
+            base_scores[mid] = cosine_similarity(query_embedding, vec)
+            candidates.append(m)
+            candidate_vectors.append(vec)
+
+        # Interference control: skip prompt-as-memory echoes ("self hits").
+        self_hit_skipped = 0
+        try:
+            self_hit_enabled = bool(getattr(config.memory, "prompt_priming_self_hit_enabled", True))
+            self_hit_thr = float(getattr(config.memory, "prompt_priming_self_hit_token_overlap_threshold", 0.85) or 0.85)
+        except Exception:
+            self_hit_enabled = True
+            self_hit_thr = 0.85
+
+        if self_hit_enabled and candidates:
+            try:
+                filtered_candidates = []
+                filtered_vectors = []
+                for m, v in zip(candidates, candidate_vectors):
+                    txt = str(getattr(m, "text", "") or "")
+                    if is_self_hit(user_text=user_prompt, cue_query=cue_query, memory_text=txt, token_overlap_threshold=self_hit_thr):
+                        self_hit_skipped += 1
+                        continue
+                    filtered_candidates.append(m)
+                    filtered_vectors.append(v)
+                candidates = filtered_candidates
+                candidate_vectors = filtered_vectors
+            except Exception:
+                # Best-effort only; never break priming due to skip logic.
+                pass
+
+        if not candidates:
+            self.world_state_aggregator.clear_primed_memory(session_id, mode=priming_mode)
+            return
+
+        # --- Learnable priming: per-(mode, namespace) score boost (best-effort) ---
+        policy_store = getattr(self, "_priming_policy_store", None)
+        if policy_store is None:
+            try:
+                policy_path = getattr(config.memory, "prompt_priming_policy_path", "data/priming_policy.json")
+            except Exception:
+                policy_path = "data/priming_policy.json"
+            try:
+                policy_store = PrimingPolicyStore(path=policy_path)
+                self._priming_policy_store = policy_store
+            except Exception:
+                policy_store = None
+
+        ns_boost_by_id: dict[int, float] = {}
+        if policy_store is not None:
+            try:
+                for m in candidates:
+                    mid = getattr(m, "id", None)
+                    if not isinstance(mid, int):
+                        continue
+                    ns = getattr(m, "namespace", None)
+                    ns_boost_by_id[int(mid)] = float(policy_store.get_boost(mode=priming_mode, namespace=str(ns or "*")))
+            except Exception:
+                ns_boost_by_id = {}
+
+        # Topic-aware repeat suppression: if the same memory keeps winning across topic shifts,
+        # downweight it to reduce interference while preserving same-topic continuity.
+        try:
+            repeat_penalty_weight = float(getattr(config.memory, "prompt_priming_topic_repeat_penalty_weight", 0.25) or 0.0)
+            topic_jaccard_threshold = float(getattr(config.memory, "prompt_priming_topic_jaccard_threshold", 0.35) or 0.0)
+        except Exception:
+            repeat_penalty_weight = 0.0
+            topic_jaccard_threshold = 0.0
+        repeat_penalty_weight = max(0.0, float(repeat_penalty_weight))
+        topic_jaccard_threshold = max(0.0, min(1.0, float(topic_jaccard_threshold)))
+
+        current_topic_sig = ""
+        topic_sim = None
+        topic_changed = None
+        last_selected_ids: list[int] = []
+        if repeat_penalty_weight > 0:
+            try:
+                current_topic_sig = build_topic_signature(cue_meta)
+                if not hasattr(self, "_priming_topic_state") or not isinstance(getattr(self, "_priming_topic_state", None), dict):
+                    self._priming_topic_state = {}
+                state = self._priming_topic_state
+                prev_sig = str(state.get("last_topic_sig") or "")
+                prev_ids = state.get("last_selected_ids") or []
+                if isinstance(prev_ids, list):
+                    last_selected_ids = [int(x) for x in prev_ids if isinstance(x, int)]
+                if prev_sig:
+                    topic_sim = token_jaccard(prev_sig, current_topic_sig)
+                    topic_changed = bool(topic_sim < topic_jaccard_threshold)
+                else:
+                    topic_sim = None
+                    topic_changed = None
+            except Exception:
+                current_topic_sig = ""
+                topic_sim = None
+                topic_changed = None
+
+        # Cheap reranking signals (computed on the candidate set).
+        bm25_weight = float(getattr(config.memory, "prompt_priming_bm25_weight", 0.25) or 0.0)
+        goal_weight = float(getattr(config.memory, "prompt_priming_goal_weight", 0.35) or 0.0)
+        affect_weight = float(getattr(config.memory, "prompt_priming_affect_weight", 0.25) or 0.0)
+        recency_weight = float(getattr(config.memory, "prompt_priming_recency_weight", 0.15) or 0.0)
+        usage_weight = float(getattr(config.memory, "prompt_priming_usage_weight", 0.15) or 0.0)
+        recency_half_life_h = float(getattr(config.memory, "prompt_priming_recency_half_life_hours", 72) or 0.0)
+        usage_half_life_h = float(getattr(config.memory, "prompt_priming_usage_half_life_hours", 24) or 0.0)
+        interference_weight = float(getattr(config.memory, "prompt_priming_interference_weight", 0.25) or 0.0)
+        interference_half_life_h = float(getattr(config.memory, "prompt_priming_interference_half_life_hours", 12) or 0.0)
+        interference_k = float(getattr(config.memory, "prompt_priming_interference_k", 3) or 3.0)
+
+        bm25_norm: dict[int, float] = {}
+        goal_score: dict[int, float] = {}
+        affect_score: dict[int, float] = {}
+        temporal_recency: dict[int, float] = {}
+        temporal_usage: dict[int, float] = {}
+        interference_penalty: dict[int, float] = {}
+        topic_repeat_penalty: dict[int, float] = {}
+        query_for_bm25 = ""
+
+        now_ts = None
+        try:
+            import time
+
+            now_ts = float(time.time())
+        except Exception:
+            now_ts = None
+
+        try:
+            query_for_bm25 = " ".join(
+                [
+                    user_prompt,
+                    " ".join(goals),
+                    " ".join(str(x) for x in (cue_meta.get("entities") or [])),
+                    " ".join(str(x) for x in (cue_meta.get("constraints") or [])),
+                ]
+            ).strip()
+            docs = []
+            mids = []
+            for m in candidates:
+                mid = getattr(m, "id", None)
+                if not isinstance(mid, int):
+                    continue
+                tags = getattr(m, "tags", []) or []
+                docs.append(" ".join([str(getattr(m, "text", "") or ""), str(getattr(m, "namespace", "") or ""), " ".join(tags)]))
+                mids.append(mid)
+
+            bm25 = bm25_scores(query=query_for_bm25, documents=docs)
+            max_bm = max(bm25) if bm25 else 0.0
+            for mid, s in zip(mids, bm25):
+                bm25_norm[mid] = float(s / max_bm) if max_bm > 0 else 0.0
+        except Exception:
+            bm25_norm = {}
+
+        try:
+            for m in candidates:
+                mid = getattr(m, "id", None)
+                if not isinstance(mid, int):
+                    continue
+                goal_score[mid] = goal_congruency_score(
+                    goals,
+                    memory_text=str(getattr(m, "text", "") or ""),
+                    memory_tags=getattr(m, "tags", []) or [],
+                    memory_namespace=str(getattr(m, "namespace", "") or ""),
+                )
+                src = getattr(m, "source", None)
+                meta = getattr(src, "metadata", None) if src is not None else None
+                affect_score[mid] = affect_congruency_score(
+                    affect if isinstance(affect, dict) else None,
+                    getattr(m, "tags", []) or [],
+                    memory_metadata=meta,
+                )
+                if now_ts is not None:
+                    try:
+                        from datetime import timezone
+
+                        created_at = getattr(m, "created_at", None)
+                        last_used_at = getattr(m, "last_used_at", None)
+                        if hasattr(created_at, "timestamp"):
+                            age_created = max(0.0, now_ts - float(created_at.timestamp()))
+                        else:
+                            age_created = 0.0
+                        if hasattr(last_used_at, "timestamp"):
+                            age_used = max(0.0, now_ts - float(last_used_at.timestamp()))
+                        else:
+                            age_used = 0.0
+                        temporal_recency[mid] = half_life_decay(age_created, max(0.0, recency_half_life_h) * 3600.0) if recency_half_life_h > 0 else 0.0
+                        temporal_usage[mid] = half_life_decay(age_used, max(0.0, usage_half_life_h) * 3600.0) if usage_half_life_h > 0 else 0.0
+                    except Exception:
+                        temporal_recency[mid] = 0.0
+                        temporal_usage[mid] = 0.0
+        except Exception:
+            goal_score = {}
+            affect_score = {}
+
+        # Session-local interference penalty: penalize memories that always win.
+        if interference_weight > 0 and now_ts is not None:
+            try:
+                import time
+
+                if not hasattr(self, "_priming_interference_state"):
+                    self._priming_interference_state = {}
+                state = self._priming_interference_state
+                half_life_s = max(0.0, interference_half_life_h) * 3600.0
+                for m in candidates:
+                    mid = getattr(m, "id", None)
+                    if not isinstance(mid, int):
+                        continue
+                    entry = state.get(mid) if isinstance(state, dict) else None
+                    wins = 0.0
+                    last = now_ts
+                    if isinstance(entry, dict):
+                        wins = float(entry.get("wins", 0.0) or 0.0)
+                        last = float(entry.get("last", now_ts) or now_ts)
+                    # decay wins since last update
+                    dt = max(0.0, now_ts - last)
+                    if half_life_s > 0:
+                        wins = wins * half_life_decay(dt, half_life_s)
+                    # penalty saturates
+                    k = max(0.1, float(interference_k))
+                    interference_penalty[mid] = float(wins / (wins + k)) if wins > 0 else 0.0
+                    # update stored decayed wins
+                    state[mid] = {"wins": wins, "last": now_ts}
+            except Exception:
+                interference_penalty = {}
+
+        # Topic-aware repeat penalty: only when the topic changes.
+        if repeat_penalty_weight > 0 and topic_changed is True and last_selected_ids:
+            try:
+                for mid in last_selected_ids[:5]:
+                    if isinstance(mid, int):
+                        topic_repeat_penalty[int(mid)] = 1.0
+            except Exception:
+                topic_repeat_penalty = {}
+
+        # Spreading activation: 1-hop graph walk from seed memories.
+        graph_hops = int(getattr(config.memory, "prompt_priming_graph_hops", 1) or 0)
+        links_by_id: dict[int, list[dict[str, Any]]] = {}
+        if graph_hops > 0 and hasattr(memory_manager, "get_related_memories"):
+            try:
+                from ..memory import RelationType
+
+                seed_count = int(getattr(config.memory, "prompt_priming_graph_seed_count", 1) or 1)
+                seed_count = max(1, min(5, seed_count))
+                graph_limit = int(getattr(config.memory, "prompt_priming_graph_limit", 5) or 5)
+                graph_limit = max(1, min(20, graph_limit))
+                min_strength = float(getattr(config.memory, "prompt_priming_graph_min_strength", 0.2) or 0.0)
+                graph_weight = float(getattr(config.memory, "prompt_priming_graph_weight", 0.35) or 0.0)
+
+                type_weights = {
+                    "supports": 1.0,
+                    "elaborates": 1.0,
+                    "summarizes": 0.8,
+                    "references": 0.6,
+                    "related_to": 0.6,
+                    "similar_to": 0.5,
+                    "contradicts": 0.8,
+                    "supersedes": 0.9,
+                    "precedes": 0.5,
+                    "follows": 0.5,
+                    "causes": 0.6,
+                    "caused_by": 0.6,
+                }
+
+                seed_ids = []
+                for m in results:
+                    mid = getattr(m, "id", None)
+                    if isinstance(mid, int):
+                        seed_ids.append(mid)
+                    if len(seed_ids) >= seed_count:
+                        break
+
+                # Build id->memory mapping for fast dedupe.
+                by_id: dict[int, Any] = {int(getattr(m, "id")): m for m in candidates if isinstance(getattr(m, "id", None), int)}
+
+                for sid in seed_ids:
+                    related = memory_manager.get_related_memories(
+                        sid,
+                        relation_types=[
+                            RelationType.SUPPORTS,
+                            RelationType.ELABORATES,
+                            RelationType.CONTRADICTS,
+                            RelationType.RELATED_TO,
+                            RelationType.SIMILAR_TO,
+                        ],
+                        direction="both",
+                        min_strength=min_strength,
+                        limit=graph_limit,
+                    )
+                    for related_memory, rel in related or []:
+                        rid = getattr(related_memory, "id", None)
+                        if not isinstance(rid, int):
+                            continue
+                        rtype = None
+                        strength = None
+                        try:
+                            rtype = getattr(rel, "relation_type", None)
+                            if hasattr(rtype, "value"):
+                                rtype = rtype.value
+                            if rtype is not None:
+                                rtype = str(rtype)
+                            strength = getattr(rel, "strength", None)
+                            strength = float(strength) if isinstance(strength, (int, float)) else None
+                        except Exception:
+                            rtype = None
+                            strength = None
+
+                        link = {
+                            "from_id": int(sid),
+                            "relation_type": rtype,
+                            "strength": strength,
+                        }
+                        links_by_id.setdefault(int(rid), []).append(link)
+
+                        if rid not in by_id:
+                            by_id[rid] = related_memory
+                            candidates.append(related_memory)
+                            vec = None
+                            if vector_index is not None and hasattr(vector_index, "get_vector_by_memory_id"):
+                                try:
+                                    vec = vector_index.get_vector_by_memory_id(rid)
+                                except Exception:
+                                    vec = None
+                            candidate_vectors.append(vec if isinstance(vec, list) else [])
+                            if isinstance(vec, list) and vec:
+                                base_scores[rid] = cosine_similarity(query_embedding, vec)
+                            try:
+                                goal_score[rid] = goal_congruency_score(
+                                    goals,
+                                    memory_text=str(getattr(related_memory, "text", "") or ""),
+                                    memory_tags=getattr(related_memory, "tags", []) or [],
+                                    memory_namespace=str(getattr(related_memory, "namespace", "") or ""),
+                                )
+                                src = getattr(related_memory, "source", None)
+                                meta = getattr(src, "metadata", None) if src is not None else None
+                                affect_score[rid] = affect_congruency_score(
+                                    affect if isinstance(affect, dict) else None,
+                                    getattr(related_memory, "tags", []) or [],
+                                    memory_metadata=meta,
+                                )
+                                if now_ts is not None:
+                                    created_at = getattr(related_memory, "created_at", None)
+                                    last_used_at = getattr(related_memory, "last_used_at", None)
+                                    age_created = max(0.0, now_ts - float(created_at.timestamp())) if hasattr(created_at, "timestamp") else 0.0
+                                    age_used = max(0.0, now_ts - float(last_used_at.timestamp())) if hasattr(last_used_at, "timestamp") else 0.0
+                                    temporal_recency[rid] = half_life_decay(age_created, max(0.0, recency_half_life_h) * 3600.0) if recency_half_life_h > 0 else 0.0
+                                    temporal_usage[rid] = half_life_decay(age_used, max(0.0, usage_half_life_h) * 3600.0) if usage_half_life_h > 0 else 0.0
+                            except Exception:
+                                pass
+
+                # Recompute BM25 normalization now that the candidate set may have expanded.
+                try:
+                    if query_for_bm25:
+                        docs = []
+                        mids = []
+                        for m in candidates:
+                            mid = getattr(m, "id", None)
+                            if not isinstance(mid, int):
+                                continue
+                            tags = getattr(m, "tags", []) or []
+                            docs.append(
+                                " ".join(
+                                    [
+                                        str(getattr(m, "text", "") or ""),
+                                        str(getattr(m, "namespace", "") or ""),
+                                        " ".join(tags),
+                                    ]
+                                )
+                            )
+                            mids.append(mid)
+                        bm25 = bm25_scores(query=query_for_bm25, documents=docs)
+                        max_bm = max(bm25) if bm25 else 0.0
+                        bm25_norm = {mid: (float(s / max_bm) if max_bm > 0 else 0.0) for mid, s in zip(mids, bm25)}
+                except Exception:
+                    pass
+
+                # Rerank candidate order by combined (relevance + activation).
+                def _combined_score(m) -> float:
+                    mid = getattr(m, "id", None)
+                    if not isinstance(mid, int):
+                        return -1e9
+                    base = float(base_scores.get(mid, 0.0))
+                    base += float(bm25_norm.get(mid, 0.0)) * bm25_weight
+                    base += float(goal_score.get(mid, 0.0)) * goal_weight
+                    base += float(affect_score.get(mid, 0.0)) * affect_weight
+                    base += float(temporal_recency.get(mid, 0.0)) * recency_weight
+                    base += float(temporal_usage.get(mid, 0.0)) * usage_weight
+                    base -= float(interference_penalty.get(mid, 0.0)) * interference_weight
+                    base -= float(topic_repeat_penalty.get(mid, 0.0)) * repeat_penalty_weight
+                    boost = float(ns_boost_by_id.get(mid, 1.0))
+                    if boost != 1.0:
+                        base *= boost
+                    links = links_by_id.get(mid, [])
+                    bonus = 0.0
+                    for lk in links[:10]:
+                        from_id = lk.get("from_id")
+                        rel_type = str(lk.get("relation_type") or "")
+                        w = float(type_weights.get(rel_type, 0.5))
+                        s_base = float(base_scores.get(int(from_id), 0.0)) if isinstance(from_id, int) else 0.0
+                        rel_strength = lk.get("strength")
+                        rel_strength_f = float(rel_strength) if isinstance(rel_strength, (int, float)) else 0.0
+                        bonus = max(bonus, s_base * rel_strength_f * w * graph_weight)
+                    return base + bonus
+
+                paired = list(zip(candidates, candidate_vectors))
+                paired.sort(key=lambda p: _combined_score(p[0]), reverse=True)
+                # Clamp to avoid huge candidate sets.
+                paired = paired[:50]
+                candidates = [p[0] for p in paired]
+                candidate_vectors = [p[1] for p in paired]
+            except Exception:
+                # Best-effort: do not break priming on graph failure.
+                pass
+        else:
+            # Even without graph expansion, apply BM25/goal/affect reranking.
+            def _combined_score_no_graph(m) -> float:
+                mid = getattr(m, "id", None)
+                if not isinstance(mid, int):
+                    return -1e9
+                base = float(base_scores.get(mid, 0.0))
+                base += float(bm25_norm.get(mid, 0.0)) * bm25_weight
+                base += float(goal_score.get(mid, 0.0)) * goal_weight
+                base += float(affect_score.get(mid, 0.0)) * affect_weight
+                base += float(temporal_recency.get(mid, 0.0)) * recency_weight
+                base += float(temporal_usage.get(mid, 0.0)) * usage_weight
+                base -= float(interference_penalty.get(mid, 0.0)) * interference_weight
+                base -= float(topic_repeat_penalty.get(mid, 0.0)) * repeat_penalty_weight
+                boost = float(ns_boost_by_id.get(mid, 1.0))
+                if boost != 1.0:
+                    base *= boost
+                return base
+
+            paired = list(zip(candidates, candidate_vectors))
+            paired.sort(key=lambda p: _combined_score_no_graph(p[0]), reverse=True)
+            candidates = [p[0] for p in paired]
+            candidate_vectors = [p[1] for p in paired]
+
+        selected = []
+        if max_items <= 1 or len(candidates) <= 1:
+            selected = [candidates[0]]
+            strategy = "top1"
+        else:
+            # Only apply MMR when we have at least some vectors.
+            has_vectors = any(v for v in candidate_vectors)
+            if has_vectors:
+                selected = mmr_select(
+                    query_vector=query_embedding,
+                    candidates=candidates,
+                    candidate_vectors=candidate_vectors,
+                    k=min(max_items, len(candidates)),
+                    lambda_mult=mmr_lambda,
+                )
+                strategy = "mmr"
+            else:
+                selected = candidates[: min(max_items, len(candidates))]
+                strategy = "topk"
+
+        # Build a compact priming card.
+        max_memory_chars = int(getattr(config.memory, "prompt_priming_max_memory_chars", 4000) or 4000)
+        max_memory_chars = max(400, min(20000, max_memory_chars))
+        per_item_budget = max(200, min(1500, (max_memory_chars // max(1, len(selected))) - 200))
+
+        card_items = []
+        meta_items = []
+        conflicts_for_card: list[dict[str, Any]] = []
+        for m in selected:
+            mid = getattr(m, "id", None)
+            ns = getattr(m, "namespace", None)
+            txt = str(getattr(m, "text", "") or "").strip()
+            if per_item_budget and len(txt) > per_item_budget:
+                txt = txt[: max(0, per_item_budget - 40)] + "\n...[truncated]...\n"
+
+            score = None
+            try:
+                if vector_index is not None and hasattr(vector_index, "get_vector_by_memory_id") and isinstance(mid, int):
+                    v = vector_index.get_vector_by_memory_id(mid)
+                    if isinstance(v, list) and v:
+                        score = cosine_similarity(query_embedding, v)
+            except Exception:
+                score = None
+
+            # Collect known contradictions for the structured card.
+            if hasattr(memory_manager, "get_related_memories") and isinstance(mid, int):
+                try:
+                    from ..memory import RelationType
+
+                    related = memory_manager.get_related_memories(
+                        mid,
+                        relation_types=[RelationType.CONTRADICTS, RelationType.SUPERSEDES],
+                        direction="both",
+                        min_strength=0.0,
+                        limit=2,
+                    )
+                    for rm, rel in related or []:
+                        rid = getattr(rm, "id", None)
+                        if not isinstance(rid, int):
+                            continue
+                        rtype = getattr(rel, "relation_type", None)
+                        if hasattr(rtype, "value"):
+                            rtype = rtype.value
+                        conflicts_for_card.append(
+                            {
+                                "type": str(rtype or "related"),
+                                "id": rid,
+                                "preview": str(getattr(rm, "text", "") or "")[:200],
+                            }
+                        )
+                except Exception:
+                    pass
+
+            card_items.append(
+                {
+                    "id": int(mid) if isinstance(mid, int) else None,
+                    "namespace": str(ns) if isinstance(ns, str) and ns else None,
+                    "score": score,
+                    "text": txt,
+                    "importance": float(getattr(m, "importance", 0.0) or 0.0),
+                    "created_at": getattr(getattr(m, "created_at", None), "isoformat", lambda: "")(),
+                    "last_used_at": getattr(getattr(m, "last_used_at", None), "isoformat", lambda: "")(),
+                    "source_type": getattr(getattr(m, "source", None), "source_type", None).value if getattr(m, "source", None) is not None and hasattr(getattr(m, "source", None), "source_type") else "",
+                    "why": {
+                        "sim": float(score) if isinstance(score, (int, float)) else None,
+                        "bm25": float(bm25_norm.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                        "goal": float(goal_score.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                        "affect": float(affect_score.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                        "recency": float(temporal_recency.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                        "usage": float(temporal_usage.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                        "penalty": float(interference_penalty.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    },
+                }
+            )
+            links = links_by_id.get(int(mid), []) if isinstance(mid, int) else []
+            meta_items.append(
+                {
+                    "id": int(mid) if isinstance(mid, int) else None,
+                    "namespace": str(ns) if isinstance(ns, str) and ns else None,
+                    "score": score,
+                    "bm25": float(bm25_norm.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "goal": float(goal_score.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "affect": float(affect_score.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "recency": float(temporal_recency.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "usage": float(temporal_usage.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "penalty": float(interference_penalty.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "links": links[:5] if isinstance(links, list) else None,
+                }
+            )
+
+        selection = {
+            "strategy": strategy,
+            "top_k": top_k,
+            "max_items": max_items,
+            "lambda": mmr_lambda if strategy == "mmr" else None,
+            "cue": cue_meta,
+            "graph_hops": graph_hops,
+            "weights": {
+                "bm25": bm25_weight,
+                "goal": goal_weight,
+                "affect": affect_weight,
+                "recency": recency_weight,
+                "usage": usage_weight,
+                "interference": interference_weight,
+                "topic_repeat": repeat_penalty_weight,
+            },
+            "debug": {
+                "self_hit_skipped_count": int(self_hit_skipped),
+                "topic_signature": current_topic_sig,
+                "topic_similarity_jaccard": topic_sim,
+                "topic_changed": topic_changed,
+            },
+        }
+
+        if priming_mode == "thought":
+            primed_text = build_thought_priming_card(
+                query_preview=user_prompt,
+                cue_meta=cue_meta,
+                selection=selection,
+                items=card_items,
+            )
+        else:
+            primed_text = build_structured_priming_card(
+                query_preview=user_prompt,
+                cue_meta=cue_meta,
+                selection=selection,
+                items=card_items,
+                conflicts=conflicts_for_card[:6] if conflicts_for_card else None,
+                unknowns=None,
+            )
+
+        # Update topic state after selection (best-effort).
+        if repeat_penalty_weight > 0:
+            try:
+                if not hasattr(self, "_priming_topic_state") or not isinstance(getattr(self, "_priming_topic_state", None), dict):
+                    self._priming_topic_state = {}
+                state = self._priming_topic_state
+                state["last_topic_sig"] = current_topic_sig
+                sel_ids: list[int] = []
+                for m in selected or []:
+                    mid = getattr(m, "id", None)
+                    if isinstance(mid, int):
+                        sel_ids.append(int(mid))
+                state["last_selected_ids"] = sel_ids[:5]
+            except Exception:
+                pass
+
+        # Record selection for interference penalty (best-effort, bounded).
+        if interference_weight > 0 and now_ts is not None:
+            try:
+                state = getattr(self, "_priming_interference_state", None)
+                if isinstance(state, dict):
+                    half_life_s = max(0.0, interference_half_life_h) * 3600.0
+                    for m in selected:
+                        mid = getattr(m, "id", None)
+                        if not isinstance(mid, int):
+                            continue
+                        entry = state.get(mid, {"wins": 0.0, "last": now_ts})
+                        wins = float(entry.get("wins", 0.0) or 0.0)
+                        last = float(entry.get("last", now_ts) or now_ts)
+                        dt = max(0.0, now_ts - last)
+                        if half_life_s > 0:
+                            wins = wins * half_life_decay(dt, half_life_s)
+                        wins += 1.0
+                        state[mid] = {"wins": wins, "last": now_ts}
+                    # Cap to most recent 128 entries.
+                    if len(state) > 128:
+                        # Drop lowest wins first.
+                        for mid, _entry in sorted(state.items(), key=lambda kv: float(kv[1].get("wins", 0.0) or 0.0))[: len(state) - 128]:
+                            state.pop(mid, None)
+            except Exception:
+                pass
+
+        self.world_state_aggregator.set_primed_memory(
+            session_id=session_id,
+            query_preview=user_prompt,
+            text=primed_text,
+            truncated=was_truncated,
+            items=meta_items,
+            selection=selection,
+            mode=priming_mode,
+        )
+
+        # Learnable priming: log selection (best-effort).
+        try:
+            if self._event_logger:
+                self._event_logger.log_priming_selected(
+                    session_id,
+                    {
+                        "mode": priming_mode,
+                        "selected": [
+                            {"id": it.get("id"), "namespace": it.get("namespace"), "score": it.get("score")}
+                            for it in (meta_items[:5] if isinstance(meta_items, list) else [])
+                            if isinstance(it, dict)
+                        ],
+                        "selection": selection,
+                    },
+                )
+        except Exception:
+            pass
+
+        try:
+            from broca.rl.experiences import append_stream_event
+
+            append_stream_event(
+                {
+                    "timestamp": float(time.time()) if "time" in globals() else None,
+                    "type": "priming_selected",
+                    "session_id": session_id,
+                    "mode": priming_mode,
+                    "selected_ids": [
+                        it.get("id")
+                        for it in (meta_items[:5] if isinstance(meta_items, list) else [])
+                        if isinstance(it, dict)
+                    ],
+                }
+            )
+        except Exception:
+            pass
+
     def send(self, user_text: str, stream: bool = None, *, hidden_user_message: bool = False) -> str:
         """
         Append a user message, call the LLM, handle tool calls if needed, and return final reply.
@@ -541,8 +1467,55 @@ When you need to use tools to complete a task:
         from ..config import config
         self._log_context_before_turn(user_text=user_text)
 
+        turn_message_start_idx = len(self.messages)
+        last_visible_assistant_before_turn: Optional[str] = None
+        try:
+            for m in reversed(self.messages):
+                if not isinstance(m, dict):
+                    continue
+                if m.get("role") != "assistant":
+                    continue
+                if m.get("hidden") is True:
+                    continue
+                content = m.get("content")
+                if isinstance(content, str) and content.strip():
+                    last_visible_assistant_before_turn = content
+                    break
+        except Exception:
+            last_visible_assistant_before_turn = None
+
+        def _hide_duplicate_assistant_for_hidden_turn() -> None:
+            """
+            Hidden internal prompts (e.g., RESPOND_AND_CONTINUE continuation) should not
+            cause the exact same user-facing assistant message to appear twice.
+            """
+            if not hidden_user_message:
+                return
+            try:
+                prev = last_visible_assistant_before_turn
+                if not isinstance(prev, str) or not prev.strip():
+                    return
+                assistant_msg = None
+                for m in reversed(self.messages[turn_message_start_idx:]):
+                    if isinstance(m, dict) and m.get("role") == "assistant":
+                        assistant_msg = m
+                        break
+                if not isinstance(assistant_msg, dict):
+                    return
+                cur = assistant_msg.get("content")
+                if not isinstance(cur, str) or not cur.strip():
+                    return
+                if cur.strip() == prev.strip():
+                    assistant_msg["hidden"] = True
+            except Exception:
+                pass
+
         # Per-turn macro state (used by RESPOND_AND_CONTINUE).
         self._pending_auto_continue_prompt = None
+        # When tools are disabled (DONE/RESPOND_AND_CONTINUE), some models may still emit tool_calls.
+        # Track retries so we can reprompt a few times and then force an answer.
+        force_final_response_reprompt_attempts = 0
+        require_done_reprompt_attempts = 0
 
         # Clear reasoning_content when starting a new user turn (prevents 400 errors)
         # For deepseek-reasoner, reasoning_content should only be used within a single turn
@@ -589,6 +1562,15 @@ When you need to use tools to complete a task:
                 logger.warning(f"Failed to add user message to context graph: {e}", exc_info=True)
         
         self.messages.append(user_message)
+
+        # Prompt priming: embed the current user prompt and fetch the most similar memory.
+        # This is injected into the mutable system prompt and stays stable until the next
+        # (non-hidden) user prompt. Avoid priming for hidden internal prompts (e.g.,
+        # RESPOND_AND_CONTINUE continuation).
+        try:
+            self._prime_memory_for_user_prompt(user_text, hidden_user_message=hidden_user_message)
+        except Exception:
+            pass
         
         # PEA/PFREA removed - planning is now handled via planning tool
         
@@ -670,11 +1652,17 @@ When you need to use tools to complete a task:
         response = None
         # Track last warning iteration to prevent duplicate warnings at the same threshold
         last_warning_iteration = 0
-        while iterations < self._max_tool_iterations:
+        tool_iteration_budget = max(1, int(self._max_tool_iterations or 30))
+        max_force_final_response_attempts = 3
+        max_total_iterations = tool_iteration_budget + max_force_final_response_attempts
+        iteration_budget_reprompt_attempts = 0
+
+        while iterations < max_total_iterations:
             iterations += 1
+            tools_disabled_due_to_budget = iterations >= tool_iteration_budget
 
             # Compute RL selection + tool buffer per iteration (parity with web_api.py).
-            if self.tool_registry:
+            if self.tool_registry and not tools_disabled_due_to_budget:
                 context = None
                 if (
                     config.tools.pre_filtering_enabled
@@ -745,16 +1733,21 @@ When you need to use tools to complete a task:
                     tools = []
                     tool_choice = None
             else:
-                tools = None
-                tool_choice = None
-                rl_selection = None
+                if self.tool_registry and tools_disabled_due_to_budget:
+                    tools = []
+                    tool_choice = None
+                    rl_selection = None
+                else:
+                    tools = None
+                    tool_choice = None
+                    rl_selection = None
 
             # Update system prompt with current world state before each LLM call
             self._update_system_prompt()
             
             # Check for loop conditions and inject warnings if needed
             # Do this before getting messages for LLM so warnings are included
-            warning_thresholds = [10, 20, 30, 50, 75, 90]
+            warning_thresholds = [20, 25, 28, 29, 30]
             should_warn = False
             warning_message = None
             loop_info = None
@@ -768,57 +1761,43 @@ When you need to use tools to complete a task:
                     # Detect loops
                     loop_info = self._detect_tool_call_loop(iterations)
                     
-                    # Generate warning message based on severity
-                    if iterations >= 75:
-                        severity = "CRITICAL"
-                        urgency = "MUST"
-                    elif iterations >= 50:
-                        severity = "CRITICAL"
-                        urgency = "MUST"
-                    elif iterations >= 30:
-                        severity = "HIGH"
-                        urgency = "should"
-                    else:
-                        severity = "MEDIUM"
-                        urgency = "should"
-                    
-                    if loop_info:
-                        # Loop detected - include loop information in warning
-                        tool_name = loop_info["tool_name"]
-                        repeat_count = loop_info["repeat_count"]
-                        pattern = loop_info["pattern_description"]
+                    budget_text = f"{threshold}/30"
+                    if threshold >= 30:
                         warning_message = (
-                            f"[SYSTEM DIRECTIVE - {severity} WARNING] You are on iteration {iterations}. "
-                            f"A loop has been detected: {pattern}. You {urgency} break out of this loop. "
-                            "Review the tool results you've received and either:\n"
-                            "- Make different tool calls if you need different information\n"
-                            "- Provide your final comprehensive response to the user if you have enough information\n"
-                            "Do not continue making the same tool calls repeatedly. The system automatically continues "
-                            "after tool results - you should review results and respond accordingly."
+                            f"[SYSTEM DIRECTIVE - HARD STOP] Tool-iteration budget reached: {budget_text}.\n"
+                            "You MUST respond now in plain text.\n"
+                            "- Tools are DISABLED.\n"
+                            "- Do NOT output tool_calls.\n"
+                            "- Provide the final user-visible answer now."
+                        )
+                    elif threshold >= 28:
+                        warning_message = (
+                            f"[SYSTEM DIRECTIVE - URGENT] Tool-iteration budget nearing limit: {budget_text}.\n"
+                            "You MUST stop calling tools and prepare to answer.\n"
+                            "- If you have enough information, respond now.\n"
+                            "- If not, call at most one final high-value tool and then respond."
                         )
                     else:
-                        # High iteration count but no clear loop pattern detected
-                        if iterations >= 50:
-                            warning_message = (
-                                f"[SYSTEM DIRECTIVE - {severity} WARNING] Very high iteration count ({iterations}). "
-                                f"You {urgency} provide a final response to the user. Review all tool results you've received "
-                                "and provide a comprehensive answer. The system automatically continues after tool results - "
-                                "you should respond with your final answer, not wait for user input."
-                            )
-                        elif iterations >= 30:
-                            warning_message = (
-                                f"[SYSTEM DIRECTIVE - {severity} WARNING] High iteration count ({iterations}). "
-                                "You may be stuck in a loop. Review tool results and either make different tool calls "
-                                "if needed, or provide your final response. The system automatically continues - "
-                                "you should respond based on tool results, not wait for user prompts."
-                            )
-                        else:
-                            warning_message = (
-                                f"[SYSTEM DIRECTIVE - {severity} WARNING] You're on iteration {iterations}. "
-                                "Consider if your current approach is working. If you're making progress with tool calls, continue. "
-                                "If you have enough information from tool results, provide your final response. "
-                                "Remember: the system automatically continues after tool results - review them and respond accordingly."
-                            )
+                        warning_message = (
+                            f"[SYSTEM DIRECTIVE - WARNING] Tool-iteration budget: {budget_text}.\n"
+                            "Converge toward a final response.\n"
+                            "- Avoid repeating the same tool calls.\n"
+                            "- If you have enough information, respond now."
+                        )
+
+                    if loop_info and isinstance(loop_info, dict):
+                        try:
+                            tool_name = loop_info.get("tool_name")
+                            repeat_count = loop_info.get("repeat_count")
+                            pattern = loop_info.get("pattern_description")
+                            if tool_name and repeat_count:
+                                warning_message += (
+                                    f"\n[LOOP DETECTED] {tool_name} repeated {repeat_count} times"
+                                    + (f" ({pattern})" if pattern else "")
+                                    + "."
+                                )
+                        except Exception:
+                            pass
                     
                     break  # Only warn at one threshold per iteration
             
@@ -838,6 +1817,7 @@ When you need to use tools to complete a task:
                 self.messages.append({
                     "role": "user",
                     "content": warning_message,
+                    "hidden": True,
                 })
 
             # Track if we used streaming (for later use)
@@ -854,6 +1834,12 @@ When you need to use tools to complete a task:
                 # from streaming responses (see lines 291-300 below for fallback logic).
                 tools_for_call = tools
                 can_stream = stream and hasattr(self.llm, "chat_stream")
+                # Parity/correctness: disable streaming for Gemini in the REPL.
+                # Gemini streaming (especially REST/OpenAI-compatible) does not reliably round-trip
+                # thought_signature and can yield empty/no-content responses that never get printed.
+                # Using non-streaming keeps behavior aligned with web_api.py and avoids tool-call loops.
+                if is_gemini:
+                    can_stream = False
                 use_streaming = can_stream
                 
                 # Log streaming decision for debugging
@@ -1074,12 +2060,27 @@ When you need to use tools to complete a task:
                                 )
                             
                             non_stream_response = self.llm.chat(
-                                messages_for_llm, 
+                                messages_for_llm,
                                 tools=tools,
                                 tool_choice=tool_choice,
                                 reasoning_content=self._current_reasoning_content if is_reasoner else None,
-                                thought_signature=self._current_thought_signature if is_gemini else None
+                                thought_signature=self._current_thought_signature if is_gemini else None,
                             )
+                            # Streaming-to-nonstream tool_calls check: preserve Gemini thought_signature
+                            # from the non-streaming response so tool calls can be replayed safely.
+                            if is_gemini and hasattr(self.llm, "extract_thought_signature"):
+                                try:
+                                    extracted_sig = self.llm.extract_thought_signature(non_stream_response)
+                                except Exception:
+                                    extracted_sig = None
+                                if extracted_sig:
+                                    self._current_thought_signature = extracted_sig
+                                    # Also attach to the synthetic `response` dict so the normal
+                                    # post-call signature extraction path sees it.
+                                    try:
+                                        response["thought_signature"] = extracted_sig
+                                    except Exception:
+                                        pass
                             tool_calls_from_response = self.llm.extract_tool_calls(non_stream_response)
                             if tool_calls_from_response:
                                 # Update response with tool_calls
@@ -1371,6 +2372,50 @@ When you need to use tools to complete a task:
                 # Repair broken ANSI escape sequences in extracted text
                 if assistant_text:
                     assistant_text = repair_ansi_codes(assistant_text)
+
+            # If we've hit the tool-iteration budget, force a final plain-text response.
+            # Some providers may still emit tool_calls or empty content even when tools are not advertised.
+            tools_disabled_reason = None
+            if tools_disabled_due_to_budget:
+                tools_disabled_reason = f"tool-iteration budget ({tool_iteration_budget}) reached"
+            elif self.tool_registry and getattr(self.tool_registry, "force_final_response", False):
+                tools_disabled_reason = "DONE/RESPOND_AND_CONTINUE invoked"
+
+            if (
+                tools_disabled_reason
+                and (not tool_calls)
+                and (
+                    assistant_text is None
+                    or (isinstance(assistant_text, str) and assistant_text.strip() == "")
+                )
+            ):
+                iteration_budget_reprompt_attempts += 1
+                logger.warning(
+                    "Empty response while tools are disabled; reprompting for final text",
+                    extra={
+                        "event": "tools_disabled_empty_response",
+                        "attempt": iteration_budget_reprompt_attempts,
+                        "iteration": iterations,
+                        "reason": tools_disabled_reason,
+                    },
+                )
+                if iteration_budget_reprompt_attempts <= max_force_final_response_attempts:
+                    self.messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"[SYSTEM DIRECTIVE - FINAL RESPONSE REQUIRED] Tools are disabled ({tools_disabled_reason}). "
+                                "You MUST respond now in plain text.\n"
+                                "- Do NOT call any tools.\n"
+                                "- Do NOT output tool_calls.\n"
+                                "- Provide the final user-visible answer now."
+                            ),
+                            "hidden": True,
+                        }
+                    )
+                    continue
+                assistant_text = "I apologize, but I’m unable to produce a final response at the moment. Please try rephrasing your request."
+                break
             
             # PEA/PFREA removed - planning is now handled via planning tool
 
@@ -1379,6 +2424,56 @@ When you need to use tools to complete a task:
                 
                 # Mark that we've had tool calls
                 had_tool_calls = True
+
+                # If DONE/RESPOND_AND_CONTINUE was invoked, tools are disabled for this user turn.
+                # Do NOT execute tool calls; instead inject a hidden directive and reprompt for a
+                # plain-text response. This prevents infinite tool-call loops in providers that
+                # emit tool_calls even when no tools are advertised.
+                try:
+                    if getattr(self.tool_registry, "force_final_response", False) or tools_disabled_due_to_budget:
+                        force_final_response_reprompt_attempts += 1
+                        logger.warning(
+                            f"Tool calls returned while tools are disabled (attempt {force_final_response_reprompt_attempts})",
+                            extra={
+                                "event": "force_final_response_tool_calls",
+                                "attempt": force_final_response_reprompt_attempts,
+                                "tool_calls_count": len(tool_calls),
+                                "iteration": iterations,
+                                "disabled_due_to_budget": tools_disabled_due_to_budget,
+                            },
+                        )
+
+                        # Record the assistant content (but do NOT record tool_calls, since we won't execute them).
+                        attempted_text = self.llm.extract_assistant_content(response) or ""
+                        self.messages.append({"role": "assistant", "content": attempted_text, "hidden": True})
+
+                        if force_final_response_reprompt_attempts <= 3:
+                            reason = (
+                                f"tool-iteration budget ({tool_iteration_budget}) reached"
+                                if tools_disabled_due_to_budget
+                                else "DONE/RESPOND_AND_CONTINUE was invoked"
+                            )
+                            self.messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"[SYSTEM DIRECTIVE - TOOLS DISABLED] Tools are disabled for this turn because {reason}. "
+                                        "You MUST respond to the user now in plain text.\n"
+                                        "- Do NOT call any tools.\n"
+                                        "- Do NOT output tool_calls.\n"
+                                        "- Provide the final user-visible answer now."
+                                    ),
+                                    "hidden": True,
+                                }
+                            )
+                            continue
+
+                        # Retry budget exhausted: force the best-effort answer path.
+                        assistant_text = attempted_text or "I apologize, but I’m unable to continue with tool calls disabled. Please rephrase your request."
+                        break
+                except Exception:
+                    # If anything goes wrong, fall back to existing behavior.
+                    pass
                 
                 
                 # Log tool calls detected
@@ -1474,8 +2569,70 @@ When you need to use tools to complete a task:
                 else:
                     logger.debug(f"Using existing assistant_text (length={len(assistant_text) if assistant_text else 0}, used_streaming={used_streaming})")
                 
+                # RL response contract: if DONE/RESPOND_AND_CONTINUE are available and RL policy is active,
+                # do not allow the model to respond directly without first calling DONE/RESPOND_AND_CONTINUE.
+                try:
+                    if (
+                        assistant_text
+                        and self.tool_registry
+                        and not getattr(self.tool_registry, "force_final_response", False)
+                        and getattr(config.tools, "toolset", "legacy") == "primitive"
+                        and getattr(config.rl, "require_done_for_response", False)
+                        and getattr(self.tool_registry, "online_policy_ranker", None) is not None
+                    ):
+                        allowed_tool_names = set()
+                        if isinstance(tools, list):
+                            for t in tools:
+                                try:
+                                    allowed_tool_names.add(t.get("function", {}).get("name"))
+                                except Exception:
+                                    pass
+
+                        if allowed_tool_names.intersection({"DONE", "RESPOND_AND_CONTINUE"}):
+                            require_done_reprompt_attempts += 1
+                            logger.warning(
+                                "Final response attempted without DONE/RESPOND_AND_CONTINUE while RL response contract is enabled",
+                                extra={
+                                    "event": "response_contract_missing_done",
+                                    "attempt": require_done_reprompt_attempts,
+                                    "iteration": iterations,
+                                    "allowed_tools": sorted([n for n in allowed_tool_names if isinstance(n, str)]),
+                                },
+                            )
+
+                            # Record the attempted text as hidden (audit/debug) and reprompt.
+                            self.messages.append({"role": "assistant", "content": assistant_text, "hidden": True})
+                            assistant_text = None
+
+                            if require_done_reprompt_attempts <= 3:
+                                self.messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "[SYSTEM DIRECTIVE - RESPONSE CONTRACT] You attempted to respond directly.\n"
+                                            "You MUST end this turn by calling one of these tools:\n"
+                                            "- DONE (respond now, then stop)\n"
+                                            "- RESPOND_AND_CONTINUE (respond now, then continue in background)\n"
+                                            "Do NOT output a final answer in plain text in this message."
+                                        ),
+                                        "hidden": True,
+                                    }
+                                )
+                                continue
+
+                            logger.warning(
+                                "RL response contract reprompt budget exhausted; allowing final response without DONE",
+                                extra={"event": "response_contract_budget_exhausted", "iteration": iterations},
+                            )
+                except Exception as e:
+                    logger.debug(f"Failed to enforce RL response contract: {e}", exc_info=True)
+
                 # PEA/PFREA removed - final responses are always allowed
                 
+                # Ensure we never print an empty response. This must happen BEFORE printing,
+                # since the end-of-turn response guard runs after the print block.
+                assistant_text = self._ensure_response_non_empty(assistant_text)
+
                 # Ensure response is always printed
                 if used_streaming:
                     # If we streamed, content was already printed chunk by chunk (if any)
@@ -1499,6 +2656,101 @@ When you need to use tools to complete a task:
                             print(f"{prompt}{assistant_text}\n", end="", flush=True)
                     # If assistant_text is None/empty, response guard should have injected fallback
                     # but if it didn't for some reason, don't print empty prompt line
+
+                # Learnable priming: log outcome + update per-namespace boost (best-effort).
+                try:
+                    if self.world_state_aggregator and assistant_text:
+                        ws = self.world_state_aggregator.aggregate(session_id=self.session_id)
+                        primed_payload = None
+                        priming_mode = "chat"
+                        active_slot = None
+                        if isinstance(ws.get("primed_memory_thought"), dict):
+                            primed_payload = ws.get("primed_memory_thought")
+                            priming_mode = "thought"
+                            active_slot = "primed_memory_thought"
+                        elif isinstance(ws.get("primed_memory_chat"), dict):
+                            primed_payload = ws.get("primed_memory_chat")
+                            priming_mode = "chat"
+                            active_slot = "primed_memory_chat"
+                        elif isinstance(ws.get("primed_memory"), dict):
+                            primed_payload = ws.get("primed_memory")
+                            priming_mode = "chat"
+                            active_slot = "primed_memory"
+
+                        if isinstance(primed_payload, dict):
+                            primed_text = primed_payload.get("text")
+                            if isinstance(primed_text, str) and primed_text.strip():
+                                from ..memory.priming import priming_used_score
+                                from ..memory.priming_learning import PrimingPolicyStore
+
+                                used = priming_used_score(assistant_text=assistant_text, primed_card_text=primed_text)
+
+                                # Namespace attribution: use the primary item namespace if available.
+                                ns = "*"
+                                try:
+                                    items = primed_payload.get("items") or []
+                                    if isinstance(items, list) and items:
+                                        it0 = items[0]
+                                        if isinstance(it0, dict):
+                                            ns = str(it0.get("namespace") or "*") or "*"
+                                except Exception:
+                                    ns = "*"
+
+                                policy_store = getattr(self, "_priming_policy_store", None)
+                                if policy_store is None:
+                                    try:
+                                        policy_path = getattr(config.memory, "prompt_priming_policy_path", "data/priming_policy.json")
+                                    except Exception:
+                                        policy_path = "data/priming_policy.json"
+                                    try:
+                                        policy_store = PrimingPolicyStore(path=policy_path)
+                                        self._priming_policy_store = policy_store
+                                    except Exception:
+                                        policy_store = None
+
+                                new_boost = None
+                                if policy_store is not None:
+                                    try:
+                                        new_boost = float(policy_store.update(mode=priming_mode, namespace=ns, used_score=used))
+                                        policy_store.save()
+                                    except Exception:
+                                        new_boost = None
+
+                                # Event logger (if enabled)
+                                try:
+                                    if self._event_logger:
+                                        self._event_logger.log_priming_outcome(
+                                            self.session_id,
+                                            {
+                                                "mode": priming_mode,
+                                                "active_slot": active_slot,
+                                                "namespace": ns,
+                                                "used_score": used,
+                                                "new_boost": new_boost,
+                                            },
+                                        )
+                                except Exception:
+                                    pass
+
+                                # RL stream event (best-effort)
+                                try:
+                                    from broca.rl.experiences import append_stream_event
+
+                                    append_stream_event(
+                                        {
+                                            "timestamp": float(time.time()) if "time" in globals() else None,
+                                            "type": "priming_outcome",
+                                            "session_id": self.session_id,
+                                            "mode": priming_mode,
+                                            "namespace": ns,
+                                            "used_score": used,
+                                            "new_boost": new_boost,
+                                        }
+                                    )
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
 
                 # Log assistant message event
                 assistant_event_id = None
@@ -1575,6 +2827,7 @@ When you need to use tools to complete a task:
 
                 # Persist immediately so callers (and tests) can observe saved state
                 try:
+                    _hide_duplicate_assistant_for_hidden_turn()
                     self._save_conversation()
                 except Exception:
                     pass
@@ -1829,6 +3082,7 @@ When you need to use tools to complete a task:
                                 # CRITICAL: Re-save conversation with updated world state
                                 # This ensures saved conversations show the latest internal sensing values, not defaults
                                 try:
+                                    _hide_duplicate_assistant_for_hidden_turn()
                                     self._save_conversation()
                                     logger.info("Re-saved conversation with updated world state after recording")
                                 except Exception as save_error:
@@ -1857,6 +3111,7 @@ When you need to use tools to complete a task:
                     # This ensures saved conversations include the latest world state with updated internal sensing values
                     # The initial save at line 1216 happens before instrumentation, so we need to save again here
                     try:
+                        _hide_duplicate_assistant_for_hidden_turn()
                         self._save_conversation()
                         logger.debug("Re-saved conversation after instrumentation with updated world state")
                     except Exception as save_error:
@@ -1964,6 +3219,7 @@ When you need to use tools to complete a task:
         except Exception as e:
             logger.error(f"Error in max iterations post-processing: {e}", exc_info=True)
         
+        _hide_duplicate_assistant_for_hidden_turn()
         self._save_conversation()
         return assistant_text
 
@@ -1991,6 +3247,69 @@ When you need to use tools to complete a task:
                 return True
         
         return False
+
+    def _is_gemini_sdk_active(self) -> bool:
+        """
+        Return True if the underlying Gemini client is configured to use the SDK.
+
+        Rationale:
+        - Gemini tool-calling continuity relies on thought_signature.
+        - Our Gemini REST streaming path may not reliably round-trip thought_signature,
+          while the SDK path supports it end-to-end.
+        - For REPL parity with web_api (which uses non-stream calls), we disable streaming
+          when Gemini SDK is active.
+        """
+        try:
+            from ..llm.gemini_client import GeminiClient
+            from ..llm.cached_client import CachedLLMClient
+        except Exception:
+            return False
+
+        underlying = None
+        if isinstance(self.llm, GeminiClient):
+            underlying = self.llm
+        elif isinstance(self.llm, CachedLLMClient):
+            underlying = getattr(self.llm, "_underlying", None)
+
+        if not isinstance(underlying, GeminiClient):
+            return False
+
+        # Treat SDK as active if use_sdk is True and we have a non-None sdk client.
+        # (We avoid calling internal _should_use_sdk() here to keep it purely structural.)
+        return bool(getattr(underlying, "use_sdk", False) and getattr(underlying, "_sdk_client", None) is not None)
+
+    def _get_effective_thought_signature(self) -> Optional[str]:
+        """
+        Best-effort retrieval of the current Gemini thought_signature.
+
+        Priority:
+        1) Session-local signature extracted from the last model response
+        2) Underlying GeminiClient stored signature (covers cases where the client stored it
+           but session-local extraction didn't run or the response shape differed)
+        """
+        sig = getattr(self, "_current_thought_signature", None)
+        if isinstance(sig, str) and sig.strip():
+            return sig
+
+        try:
+            from ..llm.gemini_client import GeminiClient
+            from ..llm.cached_client import CachedLLMClient
+        except Exception:
+            return None
+
+        underlying = None
+        if isinstance(self.llm, GeminiClient):
+            underlying = self.llm
+        elif isinstance(self.llm, CachedLLMClient):
+            underlying = getattr(self.llm, "_underlying", None)
+
+        if not isinstance(underlying, GeminiClient):
+            return None
+
+        stored = getattr(underlying, "_thought_signature", None)
+        if isinstance(stored, str) and stored.strip():
+            return stored
+        return None
 
     def consume_auto_continue_prompt(self) -> Optional[str]:
         """
@@ -2283,8 +3602,11 @@ When you need to use tools to complete a task:
             extra={
                 "event": "turn_after",
                 "context_stats": stats,
-                "assistant_preview": (assistant_text[:200] if assistant_text else None)
-                + ("..." if assistant_text and len(assistant_text) > 200 else ""),
+                "assistant_preview": (
+                    None
+                    if not assistant_text
+                    else assistant_text[:200] + ("..." if len(assistant_text) > 200 else "")
+                ),
                 "usage": usage,
             },
         )
@@ -4004,7 +5326,7 @@ When you need to use tools to complete a task:
 
             # Aggregate current world state
             with self._startup_span("system_prompt.aggregate_world_state"):
-                world_state = self.world_state_aggregator.aggregate()
+                world_state = self.world_state_aggregator.aggregate(session_id=self.session_id)
 
             # Calculate stable hash of world state to detect changes
             with self._startup_span("system_prompt.world_state_hash"):
@@ -4020,7 +5342,59 @@ When you need to use tools to complete a task:
 
             # Format world state for prompt (formatter handles its own size limits)
             with self._startup_span("system_prompt.format_world_state"):
-                formatted_world_state = self._world_state_formatter.format(world_state)
+                world_state_for_prompt = world_state
+                primed_memory_prompt: Optional[str] = None
+                try:
+                    # Prefer thought priming when present; otherwise fall back to chat/legacy.
+                    slot_key = None
+                    primed = None
+                    for k in ("primed_memory_thought", "primed_memory_chat", "primed_memory"):
+                        v = world_state.get(k)
+                        if isinstance(v, dict) and v.get("text"):
+                            slot_key = k
+                            primed = v
+                            break
+
+                    if isinstance(primed, dict):
+                        primed_text = primed.get("text")
+                        if isinstance(primed_text, str) and primed_text.strip():
+                            cleaned = primed_text.strip()
+                            if cleaned.lstrip().startswith("PRIMED MEMORY:"):
+                                primed_memory_prompt = cleaned
+                            else:
+                                primed_memory_prompt = "PRIMED MEMORY:\n" + cleaned
+
+                            # Avoid duplicating full primed texts in JSON; keep metadata only for all slots.
+                            world_state_for_prompt = dict(world_state)
+                            try:
+                                import hashlib
+
+                                for k in ("primed_memory", "primed_memory_chat", "primed_memory_thought"):
+                                    vv = world_state.get(k)
+                                    if not isinstance(vv, dict):
+                                        continue
+                                    txt = vv.get("text")
+                                    meta = dict(vv)
+                                    meta.pop("text", None)
+                                    if isinstance(txt, str) and txt:
+                                        try:
+                                            meta["text_sha256"] = hashlib.sha256(txt.encode("utf-8", errors="ignore")).hexdigest()
+                                            meta["text_len"] = len(txt)
+                                        except Exception:
+                                            pass
+                                    world_state_for_prompt[k] = meta
+                            except Exception:
+                                # Best-effort: still strip active slot text to prevent duplication.
+                                primed_meta = dict(primed)
+                                primed_meta.pop("text", None)
+                                world_state_for_prompt[slot_key or "primed_memory"] = primed_meta
+
+                            world_state_for_prompt["primed_memory_active_slot"] = slot_key
+                            world_state_for_prompt["primed_memory_prompt"] = primed_memory_prompt
+                except Exception:
+                    world_state_for_prompt = world_state
+
+                formatted_world_state = self._world_state_formatter.format(world_state_for_prompt)
 
             # Combine base prompt, summary context, and world state
             parts = []
@@ -4234,15 +5608,7 @@ When you need to use tools to complete a task:
                             # Truncate world state if needed
                             if component_sizes[2] > world_state_target:
                                 world_state_part = parts[2]
-                                truncated_world_state = world_state_part[:world_state_target - 50]
-                                # Try to truncate at JSON boundary
-                                last_brace = truncated_world_state.rfind("}")
-                                if last_brace > world_state_target * 0.8:
-                                    truncated_world_state = truncated_world_state[:last_brace + 1]
-                                else:
-                                    truncated_world_state = truncated_world_state.rstrip() + '\n}'
-                                truncated_world_state += '\n  "_truncated": true\n}'
-                                parts[2] = truncated_world_state
+                                parts[2] = _truncate_json_with_truncated_flag(world_state_part, world_state_target)
                                 logger.warning(
                                     f"World state reduced from {component_sizes[2]} to {len(parts[2])} characters"
                                 )
@@ -4282,16 +5648,11 @@ When you need to use tools to complete a task:
                     base_prompt_size = len(parts[0]) if parts else 0
                     if base_prompt_size > max_size:
                         # Base prompt is too large, truncate it directly
-                        truncated_base = parts[0][:max_size - 50]  # Leave room for truncation message
-                        last_newline = truncated_base.rfind("\n")
-                        if last_newline > (max_size - 50) * 0.8:
-                            truncated_base = truncated_base[:last_newline]
-                        # Check if truncation message already exists to prevent accumulation
-                        truncation_msg = "[System prompt truncated due to size limit]"
-                        if truncation_msg not in truncated_base:
-                            complete_prompt = truncated_base + "\n" + truncation_msg
-                        else:
-                            complete_prompt = truncated_base
+                        complete_prompt = _truncate_text_with_marker(
+                            parts[0],
+                            max_size,
+                            "[System prompt truncated due to size limit]",
+                        )
                     else:
                         # Keep base prompt and summary, truncate world state
                         base_and_summary = "\n\n".join(parts[:-1])  # All except world state
@@ -4300,29 +5661,27 @@ When you need to use tools to complete a task:
                         
                         if available_for_world_state > 100:  # Only if we have reasonable space
                             # Truncate world state JSON
-                            truncated_world_state = world_state_part[:available_for_world_state]
-                            # Try to truncate at a JSON boundary
-                            last_brace = truncated_world_state.rfind("}")
-                            if last_brace > available_for_world_state * 0.8:
-                                truncated_world_state = truncated_world_state[:last_brace + 1]
-                            else:
-                                truncated_world_state = truncated_world_state.rstrip() + '\n}'
-                            truncated_world_state += '\n  "_truncated": true\n}'
+                            truncated_world_state = _truncate_json_with_truncated_flag(world_state_part, available_for_world_state)
                             complete_prompt = base_and_summary + "\n\n" + truncated_world_state
                         else:
                             # Too little space, just keep base and summary
                             complete_prompt = base_and_summary + "\n\n[World state omitted due to size limit]"
                 else:
                     # Single part, truncate directly
-                    complete_prompt = complete_prompt[:max_size - 50]  # Leave room for message
-                    # Try to truncate at a reasonable boundary
-                    last_newline = complete_prompt.rfind("\n")
-                    if last_newline > (max_size - 50) * 0.8:
-                        complete_prompt = complete_prompt[:last_newline]
-                    # Check if truncation message already exists to prevent accumulation
-                    truncation_msg = "[System prompt truncated due to size limit]"
-                    if truncation_msg not in complete_prompt:
-                        complete_prompt += "\n" + truncation_msg
+                    complete_prompt = _truncate_text_with_marker(
+                        complete_prompt,
+                        max_size,
+                        "[System prompt truncated due to size limit]",
+                    )
+
+                # Final absolute safety: regardless of branch above, never exceed max_size.
+                # (Some branches can omit world state but still exceed the cap due to other preambles.)
+                if len(complete_prompt) > max_size:
+                    complete_prompt = _truncate_text_with_marker(
+                        complete_prompt,
+                        max_size,
+                        "[System prompt truncated due to size limit]",
+                    )
                 
                 logger.warning(
                     f"System prompt truncated from {original_size} to {len(complete_prompt)} characters "
@@ -4951,23 +6310,17 @@ When you need to use tools to complete a task:
         # For Gemini, ensure each tool_call has thought_signature
         # If missing, add the current thought_signature from the response
         if is_gemini and tool_calls:
-            current_sig = getattr(self, '_current_thought_signature', None)
+            current_sig = self._get_effective_thought_signature()
             tool_calls_fixed = False
-            for tool_call in tool_calls:
-                if isinstance(tool_call, dict) and "thought_signature" not in tool_call:
-                    if current_sig:
-                        tool_call["thought_signature"] = current_sig
-                        tool_calls_fixed = True
-                        logger.debug(
-                            "Added thought_signature to tool_call using current signature",
-                            extra={
-                                "event": "thought_signature_added_to_tool_call",
-                                "tool_call_id": tool_call.get("id", "unknown"),
-                                "function_name": tool_call.get("function", {}).get("name", "unknown"),
-                            }
-                        )
-                    else:
-                        logger.warning(
+            if current_sig:
+                tool_calls_fixed = _inject_thought_signature_into_tool_calls(tool_calls, current_sig)
+            else:
+                # Only warn loudly when SDK is active (we expect thought_signature to exist).
+                # For REST-only configurations, this is often outside our control and can be noisy.
+                log_fn = logger.warning if self._is_gemini_sdk_active() else logger.debug
+                for tool_call in tool_calls:
+                    if isinstance(tool_call, dict) and "thought_signature" not in tool_call:
+                        log_fn(
                             "Tool call missing thought_signature and no current signature available",
                             extra={
                                 "event": "missing_thought_signature_in_tool_call",
@@ -4987,7 +6340,9 @@ When you need to use tools to complete a task:
         
         # Log thought_signature preservation for Gemini (for debugging)
         if is_gemini:
-            thought_sigs_in_tool_calls = sum(1 for tc in tool_calls if tc.get("thought_signature"))
+            thought_sigs_in_tool_calls = sum(
+                1 for tc in tool_calls if isinstance(tc, dict) and tc.get("thought_signature")
+            )
             if thought_sigs_in_tool_calls > 0:
                 logger.debug(
                     f"Preserved thought_signature in {thought_sigs_in_tool_calls}/{len(tool_calls)} tool_calls",
@@ -4998,7 +6353,8 @@ When you need to use tools to complete a task:
                     }
                 )
             elif len(tool_calls) > 0:
-                logger.warning(
+                log_fn = logger.warning if self._is_gemini_sdk_active() else logger.debug
+                log_fn(
                     "No thought_signature found in tool_calls for Gemini - this may cause API errors",
                     extra={
                         "event": "missing_thought_signature_in_tool_calls",
@@ -5011,6 +6367,11 @@ When you need to use tools to complete a task:
             "content": self.llm.extract_assistant_content(response) or None,
             "tool_calls": tool_calls,
         }
+
+        # Ensure assistant(tool_calls) has a stable message_id so ContextGraph can preserve
+        # atomic tool-call bundles without producing orphaned tool nodes.
+        if "message_id" not in assistant_message:
+            assistant_message["message_id"] = str(uuid.uuid4())
         
         # Include reasoning_content in the assistant message for reasoner model
         # The API requires this field to be present in assistant messages with tool_calls
@@ -5072,6 +6433,19 @@ When you need to use tools to complete a task:
                     )
         
         self.messages.append(assistant_message)
+
+        # Add assistant(tool_calls) to context graph BEFORE adding tool results.
+        # If tool results are inserted first, ContextGraph validation will delete them as orphaned.
+        if self._context_graph:
+            try:
+                parent_id = None
+                if self._context_graph._message_order:
+                    parent_id = self._context_graph._message_order[-1]
+                self._context_graph.add_message(assistant_message, parent_id=parent_id)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to add assistant tool_calls message to context graph: {e}", exc_info=True
+                )
 
         # Execute each tool call
         for i, tool_call in enumerate(tool_calls, 1):
@@ -5145,61 +6519,79 @@ When you need to use tools to complete a task:
                     from ..reasoning.rl_signals import RLSignalMetrics
                     from ..config import config as app_config
                     from datetime import datetime, timezone
-                    
-                    config = ReasoningConfig()
-                    
-                    if not config.rl_reward_log_enabled:
+
+                    reasoning_cfg = ReasoningConfig()
+
+                    if not reasoning_cfg.rl_reward_log_enabled:
                         logger.debug(f"RL reward logging is disabled in config for tool call: {tool_name}")
                     else:
                         # Create or reuse reward logger (singleton-like pattern)
                         reward_logger = RLRewardLogger(
-                            log_file=config.rl_reward_log_file,
-                            enabled=config.rl_reward_log_enabled,
-                            append=config.rl_reward_log_append
+                            log_file=reasoning_cfg.rl_reward_log_file,
+                            enabled=reasoning_cfg.rl_reward_log_enabled,
+                            append=reasoning_cfg.rl_reward_log_append,
                         )
-                        
+
                         if not reward_logger.enabled:
                             logger.debug(f"RL reward logger is disabled for tool call: {tool_name}")
                         else:
                             # Try to compute RL signals if we have access to signal aggregator
                             rl_metrics = None
-                            if (self.world_state_aggregator and 
-                                hasattr(self.world_state_aggregator, 'reasoning_tool') and
-                                self.world_state_aggregator.reasoning_tool):
+                            if (
+                                self.world_state_aggregator
+                                and hasattr(self.world_state_aggregator, "reasoning_tool")
+                                and self.world_state_aggregator.reasoning_tool
+                            ):
                                 reasoning_tool = self.world_state_aggregator.reasoning_tool
-                                if (hasattr(reasoning_tool, 'feedback_loop_manager') and
-                                    reasoning_tool.feedback_loop_manager and
-                                    hasattr(reasoning_tool.feedback_loop_manager, 'rl_signal_aggregator') and
-                                    reasoning_tool.feedback_loop_manager.rl_signal_aggregator):
+                                if (
+                                    hasattr(reasoning_tool, "feedback_loop_manager")
+                                    and reasoning_tool.feedback_loop_manager
+                                    and hasattr(reasoning_tool.feedback_loop_manager, "rl_signal_aggregator")
+                                    and reasoning_tool.feedback_loop_manager.rl_signal_aggregator
+                                ):
                                     try:
                                         # Ensure dissonance history exists before computing RL signals.
                                         # Tool-call logging often happens before the next assistant response
                                         # (and before any async dissonance measurement completes), which can
                                         # otherwise leave dissonance_reward stuck at neutral 0.5 (no data).
                                         try:
-                                            cd_monitor = getattr(reasoning_tool.feedback_loop_manager, "cognitive_dissonance_monitor", None)
+                                            cd_monitor = getattr(
+                                                reasoning_tool.feedback_loop_manager,
+                                                "cognitive_dissonance_monitor",
+                                                None,
+                                            )
                                             if cd_monitor is not None:
                                                 # Best-effort tool_usage record from the current tool call
                                                 cd_monitor.measure_dissonance(
                                                     response=None,
-                                                    tool_usage=[tool_call] if isinstance(tool_call, dict) else None,
+                                                    tool_usage=[tool_call]
+                                                    if isinstance(tool_call, dict)
+                                                    else None,
                                                     conversation_context=self.messages,
                                                 )
                                         except Exception as e:
-                                            logger.debug(f"Failed to pre-measure dissonance for tool call {tool_name}: {e}")
+                                            logger.debug(
+                                                f"Failed to pre-measure dissonance for tool call {tool_name}: {e}"
+                                            )
 
-                                        rl_metrics = reasoning_tool.feedback_loop_manager.rl_signal_aggregator.compute_signals()
+                                        rl_metrics = (
+                                            reasoning_tool.feedback_loop_manager.rl_signal_aggregator.compute_signals()
+                                        )
                                         logger.debug(f"Computed RL signals for tool call {tool_name}")
                                     except Exception as e:
-                                        logger.debug(f"Failed to compute RL signals for tool call {tool_name}: {e}")
-                            
+                                        logger.debug(
+                                            f"Failed to compute RL signals for tool call {tool_name}: {e}"
+                                        )
+
                             # Log reward signals if we have metrics, otherwise log tool call event with minimal metrics
                             if rl_metrics:
                                 reward_logger.log_reward_signals(
                                     rl_metrics,
-                                    context=f"tool_call_{tool_name}_{tool_call_id}"
+                                    context=f"tool_call_{tool_name}_{tool_call_id}",
                                 )
-                                logger.info(f"Logged RL reward signals for tool call: {tool_name} (with metrics)")
+                                logger.info(
+                                    f"Logged RL reward signals for tool call: {tool_name} (with metrics)"
+                                )
                             else:
                                 # Log tool call with minimal reward data (zero values)
                                 # This ensures tool calls are tracked even without full RL metrics
@@ -5210,21 +6602,37 @@ When you need to use tools to complete a task:
                                     curiosity_reward=0.0,
                                     information_gain_reward=0.0,
                                     coherence_reward=0.0,
-                                    weight_dissonance=getattr(app_config.reasoning, 'rl_weight_dissonance', 0.3),
-                                    weight_surprise=getattr(app_config.reasoning, 'rl_weight_surprise', 0.2),
-                                    weight_curiosity=getattr(app_config.reasoning, 'rl_weight_curiosity', 0.2),
-                                    weight_info_gain=getattr(app_config.reasoning, 'rl_weight_info_gain', 0.15),
-                                    weight_coherence=getattr(app_config.reasoning, 'rl_weight_coherence', 0.15),
+                                    weight_dissonance=getattr(
+                                        app_config.reasoning, "rl_weight_dissonance", 0.3
+                                    ),
+                                    weight_surprise=getattr(
+                                        app_config.reasoning, "rl_weight_surprise", 0.2
+                                    ),
+                                    weight_curiosity=getattr(
+                                        app_config.reasoning, "rl_weight_curiosity", 0.2
+                                    ),
+                                    weight_info_gain=getattr(
+                                        app_config.reasoning, "rl_weight_info_gain", 0.15
+                                    ),
+                                    weight_coherence=getattr(
+                                        app_config.reasoning, "rl_weight_coherence", 0.15
+                                    ),
                                 )
                                 # Compute composite reward
                                 minimal_metrics.composite_reward = minimal_metrics.compute_composite()
                                 reward_logger.log_reward_signals(
                                     minimal_metrics,
-                                    context=f"tool_call_{tool_name}_{tool_call_id}"
+                                    context=f"tool_call_{tool_name}_{tool_call_id}",
                                 )
-                                logger.info(f"Logged RL reward signals for tool call: {tool_name} (minimal metrics, context: tool_call_{tool_name}_{tool_call_id})")
+                                logger.info(
+                                    f"Logged RL reward signals for tool call: {tool_name} "
+                                    f"(minimal metrics, context: tool_call_{tool_name}_{tool_call_id})"
+                                )
                 except Exception as e:
-                    logger.warning(f"Failed to log RL reward signals for tool call {tool_name} (id: {tool_call_id}): {e}", exc_info=True)
+                    logger.warning(
+                        f"Failed to log RL reward signals for tool call {tool_name} (id: {tool_call_id}): {e}",
+                        exc_info=True,
+                    )
                 
                 # Determine if tool call was successful
                 # Use _success field if available (from raw result), otherwise fall back to content parsing

@@ -359,6 +359,19 @@ class GovernancePolicyRequests:
                 return r
         return None
 
+    def list(self, *, status: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        state = self.load()
+        reqs = [r for r in (state.get("requests") or []) if isinstance(r, dict)]
+        if isinstance(status, str) and status.strip():
+            st = status.strip().lower()
+            reqs = [r for r in reqs if str(r.get("status") or "").lower() == st]
+        try:
+            reqs.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+        except Exception:
+            pass
+        lim = _clamp_int(limit, 1, 5000, 100)
+        return reqs[:lim]
+
     def mark_applied(self, request_id: str, *, applied_version_id: int) -> bool:
         state = self.load()
         changed = False
@@ -371,6 +384,26 @@ class GovernancePolicyRequests:
                 r["status"] = "applied"
                 r["applied_at"] = _now_iso()
                 r["applied_version_id"] = int(applied_version_id)
+                changed = True
+            reqs.append(r)
+        if changed:
+            state["requests"] = reqs
+            _atomic_write_json(self._path, state)
+        return changed
+
+    def mark_rejected(self, request_id: str, *, note: str = "") -> bool:
+        state = self.load()
+        changed = False
+        reqs = []
+        for r in state.get("requests") or []:
+            if not isinstance(r, dict):
+                continue
+            if r.get("request_id") == request_id and r.get("status") == "pending":
+                r = dict(r)
+                r["status"] = "rejected"
+                r["rejected_at"] = _now_iso()
+                if note:
+                    r["rejected_note"] = str(note)[:2000]
                 changed = True
             reqs.append(r)
         if changed:
@@ -682,6 +715,15 @@ class GovernanceEngine:
 
     def request_policy_change(self, proposal: Dict[str, Any], *, note: str = "") -> Dict[str, Any]:
         return self._requests.create(proposal=proposal, note=note)
+
+    def get_policy_change_request(self, request_id: str) -> Optional[Dict[str, Any]]:
+        return self._requests.get(request_id)
+
+    def list_policy_change_requests(self, *, status: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        return self._requests.list(status=status, limit=limit)
+
+    def reject_policy_change_request(self, request_id: str, *, note: str = "") -> bool:
+        return self._requests.mark_rejected(request_id, note=note)
 
     def commit_approved_request(self, request_id: str, approval_token: str, *, note: str = "") -> Dict[str, Any]:
         req = self._requests.get(request_id)

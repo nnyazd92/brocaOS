@@ -33,6 +33,7 @@ class RuleEngine:
         working_memory: Optional[WorkingMemory] = None,
         loop_detector: Optional["LoopDetector"] = None,
         enable_z3_validation: Optional[bool] = None,
+        enable_llm_pattern_matching: Optional[bool] = None,
     ):
         """
         Initialize rule engine.
@@ -45,34 +46,20 @@ class RuleEngine:
             enable_z3_validation: Deprecated/ignored (Z3 validation is performed via Z3LogicalValidator / tools)
         """
         _ = enable_z3_validation  # backward-compatible kwarg (ignored)
-        # Initialize pattern matcher if not provided
+        # Prefer deterministic local pattern matching by default (no network calls).
+        # `enable_llm_pattern_matching` is treated as an opt-in for the legacy LLM matcher,
+        # but local matching remains enabled regardless.
         if pattern_matcher is None:
-            from ..config import config
+            try:
+                from .local_pattern_matcher import LocalPatternMatcher
 
-            if not getattr(config.reasoning, "llm_pattern_matching_enabled", True):
-                logger.info("LLM pattern matching disabled; using legacy dict matching")
+                pattern_matcher = LocalPatternMatcher()
+                logger.info("Initialized local pattern matcher (LLM-free)")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to initialize local pattern matcher: {e}. Falling back to legacy dict matching."
+                )
                 pattern_matcher = None
-            else:
-                try:
-                    from .llm_pattern_matcher import LLMPatternMatcher
-                    from ..llm import create_llm_client
-
-                    llm_client = create_llm_client(
-                        model=config.reasoning.llm_pattern_matching_model,
-                        provider="openai",  # Always use OpenAI for pattern matching
-                    )
-                    pattern_matcher = LLMPatternMatcher(
-                        llm_client=llm_client,
-                        model=config.reasoning.llm_pattern_matching_model
-                    )
-                    logger.info(
-                        f"Initialized LLM pattern matcher with model: {config.reasoning.llm_pattern_matching_model}"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to initialize LLM pattern matcher: {e}. Pattern matching will use legacy dict matching."
-                    )
-                    pattern_matcher = None
         
         self.pattern_matcher = pattern_matcher
         
@@ -126,25 +113,22 @@ class RuleEngine:
         
         Returns sorted list of matching rules.
         """
-        # If we have an LLM pattern matcher, we can batch pattern matching
-        # However, the batching is handled internally by the pattern matcher
-        # when rules call _pattern_matches, so we just need to ensure
-        # the pattern matcher is set on all rules
-        matched_rules = []
-        for rule in self.rule_system.rules:
-            # Ensure pattern matcher is set on rule
-            if self.pattern_matcher is not None:
-                rule.pattern_matcher = self.pattern_matcher
-            
-            try:
-                if rule.matches(working_memory):
-                    matched_rules.append(rule)
-            except Exception as e:
-                logger.error(f"Error matching rule '{rule.name}': {e}")
-                continue
-        
-        # Sort by priority (highest first), then strength
-        matched_rules.sort(key=lambda r: (r.priority, r.strength), reverse=True)
+        # Delegate matching to the ProductionRuleSystem, which performs compiled prefiltering
+        # to avoid cartesian scans across rules × conditions × WM items.
+        try:
+            matched_rules = self.rule_system.match_rules(working_memory=working_memory)
+        except Exception as e:
+            logger.error(f"Rule system match_rules failed; falling back to per-rule matching: {e}", exc_info=True)
+            matched_rules = []
+            for rule in self.rule_system.rules:
+                if self.pattern_matcher is not None:
+                    rule.pattern_matcher = self.pattern_matcher
+                try:
+                    if rule.matches(working_memory):
+                        matched_rules.append(rule)
+                except Exception:
+                    continue
+
         top_priority = matched_rules[0].priority if matched_rules else 0.0
 
         # Avoid spamming INFO logs when nothing matches (common in idle/background cycles).

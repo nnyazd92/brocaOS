@@ -38,7 +38,7 @@ def test_ppo_training_metrics_are_logged_to_csv(tmp_path, monkeypatch):
     assert int(last["training_step"]) >= 1
     assert int(last["n_experiences"]) == 8
     assert "approx_kl" in last and last["approx_kl"] != ""
+    assert float(last["approx_kl"]) >= -1e-9
     assert "clip_fraction" in last and last["clip_fraction"] != ""
     assert float(last["configured_batch_size"]) == 16.0
     assert float(last["configured_buffer_size"]) == 8.0
-

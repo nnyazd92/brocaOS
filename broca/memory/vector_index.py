@@ -132,6 +132,32 @@ class VectorIndex:
         
         logger.debug(f"Found {len(results)} similar vectors")
         return results
+
+    def get_vector_by_memory_id(self, memory_id: int) -> Optional[List[float]]:
+        """
+        Return the stored (normalized) vector for a memory id, if present.
+
+        This avoids re-embedding memory text for downstream features such as
+        prompt priming diversity selection.
+        """
+        if self.index.ntotal == 0:
+            return None
+        target = int(memory_id)
+        faiss_id: Optional[int] = None
+        for fid, mid in self.id_map.items():
+            if int(mid) == target:
+                faiss_id = int(fid)
+                break
+        if faiss_id is None:
+            return None
+        try:
+            vec = self.index.reconstruct(faiss_id)
+            if vec is None:
+                return None
+            # Ensure it's a plain Python list of floats.
+            return [float(x) for x in vec]
+        except Exception:
+            return None
     
     def remove_vector(self, memory_id: int) -> None:
         """
@@ -246,4 +272,3 @@ class VectorIndex:
         self.id_map.clear()
         self.faiss_id_counter = 0
         logger.debug("Cleared vector index")
-

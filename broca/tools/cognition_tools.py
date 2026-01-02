@@ -14,6 +14,9 @@ state survives restarts.
 
 from __future__ import annotations
 
+import logging
+import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -21,6 +24,8 @@ from ..config import config
 from ..learning.experience_logger import ExperienceLogger
 from ..reasoning.integration_tool import ReasoningTool
 from ..reasoning.state_manager import ReasoningStateManager
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -63,7 +68,8 @@ class _ReasoningBackedTool:
             return self._reasoning_tool
 
         if not self._local_tool_initialized:
-            local = ReasoningTool()
+            allow_llm_pattern_matching = os.getenv("BROCA_COGNITION_LLM_PATTERN_MATCHING_ENABLED", "false").lower() == "true"
+            local = ReasoningTool(enable_llm_pattern_matching=allow_llm_pattern_matching)
             try:
                 if getattr(config.reasoning, "state_persistence_enabled", True):
                     self._state_manager.load_state(
@@ -122,6 +128,7 @@ class SolveTool(_ReasoningBackedTool):
                 "max_rules": {"type": "integer", "default": 5, "minimum": 1, "maximum": 50},
                 "persist": {"type": "boolean", "default": True, "description": "Persist reasoning state to disk"},
                 "tag": {"type": "string", "description": "Optional tag for the working memory item"},
+                "max_time_ms": {"type": "integer", "default": 2000, "minimum": 0, "maximum": 60000, "description": "Best-effort time budget for SOLVE (prevents long blocking loops)"},
             },
             "required": ["problem"],
         }
@@ -134,8 +141,11 @@ class SolveTool(_ReasoningBackedTool):
         max_rules: int = 5,
         persist: bool = True,
         tag: str = "",
+        max_time_ms: int = 2000,
         **_: Any,
     ) -> Dict[str, Any]:
+        t0 = time.perf_counter()
+        log_timings = os.getenv("BROCA_LOG_COGNITION_TIMINGS", "false").lower() == "true"
         if not isinstance(problem, str) or not problem.strip():
             return {"success": False, "error": "problem_required"}
 
@@ -148,26 +158,64 @@ class SolveTool(_ReasoningBackedTool):
             "tag": tag.strip() if isinstance(tag, str) else "",
             "timestamp": _now_iso(),
         }
+        t_add0 = time.perf_counter()
         _ = tool.execute(action="add_to_memory", memory_content=memory_item)
+        t_add_ms = (time.perf_counter() - t_add0) * 1000.0
 
         c = max(0, min(10, int(cycles)))
         mr = max(1, min(50, int(max_rules)))
+        budget_ms = max(0, min(60000, int(max_time_ms)))
 
         cycle_results: List[Dict[str, Any]] = []
         queued: List[Dict[str, Any]] = []
+        cycle_timings_ms: List[float] = []
+        timed_out = False
         for _i in range(c):
+            if budget_ms and (time.perf_counter() - t0) * 1000.0 > budget_ms:
+                timed_out = True
+                break
+            t_c0 = time.perf_counter()
             res = tool.execute(action="execute_cycle", max_rules=mr)
+            cycle_timings_ms.append((time.perf_counter() - t_c0) * 1000.0)
             cycle_results.append(res)
             if isinstance(res, dict):
                 q = res.get("queued_tools")
                 if isinstance(q, list):
                     queued = q
 
+        t_state0 = time.perf_counter()
         state = tool.execute(action="get_state")
+        t_state_ms = (time.perf_counter() - t_state0) * 1000.0
 
         persisted = False
         if _is_truthy(persist):
+            t_p0 = time.perf_counter()
             persisted = self._persist(tool, force=True)
+            t_persist_ms = (time.perf_counter() - t_p0) * 1000.0
+        else:
+            t_persist_ms = 0.0
+
+        total_ms = (time.perf_counter() - t0) * 1000.0
+        if log_timings:
+            logger.info(
+                "SOLVE timing: total=%.1fms add_to_memory=%.1fms cycles=%d cycle_ms=%s get_state=%.1fms persist=%.1fms",
+                total_ms,
+                t_add_ms,
+                c,
+                ",".join(f"{x:.1f}" for x in cycle_timings_ms),
+                t_state_ms,
+                t_persist_ms,
+                extra={
+                    "event": "cognition_solve_timing",
+                    "total_ms": total_ms,
+                    "add_to_memory_ms": t_add_ms,
+                    "cycle_count": c,
+                    "cycle_timings_ms": cycle_timings_ms,
+                    "get_state_ms": t_state_ms,
+                    "persist_ms": t_persist_ms,
+                    "llm_pattern_matching_enabled": os.getenv("BROCA_COGNITION_LLM_PATTERN_MATCHING_ENABLED", "false").lower() == "true",
+                },
+            )
 
         self._log(
             {
@@ -184,7 +232,9 @@ class SolveTool(_ReasoningBackedTool):
         return {
             "success": True,
             "memory_item": memory_item,
-            "cycles_executed": c,
+            "cycles_executed": len(cycle_results),
+            "timed_out": timed_out,
+            "max_time_ms": budget_ms,
             "cycle_results": cycle_results,
             "queued_tools": queued,
             "state": state.get("state") if isinstance(state, dict) else None,
@@ -196,7 +246,9 @@ class SolveTool(_ReasoningBackedTool):
             return f"SOLVE error: {result.get('error', 'unknown')}"
         n = int(result.get("cycles_executed", 0) or 0)
         q = result.get("queued_tools") or []
-        return f"SOLVE: cycles={n} queued_tools={len(q) if isinstance(q, list) else 0} persisted={bool(result.get('persisted'))}"
+        to = bool(result.get("timed_out"))
+        suffix = " timed_out=true" if to else ""
+        return f"SOLVE: cycles={n} queued_tools={len(q) if isinstance(q, list) else 0} persisted={bool(result.get('persisted'))}{suffix}"
 
 
 class InterpretTool(_ReasoningBackedTool):

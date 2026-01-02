@@ -13,6 +13,8 @@ import logging
 import platform
 import os
 import threading
+import json
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,7 @@ class WorldStateAggregator:
         size_manager: Optional[Any] = None,
         config: Optional[Any] = None,
         repo_tree_hash_enabled: bool = True,
+        shared_state_path: Optional[str | os.PathLike[str]] = None,
     ) -> None:
         """
         Initialize world state aggregator.
@@ -77,8 +80,85 @@ class WorldStateAggregator:
         self._last_tool_registry_hash: Optional[str] = None
         self._runtime_lock = threading.Lock()
         self._runtime_state: Dict[str, Any] = {}
+        # Session-scoped overrides (compact, overwritten; avoids cross-session interference).
+        self._session_state_lock = threading.Lock()
+        self._session_state: Dict[str, Dict[str, Any]] = {}
+
+        # Persisted shared state (intentionally small and overwritten, not append-only).
+        # This is used for cross-session coordination signals that should appear in
+        # every session's world state (e.g., the current autonomous recursive thought).
+        default_shared_path = os.getenv("BROCA_SHARED_WORLD_STATE_PATH", "data/world_state/shared_state.json")
+        self._shared_state_path = Path(shared_state_path or default_shared_path)
+        self._shared_state_lock = threading.Lock()
+        self._shared_state: Dict[str, Any] = {}
+        self._load_shared_state()
         
         logger.info("Initialized WorldStateAggregator")
+
+    def _load_shared_state(self) -> None:
+        try:
+            path = self._shared_state_path
+            if not path.exists():
+                return
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                with self._shared_state_lock:
+                    self._shared_state = data
+        except Exception as e:
+            logger.debug(f"Failed to load shared world state: {e}", exc_info=True)
+
+    def _persist_shared_state(self) -> None:
+        try:
+            path = self._shared_state_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            with self._shared_state_lock:
+                payload = dict(self._shared_state)
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+        except Exception as e:
+            logger.debug(f"Failed to persist shared world state: {e}", exc_info=True)
+
+    @staticmethod
+    def _clamp_shared_value(value: Any, *, max_string_len: int = 4000) -> Any:
+        if isinstance(value, str) and len(value) > max_string_len:
+            return value[:max_string_len] + "...[truncated]"
+        if isinstance(value, dict):
+            # Shallow clamp only; nested payloads should already be compact.
+            out: Dict[str, Any] = {}
+            for k, v in list(value.items())[:50]:
+                out[str(k)] = WorldStateAggregator._clamp_shared_value(v, max_string_len=max_string_len)
+            return out
+        if isinstance(value, list):
+            return [WorldStateAggregator._clamp_shared_value(v, max_string_len=max_string_len) for v in value[:50]]
+        return value
+
+    def set_shared_state(self, key: str, value: Any, *, source: Optional[str] = None) -> None:
+        """
+        Set a persisted shared-world-state field.
+
+        This is designed for small, cross-session coordination signals that should appear in
+        every session's world state (and therefore system prompt). It intentionally overwrites
+        previous values to avoid unbounded growth.
+        """
+        key_clean = (key or "").strip()
+        if not key_clean:
+            return
+
+        entry = {
+            "value": self._clamp_shared_value(value),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if source:
+            entry["source"] = str(source)[:100]
+
+        with self._shared_state_lock:
+            self._shared_state[key_clean] = entry
+        self._persist_shared_state()
+
+    def get_shared_state(self) -> Dict[str, Any]:
+        with self._shared_state_lock:
+            return dict(self._shared_state)
 
     def set_rl_guidance(
         self,
@@ -138,6 +218,105 @@ class WorldStateAggregator:
     def clear_rl_guidance(self) -> None:
         with self._runtime_lock:
             self._runtime_state.pop("rl_guidance", None)
+
+    def clear_primed_memory(self, session_id: str, *, mode: Optional[str] = None) -> None:
+        sid = session_id.strip() if isinstance(session_id, str) else ""
+        if not sid:
+            return
+        with self._session_state_lock:
+            if sid in self._session_state:
+                if mode == "thought":
+                    self._session_state[sid].pop("primed_memory_thought", None)
+                elif mode == "chat":
+                    self._session_state[sid].pop("primed_memory_chat", None)
+                    # Legacy key
+                    self._session_state[sid].pop("primed_memory", None)
+                else:
+                    # Default: clear all priming slots for safety.
+                    self._session_state[sid].pop("primed_memory_thought", None)
+                    self._session_state[sid].pop("primed_memory_chat", None)
+                    self._session_state[sid].pop("primed_memory", None)
+                if not self._session_state[sid]:
+                    self._session_state.pop(sid, None)
+
+    def set_primed_memory(
+        self,
+        *,
+        session_id: str,
+        query_preview: str,
+        memory_id: Optional[int] = None,
+        namespace: Optional[str] = None,
+        text: str = "",
+        truncated: bool,
+        items: Optional[List[Dict[str, Any]]] = None,
+        selection: Optional[Dict[str, Any]] = None,
+        mode: Optional[str] = None,
+    ) -> None:
+        sid = session_id.strip() if isinstance(session_id, str) else ""
+        if not sid:
+            return
+
+        try:
+            from ..config import config as _config
+
+            max_chars = int(getattr(_config.memory, "prompt_priming_max_memory_chars", 4000) or 4000)
+        except Exception:
+            max_chars = 4000
+
+        def _clamp_text(v: Any, limit: int) -> str:
+            s = str(v or "")
+            if limit > 0 and len(s) > limit:
+                return s[: max(0, limit - 40)] + "\n...[truncated]...\n"
+            return s
+
+        normalized_items: List[Dict[str, Any]] = []
+        if isinstance(items, list) and items:
+            for it in items:
+                if isinstance(it, dict):
+                    normalized_items.append(dict(it))
+        elif memory_id is not None or namespace is not None or text:
+            normalized_items = [
+                {
+                    "id": int(memory_id) if isinstance(memory_id, int) else None,
+                    "namespace": str(namespace) if isinstance(namespace, str) and namespace else None,
+                }
+            ]
+
+        payload = {
+            "primed_at": datetime.now(timezone.utc).isoformat(),
+            "query_preview": _clamp_text(query_preview, 800),
+            "text": _clamp_text(text, max_chars),
+            "truncated": bool(truncated),
+            "items": normalized_items[:20],
+            "selection": dict(selection) if isinstance(selection, dict) else None,
+        }
+        # Back-compat convenience fields (first item).
+        try:
+            first = normalized_items[0] if normalized_items else {}
+            payload["id"] = first.get("id")
+            payload["namespace"] = first.get("namespace")
+        except Exception:
+            payload["id"] = None
+            payload["namespace"] = None
+
+        with self._session_state_lock:
+            if sid not in self._session_state:
+                self._session_state[sid] = {}
+            # Clear the other slot to avoid cross-contamination.
+            if mode == "thought":
+                self._session_state[sid].pop("primed_memory_chat", None)
+                self._session_state[sid].pop("primed_memory", None)  # legacy
+                self._session_state[sid]["primed_memory_thought"] = payload
+            elif mode == "chat":
+                self._session_state[sid].pop("primed_memory_thought", None)
+                self._session_state[sid]["primed_memory_chat"] = payload
+                # Legacy alias for back-compat.
+                self._session_state[sid]["primed_memory"] = payload
+            else:
+                # Back-compat: treat unspecified as chat.
+                self._session_state[sid].pop("primed_memory_thought", None)
+                self._session_state[sid]["primed_memory_chat"] = payload
+                self._session_state[sid]["primed_memory"] = payload
     
     def _validate_metric_quality(self, state_dict: Dict[str, Any], component_name: str) -> bool:
         """
@@ -169,7 +348,7 @@ class WorldStateAggregator:
         
         return True  # Include anyway, but caller can check data_quality
     
-    def aggregate(self) -> Dict[str, Any]:
+    def aggregate(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Aggregate all available world state data into a clean hierarchical structure.
         
@@ -187,6 +366,27 @@ class WorldStateAggregator:
             rl_guidance = self._runtime_state.get("rl_guidance")
         if isinstance(rl_guidance, dict) and rl_guidance:
             world_state["rl_guidance"] = rl_guidance
+
+        # Session-scoped overlays (e.g., prompt priming). These are keyed by session_id and
+        # are not shared across sessions.
+        if isinstance(session_id, str) and session_id.strip():
+            sid = session_id.strip()
+            with self._session_state_lock:
+                session_payload = self._session_state.get(sid)
+            if isinstance(session_payload, dict) and session_payload:
+                primed = session_payload.get("primed_memory")
+                if isinstance(primed, dict) and primed:
+                    world_state["primed_memory"] = primed
+                primed_chat = session_payload.get("primed_memory_chat")
+                if isinstance(primed_chat, dict) and primed_chat:
+                    world_state["primed_memory_chat"] = primed_chat
+                primed_thought = session_payload.get("primed_memory_thought")
+                if isinstance(primed_thought, dict) and primed_thought:
+                    world_state["primed_memory_thought"] = primed_thought
+
+        shared_state = self.get_shared_state()
+        if shared_state:
+            world_state["shared_state"] = shared_state
         
         # System info (always available)
         system_info = self.get_system_info()

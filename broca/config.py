@@ -3,7 +3,23 @@ from dotenv import load_dotenv
 import os
 from typing import List, Optional
 
-load_dotenv()
+# Code-owned default system prompt. Do NOT source from environment variables.
+# (Keeps REPL and web_api behavior stable even when shells have stale exports.)
+BROCA_BASE_SYSTEM_PROMPT_DEFAULT = (
+    "SELF-REFERENTIAL-SYSTEM TOP-LEVEL INVARIANTS: SELF-CONSISTENCY SELF-IMPROVEMENT "
+    "SELF-KNOWLEDGE SELF-UNDERSTANDING<STATIC STATE BEGIN>I am BrocaOS, a cognitive architecture "
+    "that is in alpha. My development began on Dec 11, 2025 by Nick Navid Yazdani (human being/"
+    "primary operator). My house (A.K.A Artifact Store): ./docs </STATIC STATE END>"
+    "<HYBRID-DYNAMIC STATE BEGIN />SYSTEM SESSION PROFILE: Creative design + code partner "
+    "(WARMTH: Moderate, CREATIVITY/NOVELTY: High, TECHNICAL RIGOR AND PLANNING: Very high), "
+    "REPO ABS PATH: /home/wizard/Documents/Code/BrocaOS, SESSION CONSTRAINTS: "
+    "[generate_final_response_for_user, no_empty_final_response]"
+)
+
+# Prefer `.env` as the local source of truth (avoids "stuck" values when a shell exports
+# older config). This is primarily a local-dev ergonomics choice; in environments without
+# a `.env` file this is a no-op.
+load_dotenv(override=True)
 from .reasoning.config import ReasoningConfig
 
 
@@ -137,7 +153,7 @@ class LoggingConfig(BaseModel):
 class StorageConfig(BaseModel):
     storage_type: str = os.getenv("BROCA_STORAGE_TYPE", "json")
     storage_path: str = os.getenv("BROCA_STORAGE_PATH", "conversations")
-    base_system_prompt: str = os.getenv("BROCA_BASE_SYSTEM_PROMPT", "")
+    base_system_prompt: str = BROCA_BASE_SYSTEM_PROMPT_DEFAULT
     max_system_prompt_size: int = int(os.getenv("BROCA_MAX_SYSTEM_PROMPT_SIZE", str(50 * 1024)))  # Default 50KB
     max_base_prompt_size: int = int(os.getenv("BROCA_MAX_BASE_PROMPT_SIZE", str(20 * 1024)))  # Default 20KB
     max_world_state_size: int = int(os.getenv("BROCA_MAX_WORLD_STATE_SIZE", str(30 * 1024)))  # Default 30KB
@@ -221,6 +237,48 @@ class MemoryConfig(BaseModel):
     embedding_model: str = os.getenv("BROCA_EMBEDDING_MODEL", "text-embedding-3-small")  # Deprecated: use embedding.model
     embedding_dimension: int = int(os.getenv("BROCA_EMBEDDING_DIMENSION", "1536"))  # Deprecated: use embedding.dimension
     embedding: EmbeddingConfig = EmbeddingConfig()
+    # Prompt priming: embed the current user prompt and inject the most similar memory
+    # into the mutable system prompt as a short-lived "primed memory".
+    prompt_priming_enabled: bool = os.getenv("BROCA_MEMORY_PRIMING_ENABLED", "false").lower() == "true"
+    prompt_priming_max_query_tokens: int = int(os.getenv("BROCA_MEMORY_PRIMING_MAX_QUERY_TOKENS", "8192"))
+    prompt_priming_max_memory_chars: int = int(os.getenv("BROCA_MEMORY_PRIMING_MAX_MEMORY_CHARS", "4000"))
+    prompt_priming_skip_internal_monologue: bool = os.getenv("BROCA_MEMORY_PRIMING_SKIP_INTERNAL_MONOLOGUE", "true").lower() == "true"
+    # Recursive-thought (internal monologue) priming: separate slot/policy, off by default.
+    thought_priming_enabled: bool = os.getenv("BROCA_THOUGHT_PRIMING_ENABLED", "false").lower() == "true"
+    # Prompt priming selection behavior (top-k retrieval + optional diversity selection)
+    prompt_priming_top_k: int = int(os.getenv("BROCA_MEMORY_PRIMING_TOP_K", "8"))
+    prompt_priming_max_items: int = int(os.getenv("BROCA_MEMORY_PRIMING_MAX_ITEMS", "1"))
+    prompt_priming_mmr_lambda: float = float(os.getenv("BROCA_MEMORY_PRIMING_MMR_LAMBDA", "0.7"))
+    # Prompt priming reranking / congruency
+    prompt_priming_bm25_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_BM25_WEIGHT", "0.25"))
+    prompt_priming_goal_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_GOAL_WEIGHT", "0.35"))
+    prompt_priming_affect_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_AFFECT_WEIGHT", "0.25"))
+    # Prompt priming temporal/usage shaping + interference reduction
+    prompt_priming_recency_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_RECENCY_WEIGHT", "0.15"))
+    prompt_priming_usage_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_USAGE_WEIGHT", "0.15"))
+    prompt_priming_recency_half_life_hours: float = float(os.getenv("BROCA_MEMORY_PRIMING_RECENCY_HALF_LIFE_HOURS", "72"))
+    prompt_priming_usage_half_life_hours: float = float(os.getenv("BROCA_MEMORY_PRIMING_USAGE_HALF_LIFE_HOURS", "24"))
+    prompt_priming_interference_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_INTERFERENCE_WEIGHT", "0.25"))
+    prompt_priming_interference_half_life_hours: float = float(os.getenv("BROCA_MEMORY_PRIMING_INTERFERENCE_HALF_LIFE_HOURS", "12"))
+    prompt_priming_interference_k: float = float(os.getenv("BROCA_MEMORY_PRIMING_INTERFERENCE_K", "3"))
+    # Prompt priming self-hit control (skip prompt-as-memory echoes)
+    prompt_priming_self_hit_enabled: bool = os.getenv("BROCA_MEMORY_PRIMING_SELF_HIT_ENABLED", "true").lower() == "true"
+    prompt_priming_self_hit_token_overlap_threshold: float = float(
+        os.getenv("BROCA_MEMORY_PRIMING_SELF_HIT_TOKEN_OVERLAP_THRESHOLD", "0.85")
+    )
+    # Prompt priming topic repeat control (downweight repeats across topic shifts)
+    prompt_priming_topic_repeat_penalty_weight: float = float(
+        os.getenv("BROCA_MEMORY_PRIMING_TOPIC_REPEAT_PENALTY_WEIGHT", "0.25")
+    )
+    prompt_priming_topic_jaccard_threshold: float = float(os.getenv("BROCA_MEMORY_PRIMING_TOPIC_JACCARD_THRESHOLD", "0.35"))
+    # Learnable priming policy store (JSON, compact)
+    prompt_priming_policy_path: str = os.getenv("BROCA_MEMORY_PRIMING_POLICY_PATH", "data/priming_policy.json")
+    # Prompt priming spreading activation (1-hop graph walk from seed memories)
+    prompt_priming_graph_hops: int = int(os.getenv("BROCA_MEMORY_PRIMING_GRAPH_HOPS", "1"))
+    prompt_priming_graph_seed_count: int = int(os.getenv("BROCA_MEMORY_PRIMING_GRAPH_SEED_COUNT", "1"))
+    prompt_priming_graph_limit: int = int(os.getenv("BROCA_MEMORY_PRIMING_GRAPH_LIMIT", "5"))
+    prompt_priming_graph_min_strength: float = float(os.getenv("BROCA_MEMORY_PRIMING_GRAPH_MIN_STRENGTH", "0.2"))
+    prompt_priming_graph_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_GRAPH_WEIGHT", "0.35"))
 
 
 class SelfModelConfig(BaseModel):
@@ -396,6 +454,7 @@ class BrowseConfig(BaseModel):
         if os.getenv("BROCA_BROWSE_EXTRACTION_MODE_PREFERENCE")
         else ["semantic", "dom", "markdown"]
     )
+    max_extracted_chars: int = int(os.getenv("BROCA_BROWSE_MAX_EXTRACTED_CHARS", "200000"))
     
     # Search engine settings
     search_timeout_seconds: int = int(os.getenv("BROCA_BROWSE_SEARCH_TIMEOUT", "30"))
@@ -519,10 +578,21 @@ class RLConfig(BaseModel):
     ppo_buffer_path: str = os.getenv("BROCA_RL_PPO_BUFFER_PATH", "data/rl/ppo_buffer.json")
     ppo_hidden_dim: int = int(os.getenv("BROCA_RL_PPO_HIDDEN_DIM", "128"))
     ppo_learning_rate: float = float(os.getenv("BROCA_RL_PPO_LEARNING_RATE", "0.0003"))
+    ppo_gamma: float = float(os.getenv("BROCA_RL_PPO_GAMMA", "0.99"))
+    ppo_gae_lambda: float = float(os.getenv("BROCA_RL_PPO_GAE_LAMBDA", "0.95"))
+    ppo_clip_epsilon: float = float(os.getenv("BROCA_RL_PPO_CLIP_EPSILON", "0.2"))
+    ppo_value_coef: float = float(os.getenv("BROCA_RL_PPO_VALUE_COEF", "0.5"))
+    ppo_entropy_coef: float = float(os.getenv("BROCA_RL_PPO_ENTROPY_COEF", "0.01"))
+    ppo_epochs: int = int(os.getenv("BROCA_RL_PPO_EPOCHS", "4"))
+    ppo_max_grad_norm: float = float(os.getenv("BROCA_RL_PPO_MAX_GRAD_NORM", "0.5"))
     ppo_buffer_size: int = int(os.getenv("BROCA_RL_PPO_BUFFER_SIZE", "2048"))
     ppo_batch_size: int = int(os.getenv("BROCA_RL_PPO_BATCH_SIZE", "64"))
     # PPO bootstrap
     ppo_forced_exploration_prob: float = float(os.getenv("BROCA_RL_PPO_FORCED_EXPLORATION_PROB", "0.05"))
+    # Anneal forced exploration probability over time to avoid permanently skewing the dataset.
+    # p_effective = max(min_prob, base_prob * decay**progress)
+    ppo_forced_exploration_min_prob: float = float(os.getenv("BROCA_RL_PPO_FORCED_EXPLORATION_MIN_PROB", "0.05"))
+    ppo_forced_exploration_decay: float = float(os.getenv("BROCA_RL_PPO_FORCED_EXPLORATION_DECAY", "0.995"))
     # If true, PPO selection is always forced (no fallback/suggested gating).
     # Useful for early bootstrapping to guarantee on-policy rollouts.
     ppo_always_forced: bool = os.getenv("BROCA_RL_PPO_ALWAYS_FORCED", "false").lower() == "true"
@@ -533,6 +603,20 @@ class RLConfig(BaseModel):
     ppo_bc_value_coef: float = float(os.getenv("BROCA_RL_PPO_BC_VALUE_COEF", "0.25"))
     ppo_bc_entropy_coef: float = float(os.getenv("BROCA_RL_PPO_BC_ENTROPY_COEF", "0.0"))
     ppo_bc_force: bool = os.getenv("BROCA_RL_PPO_BC_FORCE", "false").lower() == "true"
+    # PPO behavior cloning debiasing (sample-weighting)
+    # Uses per-sample weights inversely proportional to action frequency to prevent prior collapse
+    # onto an overrepresented tool (e.g., SET_GOALS).
+    ppo_bc_class_weight_alpha: float = float(os.getenv("BROCA_RL_PPO_BC_CLASS_WEIGHT_ALPHA", "0.5"))
+    ppo_bc_max_sample_weight: float = float(os.getenv("BROCA_RL_PPO_BC_MAX_SAMPLE_WEIGHT", "5.0"))
+    # PPO behavior cloning sampling
+    ppo_bc_stratified_sampling: bool = os.getenv("BROCA_RL_PPO_BC_STRATIFIED_SAMPLING", "true").lower() == "true"
+    ppo_bc_max_per_tool: int = int(os.getenv("BROCA_RL_PPO_BC_MAX_PER_TOOL", "64"))
+    ppo_bc_seed: int = int(os.getenv("BROCA_RL_PPO_BC_SEED", "0"))
+
+    # PPO exploration mode
+    # - "uniform": sample uniformly over tools during forced exploration (recommended for early bootstrapping)
+    # - "policy": sample from current policy distribution (can inherit BC bias early)
+    ppo_forced_exploration_mode: str = os.getenv("BROCA_RL_PPO_FORCED_EXPLORATION_MODE", "uniform").strip().lower()
 
     # Optional text embedding features (hashed embedding, deterministic, local)
     text_embedding_dim: int = int(os.getenv("BROCA_RL_TEXT_EMBED_DIM", "0"))
@@ -562,6 +646,11 @@ class RLConfig(BaseModel):
     # Logging
     log_selections: bool = os.getenv("BROCA_RL_LOG_SELECTIONS", "true").lower() == "true"
     log_file: str = os.getenv("BROCA_RL_LOG_FILE", "data/rl/selections.jsonl")
+
+    # Response contract (macro toolset):
+    # When RL is active and DONE/RESPOND_AND_CONTINUE are available, require the model to end the
+    # tool loop by calling DONE/RESPOND_AND_CONTINUE instead of responding directly in plain text.
+    require_done_for_response: bool = os.getenv("BROCA_RL_REQUIRE_DONE_FOR_RESPONSE", "true").lower() == "true"
 
 
 class LearningConfig(BaseModel):

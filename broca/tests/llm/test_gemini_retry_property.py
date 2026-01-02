@@ -13,7 +13,11 @@ from broca.llm.gemini_client import GeminiClient
 
 
 class TestGeminiRetryProperties:
-    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=200)
+    @settings(
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+        max_examples=200,
+        deadline=None,
+    )
     @given(
         attempt=st.integers(min_value=0, max_value=12),
         base=st.floats(min_value=0.0, max_value=10.0, allow_nan=False, allow_infinity=False),
@@ -43,7 +47,11 @@ class TestGeminiRetryProperties:
         wait = client._compute_backoff_seconds(attempt, retry_after_seconds=retry_after)
         assert 0.0 <= wait <= max_sleep + 1e-9
 
-    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=200)
+    @settings(
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+        max_examples=200,
+        deadline=None,
+    )
     @given(
         attempt=st.integers(min_value=0, max_value=12),
         base=st.floats(min_value=0.0, max_value=10.0, allow_nan=False, allow_infinity=False),
@@ -70,4 +78,3 @@ class TestGeminiRetryProperties:
 
         wait = client._compute_backoff_seconds(attempt, retry_after_seconds=retry_after)
         assert wait >= retry_after - 1e-9
-

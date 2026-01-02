@@ -10,9 +10,9 @@ from pathlib import Path
 
 import psutil
 import threading
-from fastapi import FastAPI, HTTPException, Body, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Body, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 import uvicorn
 
@@ -30,6 +30,24 @@ _tool_selection_logger = None
 # RESPOND_AND_CONTINUE: background continuation worker (best-effort, survives restarts via metadata flag)
 _auto_continue_worker_started = False
 _auto_continue_worker_lock = threading.Lock()
+
+def _schedule_auto_continue(conversation_id: str, *, delay_sec: float = 0.05) -> None:
+    """
+    Fire-and-forget helper to run a pending auto-continue job shortly after
+    the pending flag is persisted.
+    """
+
+    def _run() -> None:
+        try:
+            time.sleep(max(0.0, float(delay_sec)))
+        except Exception:
+            pass
+        try:
+            _run_auto_continue_job_now(conversation_id)
+        except Exception:
+            pass
+
+    threading.Thread(target=_run, daemon=True, name=f"broca-auto-continue-once:{conversation_id[:8]}").start()
 
 def _get_tool_selection_logger():
     """Get tool selection logger from RL module."""
@@ -95,6 +113,22 @@ except ImportError:
     ResponseAnalyzer = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+
+def _require_admin(request: Request) -> None:
+    """
+    Best-effort protection for privileged endpoints.
+
+    If `BROCA_ADMIN_API_KEY` is set, callers must send `X-Broca-Admin-Key` with the same value.
+    If unset, endpoints are left open (useful for localhost/dev).
+    """
+    expected = (os.getenv("BROCA_ADMIN_API_KEY", "") or "").strip()
+    if not expected:
+        return
+    got = (request.headers.get("X-Broca-Admin-Key") or request.headers.get("x-broca-admin-key") or "").strip()
+    if got != expected:
+        raise HTTPException(status_code=401, detail="Missing/invalid admin key")
+
 
 class _MetricsCache:
     """
@@ -538,10 +572,33 @@ def _run_auto_continue_job_now(conversation_id: str) -> None:
             final_messages = final.get("messages", []) if isinstance(final, dict) else []
             final_meta = (final.get("metadata", {}) if isinstance(final, dict) else {}) or {}
             final_meta.pop("auto_continue_pending", None)
+            final_meta["auto_continue_last"] = {
+                "status": "completed",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }
             final_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
             storage.save_conversation(conversation_id, final_messages, final_meta)
     except Exception as e:
         logger.warning(f"Auto-continue job failed for {conversation_id}: {e}", exc_info=True)
+        try:
+            final = storage.load_conversation(conversation_id) or {}
+            final_messages = final.get("messages", []) if isinstance(final, dict) else []
+            final_meta = (final.get("metadata", {}) if isinstance(final, dict) else {}) or {}
+            p = final_meta.get("auto_continue_pending")
+            if isinstance(p, dict):
+                p["status"] = "error"
+                p["error"] = str(e)
+                p["error_at"] = datetime.now(timezone.utc).isoformat()
+                final_meta["auto_continue_pending"] = p
+            final_meta["auto_continue_last"] = {
+                "status": "error",
+                "error": str(e),
+                "error_at": datetime.now(timezone.utc).isoformat(),
+            }
+            final_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            storage.save_conversation(conversation_id, final_messages, final_meta)
+        except Exception:
+            pass
 
 
 def _start_auto_continue_worker_thread(interval_sec: float = 1.0) -> None:
@@ -731,6 +788,16 @@ class Message(BaseModel):
 class LoadConversationResponse(BaseModel):
     conversation_id: str
     messages: List[Message]
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class ConversationUpdatesResponse(BaseModel):
+    conversation_id: str
+    messages: List[Message]
+    next_after: int
+    updated_at: Optional[str] = None
+    auto_continue_pending: Optional[Dict[str, Any]] = None
+    auto_continue_last: Optional[Dict[str, Any]] = None
 
 class ConversationSummary(BaseModel):
     conversation_id: str
@@ -752,6 +819,50 @@ class ChatResponse(BaseModel):
     conversation_id: str
     reply: Message
     rl_signals: Optional[Dict[str, Any]] = None  # RL signal metrics if requested
+
+
+class SharedWorldStateUpdateRequest(BaseModel):
+    key: str
+    value: Any
+    source: Optional[str] = None
+
+
+class SharedWorldStateResponse(BaseModel):
+    shared_state: Dict[str, Any]
+
+
+class GovernancePolicyResponse(BaseModel):
+    policy: Dict[str, Any]
+
+
+class GovernancePolicyRequestsResponse(BaseModel):
+    requests: List[Dict[str, Any]]
+
+
+class GovernancePolicyRequestResponse(BaseModel):
+    request: Dict[str, Any]
+
+
+class GovernanceTokenRequest(BaseModel):
+    expiry_seconds: int = Field(default=600, ge=10, le=86400)
+    sub: str = Field(default="admin", max_length=200)
+    name: str = Field(default="admin", max_length=200)
+
+
+class GovernanceTokenResponse(BaseModel):
+    token: str
+    payload: Dict[str, Any]
+    required_scopes: List[str]
+
+
+class GovernanceCommitRequest(BaseModel):
+    approval_token: str = Field(min_length=10)
+    note: Optional[str] = Field(default="", max_length=2000)
+
+
+class GovernanceCommitResponse(BaseModel):
+    request_id: str
+    applied_version: Dict[str, Any]
 
 
 class MemoryQueryRequest(BaseModel):
@@ -1379,8 +1490,53 @@ async def load_conversation(conversation_id: str) -> LoadConversationResponse:
         if "content" not in m:
             m["content"] = ""
         msgs.append(Message(**m))
-        
-    return LoadConversationResponse(conversation_id=conversation_id, messages=msgs)
+
+    metadata = data.get("metadata", {}) if isinstance(data, dict) else {}
+    return LoadConversationResponse(conversation_id=conversation_id, messages=msgs, metadata=metadata if isinstance(metadata, dict) else None)
+
+
+@app.get("/api/conversations/{conversation_id}/updates", response_model=ConversationUpdatesResponse)
+async def conversation_updates(conversation_id: str, after: int = 0) -> ConversationUpdatesResponse:
+    """
+    Incremental message fetch for web UI polling.
+
+    Used to surface RESPOND_AND_CONTINUE background work: the UI can poll this endpoint
+    after receiving an auto_continue queued event.
+    """
+    storage = get_storage()
+    data = storage.load_conversation(conversation_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    raw_msgs = data.get("messages", []) if isinstance(data, dict) else []
+    visible_msgs: List[Message] = []
+    for m in raw_msgs:
+        if not isinstance(m, dict):
+            continue
+        if m.get("hidden") is True:
+            continue
+        if m.get("role") == "user":
+            content = m.get("content", "")
+            if content and "[SYSTEM DIRECTIVE" in content:
+                continue
+        if "content" not in m:
+            m["content"] = ""
+        visible_msgs.append(Message(**m))
+
+    a = int(after) if isinstance(after, int) else 0
+    a = max(0, min(a, len(visible_msgs)))
+    delta = visible_msgs[a:]
+
+    metadata = data.get("metadata", {}) if isinstance(data, dict) else {}
+    meta = metadata if isinstance(metadata, dict) else {}
+    return ConversationUpdatesResponse(
+        conversation_id=conversation_id,
+        messages=delta,
+        next_after=len(visible_msgs),
+        updated_at=meta.get("updated_at"),
+        auto_continue_pending=meta.get("auto_continue_pending") if isinstance(meta.get("auto_continue_pending"), dict) else None,
+        auto_continue_last=meta.get("auto_continue_last") if isinstance(meta.get("auto_continue_last"), dict) else None,
+    )
 
 @app.put("/api/conversations/{conversation_id}/title")
 async def update_conversation_title(conversation_id: str, update: TitleUpdate):
@@ -1402,14 +1558,49 @@ async def delete_conversation(conversation_id: str):
     storage.delete_conversation(conversation_id)
     return {"success": True}
 
-def stream_response(conversation_id: str, user_message: str, web_search_enabled: bool = True, include_rl_signals: bool = False) -> Generator[str, None, None]:
+def _get_storage_from_runtime(rt: BrocaRuntime):
+    if rt.conversation_storage is None:
+        raise HTTPException(status_code=500, detail="Storage not initialized")
+    return rt.conversation_storage
+
+
+def stream_response(
+    rt: BrocaRuntime | str,
+    storage: Any | None = None,
+    session: ConversationSession | None = None,
+    conversation_id: str | None = None,
+    user_message: str | None = None,
+    web_search_enabled: bool = True,
+    include_rl_signals: bool = False,
+) -> Generator[str, None, None]:
+    """
+    Stream an agent response as NDJSON.
+
+    Backward compatibility: older tests/clients called `stream_response(conversation_id, user_message)`.
+    Newer code paths (the `/api/chat` endpoint) pass pre-resolved `(rt, storage, session, ...)` to
+    avoid raising HTTPExceptions after the streaming response has started.
+    """
+    if isinstance(rt, str):
+        # Legacy signature: (conversation_id, user_message, ...)
+        conversation_id = rt
+        if not isinstance(user_message, str):
+            # storage param holds the legacy user_message in this overload.
+            user_message = storage if isinstance(storage, str) else ""
+        rt = get_runtime()
+        storage = _get_storage_from_runtime(rt)
+        session = create_session(conversation_id)
+
+    assert not isinstance(rt, str)
+    assert storage is not None
+    assert session is not None
+    assert isinstance(conversation_id, str)
+    assert isinstance(user_message, str)
     # Import config locally at the very start to avoid scoping issues
     # This ensures config is available before any methods that might import it locally
     from .config import config as app_config
     
-    rt = get_runtime()
-    storage = get_storage()
-    session = create_session(conversation_id)
+    # NOTE: `rt/storage/session` are resolved *before* StreamingResponse starts so that
+    # runtime-initialization 503s don't explode after headers are sent.
     
     # PEA/PFREA removed - planning is now handled via planning tool
 
@@ -1443,6 +1634,14 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
     # Parity with ConversationSession.send(): reset per-turn ToolRegistry counters.
     # Streaming path executes tools directly, so we must explicitly mark new user turns here.
     pending_auto_continue_prompt: Optional[str] = None
+    # When tools are disabled (DONE/RESPOND_AND_CONTINUE), some models may still emit tool_calls.
+    # Reprompt a few times and then force a best-effort answer to avoid infinite loops.
+    force_final_response_reprompt_attempts = 0
+    # When RL response contract is enabled, prevent direct responses without DONE/RESPOND_AND_CONTINUE.
+    require_done_reprompt_attempts = 0
+    # When the provider returns an empty assistant message, reprompt a few times instead of
+    # emitting a generic apology (this often happens right after DONE).
+    empty_final_response_reprompt_attempts = 0
 
     try:
         if rt.tool_registry and hasattr(rt.tool_registry, "start_turn"):
@@ -1773,6 +1972,11 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                 # execution-time enforcement and reprompting are additional safety layers.
                 tool_choice = {"type": "function", "function": {"name": forced_tool_name}}
 
+            # DONE macro: if latched, tools list is already empty, but also clear tool_choice for safety.
+            if rt.tool_registry and getattr(rt.tool_registry, "force_final_response", False):
+                tools = []
+                tool_choice = None
+
             # PEA/PFREA removed - planning is now handled via planning tool
             
             messages_for_llm = session._get_messages_for_llm()
@@ -1801,13 +2005,110 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                 since_start_ms=int((llm_t1 - request_t0) * 1000),
             )
             last_response = response  # Store for max_iterations handling
+
+            # Parity with ConversationSession.send(): extract Gemini thought_signature FIRST so it can
+            # be attached to tool_calls (required by Gemini SDK for tool-call continuity).
+            try:
+                if (
+                    hasattr(session, "_is_gemini_client")
+                    and callable(getattr(session, "_is_gemini_client"))
+                    and session._is_gemini_client()
+                    and hasattr(session.llm, "extract_thought_signature")
+                ):
+                    extracted_sig = session.llm.extract_thought_signature(response)
+                    if extracted_sig:
+                        session._current_thought_signature = extracted_sig
+            except Exception:
+                pass
+
             tool_calls = session.llm.extract_tool_calls(response)
+
+            # Parity with ConversationSession._handle_tool_calls(): ensure each Gemini tool_call carries
+            # thought_signature (Gemini SDK requirement).
+            try:
+                if (
+                    tool_calls
+                    and hasattr(session, "_is_gemini_client")
+                    and callable(getattr(session, "_is_gemini_client"))
+                    and session._is_gemini_client()
+                ):
+                    current_sig = None
+                    getter = getattr(session, "_get_effective_thought_signature", None)
+                    if callable(getter):
+                        current_sig = getter()
+                    if not current_sig:
+                        current_sig = getattr(session, "_current_thought_signature", None)
+                    if current_sig:
+                        try:
+                            from .repl.session import _inject_thought_signature_into_tool_calls
+                            _inject_thought_signature_into_tool_calls(tool_calls, current_sig)
+                        except Exception:
+                            for tc in tool_calls:
+                                if isinstance(tc, dict) and "thought_signature" not in tc:
+                                    tc["thought_signature"] = current_sig
+            except Exception:
+                pass
             
             # Extract assistant content (intermediary commentary) before processing tool calls
             assistant_content = session.llm.extract_assistant_content(response) or None
             assistant_text = assistant_content  # Track for plan/forecast extraction
             
             # PEA/PFREA removed - planning is now handled via planning tool
+
+            # DONE/RESPOND_AND_CONTINUE: tools are disabled for this user turn.
+            # If a provider still emits tool_calls even when no tools are advertised, reprompt a few
+            # times and then force a best-effort final answer to avoid an infinite tool loop.
+            if tool_calls and rt.tool_registry and getattr(rt.tool_registry, "force_final_response", False):
+                force_final_response_reprompt_attempts += 1
+                try:
+                    ts_logger.warning(
+                        f"API_FORCE_FINAL_RESPONSE_TOOL_CALLS | conversation_id={conversation_id} | "
+                        f"attempt={force_final_response_reprompt_attempts} | iteration={iterations} | "
+                        f"tool_calls={len(tool_calls)}"
+                    )
+                except Exception:
+                    pass
+
+                # Record attempted assistant output (hidden), but do not record tool_calls.
+                try:
+                    session.messages.append({"role": "assistant", "content": assistant_content or "", "hidden": True})
+                except Exception:
+                    pass
+
+                if force_final_response_reprompt_attempts <= 3:
+                    try:
+                        session.messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "[SYSTEM DIRECTIVE - TOOLS DISABLED] Tools are disabled for this turn because DONE/"
+                                    "RESPOND_AND_CONTINUE was invoked. You MUST respond to the user now in plain text.\n"
+                                    "- Do NOT call any tools.\n"
+                                    "- Do NOT output tool_calls.\n"
+                                    "- Provide the final user-visible answer now."
+                                ),
+                                "hidden": True,
+                            }
+                        )
+                    except Exception:
+                        pass
+
+                    yield json.dumps(
+                        {
+                            "type": "warning",
+                            "warning": "tools_disabled_force_final_response",
+                            "attempt": force_final_response_reprompt_attempts,
+                            "conversation_id": conversation_id,
+                        }
+                    ) + "\n"
+                    continue
+
+                # Retry budget exhausted: force a best-effort answer.
+                assistant_content = assistant_content or (
+                    "I’m unable to continue with tool calls disabled. Please rephrase your request."
+                )
+                assistant_text = assistant_content
+                tool_calls = []
             
             if session.internal_sensing_framework and tool_calls:
                 try:
@@ -1951,9 +2252,126 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
                 continue
             else:
                 # No tool calls - check if final response is allowed
-                content = session.llm.extract_assistant_content(response)
-                if not content:
-                    content = "I apologize, but I encountered an issue processing your request."
+                content = assistant_content
+                if not content or not str(content).strip():
+                    empty_final_response_reprompt_attempts += 1
+                    logger.warning(
+                        "Empty assistant_content in stream_response final path",
+                        extra={
+                            "event": "empty_final_response",
+                            "attempt": empty_final_response_reprompt_attempts,
+                            "iteration": iterations,
+                            "conversation_id": conversation_id,
+                            "force_final_response": bool(getattr(rt.tool_registry, "force_final_response", False))
+                            if rt.tool_registry
+                            else False,
+                        },
+                    )
+
+                    # Record the attempted content (even if empty) for traceability.
+                    session.messages.append({"role": "assistant", "content": assistant_content or "", "hidden": True})
+
+                    if empty_final_response_reprompt_attempts <= 3:
+                        if rt.tool_registry and getattr(rt.tool_registry, "force_final_response", False):
+                            directive = (
+                                "[SYSTEM DIRECTIVE - RESPONSE REQUIRED] Tools are disabled for this turn because DONE/"
+                                "RESPOND_AND_CONTINUE was invoked. You returned an empty response.\n"
+                                "- Do NOT call any tools.\n"
+                                "- Provide a non-empty final answer in plain text now."
+                            )
+                        else:
+                            directive = (
+                                "[SYSTEM DIRECTIVE - RESPONSE REQUIRED] You returned an empty response.\n"
+                                "- Provide a non-empty response in plain text.\n"
+                                "- If you need tools, call them explicitly; otherwise answer now."
+                            )
+
+                        session.messages.append({"role": "user", "content": directive, "hidden": True})
+                        yield (
+                            json.dumps(
+                                {
+                                    "type": "warning",
+                                    "warning": "empty_final_response",
+                                    "attempt": empty_final_response_reprompt_attempts,
+                                    "conversation_id": conversation_id,
+                                }
+                            )
+                            + "\n"
+                        )
+                        continue
+
+                    content = "I didn't receive a response from the model. Please retry."
+                else:
+                    content = str(content)
+
+                # RL response contract: if DONE/RESPOND_AND_CONTINUE are available and RL policy is active,
+                # do not allow a direct plain-text response without first calling DONE/RESPOND_AND_CONTINUE.
+                try:
+                    if (
+                        content
+                        and rt.tool_registry
+                        and not getattr(rt.tool_registry, "force_final_response", False)
+                        and getattr(app_config.tools, "toolset", "legacy") == "primitive"
+                        and getattr(app_config.rl, "require_done_for_response", False)
+                        and getattr(rt.tool_registry, "online_policy_ranker", None) is not None
+                    ):
+                        allowed_tool_names = set()
+                        if isinstance(tools, list):
+                            for t in tools:
+                                try:
+                                    allowed_tool_names.add(t.get("function", {}).get("name"))
+                                except Exception:
+                                    pass
+
+                        if allowed_tool_names.intersection({"DONE", "RESPOND_AND_CONTINUE"}):
+                            require_done_reprompt_attempts += 1
+                            logger.warning(
+                                "Final response attempted without DONE/RESPOND_AND_CONTINUE while RL response contract is enabled",
+                                extra={
+                                    "event": "response_contract_missing_done",
+                                    "attempt": require_done_reprompt_attempts,
+                                    "iteration": iterations,
+                                    "conversation_id": conversation_id,
+                                    "allowed_tools": sorted([n for n in allowed_tool_names if isinstance(n, str)]),
+                                },
+                            )
+
+                            session.messages.append({"role": "assistant", "content": content, "hidden": True})
+
+                            if require_done_reprompt_attempts <= 3:
+                                session.messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "[SYSTEM DIRECTIVE - RESPONSE CONTRACT] You attempted to respond directly.\n"
+                                            "You MUST end this turn by calling one of these tools:\n"
+                                            "- DONE (respond now, then stop)\n"
+                                            "- RESPOND_AND_CONTINUE (respond now, then continue in background)\n"
+                                            "Do NOT output a final answer in plain text in this message."
+                                        ),
+                                        "hidden": True,
+                                    }
+                                )
+                                yield json.dumps(
+                                    {
+                                        "type": "warning",
+                                        "warning": "response_contract_missing_done",
+                                        "attempt": require_done_reprompt_attempts,
+                                        "conversation_id": conversation_id,
+                                    }
+                                ) + "\n"
+                                continue
+
+                            logger.warning(
+                                "RL response contract reprompt budget exhausted; allowing final response without DONE",
+                                extra={
+                                    "event": "response_contract_budget_exhausted",
+                                    "iteration": iterations,
+                                    "conversation_id": conversation_id,
+                                },
+                            )
+                except Exception as e:
+                    logger.debug(f"Failed to enforce RL response contract: {e}", exc_info=True)
                 
                 # PEA/PFREA removed - final responses are always allowed
                 
@@ -2336,6 +2754,26 @@ def stream_response(conversation_id: str, user_message: str, web_search_enabled:
         "type": "done",
         "conversation_id": conversation_id
     }
+
+    # If RESPOND_AND_CONTINUE was triggered, inform the client so it can poll for updates.
+    try:
+        data = storage.load_conversation(conversation_id)
+        meta = (data.get("metadata", {}) if isinstance(data, dict) else {}) or {}
+        if isinstance(meta, dict) and isinstance(meta.get("auto_continue_pending"), dict):
+            yield json.dumps(
+                {
+                    "type": "auto_continue",
+                    "conversation_id": conversation_id,
+                    "status": str(meta["auto_continue_pending"].get("status") or "pending"),
+                }
+            ) + "\n"
+            # Kick an immediate one-shot job runner after persisting pending state.
+            try:
+                _schedule_auto_continue(conversation_id)
+            except Exception:
+                pass
+    except Exception:
+        pass
     
     # Add RL signals if requested and available
     if include_rl_signals and 'session' in locals() and 'rt' in locals():
@@ -2441,9 +2879,23 @@ async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
             req.conversation_id = res.conversation_id
 
         if req.stream:
+            # Resolve runtime/session before starting StreamingResponse to avoid:
+            # "Caught handled exception, but response already started."
+            rt = get_runtime()
+            storage = _get_storage_from_runtime(rt)
+            session = create_session(req.conversation_id)
+
             background_tasks.add_task(_run_auto_continue_job_now, req.conversation_id)
             return StreamingResponse(
-                stream_response(req.conversation_id, last.content, web_search_enabled=req.web_search, include_rl_signals=req.include_rl_signals),
+                stream_response(
+                    rt,
+                    storage,
+                    session,
+                    req.conversation_id,
+                    last.content,
+                    web_search_enabled=req.web_search,
+                    include_rl_signals=req.include_rl_signals,
+                ),
                 media_type="application/x-ndjson",
                 background=background_tasks,
             )
@@ -2566,6 +3018,119 @@ async def chat(req: ChatRequest, background_tasks: BackgroundTasks):
         )
     finally:
         end_request()
+
+
+@app.post("/api/world_state/shared", response_model=SharedWorldStateResponse)
+async def update_shared_world_state(req: SharedWorldStateUpdateRequest):
+    """
+    Update a small shared world-state field that is injected into every session's world state.
+
+    Intended use: cross-session coordination signals like the current autonomous recursive thought,
+    without appending to prompts or rotating logs.
+    """
+    rt = get_runtime()
+    if not rt.world_state_aggregator:
+        raise HTTPException(status_code=500, detail="World state aggregator not initialized")
+
+    try:
+        rt.world_state_aggregator.set_shared_state(req.key, req.value, source=req.source)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update shared state: {e}")
+
+    return SharedWorldStateResponse(shared_state=rt.world_state_aggregator.get_shared_state())
+
+
+@app.get("/api/world_state/shared", response_model=SharedWorldStateResponse)
+async def get_shared_world_state():
+    rt = get_runtime()
+    if not rt.world_state_aggregator:
+        raise HTTPException(status_code=500, detail="World state aggregator not initialized")
+    return SharedWorldStateResponse(shared_state=rt.world_state_aggregator.get_shared_state())
+
+
+@app.get("/api/governance/policy", response_model=GovernancePolicyResponse)
+async def get_governance_policy() -> GovernancePolicyResponse:
+    from .governance.policy import GovernanceEngine
+
+    eng = GovernanceEngine()
+    return GovernancePolicyResponse(policy=eng.effective_policy())
+
+
+@app.get("/api/governance/requests", response_model=GovernancePolicyRequestsResponse)
+async def list_governance_requests(
+    status: Optional[str] = None, limit: int = 100
+) -> GovernancePolicyRequestsResponse:
+    from .governance.policy import GovernanceEngine
+
+    eng = GovernanceEngine()
+    reqs = eng.list_policy_change_requests(status=status, limit=limit)
+    return GovernancePolicyRequestsResponse(requests=reqs)
+
+
+@app.get("/api/governance/requests/{request_id}", response_model=GovernancePolicyRequestResponse)
+async def get_governance_request(request_id: str) -> GovernancePolicyRequestResponse:
+    from .governance.policy import GovernanceEngine
+
+    eng = GovernanceEngine()
+    req = eng.get_policy_change_request(request_id)
+    if not isinstance(req, dict):
+        raise HTTPException(status_code=404, detail="Request not found")
+    return GovernancePolicyRequestResponse(request=req)
+
+
+@app.post("/api/governance/requests/{request_id}/token", response_model=GovernanceTokenResponse)
+async def mint_governance_request_token(
+    request_id: str, body: GovernanceTokenRequest, request: Request
+) -> GovernanceTokenResponse:
+    _require_admin(request)
+    from .governance.policy import GovernanceEngine
+    from .token_auth.token import generate_token, get_token_secret
+
+    eng = GovernanceEngine()
+    req = eng.get_policy_change_request(request_id)
+    if not isinstance(req, dict):
+        raise HTTPException(status_code=404, detail="Request not found")
+    if str(req.get("status") or "").lower() != "pending":
+        raise HTTPException(status_code=400, detail="Request is not pending")
+
+    required_scopes = ["policy:change", f"policy_request:{request_id}"]
+    secret = get_token_secret()
+    token, payload = generate_token(
+        sub=body.sub,
+        name=body.name,
+        scopes=required_scopes,
+        expiry_seconds=int(body.expiry_seconds),
+        secret_key=secret,
+    )
+    return GovernanceTokenResponse(token=token, payload=payload, required_scopes=required_scopes)
+
+
+@app.post("/api/governance/requests/{request_id}/commit", response_model=GovernanceCommitResponse)
+async def commit_governance_request(request_id: str, body: GovernanceCommitRequest) -> GovernanceCommitResponse:
+    from .governance.policy import GovernanceEngine
+
+    eng = GovernanceEngine()
+    try:
+        res = eng.commit_approved_request(
+            request_id=request_id, approval_token=body.approval_token, note=body.note or ""
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return GovernanceCommitResponse(
+        request_id=res.get("request_id") or request_id, applied_version=res.get("applied_version") or {}
+    )
+
+
+@app.post("/api/governance/requests/{request_id}/reject")
+async def reject_governance_request(request_id: str, request: Request, note: str = "") -> Dict[str, Any]:
+    _require_admin(request)
+    from .governance.policy import GovernanceEngine
+
+    eng = GovernanceEngine()
+    ok = eng.reject_policy_change_request(request_id=request_id, note=note or "")
+    if not ok:
+        raise HTTPException(status_code=400, detail="Request not pending or not found")
+    return {"success": True, "request_id": request_id, "status": "rejected"}
 
 
 @app.post("/api/memories")
@@ -2854,16 +3419,21 @@ async def get_artifacts():
     
     return {"artifacts": artifacts}
 
-if __name__ == "__main__":
+def _parse_web_api_args(argv: Optional[list[str]] = None):
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="BrocaOS Web API Server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--reload", action="store_true", default=True)
-    
-    args = parser.parse_args()
-    uvicorn.run("broca.web_api:app", host=args.host, port=args.port, reload=args.reload)
+    # IMPORTANT: `--reload` must default to False; otherwise `python -m broca.web_api`
+    # hot-reloads constantly and spams requests.
+    parser.add_argument("--reload", action="store_true", default=False)
+    return parser.parse_args(argv)
+
+
+if __name__ == "__main__":
+    args = _parse_web_api_args()
+    uvicorn.run("broca.web_api:app", host=args.host, port=args.port, reload=bool(args.reload))
 
 class ProjectConfig(BaseModel):
     root_path: str

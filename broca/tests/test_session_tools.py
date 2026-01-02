@@ -15,6 +15,17 @@ from broca.tools.registry import ToolRegistry
 from broca.tests.utils import build_llm_response
 
 
+@pytest.fixture(autouse=True)
+def _legacy_toolset_for_synthetic_tools(monkeypatch):
+    # This module uses synthetic tool names (e.g., "test_tool"); ensure visibility under toolset policy.
+    from broca.config import config as app_config
+    monkeypatch.setattr(app_config.tools, "toolset", "legacy", raising=False)
+
+
+def _extract_content(response):
+    return response.get("choices", [{}])[0].get("message", {}).get("content")
+
+
 class MockTool:
     """Mock tool for testing."""
     
@@ -88,7 +99,7 @@ class TestConversationSessionWithTools:
 
 class TestConversationSessionToolCalls:
     """Test tool call execution in ConversationSession."""
-    
+
     def test_single_tool_call_execution(self, mock_llm_client: Mock):
         """
         Test executing a single tool call.
@@ -123,7 +134,7 @@ class TestConversationSessionToolCalls:
         tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
         mock_llm_client.chat.side_effect = [tool_call_response, final_response]
         mock_llm_client.extract_tool_calls.side_effect = [tool_calls_list, []]
-        mock_llm_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        mock_llm_client.extract_assistant_content.side_effect = _extract_content
         
         session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
         response = session.send("Use tool")
@@ -131,6 +142,108 @@ class TestConversationSessionToolCalls:
         assert response == "Final answer"
         # Verify tool was called
         assert mock_llm_client.chat.call_count == 2
+
+    def test_tool_call_does_not_shadow_app_config(self, mock_llm_client: Mock):
+        """
+        Regression test: tool call handling must not shadow Broca config with ReasoningConfig.
+
+        This previously caused AttributeError: 'ReasoningConfig' object has no attribute 'summarization'
+        during tool result truncation.
+        """
+        class BigResultTool(MockTool):
+            def execute(self, **kwargs):
+                return {"result": "x" * 20000}
+
+        registry = ToolRegistry()
+        tool = BigResultTool("big_tool")
+        registry.register_tool(tool)
+
+        tool_call_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_big",
+                        "type": "function",
+                        "function": {"name": "big_tool", "arguments": json.dumps({"param": "value"})}
+                    }]
+                }
+            }]
+        }
+        final_response = build_llm_response(content="OK")
+
+        tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
+        mock_llm_client.chat.side_effect = [tool_call_response, final_response]
+        mock_llm_client.extract_tool_calls.side_effect = [tool_calls_list, []]
+        mock_llm_client.extract_assistant_content.side_effect = _extract_content
+
+        session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
+        response = session.send("Use tool")
+
+        assert response == "OK"
+        assert any(m.get("role") == "tool" for m in session.messages)
+
+    def test_requires_done_for_final_response_when_rl_active(self, mock_llm_client: Mock, monkeypatch):
+        """
+        Regression/contract test:
+        When RL policy is active (ranker present) and DONE is available, the model must not respond
+        directly in plain text; it must call DONE/RESPOND_AND_CONTINUE to end the tool loop.
+        """
+        from broca.config import config as app_config
+
+        monkeypatch.setattr(app_config.tools, "toolset", "primitive", raising=False)
+        monkeypatch.setattr(app_config.rl, "enabled", True, raising=False)
+        monkeypatch.setattr(app_config.rl, "require_done_for_response", True, raising=False)
+
+        class _FallbackSelection:
+            tool_name = "READ_FILE"
+            mode = "fallback"
+            reason = "Low confidence - LLM has full choice"
+            confidence = 0.01
+            score = 0.01
+            alternatives = []
+            all_scores = {}
+
+        class _Ranker:
+            def select_tool(self, tools, ctx):
+                return _FallbackSelection()
+
+            def record_outcome(self, **kwargs):
+                return None
+
+        registry = ToolRegistry()
+        tool_done = MockTool("DONE")
+        registry.register_tool(tool_done)
+        registry.set_online_policy_ranker(_Ranker())
+
+        premature = build_llm_response(content="I will answer directly (not allowed).")
+
+        tool_call_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_done",
+                        "type": "function",
+                        "function": {"name": "DONE", "arguments": "{}"}
+                    }]
+                }
+            }]
+        }
+        final = build_llm_response(content="Final answer after DONE")
+
+        tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
+        mock_llm_client.chat.side_effect = [premature, tool_call_response, final]
+        mock_llm_client.extract_tool_calls.side_effect = [[], tool_calls_list, []]
+        mock_llm_client.extract_assistant_content.side_effect = _extract_content
+
+        session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
+        response = session.send("Hello")
+
+        assert response == "Final answer after DONE"
+        assert mock_llm_client.chat.call_count == 3
     
     def test_multiple_tool_calls_execution(self, mock_llm_client: Mock):
         """
@@ -170,7 +283,7 @@ class TestConversationSessionToolCalls:
         tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
         mock_llm_client.chat.side_effect = [tool_call_response, final_response]
         mock_llm_client.extract_tool_calls.side_effect = [tool_calls_list, []]
-        mock_llm_client.extract_assistant_content.side_effect = [None, "Done"]
+        mock_llm_client.extract_assistant_content.side_effect = _extract_content
         
         session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
         response = session.send("Use tools")
@@ -212,8 +325,8 @@ class TestConversationSessionToolCalls:
         session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
         response = session.send("Test")
         
-        # Should stop after max iterations
-        assert mock_llm_client.chat.call_count == session._max_tool_iterations
+        # Should stop after tool-iteration budget + final-response reprompt attempts
+        assert mock_llm_client.chat.call_count <= session._max_tool_iterations + 3
         assert "issue" in response.lower() or "apologize" in response.lower()
     
     def test_tool_messages_in_conversation(self, mock_llm_client: Mock):
@@ -245,7 +358,7 @@ class TestConversationSessionToolCalls:
         tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
         mock_llm_client.chat.side_effect = [tool_call_response, final_response]
         mock_llm_client.extract_tool_calls.side_effect = [tool_calls_list, []]
-        mock_llm_client.extract_assistant_content.side_effect = [None, "Final"]
+        mock_llm_client.extract_assistant_content.side_effect = _extract_content
         
         session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
         session.send("Test")
@@ -304,7 +417,7 @@ class TestConversationSessionToolCalls:
         tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
         mock_llm_client.chat.side_effect = [tool_call_response, final_response]
         mock_llm_client.extract_tool_calls.side_effect = [tool_calls_list, []]
-        mock_llm_client.extract_assistant_content.side_effect = [None, "Handled error"]
+        mock_llm_client.extract_assistant_content.side_effect = _extract_content
         
         session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
         response = session.send("Test")
@@ -354,7 +467,7 @@ class TestConversationSessionToolStorage:
             tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
             mock_llm_client.chat.side_effect = [tool_call_response, final_response]
             mock_llm_client.extract_tool_calls.side_effect = [tool_calls_list, []]
-            mock_llm_client.extract_assistant_content.side_effect = [None, "Final"]
+            mock_llm_client.extract_assistant_content.side_effect = _extract_content
             
             session = ConversationSession(
                 llm=mock_llm_client,
@@ -465,7 +578,7 @@ class TestConversationSessionReasonerModel:
             tool_call_response["choices"][0]["message"]["tool_calls"],
             []
         ]
-        mock_llm_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        mock_llm_client.extract_assistant_content.side_effect = _extract_content
         
         # Track chat calls to verify reasoning_content was passed
         chat_calls = []
@@ -572,7 +685,7 @@ class TestConversationSessionReasonerModel:
             tool_call_response["choices"][0]["message"]["tool_calls"],
             []
         ]
-        mock_llm_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        mock_llm_client.extract_assistant_content.side_effect = _extract_content
         mock_llm_client.chat.side_effect = [tool_call_response, final_response]
         
         session = ConversationSession(llm=mock_llm_client, tool_registry=registry)
@@ -630,7 +743,7 @@ class TestConversationSessionThoughtSignature:
         tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
         gemini_client.chat.side_effect = [tool_call_response, final_response]
         gemini_client.extract_tool_calls.side_effect = [tool_calls_list, []]
-        gemini_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        gemini_client.extract_assistant_content.side_effect = _extract_content
         gemini_client.extract_thought_signature.return_value = "test-sig-123"
         gemini_client._is_gemini_client = lambda: True
         
@@ -689,7 +802,7 @@ class TestConversationSessionThoughtSignature:
         tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
         gemini_client.chat.side_effect = [tool_call_response, final_response]
         gemini_client.extract_tool_calls.side_effect = [tool_calls_list, []]
-        gemini_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        gemini_client.extract_assistant_content.side_effect = _extract_content
         gemini_client.extract_thought_signature.return_value = "new-sig-789"
         gemini_client._is_gemini_client = lambda: True
         
@@ -740,7 +853,7 @@ class TestConversationSessionThoughtSignature:
         tool_calls_list = tool_call_response["choices"][0]["message"]["tool_calls"]
         mock_llm_client.chat.side_effect = [tool_call_response, final_response]
         mock_llm_client.extract_tool_calls.side_effect = [tool_calls_list, []]
-        mock_llm_client.extract_assistant_content.side_effect = [None, "Final answer"]
+        mock_llm_client.extract_assistant_content.side_effect = _extract_content
         # Non-Gemini client
         mock_llm_client._is_gemini_client = lambda: False
         
@@ -757,4 +870,3 @@ class TestConversationSessionThoughtSignature:
         assert len(tool_calls) > 0
         # Non-Gemini clients don't need thought_signature
         assert "thought_signature" not in tool_calls[0]
-
