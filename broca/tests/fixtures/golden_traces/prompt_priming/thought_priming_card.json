@@ -1,0 +1,5 @@
+{
+  "card": "PRIMED MEMORY (thought):\n\nQuery: hello\nTask: chat\nIntent: hello\nSelection: mmr\n\nProvenance:\n- id=1 ns=ns confidence=0.60 last_used=2024-01-02T00:00:00Z\n\nKey facts:\n- This is a key fact about X.\n\nReflection prompts:\n- How does this change the next concrete step?\n- What would falsify or contradict this memory?\n"
+}
+
+

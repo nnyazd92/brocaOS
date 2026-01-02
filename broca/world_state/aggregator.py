@@ -80,6 +80,9 @@ class WorldStateAggregator:
         self._last_tool_registry_hash: Optional[str] = None
         self._runtime_lock = threading.Lock()
         self._runtime_state: Dict[str, Any] = {}
+        # Session-scoped overrides (compact, overwritten; avoids cross-session interference).
+        self._session_state_lock = threading.Lock()
+        self._session_state: Dict[str, Dict[str, Any]] = {}
 
         # Persisted shared state (intentionally small and overwritten, not append-only).
         # This is used for cross-session coordination signals that should appear in
@@ -215,6 +218,105 @@ class WorldStateAggregator:
     def clear_rl_guidance(self) -> None:
         with self._runtime_lock:
             self._runtime_state.pop("rl_guidance", None)
+
+    def clear_primed_memory(self, session_id: str, *, mode: Optional[str] = None) -> None:
+        sid = session_id.strip() if isinstance(session_id, str) else ""
+        if not sid:
+            return
+        with self._session_state_lock:
+            if sid in self._session_state:
+                if mode == "thought":
+                    self._session_state[sid].pop("primed_memory_thought", None)
+                elif mode == "chat":
+                    self._session_state[sid].pop("primed_memory_chat", None)
+                    # Legacy key
+                    self._session_state[sid].pop("primed_memory", None)
+                else:
+                    # Default: clear all priming slots for safety.
+                    self._session_state[sid].pop("primed_memory_thought", None)
+                    self._session_state[sid].pop("primed_memory_chat", None)
+                    self._session_state[sid].pop("primed_memory", None)
+                if not self._session_state[sid]:
+                    self._session_state.pop(sid, None)
+
+    def set_primed_memory(
+        self,
+        *,
+        session_id: str,
+        query_preview: str,
+        memory_id: Optional[int] = None,
+        namespace: Optional[str] = None,
+        text: str = "",
+        truncated: bool,
+        items: Optional[List[Dict[str, Any]]] = None,
+        selection: Optional[Dict[str, Any]] = None,
+        mode: Optional[str] = None,
+    ) -> None:
+        sid = session_id.strip() if isinstance(session_id, str) else ""
+        if not sid:
+            return
+
+        try:
+            from ..config import config as _config
+
+            max_chars = int(getattr(_config.memory, "prompt_priming_max_memory_chars", 4000) or 4000)
+        except Exception:
+            max_chars = 4000
+
+        def _clamp_text(v: Any, limit: int) -> str:
+            s = str(v or "")
+            if limit > 0 and len(s) > limit:
+                return s[: max(0, limit - 40)] + "\n...[truncated]...\n"
+            return s
+
+        normalized_items: List[Dict[str, Any]] = []
+        if isinstance(items, list) and items:
+            for it in items:
+                if isinstance(it, dict):
+                    normalized_items.append(dict(it))
+        elif memory_id is not None or namespace is not None or text:
+            normalized_items = [
+                {
+                    "id": int(memory_id) if isinstance(memory_id, int) else None,
+                    "namespace": str(namespace) if isinstance(namespace, str) and namespace else None,
+                }
+            ]
+
+        payload = {
+            "primed_at": datetime.now(timezone.utc).isoformat(),
+            "query_preview": _clamp_text(query_preview, 800),
+            "text": _clamp_text(text, max_chars),
+            "truncated": bool(truncated),
+            "items": normalized_items[:20],
+            "selection": dict(selection) if isinstance(selection, dict) else None,
+        }
+        # Back-compat convenience fields (first item).
+        try:
+            first = normalized_items[0] if normalized_items else {}
+            payload["id"] = first.get("id")
+            payload["namespace"] = first.get("namespace")
+        except Exception:
+            payload["id"] = None
+            payload["namespace"] = None
+
+        with self._session_state_lock:
+            if sid not in self._session_state:
+                self._session_state[sid] = {}
+            # Clear the other slot to avoid cross-contamination.
+            if mode == "thought":
+                self._session_state[sid].pop("primed_memory_chat", None)
+                self._session_state[sid].pop("primed_memory", None)  # legacy
+                self._session_state[sid]["primed_memory_thought"] = payload
+            elif mode == "chat":
+                self._session_state[sid].pop("primed_memory_thought", None)
+                self._session_state[sid]["primed_memory_chat"] = payload
+                # Legacy alias for back-compat.
+                self._session_state[sid]["primed_memory"] = payload
+            else:
+                # Back-compat: treat unspecified as chat.
+                self._session_state[sid].pop("primed_memory_thought", None)
+                self._session_state[sid]["primed_memory_chat"] = payload
+                self._session_state[sid]["primed_memory"] = payload
     
     def _validate_metric_quality(self, state_dict: Dict[str, Any], component_name: str) -> bool:
         """
@@ -246,7 +348,7 @@ class WorldStateAggregator:
         
         return True  # Include anyway, but caller can check data_quality
     
-    def aggregate(self) -> Dict[str, Any]:
+    def aggregate(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Aggregate all available world state data into a clean hierarchical structure.
         
@@ -264,6 +366,23 @@ class WorldStateAggregator:
             rl_guidance = self._runtime_state.get("rl_guidance")
         if isinstance(rl_guidance, dict) and rl_guidance:
             world_state["rl_guidance"] = rl_guidance
+
+        # Session-scoped overlays (e.g., prompt priming). These are keyed by session_id and
+        # are not shared across sessions.
+        if isinstance(session_id, str) and session_id.strip():
+            sid = session_id.strip()
+            with self._session_state_lock:
+                session_payload = self._session_state.get(sid)
+            if isinstance(session_payload, dict) and session_payload:
+                primed = session_payload.get("primed_memory")
+                if isinstance(primed, dict) and primed:
+                    world_state["primed_memory"] = primed
+                primed_chat = session_payload.get("primed_memory_chat")
+                if isinstance(primed_chat, dict) and primed_chat:
+                    world_state["primed_memory_chat"] = primed_chat
+                primed_thought = session_payload.get("primed_memory_thought")
+                if isinstance(primed_thought, dict) and primed_thought:
+                    world_state["primed_memory_thought"] = primed_thought
 
         shared_state = self.get_shared_state()
         if shared_state:

@@ -528,6 +528,842 @@ When you need to use tools to complete a task:
         trace_id = getattr(self, "_current_response_id", None) or None
         return ensure_non_empty(content, trace_id=trace_id)
 
+    def _prime_memory_for_user_prompt(self, user_text: str, *, hidden_user_message: bool) -> None:
+        """
+        Prime memory for the current (operator) user prompt.
+
+        If enabled, this embeds the user prompt and retrieves the top-1 most similar
+        memory, storing it as session-scoped state in the world state aggregator.
+        The primed memory is stable until the next non-hidden user prompt.
+        """
+        from ..config import config
+
+        if hidden_user_message:
+            return
+
+        if not getattr(config.memory, "prompt_priming_enabled", False):
+            return
+
+        if not self.world_state_aggregator:
+            return
+
+        is_internal_monologue = "INTERNAL SIMULATED MONOLOGUE" in str(user_text or "")
+        priming_mode = "chat"
+        if is_internal_monologue:
+            if getattr(config.memory, "thought_priming_enabled", False):
+                priming_mode = "thought"
+            elif getattr(config.memory, "prompt_priming_skip_internal_monologue", True):
+                return
+
+        session_id = str(getattr(self, "session_id", "") or "").strip()
+        if not session_id:
+            return
+
+        memory_manager = getattr(self.world_state_aggregator, "memory_manager", None)
+        if memory_manager is None or not hasattr(memory_manager, "retrieve_memories"):
+            return
+
+        user_prompt = str(user_text or "").strip()
+        if not user_prompt:
+            self.world_state_aggregator.clear_primed_memory(session_id, mode=priming_mode)
+            return
+
+        # Build a cue-dependent query for embedding/retrieval.
+        from ..memory.priming import build_cue_query
+
+        recent_messages = []
+        try:
+            for m in reversed(self.messages[:-1]):
+                if not isinstance(m, dict):
+                    continue
+                if m.get("hidden") is True:
+                    continue
+                role = m.get("role")
+                content = m.get("content")
+                if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                    recent_messages.append({"role": role, "content": content})
+                if len(recent_messages) >= 6:
+                    break
+            recent_messages = list(reversed(recent_messages))
+        except Exception:
+            recent_messages = []
+
+        affect = None
+        try:
+            framework = getattr(self, "internal_sensing_framework", None)
+            if framework is not None:
+                affect_states = getattr(getattr(framework, "interoception", None), "affect", None)
+                if affect_states is not None:
+                    affect = getattr(affect_states, "affective_states", None)
+        except Exception:
+            affect = None
+
+        goals = []
+        try:
+            gm = getattr(self, "_goal_manager", None)
+            if gm is not None and hasattr(gm, "get_active_goals"):
+                active = gm.get_active_goals()
+                if isinstance(active, list):
+                    for g in active[:5]:
+                        if isinstance(g, dict):
+                            title = g.get("goal") or g.get("title") or ""
+                        else:
+                            title = getattr(g, "goal", None) or getattr(g, "title", None) or ""
+                        title = str(title or "").strip()
+                        if title:
+                            goals.append(title)
+        except Exception:
+            goals = []
+
+        cue_query, cue_meta = build_cue_query(
+            user_text=user_prompt,
+            recent_messages=recent_messages,
+            affect=affect,
+            goals=goals,
+        )
+
+        max_tokens = int(getattr(config.memory, "prompt_priming_max_query_tokens", 8192) or 8192)
+        max_chars = max(0, max_tokens * 4) if max_tokens > 0 else 0
+        was_truncated = False
+        if max_chars and len(cue_query) > max_chars:
+            cue_query = cue_query[:max_chars]
+            was_truncated = True
+
+        try:
+            embedding_service = getattr(memory_manager, "embedding_service", None)
+            if embedding_service is None or not hasattr(embedding_service, "generate_embedding"):
+                self.world_state_aggregator.clear_primed_memory(session_id, mode=priming_mode)
+                return
+
+            query_embedding = embedding_service.generate_embedding(cue_query)
+
+            top_k = int(getattr(config.memory, "prompt_priming_top_k", 8) or 8)
+            top_k = max(1, min(50, top_k))
+
+            results = memory_manager.retrieve_memories(query=cue_query, limit=top_k, query_embedding=query_embedding)
+        except Exception:
+            self.world_state_aggregator.clear_primed_memory(session_id, mode=priming_mode)
+            return
+
+        if not results:
+            self.world_state_aggregator.clear_primed_memory(session_id, mode=priming_mode)
+            return
+
+        from ..memory.priming import (
+            affect_congruency_score,
+            bm25_scores,
+            build_priming_card,
+            build_structured_priming_card,
+            build_thought_priming_card,
+            build_topic_signature,
+            cosine_similarity,
+            goal_congruency_score,
+            half_life_decay,
+            is_self_hit,
+            priming_used_score,
+            token_jaccard,
+            mmr_select,
+        )
+        from ..memory.priming_learning import PrimingPolicyStore
+
+        max_items = int(getattr(config.memory, "prompt_priming_max_items", 1) or 1)
+        max_items = max(1, min(5, max_items))
+        mmr_lambda = float(getattr(config.memory, "prompt_priming_mmr_lambda", 0.7) or 0.7)
+
+        vector_index = getattr(memory_manager, "vector_index", None)
+
+        # Candidate pool from semantic retrieval.
+        candidates = []
+        candidate_vectors = []
+        base_scores: dict[int, float] = {}
+        for m in results:
+            mid = getattr(m, "id", None)
+            if not isinstance(mid, int):
+                continue
+            vec = None
+            if vector_index is not None and hasattr(vector_index, "get_vector_by_memory_id"):
+                try:
+                    vec = vector_index.get_vector_by_memory_id(mid)
+                except Exception:
+                    vec = None
+            if not isinstance(vec, list) or not vec:
+                # If we can't score/diversify, still keep as a fallback candidate.
+                candidates.append(m)
+                candidate_vectors.append([])
+                continue
+            base_scores[mid] = cosine_similarity(query_embedding, vec)
+            candidates.append(m)
+            candidate_vectors.append(vec)
+
+        # Interference control: skip prompt-as-memory echoes ("self hits").
+        self_hit_skipped = 0
+        try:
+            self_hit_enabled = bool(getattr(config.memory, "prompt_priming_self_hit_enabled", True))
+            self_hit_thr = float(getattr(config.memory, "prompt_priming_self_hit_token_overlap_threshold", 0.85) or 0.85)
+        except Exception:
+            self_hit_enabled = True
+            self_hit_thr = 0.85
+
+        if self_hit_enabled and candidates:
+            try:
+                filtered_candidates = []
+                filtered_vectors = []
+                for m, v in zip(candidates, candidate_vectors):
+                    txt = str(getattr(m, "text", "") or "")
+                    if is_self_hit(user_text=user_prompt, cue_query=cue_query, memory_text=txt, token_overlap_threshold=self_hit_thr):
+                        self_hit_skipped += 1
+                        continue
+                    filtered_candidates.append(m)
+                    filtered_vectors.append(v)
+                candidates = filtered_candidates
+                candidate_vectors = filtered_vectors
+            except Exception:
+                # Best-effort only; never break priming due to skip logic.
+                pass
+
+        if not candidates:
+            self.world_state_aggregator.clear_primed_memory(session_id, mode=priming_mode)
+            return
+
+        # --- Learnable priming: per-(mode, namespace) score boost (best-effort) ---
+        policy_store = getattr(self, "_priming_policy_store", None)
+        if policy_store is None:
+            try:
+                policy_path = getattr(config.memory, "prompt_priming_policy_path", "data/priming_policy.json")
+            except Exception:
+                policy_path = "data/priming_policy.json"
+            try:
+                policy_store = PrimingPolicyStore(path=policy_path)
+                self._priming_policy_store = policy_store
+            except Exception:
+                policy_store = None
+
+        ns_boost_by_id: dict[int, float] = {}
+        if policy_store is not None:
+            try:
+                for m in candidates:
+                    mid = getattr(m, "id", None)
+                    if not isinstance(mid, int):
+                        continue
+                    ns = getattr(m, "namespace", None)
+                    ns_boost_by_id[int(mid)] = float(policy_store.get_boost(mode=priming_mode, namespace=str(ns or "*")))
+            except Exception:
+                ns_boost_by_id = {}
+
+        # Topic-aware repeat suppression: if the same memory keeps winning across topic shifts,
+        # downweight it to reduce interference while preserving same-topic continuity.
+        try:
+            repeat_penalty_weight = float(getattr(config.memory, "prompt_priming_topic_repeat_penalty_weight", 0.25) or 0.0)
+            topic_jaccard_threshold = float(getattr(config.memory, "prompt_priming_topic_jaccard_threshold", 0.35) or 0.0)
+        except Exception:
+            repeat_penalty_weight = 0.0
+            topic_jaccard_threshold = 0.0
+        repeat_penalty_weight = max(0.0, float(repeat_penalty_weight))
+        topic_jaccard_threshold = max(0.0, min(1.0, float(topic_jaccard_threshold)))
+
+        current_topic_sig = ""
+        topic_sim = None
+        topic_changed = None
+        last_selected_ids: list[int] = []
+        if repeat_penalty_weight > 0:
+            try:
+                current_topic_sig = build_topic_signature(cue_meta)
+                if not hasattr(self, "_priming_topic_state") or not isinstance(getattr(self, "_priming_topic_state", None), dict):
+                    self._priming_topic_state = {}
+                state = self._priming_topic_state
+                prev_sig = str(state.get("last_topic_sig") or "")
+                prev_ids = state.get("last_selected_ids") or []
+                if isinstance(prev_ids, list):
+                    last_selected_ids = [int(x) for x in prev_ids if isinstance(x, int)]
+                if prev_sig:
+                    topic_sim = token_jaccard(prev_sig, current_topic_sig)
+                    topic_changed = bool(topic_sim < topic_jaccard_threshold)
+                else:
+                    topic_sim = None
+                    topic_changed = None
+            except Exception:
+                current_topic_sig = ""
+                topic_sim = None
+                topic_changed = None
+
+        # Cheap reranking signals (computed on the candidate set).
+        bm25_weight = float(getattr(config.memory, "prompt_priming_bm25_weight", 0.25) or 0.0)
+        goal_weight = float(getattr(config.memory, "prompt_priming_goal_weight", 0.35) or 0.0)
+        affect_weight = float(getattr(config.memory, "prompt_priming_affect_weight", 0.25) or 0.0)
+        recency_weight = float(getattr(config.memory, "prompt_priming_recency_weight", 0.15) or 0.0)
+        usage_weight = float(getattr(config.memory, "prompt_priming_usage_weight", 0.15) or 0.0)
+        recency_half_life_h = float(getattr(config.memory, "prompt_priming_recency_half_life_hours", 72) or 0.0)
+        usage_half_life_h = float(getattr(config.memory, "prompt_priming_usage_half_life_hours", 24) or 0.0)
+        interference_weight = float(getattr(config.memory, "prompt_priming_interference_weight", 0.25) or 0.0)
+        interference_half_life_h = float(getattr(config.memory, "prompt_priming_interference_half_life_hours", 12) or 0.0)
+        interference_k = float(getattr(config.memory, "prompt_priming_interference_k", 3) or 3.0)
+
+        bm25_norm: dict[int, float] = {}
+        goal_score: dict[int, float] = {}
+        affect_score: dict[int, float] = {}
+        temporal_recency: dict[int, float] = {}
+        temporal_usage: dict[int, float] = {}
+        interference_penalty: dict[int, float] = {}
+        topic_repeat_penalty: dict[int, float] = {}
+        query_for_bm25 = ""
+
+        now_ts = None
+        try:
+            import time
+
+            now_ts = float(time.time())
+        except Exception:
+            now_ts = None
+
+        try:
+            query_for_bm25 = " ".join(
+                [
+                    user_prompt,
+                    " ".join(goals),
+                    " ".join(str(x) for x in (cue_meta.get("entities") or [])),
+                    " ".join(str(x) for x in (cue_meta.get("constraints") or [])),
+                ]
+            ).strip()
+            docs = []
+            mids = []
+            for m in candidates:
+                mid = getattr(m, "id", None)
+                if not isinstance(mid, int):
+                    continue
+                tags = getattr(m, "tags", []) or []
+                docs.append(" ".join([str(getattr(m, "text", "") or ""), str(getattr(m, "namespace", "") or ""), " ".join(tags)]))
+                mids.append(mid)
+
+            bm25 = bm25_scores(query=query_for_bm25, documents=docs)
+            max_bm = max(bm25) if bm25 else 0.0
+            for mid, s in zip(mids, bm25):
+                bm25_norm[mid] = float(s / max_bm) if max_bm > 0 else 0.0
+        except Exception:
+            bm25_norm = {}
+
+        try:
+            for m in candidates:
+                mid = getattr(m, "id", None)
+                if not isinstance(mid, int):
+                    continue
+                goal_score[mid] = goal_congruency_score(
+                    goals,
+                    memory_text=str(getattr(m, "text", "") or ""),
+                    memory_tags=getattr(m, "tags", []) or [],
+                    memory_namespace=str(getattr(m, "namespace", "") or ""),
+                )
+                src = getattr(m, "source", None)
+                meta = getattr(src, "metadata", None) if src is not None else None
+                affect_score[mid] = affect_congruency_score(
+                    affect if isinstance(affect, dict) else None,
+                    getattr(m, "tags", []) or [],
+                    memory_metadata=meta,
+                )
+                if now_ts is not None:
+                    try:
+                        from datetime import timezone
+
+                        created_at = getattr(m, "created_at", None)
+                        last_used_at = getattr(m, "last_used_at", None)
+                        if hasattr(created_at, "timestamp"):
+                            age_created = max(0.0, now_ts - float(created_at.timestamp()))
+                        else:
+                            age_created = 0.0
+                        if hasattr(last_used_at, "timestamp"):
+                            age_used = max(0.0, now_ts - float(last_used_at.timestamp()))
+                        else:
+                            age_used = 0.0
+                        temporal_recency[mid] = half_life_decay(age_created, max(0.0, recency_half_life_h) * 3600.0) if recency_half_life_h > 0 else 0.0
+                        temporal_usage[mid] = half_life_decay(age_used, max(0.0, usage_half_life_h) * 3600.0) if usage_half_life_h > 0 else 0.0
+                    except Exception:
+                        temporal_recency[mid] = 0.0
+                        temporal_usage[mid] = 0.0
+        except Exception:
+            goal_score = {}
+            affect_score = {}
+
+        # Session-local interference penalty: penalize memories that always win.
+        if interference_weight > 0 and now_ts is not None:
+            try:
+                import time
+
+                if not hasattr(self, "_priming_interference_state"):
+                    self._priming_interference_state = {}
+                state = self._priming_interference_state
+                half_life_s = max(0.0, interference_half_life_h) * 3600.0
+                for m in candidates:
+                    mid = getattr(m, "id", None)
+                    if not isinstance(mid, int):
+                        continue
+                    entry = state.get(mid) if isinstance(state, dict) else None
+                    wins = 0.0
+                    last = now_ts
+                    if isinstance(entry, dict):
+                        wins = float(entry.get("wins", 0.0) or 0.0)
+                        last = float(entry.get("last", now_ts) or now_ts)
+                    # decay wins since last update
+                    dt = max(0.0, now_ts - last)
+                    if half_life_s > 0:
+                        wins = wins * half_life_decay(dt, half_life_s)
+                    # penalty saturates
+                    k = max(0.1, float(interference_k))
+                    interference_penalty[mid] = float(wins / (wins + k)) if wins > 0 else 0.0
+                    # update stored decayed wins
+                    state[mid] = {"wins": wins, "last": now_ts}
+            except Exception:
+                interference_penalty = {}
+
+        # Topic-aware repeat penalty: only when the topic changes.
+        if repeat_penalty_weight > 0 and topic_changed is True and last_selected_ids:
+            try:
+                for mid in last_selected_ids[:5]:
+                    if isinstance(mid, int):
+                        topic_repeat_penalty[int(mid)] = 1.0
+            except Exception:
+                topic_repeat_penalty = {}
+
+        # Spreading activation: 1-hop graph walk from seed memories.
+        graph_hops = int(getattr(config.memory, "prompt_priming_graph_hops", 1) or 0)
+        links_by_id: dict[int, list[dict[str, Any]]] = {}
+        if graph_hops > 0 and hasattr(memory_manager, "get_related_memories"):
+            try:
+                from ..memory import RelationType
+
+                seed_count = int(getattr(config.memory, "prompt_priming_graph_seed_count", 1) or 1)
+                seed_count = max(1, min(5, seed_count))
+                graph_limit = int(getattr(config.memory, "prompt_priming_graph_limit", 5) or 5)
+                graph_limit = max(1, min(20, graph_limit))
+                min_strength = float(getattr(config.memory, "prompt_priming_graph_min_strength", 0.2) or 0.0)
+                graph_weight = float(getattr(config.memory, "prompt_priming_graph_weight", 0.35) or 0.0)
+
+                type_weights = {
+                    "supports": 1.0,
+                    "elaborates": 1.0,
+                    "summarizes": 0.8,
+                    "references": 0.6,
+                    "related_to": 0.6,
+                    "similar_to": 0.5,
+                    "contradicts": 0.8,
+                    "supersedes": 0.9,
+                    "precedes": 0.5,
+                    "follows": 0.5,
+                    "causes": 0.6,
+                    "caused_by": 0.6,
+                }
+
+                seed_ids = []
+                for m in results:
+                    mid = getattr(m, "id", None)
+                    if isinstance(mid, int):
+                        seed_ids.append(mid)
+                    if len(seed_ids) >= seed_count:
+                        break
+
+                # Build id->memory mapping for fast dedupe.
+                by_id: dict[int, Any] = {int(getattr(m, "id")): m for m in candidates if isinstance(getattr(m, "id", None), int)}
+
+                for sid in seed_ids:
+                    related = memory_manager.get_related_memories(
+                        sid,
+                        relation_types=[
+                            RelationType.SUPPORTS,
+                            RelationType.ELABORATES,
+                            RelationType.CONTRADICTS,
+                            RelationType.RELATED_TO,
+                            RelationType.SIMILAR_TO,
+                        ],
+                        direction="both",
+                        min_strength=min_strength,
+                        limit=graph_limit,
+                    )
+                    for related_memory, rel in related or []:
+                        rid = getattr(related_memory, "id", None)
+                        if not isinstance(rid, int):
+                            continue
+                        rtype = None
+                        strength = None
+                        try:
+                            rtype = getattr(rel, "relation_type", None)
+                            if hasattr(rtype, "value"):
+                                rtype = rtype.value
+                            if rtype is not None:
+                                rtype = str(rtype)
+                            strength = getattr(rel, "strength", None)
+                            strength = float(strength) if isinstance(strength, (int, float)) else None
+                        except Exception:
+                            rtype = None
+                            strength = None
+
+                        link = {
+                            "from_id": int(sid),
+                            "relation_type": rtype,
+                            "strength": strength,
+                        }
+                        links_by_id.setdefault(int(rid), []).append(link)
+
+                        if rid not in by_id:
+                            by_id[rid] = related_memory
+                            candidates.append(related_memory)
+                            vec = None
+                            if vector_index is not None and hasattr(vector_index, "get_vector_by_memory_id"):
+                                try:
+                                    vec = vector_index.get_vector_by_memory_id(rid)
+                                except Exception:
+                                    vec = None
+                            candidate_vectors.append(vec if isinstance(vec, list) else [])
+                            if isinstance(vec, list) and vec:
+                                base_scores[rid] = cosine_similarity(query_embedding, vec)
+                            try:
+                                goal_score[rid] = goal_congruency_score(
+                                    goals,
+                                    memory_text=str(getattr(related_memory, "text", "") or ""),
+                                    memory_tags=getattr(related_memory, "tags", []) or [],
+                                    memory_namespace=str(getattr(related_memory, "namespace", "") or ""),
+                                )
+                                src = getattr(related_memory, "source", None)
+                                meta = getattr(src, "metadata", None) if src is not None else None
+                                affect_score[rid] = affect_congruency_score(
+                                    affect if isinstance(affect, dict) else None,
+                                    getattr(related_memory, "tags", []) or [],
+                                    memory_metadata=meta,
+                                )
+                                if now_ts is not None:
+                                    created_at = getattr(related_memory, "created_at", None)
+                                    last_used_at = getattr(related_memory, "last_used_at", None)
+                                    age_created = max(0.0, now_ts - float(created_at.timestamp())) if hasattr(created_at, "timestamp") else 0.0
+                                    age_used = max(0.0, now_ts - float(last_used_at.timestamp())) if hasattr(last_used_at, "timestamp") else 0.0
+                                    temporal_recency[rid] = half_life_decay(age_created, max(0.0, recency_half_life_h) * 3600.0) if recency_half_life_h > 0 else 0.0
+                                    temporal_usage[rid] = half_life_decay(age_used, max(0.0, usage_half_life_h) * 3600.0) if usage_half_life_h > 0 else 0.0
+                            except Exception:
+                                pass
+
+                # Recompute BM25 normalization now that the candidate set may have expanded.
+                try:
+                    if query_for_bm25:
+                        docs = []
+                        mids = []
+                        for m in candidates:
+                            mid = getattr(m, "id", None)
+                            if not isinstance(mid, int):
+                                continue
+                            tags = getattr(m, "tags", []) or []
+                            docs.append(
+                                " ".join(
+                                    [
+                                        str(getattr(m, "text", "") or ""),
+                                        str(getattr(m, "namespace", "") or ""),
+                                        " ".join(tags),
+                                    ]
+                                )
+                            )
+                            mids.append(mid)
+                        bm25 = bm25_scores(query=query_for_bm25, documents=docs)
+                        max_bm = max(bm25) if bm25 else 0.0
+                        bm25_norm = {mid: (float(s / max_bm) if max_bm > 0 else 0.0) for mid, s in zip(mids, bm25)}
+                except Exception:
+                    pass
+
+                # Rerank candidate order by combined (relevance + activation).
+                def _combined_score(m) -> float:
+                    mid = getattr(m, "id", None)
+                    if not isinstance(mid, int):
+                        return -1e9
+                    base = float(base_scores.get(mid, 0.0))
+                    base += float(bm25_norm.get(mid, 0.0)) * bm25_weight
+                    base += float(goal_score.get(mid, 0.0)) * goal_weight
+                    base += float(affect_score.get(mid, 0.0)) * affect_weight
+                    base += float(temporal_recency.get(mid, 0.0)) * recency_weight
+                    base += float(temporal_usage.get(mid, 0.0)) * usage_weight
+                    base -= float(interference_penalty.get(mid, 0.0)) * interference_weight
+                    base -= float(topic_repeat_penalty.get(mid, 0.0)) * repeat_penalty_weight
+                    boost = float(ns_boost_by_id.get(mid, 1.0))
+                    if boost != 1.0:
+                        base *= boost
+                    links = links_by_id.get(mid, [])
+                    bonus = 0.0
+                    for lk in links[:10]:
+                        from_id = lk.get("from_id")
+                        rel_type = str(lk.get("relation_type") or "")
+                        w = float(type_weights.get(rel_type, 0.5))
+                        s_base = float(base_scores.get(int(from_id), 0.0)) if isinstance(from_id, int) else 0.0
+                        rel_strength = lk.get("strength")
+                        rel_strength_f = float(rel_strength) if isinstance(rel_strength, (int, float)) else 0.0
+                        bonus = max(bonus, s_base * rel_strength_f * w * graph_weight)
+                    return base + bonus
+
+                paired = list(zip(candidates, candidate_vectors))
+                paired.sort(key=lambda p: _combined_score(p[0]), reverse=True)
+                # Clamp to avoid huge candidate sets.
+                paired = paired[:50]
+                candidates = [p[0] for p in paired]
+                candidate_vectors = [p[1] for p in paired]
+            except Exception:
+                # Best-effort: do not break priming on graph failure.
+                pass
+        else:
+            # Even without graph expansion, apply BM25/goal/affect reranking.
+            def _combined_score_no_graph(m) -> float:
+                mid = getattr(m, "id", None)
+                if not isinstance(mid, int):
+                    return -1e9
+                base = float(base_scores.get(mid, 0.0))
+                base += float(bm25_norm.get(mid, 0.0)) * bm25_weight
+                base += float(goal_score.get(mid, 0.0)) * goal_weight
+                base += float(affect_score.get(mid, 0.0)) * affect_weight
+                base += float(temporal_recency.get(mid, 0.0)) * recency_weight
+                base += float(temporal_usage.get(mid, 0.0)) * usage_weight
+                base -= float(interference_penalty.get(mid, 0.0)) * interference_weight
+                base -= float(topic_repeat_penalty.get(mid, 0.0)) * repeat_penalty_weight
+                boost = float(ns_boost_by_id.get(mid, 1.0))
+                if boost != 1.0:
+                    base *= boost
+                return base
+
+            paired = list(zip(candidates, candidate_vectors))
+            paired.sort(key=lambda p: _combined_score_no_graph(p[0]), reverse=True)
+            candidates = [p[0] for p in paired]
+            candidate_vectors = [p[1] for p in paired]
+
+        selected = []
+        if max_items <= 1 or len(candidates) <= 1:
+            selected = [candidates[0]]
+            strategy = "top1"
+        else:
+            # Only apply MMR when we have at least some vectors.
+            has_vectors = any(v for v in candidate_vectors)
+            if has_vectors:
+                selected = mmr_select(
+                    query_vector=query_embedding,
+                    candidates=candidates,
+                    candidate_vectors=candidate_vectors,
+                    k=min(max_items, len(candidates)),
+                    lambda_mult=mmr_lambda,
+                )
+                strategy = "mmr"
+            else:
+                selected = candidates[: min(max_items, len(candidates))]
+                strategy = "topk"
+
+        # Build a compact priming card.
+        max_memory_chars = int(getattr(config.memory, "prompt_priming_max_memory_chars", 4000) or 4000)
+        max_memory_chars = max(400, min(20000, max_memory_chars))
+        per_item_budget = max(200, min(1500, (max_memory_chars // max(1, len(selected))) - 200))
+
+        card_items = []
+        meta_items = []
+        conflicts_for_card: list[dict[str, Any]] = []
+        for m in selected:
+            mid = getattr(m, "id", None)
+            ns = getattr(m, "namespace", None)
+            txt = str(getattr(m, "text", "") or "").strip()
+            if per_item_budget and len(txt) > per_item_budget:
+                txt = txt[: max(0, per_item_budget - 40)] + "\n...[truncated]...\n"
+
+            score = None
+            try:
+                if vector_index is not None and hasattr(vector_index, "get_vector_by_memory_id") and isinstance(mid, int):
+                    v = vector_index.get_vector_by_memory_id(mid)
+                    if isinstance(v, list) and v:
+                        score = cosine_similarity(query_embedding, v)
+            except Exception:
+                score = None
+
+            # Collect known contradictions for the structured card.
+            if hasattr(memory_manager, "get_related_memories") and isinstance(mid, int):
+                try:
+                    from ..memory import RelationType
+
+                    related = memory_manager.get_related_memories(
+                        mid,
+                        relation_types=[RelationType.CONTRADICTS, RelationType.SUPERSEDES],
+                        direction="both",
+                        min_strength=0.0,
+                        limit=2,
+                    )
+                    for rm, rel in related or []:
+                        rid = getattr(rm, "id", None)
+                        if not isinstance(rid, int):
+                            continue
+                        rtype = getattr(rel, "relation_type", None)
+                        if hasattr(rtype, "value"):
+                            rtype = rtype.value
+                        conflicts_for_card.append(
+                            {
+                                "type": str(rtype or "related"),
+                                "id": rid,
+                                "preview": str(getattr(rm, "text", "") or "")[:200],
+                            }
+                        )
+                except Exception:
+                    pass
+
+            card_items.append(
+                {
+                    "id": int(mid) if isinstance(mid, int) else None,
+                    "namespace": str(ns) if isinstance(ns, str) and ns else None,
+                    "score": score,
+                    "text": txt,
+                    "importance": float(getattr(m, "importance", 0.0) or 0.0),
+                    "created_at": getattr(getattr(m, "created_at", None), "isoformat", lambda: "")(),
+                    "last_used_at": getattr(getattr(m, "last_used_at", None), "isoformat", lambda: "")(),
+                    "source_type": getattr(getattr(m, "source", None), "source_type", None).value if getattr(m, "source", None) is not None and hasattr(getattr(m, "source", None), "source_type") else "",
+                    "why": {
+                        "sim": float(score) if isinstance(score, (int, float)) else None,
+                        "bm25": float(bm25_norm.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                        "goal": float(goal_score.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                        "affect": float(affect_score.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                        "recency": float(temporal_recency.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                        "usage": float(temporal_usage.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                        "penalty": float(interference_penalty.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    },
+                }
+            )
+            links = links_by_id.get(int(mid), []) if isinstance(mid, int) else []
+            meta_items.append(
+                {
+                    "id": int(mid) if isinstance(mid, int) else None,
+                    "namespace": str(ns) if isinstance(ns, str) and ns else None,
+                    "score": score,
+                    "bm25": float(bm25_norm.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "goal": float(goal_score.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "affect": float(affect_score.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "recency": float(temporal_recency.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "usage": float(temporal_usage.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "penalty": float(interference_penalty.get(int(mid), 0.0)) if isinstance(mid, int) else None,
+                    "links": links[:5] if isinstance(links, list) else None,
+                }
+            )
+
+        selection = {
+            "strategy": strategy,
+            "top_k": top_k,
+            "max_items": max_items,
+            "lambda": mmr_lambda if strategy == "mmr" else None,
+            "cue": cue_meta,
+            "graph_hops": graph_hops,
+            "weights": {
+                "bm25": bm25_weight,
+                "goal": goal_weight,
+                "affect": affect_weight,
+                "recency": recency_weight,
+                "usage": usage_weight,
+                "interference": interference_weight,
+                "topic_repeat": repeat_penalty_weight,
+            },
+            "debug": {
+                "self_hit_skipped_count": int(self_hit_skipped),
+                "topic_signature": current_topic_sig,
+                "topic_similarity_jaccard": topic_sim,
+                "topic_changed": topic_changed,
+            },
+        }
+
+        if priming_mode == "thought":
+            primed_text = build_thought_priming_card(
+                query_preview=user_prompt,
+                cue_meta=cue_meta,
+                selection=selection,
+                items=card_items,
+            )
+        else:
+            primed_text = build_structured_priming_card(
+                query_preview=user_prompt,
+                cue_meta=cue_meta,
+                selection=selection,
+                items=card_items,
+                conflicts=conflicts_for_card[:6] if conflicts_for_card else None,
+                unknowns=None,
+            )
+
+        # Update topic state after selection (best-effort).
+        if repeat_penalty_weight > 0:
+            try:
+                if not hasattr(self, "_priming_topic_state") or not isinstance(getattr(self, "_priming_topic_state", None), dict):
+                    self._priming_topic_state = {}
+                state = self._priming_topic_state
+                state["last_topic_sig"] = current_topic_sig
+                sel_ids: list[int] = []
+                for m in selected or []:
+                    mid = getattr(m, "id", None)
+                    if isinstance(mid, int):
+                        sel_ids.append(int(mid))
+                state["last_selected_ids"] = sel_ids[:5]
+            except Exception:
+                pass
+
+        # Record selection for interference penalty (best-effort, bounded).
+        if interference_weight > 0 and now_ts is not None:
+            try:
+                state = getattr(self, "_priming_interference_state", None)
+                if isinstance(state, dict):
+                    half_life_s = max(0.0, interference_half_life_h) * 3600.0
+                    for m in selected:
+                        mid = getattr(m, "id", None)
+                        if not isinstance(mid, int):
+                            continue
+                        entry = state.get(mid, {"wins": 0.0, "last": now_ts})
+                        wins = float(entry.get("wins", 0.0) or 0.0)
+                        last = float(entry.get("last", now_ts) or now_ts)
+                        dt = max(0.0, now_ts - last)
+                        if half_life_s > 0:
+                            wins = wins * half_life_decay(dt, half_life_s)
+                        wins += 1.0
+                        state[mid] = {"wins": wins, "last": now_ts}
+                    # Cap to most recent 128 entries.
+                    if len(state) > 128:
+                        # Drop lowest wins first.
+                        for mid, _entry in sorted(state.items(), key=lambda kv: float(kv[1].get("wins", 0.0) or 0.0))[: len(state) - 128]:
+                            state.pop(mid, None)
+            except Exception:
+                pass
+
+        self.world_state_aggregator.set_primed_memory(
+            session_id=session_id,
+            query_preview=user_prompt,
+            text=primed_text,
+            truncated=was_truncated,
+            items=meta_items,
+            selection=selection,
+            mode=priming_mode,
+        )
+
+        # Learnable priming: log selection (best-effort).
+        try:
+            if self._event_logger:
+                self._event_logger.log_priming_selected(
+                    session_id,
+                    {
+                        "mode": priming_mode,
+                        "selected": [
+                            {"id": it.get("id"), "namespace": it.get("namespace"), "score": it.get("score")}
+                            for it in (meta_items[:5] if isinstance(meta_items, list) else [])
+                            if isinstance(it, dict)
+                        ],
+                        "selection": selection,
+                    },
+                )
+        except Exception:
+            pass
+
+        try:
+            from broca.rl.experiences import append_stream_event
+
+            append_stream_event(
+                {
+                    "timestamp": float(time.time()) if "time" in globals() else None,
+                    "type": "priming_selected",
+                    "session_id": session_id,
+                    "mode": priming_mode,
+                    "selected_ids": [
+                        it.get("id")
+                        for it in (meta_items[:5] if isinstance(meta_items, list) else [])
+                        if isinstance(it, dict)
+                    ],
+                }
+            )
+        except Exception:
+            pass
+
     def send(self, user_text: str, stream: bool = None, *, hidden_user_message: bool = False) -> str:
         """
         Append a user message, call the LLM, handle tool calls if needed, and return final reply.
@@ -637,6 +1473,15 @@ When you need to use tools to complete a task:
                 logger.warning(f"Failed to add user message to context graph: {e}", exc_info=True)
         
         self.messages.append(user_message)
+
+        # Prompt priming: embed the current user prompt and fetch the most similar memory.
+        # This is injected into the mutable system prompt and stays stable until the next
+        # (non-hidden) user prompt. Avoid priming for hidden internal prompts (e.g.,
+        # RESPOND_AND_CONTINUE continuation).
+        try:
+            self._prime_memory_for_user_prompt(user_text, hidden_user_message=hidden_user_message)
+        except Exception:
+            pass
         
         # PEA/PFREA removed - planning is now handled via planning tool
         
@@ -1712,6 +2557,101 @@ When you need to use tools to complete a task:
                             print(f"{prompt}{assistant_text}\n", end="", flush=True)
                     # If assistant_text is None/empty, response guard should have injected fallback
                     # but if it didn't for some reason, don't print empty prompt line
+
+                # Learnable priming: log outcome + update per-namespace boost (best-effort).
+                try:
+                    if self.world_state_aggregator and assistant_text:
+                        ws = self.world_state_aggregator.aggregate(session_id=self.session_id)
+                        primed_payload = None
+                        priming_mode = "chat"
+                        active_slot = None
+                        if isinstance(ws.get("primed_memory_thought"), dict):
+                            primed_payload = ws.get("primed_memory_thought")
+                            priming_mode = "thought"
+                            active_slot = "primed_memory_thought"
+                        elif isinstance(ws.get("primed_memory_chat"), dict):
+                            primed_payload = ws.get("primed_memory_chat")
+                            priming_mode = "chat"
+                            active_slot = "primed_memory_chat"
+                        elif isinstance(ws.get("primed_memory"), dict):
+                            primed_payload = ws.get("primed_memory")
+                            priming_mode = "chat"
+                            active_slot = "primed_memory"
+
+                        if isinstance(primed_payload, dict):
+                            primed_text = primed_payload.get("text")
+                            if isinstance(primed_text, str) and primed_text.strip():
+                                from ..memory.priming import priming_used_score
+                                from ..memory.priming_learning import PrimingPolicyStore
+
+                                used = priming_used_score(assistant_text=assistant_text, primed_card_text=primed_text)
+
+                                # Namespace attribution: use the primary item namespace if available.
+                                ns = "*"
+                                try:
+                                    items = primed_payload.get("items") or []
+                                    if isinstance(items, list) and items:
+                                        it0 = items[0]
+                                        if isinstance(it0, dict):
+                                            ns = str(it0.get("namespace") or "*") or "*"
+                                except Exception:
+                                    ns = "*"
+
+                                policy_store = getattr(self, "_priming_policy_store", None)
+                                if policy_store is None:
+                                    try:
+                                        policy_path = getattr(config.memory, "prompt_priming_policy_path", "data/priming_policy.json")
+                                    except Exception:
+                                        policy_path = "data/priming_policy.json"
+                                    try:
+                                        policy_store = PrimingPolicyStore(path=policy_path)
+                                        self._priming_policy_store = policy_store
+                                    except Exception:
+                                        policy_store = None
+
+                                new_boost = None
+                                if policy_store is not None:
+                                    try:
+                                        new_boost = float(policy_store.update(mode=priming_mode, namespace=ns, used_score=used))
+                                        policy_store.save()
+                                    except Exception:
+                                        new_boost = None
+
+                                # Event logger (if enabled)
+                                try:
+                                    if self._event_logger:
+                                        self._event_logger.log_priming_outcome(
+                                            self.session_id,
+                                            {
+                                                "mode": priming_mode,
+                                                "active_slot": active_slot,
+                                                "namespace": ns,
+                                                "used_score": used,
+                                                "new_boost": new_boost,
+                                            },
+                                        )
+                                except Exception:
+                                    pass
+
+                                # RL stream event (best-effort)
+                                try:
+                                    from broca.rl.experiences import append_stream_event
+
+                                    append_stream_event(
+                                        {
+                                            "timestamp": float(time.time()) if "time" in globals() else None,
+                                            "type": "priming_outcome",
+                                            "session_id": self.session_id,
+                                            "mode": priming_mode,
+                                            "namespace": ns,
+                                            "used_score": used,
+                                            "new_boost": new_boost,
+                                        }
+                                    )
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
 
                 # Log assistant message event
                 assistant_event_id = None
@@ -4224,7 +5164,7 @@ When you need to use tools to complete a task:
 
             # Aggregate current world state
             with self._startup_span("system_prompt.aggregate_world_state"):
-                world_state = self.world_state_aggregator.aggregate()
+                world_state = self.world_state_aggregator.aggregate(session_id=self.session_id)
 
             # Calculate stable hash of world state to detect changes
             with self._startup_span("system_prompt.world_state_hash"):
@@ -4240,7 +5180,59 @@ When you need to use tools to complete a task:
 
             # Format world state for prompt (formatter handles its own size limits)
             with self._startup_span("system_prompt.format_world_state"):
-                formatted_world_state = self._world_state_formatter.format(world_state)
+                world_state_for_prompt = world_state
+                primed_memory_prompt: Optional[str] = None
+                try:
+                    # Prefer thought priming when present; otherwise fall back to chat/legacy.
+                    slot_key = None
+                    primed = None
+                    for k in ("primed_memory_thought", "primed_memory_chat", "primed_memory"):
+                        v = world_state.get(k)
+                        if isinstance(v, dict) and v.get("text"):
+                            slot_key = k
+                            primed = v
+                            break
+
+                    if isinstance(primed, dict):
+                        primed_text = primed.get("text")
+                        if isinstance(primed_text, str) and primed_text.strip():
+                            cleaned = primed_text.strip()
+                            if cleaned.lstrip().startswith("PRIMED MEMORY:"):
+                                primed_memory_prompt = cleaned
+                            else:
+                                primed_memory_prompt = "PRIMED MEMORY:\n" + cleaned
+
+                            # Avoid duplicating full primed texts in JSON; keep metadata only for all slots.
+                            world_state_for_prompt = dict(world_state)
+                            try:
+                                import hashlib
+
+                                for k in ("primed_memory", "primed_memory_chat", "primed_memory_thought"):
+                                    vv = world_state.get(k)
+                                    if not isinstance(vv, dict):
+                                        continue
+                                    txt = vv.get("text")
+                                    meta = dict(vv)
+                                    meta.pop("text", None)
+                                    if isinstance(txt, str) and txt:
+                                        try:
+                                            meta["text_sha256"] = hashlib.sha256(txt.encode("utf-8", errors="ignore")).hexdigest()
+                                            meta["text_len"] = len(txt)
+                                        except Exception:
+                                            pass
+                                    world_state_for_prompt[k] = meta
+                            except Exception:
+                                # Best-effort: still strip active slot text to prevent duplication.
+                                primed_meta = dict(primed)
+                                primed_meta.pop("text", None)
+                                world_state_for_prompt[slot_key or "primed_memory"] = primed_meta
+
+                            world_state_for_prompt["primed_memory_active_slot"] = slot_key
+                            world_state_for_prompt["primed_memory_prompt"] = primed_memory_prompt
+                except Exception:
+                    world_state_for_prompt = world_state
+
+                formatted_world_state = self._world_state_formatter.format(world_state_for_prompt)
 
             # Combine base prompt, summary context, and world state
             parts = []

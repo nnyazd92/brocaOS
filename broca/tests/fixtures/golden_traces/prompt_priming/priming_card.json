@@ -1,0 +1,3 @@
+{
+  "card": "PRIMED MEMORY (why it matches, provenance, confidence, last_used):\n\nWhy it matches:\n- task_type: chat\n- intent: hello\n- selection: mmr\n\nProvenance:\n- [1] id=1 ns=ns source=user (sim=0.900, bm25=0.200, goal=0.000, affect=0.000, recency=0.400, usage=0.700)\n  Confidence: 0.60\n  Last used: 2024-01-02T00:00:00Z\n  Created: 2024-01-01T00:00:00Z\n- [2] id=2 ns=ns source=user (sim=0.700, bm25=0.100, goal=0.000, affect=0.000, recency=0.300, usage=0.600)\n  Confidence: 0.50\n  Last used: 2024-01-02T00:00:00Z\n  Created: 2024-01-01T00:00:00Z\n\nKey facts:\n- (none)\n\nAction implications:\n- Validate against current goal/constraints\n\nKnown conflicts/unknowns:\n- conflicts: none detected\n- unknowns: none\n"
+}

@@ -224,6 +224,48 @@ class MemoryConfig(BaseModel):
     embedding_model: str = os.getenv("BROCA_EMBEDDING_MODEL", "text-embedding-3-small")  # Deprecated: use embedding.model
     embedding_dimension: int = int(os.getenv("BROCA_EMBEDDING_DIMENSION", "1536"))  # Deprecated: use embedding.dimension
     embedding: EmbeddingConfig = EmbeddingConfig()
+    # Prompt priming: embed the current user prompt and inject the most similar memory
+    # into the mutable system prompt as a short-lived "primed memory".
+    prompt_priming_enabled: bool = os.getenv("BROCA_MEMORY_PRIMING_ENABLED", "false").lower() == "true"
+    prompt_priming_max_query_tokens: int = int(os.getenv("BROCA_MEMORY_PRIMING_MAX_QUERY_TOKENS", "8192"))
+    prompt_priming_max_memory_chars: int = int(os.getenv("BROCA_MEMORY_PRIMING_MAX_MEMORY_CHARS", "4000"))
+    prompt_priming_skip_internal_monologue: bool = os.getenv("BROCA_MEMORY_PRIMING_SKIP_INTERNAL_MONOLOGUE", "true").lower() == "true"
+    # Recursive-thought (internal monologue) priming: separate slot/policy, off by default.
+    thought_priming_enabled: bool = os.getenv("BROCA_THOUGHT_PRIMING_ENABLED", "false").lower() == "true"
+    # Prompt priming selection behavior (top-k retrieval + optional diversity selection)
+    prompt_priming_top_k: int = int(os.getenv("BROCA_MEMORY_PRIMING_TOP_K", "8"))
+    prompt_priming_max_items: int = int(os.getenv("BROCA_MEMORY_PRIMING_MAX_ITEMS", "1"))
+    prompt_priming_mmr_lambda: float = float(os.getenv("BROCA_MEMORY_PRIMING_MMR_LAMBDA", "0.7"))
+    # Prompt priming reranking / congruency
+    prompt_priming_bm25_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_BM25_WEIGHT", "0.25"))
+    prompt_priming_goal_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_GOAL_WEIGHT", "0.35"))
+    prompt_priming_affect_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_AFFECT_WEIGHT", "0.25"))
+    # Prompt priming temporal/usage shaping + interference reduction
+    prompt_priming_recency_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_RECENCY_WEIGHT", "0.15"))
+    prompt_priming_usage_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_USAGE_WEIGHT", "0.15"))
+    prompt_priming_recency_half_life_hours: float = float(os.getenv("BROCA_MEMORY_PRIMING_RECENCY_HALF_LIFE_HOURS", "72"))
+    prompt_priming_usage_half_life_hours: float = float(os.getenv("BROCA_MEMORY_PRIMING_USAGE_HALF_LIFE_HOURS", "24"))
+    prompt_priming_interference_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_INTERFERENCE_WEIGHT", "0.25"))
+    prompt_priming_interference_half_life_hours: float = float(os.getenv("BROCA_MEMORY_PRIMING_INTERFERENCE_HALF_LIFE_HOURS", "12"))
+    prompt_priming_interference_k: float = float(os.getenv("BROCA_MEMORY_PRIMING_INTERFERENCE_K", "3"))
+    # Prompt priming self-hit control (skip prompt-as-memory echoes)
+    prompt_priming_self_hit_enabled: bool = os.getenv("BROCA_MEMORY_PRIMING_SELF_HIT_ENABLED", "true").lower() == "true"
+    prompt_priming_self_hit_token_overlap_threshold: float = float(
+        os.getenv("BROCA_MEMORY_PRIMING_SELF_HIT_TOKEN_OVERLAP_THRESHOLD", "0.85")
+    )
+    # Prompt priming topic repeat control (downweight repeats across topic shifts)
+    prompt_priming_topic_repeat_penalty_weight: float = float(
+        os.getenv("BROCA_MEMORY_PRIMING_TOPIC_REPEAT_PENALTY_WEIGHT", "0.25")
+    )
+    prompt_priming_topic_jaccard_threshold: float = float(os.getenv("BROCA_MEMORY_PRIMING_TOPIC_JACCARD_THRESHOLD", "0.35"))
+    # Learnable priming policy store (JSON, compact)
+    prompt_priming_policy_path: str = os.getenv("BROCA_MEMORY_PRIMING_POLICY_PATH", "data/priming_policy.json")
+    # Prompt priming spreading activation (1-hop graph walk from seed memories)
+    prompt_priming_graph_hops: int = int(os.getenv("BROCA_MEMORY_PRIMING_GRAPH_HOPS", "1"))
+    prompt_priming_graph_seed_count: int = int(os.getenv("BROCA_MEMORY_PRIMING_GRAPH_SEED_COUNT", "1"))
+    prompt_priming_graph_limit: int = int(os.getenv("BROCA_MEMORY_PRIMING_GRAPH_LIMIT", "5"))
+    prompt_priming_graph_min_strength: float = float(os.getenv("BROCA_MEMORY_PRIMING_GRAPH_MIN_STRENGTH", "0.2"))
+    prompt_priming_graph_weight: float = float(os.getenv("BROCA_MEMORY_PRIMING_GRAPH_WEIGHT", "0.35"))
 
 
 class SelfModelConfig(BaseModel):

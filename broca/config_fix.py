@@ -280,88 +280,18 @@ class BrowseSafetyConfig(BaseModel):
 
 
 class BrowseConfig(BaseModel):
-    pass
-class LearningConfig(BaseModel):
-class LearningConfig(BaseModel):
-    """Configuration for learning system."""
-    
-    enabled: bool = os.getenv("BROCA_LEARNING_ENABLED", "false").lower() == "true"
-    
-    # Procedural learning
-    procedural_learning_enabled: bool = os.getenv("BROCA_LEARNING_PROCEDURAL_ENABLED", "true").lower() == "true"
-    min_sequence_length: int = int(os.getenv("BROCA_LEARNING_MIN_SEQUENCE_LENGTH", "2"))
-    min_success_rate: float = float(os.getenv("BROCA_LEARNING_MIN_SUCCESS_RATE", "0.7"))
-    confidence_threshold: float = float(os.getenv("BROCA_LEARNING_CONFIDENCE_THRESHOLD", "0.6"))
-    
-    # Skill management
-    skill_management_enabled: bool = os.getenv("BROCA_LEARNING_SKILL_MANAGEMENT_ENABLED", "true").lower() == "true"
-    max_skills: int = int(os.getenv("BROCA_LEARNING_MAX_SKILLS", "50"))
-    skill_decay_rate: float = float(os.getenv("BROCA_LEARNING_SKILL_DECAY_RATE", "0.01"))
-    
-    # Pattern extraction
-    pattern_extraction_enabled: bool = os.getenv("BROCA_LEARNING_PATTERN_EXTRACTION_ENABLED", "true").lower() == "true"
-    pattern_similarity_threshold: float = float(os.getenv("BROCA_LEARNING_PATTERN_SIMILARITY_THRESHOLD", "0.8"))
-    max_patterns: int = int(os.getenv("BROCA_LEARNING_MAX_PATTERNS", "100"))
-    
-    # Experience logging
-    experience_logging_enabled: bool = os.getenv("BROCA_LEARNING_EXPERIENCE_LOGGING_ENABLED", "true").lower() == "true"
-    max_experiences: int = int(os.getenv("BROCA_LEARNING_MAX_EXPERIENCES", "1000"))
-    experience_decay_days: int = int(os.getenv("BROCA_LEARNING_EXPERIENCE_DECAY_DAYS", "30"))
-    
-    # Reinforcement learning
-    reinforcement_enabled: bool = os.getenv("BROCA_LEARNING_REINFORCEMENT_ENABLED", "true").lower() == "true"
-    learning_rate: float = float(os.getenv("BROCA_LEARNING_LEARNING_RATE", "0.1"))
-    discount_factor: float = float(os.getenv("BROCA_LEARNING_DISCOUNT_FACTOR", "0.9"))
-    exploration_rate: float = float(os.getenv("BROCA_LEARNING_EXPLORATION_RATE", "0.1"))
-    
-    # Storage
-    storage_file_path: str = os.getenv("BROCA_LEARNING_STORAGE_FILE", "data/learning_state.json")
-    procedures_file_path: str = os.getenv("BROCA_LEARNING_PROCEDURES_FILE", "data/learned_procedures.json")
-    skills_file_path: str = os.getenv("BROCA_LEARNING_SKILLS_FILE", "data/learned_skills.json")
-    
-    # Integration
-    integrate_with_tools: bool = os.getenv("BROCA_LEARNING_INTEGRATE_WITH_TOOLS", "true").lower() == "true"
-    auto_suggest_procedures: bool = os.getenv("BROCA_LEARNING_AUTO_SUGGEST_PROCEDURES", "true").lower() == "true"
-    suggestion_confidence_threshold: float = float(os.getenv("BROCA_LEARNING_SUGGESTION_CONFIDENCE_THRESHOLD", "0.7"))
-    
-    # Debugging
-    debug_mode: bool = os.getenv("BROCA_LEARNING_DEBUG_MODE", "false").lower() == "true"
-    log_observations: bool = os.getenv("BROCA_LEARNING_LOG_OBSERVATIONS", "true").lower() == "true"
-    log_procedure_creation: bool = os.getenv("BROCA_LEARNING_LOG_PROCEDURE_CREATION", "true").lower() == "true"
     """Configuration for browse tool (browser-based search and navigation)."""
-    # Search
-    default_search_engine: str = os.getenv("BROCA_BROWSE_DEFAULT_ENGINE", "ddg")  # "ddg" | "bing" | "google" | "auto"
-    enable_tavily_fallback: bool = os.getenv("BROCA_BROWSE_ENABLE_TAVILY_FALLBACK", "false").lower() == "true"  # Emergency only, default: false
-    tavily_fallback_only: bool = os.getenv("BROCA_BROWSE_TAVILY_FALLBACK_ONLY", "false").lower() == "true"  # Emergency only mode
-    
-    # Sessions
-    session_persistence: bool = os.getenv("BROCA_BROWSE_SESSION_PERSISTENCE", "true").lower() == "true"
-    session_storage_path: str = os.getenv("BROCA_BROWSE_SESSION_STORAGE_PATH", "runtime/browser_sessions")
-    session_ttl_hours: int = int(os.getenv("BROCA_BROWSE_SESSION_TTL_HOURS", "24"))
-    
-    # Budgets
-    default_max_actions: int = int(os.getenv("BROCA_BROWSE_MAX_ACTIONS", "20"))
-    default_max_wallclock_ms: int = int(os.getenv("BROCA_BROWSE_MAX_WALLCLOCK_MS", "60000"))
-    default_max_domains: int = int(os.getenv("BROCA_BROWSE_MAX_DOMAINS", "5"))
-    default_max_total_bytes: int = int(os.getenv("BROCA_BROWSE_MAX_TOTAL_BYTES", "10000000"))
-    
-    # Extraction
-    extraction_mode_preference: list[str] = (
-        os.getenv("BROCA_BROWSE_EXTRACTION_MODES", "readability,trafilatura,dom").split(",")
-        if os.getenv("BROCA_BROWSE_EXTRACTION_MODES")
-        else ["readability", "trafilatura", "dom"]
-    )
-    max_extracted_chars: int = int(os.getenv("BROCA_BROWSE_MAX_EXTRACTED_CHARS", "50000"))
-    
-    # Source Quality
-    domain_reputation_file: str = os.getenv("BROCA_BROWSE_DOMAIN_REPUTATION_FILE", "data/browse_domain_reputation.json")
-    
-    # Traces
-    trace_storage_path: str = os.getenv("BROCA_BROWSE_TRACE_STORAGE_PATH", "docs/browse_traces")
+    # Kept intentionally minimal here; the canonical config lives in broca/config.py.
+    default_search_engine: str = os.getenv("BROCA_BROWSE_DEFAULT_ENGINE", "ddg")
     enable_trace_replay: bool = os.getenv("BROCA_BROWSE_ENABLE_TRACE_REPLAY", "true").lower() == "true"
-    
-    # Safety
     safety: BrowseSafetyConfig = BrowseSafetyConfig()
+
+
+class LearningConfig(BaseModel):
+    """Configuration for learning system (legacy shim; canonical config lives in broca/config.py)."""
+
+    enabled: bool = os.getenv("BROCA_LEARNING_ENABLED", "false").lower() == "true"
+    learning_rate: float = float(os.getenv("BROCA_LEARNING_LEARNING_RATE", "0.1"))
 
 
 class BrocaConfig(BaseModel):
