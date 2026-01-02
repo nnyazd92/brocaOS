@@ -2,7 +2,7 @@
 
 BrocaOS is a cognitive architecture designed for building autonomous agents with advanced reasoning, memory, and tool-use capabilities.
 
-## BrocaOS Arhictecture Paper Theory
+## BrocaOS Architecture Paper Theory
 
 https://zenodo.org/records/18125645
 
