@@ -19,7 +19,7 @@ BROCA_BASE_SYSTEM_PROMPT_DEFAULT = (
 
 
 class LLMConfig(BaseModel):
-    provider: str = os.getenv("BROCA_LLM_PROVIDER", "deepseek")  # "deepseek", "openai", or "gemini"
+    provider: str = os.getenv("BROCA_LLM_PROVIDER", "deepseek")  # "deepseek", "openai", "gemini", or "anthropic"
     api_base: str = os.getenv("DEEPSEEK_API_BASE", "")  # Will default based on provider
     api_key: str = os.getenv("DEEPSEEK_API_KEY", "")  # Will default based on provider
     model: str = os.getenv("DEEPSEEK_MODEL", "")  # Will default based on provider
@@ -31,6 +31,8 @@ class LLMConfig(BaseModel):
     # Gemini 3 specific configuration
     thinking_level: str = os.getenv("BROCA_GEMINI_THINKING_LEVEL", "low")  # "low" for fast system calls, "high" for ToE logic
     use_sdk: bool = os.getenv("BROCA_GEMINI_USE_SDK", "true").lower() == "true"  # Use google-genai SDK (True) or REST API (False)
+    anthropic_version: str = os.getenv("ANTHROPIC_VERSION", "2023-06-01")
+    anthropic_beta: str | None = os.getenv("ANTHROPIC_BETA", None)
 
     def __init__(self, **kwargs):
         # Get provider first
@@ -69,6 +71,19 @@ class LLMConfig(BaseModel):
                 or os.getenv("GEMINI_MODEL")
                 or os.getenv("BROCA_LLM_MODEL")
                 or "gemini-3.0-flash-001"
+            )
+        elif provider == "anthropic":
+            default_base = (
+                kwargs.get("api_base")
+                or os.getenv("ANTHROPIC_API_BASE")
+                or "https://api.anthropic.com"
+            )
+            default_key = kwargs.get("api_key") or os.getenv("ANTHROPIC_API_KEY") or ""
+            default_model = (
+                kwargs.get("model")
+                or os.getenv("ANTHROPIC_MODEL")
+                or os.getenv("BROCA_LLM_MODEL")
+                or "claude-3-5-sonnet-20241022"
             )
         else:  # deepseek (default)
             default_base = (
