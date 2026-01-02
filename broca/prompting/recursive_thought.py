@@ -327,7 +327,7 @@ class RecursiveThoughtLoop:
 if __name__ == "__main__":
     # Keep module import side-effect free; configure console logging only when run as a script.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    SEED = "INTERNAL THOUGHT: How can I help the operator (Nick Navid Yazdani) to make money so we can fund further development of BrocaOS?"
+    SEED = "INTERNAL THOUGHT: Why is Quantum Mechanics so counterintuitive, perhaps a layered model (similar to the Layered Theory of Consciousness) can help explain it?"
 
     base_url = None
     try:

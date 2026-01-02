@@ -649,6 +649,12 @@ class RLConfig(BaseModel):
     max_latency_penalty: float = float(os.getenv("BROCA_RL_MAX_LATENCY_PENALTY", "0.2"))
     extrinsic_reward_weight: float = float(os.getenv("BROCA_RL_EXTRINSIC_REWARD_WEIGHT", "0.5"))
     intrinsic_reward_weight: float = float(os.getenv("BROCA_RL_INTRINSIC_REWARD_WEIGHT", "0.5"))
+
+    # Reward shaping (potential-based intrinsic delta anchored by extrinsic outcome)
+    # total = clamp01(extrinsic + beta*(gamma*phi_post - phi_pre) - latency_penalty)
+    reward_shaping_beta: float = float(os.getenv("BROCA_RL_REWARD_SHAPING_BETA", "0.2"))
+    reward_shaping_gamma: float = float(os.getenv("BROCA_RL_REWARD_SHAPING_GAMMA", "0.99"))
+    reward_use_varnorm_phi: bool = os.getenv("BROCA_RL_REWARD_USE_VARNORM_PHI", "true").lower() == "true"
     
     # Exploration/exploitation
     initial_exploration_rate: float = float(os.getenv("BROCA_RL_INITIAL_EXPLORATION_RATE", "0.1"))

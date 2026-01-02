@@ -134,6 +134,7 @@ def build_dataset(
         from .reward import RewardWeights, compute_reward_from_outcome
 
         rl_s = post_ctx.get("rl_signals") if isinstance(post_ctx, dict) else None
+        pre_rl_s = pre_ctx.get("rl_signals") if isinstance(pre_ctx, dict) else None
         if not isinstance(rl_s, dict):
             # Fall back to rl_rewards.csv row matched by tool_call_id
             tool_call_id = e.get("tool_call_id")
@@ -145,6 +146,8 @@ def build_dataset(
         result_quality = _safe_float(e.get("result_quality", 0.5), 0.5)
 
         reward_val, _ = compute_reward_from_outcome(
+            pre_rl_signals=pre_rl_s if isinstance(pre_rl_s, dict) else None,
+            post_rl_signals=rl_s if isinstance(rl_s, dict) else None,
             rl_signals=rl_s if isinstance(rl_s, dict) else None,
             intrinsic_keys=RL_SIGNAL_KEYS,
             success=success,
@@ -159,6 +162,9 @@ def build_dataset(
                 extrinsic_weight=_config.rl.extrinsic_reward_weight,
                 intrinsic_weight=_config.rl.intrinsic_reward_weight,
             ),
+            shaping_beta=float(getattr(_config.rl, "reward_shaping_beta", 0.2)),
+            shaping_gamma=float(getattr(_config.rl, "reward_shaping_gamma", 0.99)),
+            use_varnorm_phi=bool(getattr(_config.rl, "reward_use_varnorm_phi", True)),
         )
 
         # Non-episodic stream; treat last transition as terminal only at dataset end

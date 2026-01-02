@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -299,6 +300,14 @@ class ListDirTool:
                             "type": "dir" if is_dir else ("file" if is_file else "other"),
                             "size": int(getattr(stat, "st_size", 0) or 0),
                             "mtime": int(getattr(stat, "st_mtime", 0) or 0),
+                            "mtime_iso": (
+                                datetime.fromtimestamp(
+                                    float(getattr(stat, "st_mtime", 0) or 0),
+                                    tz=timezone.utc,
+                                ).isoformat()
+                                if stat is not None
+                                else None
+                            ),
                         }
                     )
                     if len(entries) >= limit_i:
@@ -314,7 +323,12 @@ class ListDirTool:
             return f"LIST_DIR error: {result.get('error')} ({result.get('path')})"
         lines = [f"LIST_DIR: {result.get('path')} ({result.get('count')} entries)"]
         for entry in result.get("entries", [])[:50]:
-            lines.append(f"- {entry.get('type')}: {entry.get('name')} ({entry.get('size')} bytes)")
+            mtime_iso = entry.get("mtime_iso")
+            mtime_raw = entry.get("mtime")
+            mtime_display = mtime_iso if isinstance(mtime_iso, str) and mtime_iso else _safe_str(mtime_raw)
+            lines.append(
+                f"- {entry.get('type')}: {entry.get('name')} ({entry.get('size')} bytes, mtime={mtime_display})"
+            )
         if result.get("count", 0) > 50:
             lines.append(f"... ({int(result.get('count', 0)) - 50} more)")
         return "\n".join(lines)
