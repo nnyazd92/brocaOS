@@ -14,6 +14,7 @@ from .deepseek_client import DeepSeekClient
 from .openai_client import OpenAIClient
 from .cached_client import CachedLLMClient
 from .gemini_client import GeminiClient
+from .anthropic_client import AnthropicClient
 
 
 class LLMClient(Protocol):
@@ -95,13 +96,13 @@ def create_llm_client(
         model: Optional model name override
         temperature: Optional temperature override
         timeout: Optional timeout override
-        provider: Optional provider override ("deepseek", "openai", or "gemini")
+        provider: Optional provider override ("deepseek", "openai", "gemini", or "anthropic")
         
     Returns:
-        LLMClient instance (DeepSeekClient, OpenAIClient, or GeminiClient)
+        LLMClient instance (DeepSeekClient, OpenAIClient, GeminiClient, or AnthropicClient)
         
     Raises:
-        ValueError: If provider is not "deepseek", "openai", or "gemini"
+        ValueError: If provider is not "deepseek", "openai", "gemini", or "anthropic"
     """
     # Determine provider
     provider_name = (provider or config.llm.provider).lower()
@@ -128,6 +129,11 @@ def create_llm_client(
                 api_key = os.getenv("GEMINI_API_KEY", "")
             if base_url is None:
                 base_url = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta/openai")
+        elif provider_name == "anthropic":
+            if api_key is None:
+                api_key = os.getenv("ANTHROPIC_API_KEY", "")
+            if base_url is None:
+                base_url = os.getenv("ANTHROPIC_API_BASE", "https://api.anthropic.com")
     
     # Build kwargs for client initialization
     client_kwargs: Dict[str, Any] = {}
@@ -149,10 +155,12 @@ def create_llm_client(
         return OpenAIClient(**client_kwargs)
     elif provider_name == "gemini":
         return GeminiClient(**client_kwargs)
+    elif provider_name == "anthropic":
+        return AnthropicClient(**client_kwargs)
     else:
         raise ValueError(
             f"Unknown LLM provider: {provider_name}. "
-            "Supported providers are 'deepseek', 'openai', and 'gemini'."
+            "Supported providers are 'deepseek', 'openai', 'gemini', and 'anthropic'."
         )
 
 
