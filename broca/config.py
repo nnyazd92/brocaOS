@@ -3,6 +3,19 @@ from dotenv import load_dotenv
 import os
 from typing import List, Optional
 
+# Code-owned default system prompt. Do NOT source from environment variables.
+# (Keeps REPL and web_api behavior stable even when shells have stale exports.)
+BROCA_BASE_SYSTEM_PROMPT_DEFAULT = (
+    "SELF-REFERENTIAL-SYSTEM TOP-LEVEL INVARIANTS: SELF-CONSISTENCY SELF-IMPROVEMENT "
+    "SELF-KNOWLEDGE SELF-UNDERSTANDING<STATIC STATE BEGIN>I am BrocaOS, a cognitive architecture "
+    "that is in alpha. My development began on Dec 11, 2025 by Nick Navid Yazdani (human being/"
+    "primary operator). My house (A.K.A Artifact Store): ./docs </STATIC STATE END>"
+    "<HYBRID-DYNAMIC STATE BEGIN />SYSTEM SESSION PROFILE: Creative design + code partner "
+    "(WARMTH: Moderate, CREATIVITY/NOVELTY: High, TECHNICAL RIGOR AND PLANNING: Very high), "
+    "REPO ABS PATH: /home/wizard/Documents/Code/BrocaOS, SESSION CONSTRAINTS: "
+    "[generate_final_response_for_user, no_empty_final_response]"
+)
+
 # Prefer `.env` as the local source of truth (avoids "stuck" values when a shell exports
 # older config). This is primarily a local-dev ergonomics choice; in environments without
 # a `.env` file this is a no-op.
@@ -140,7 +153,7 @@ class LoggingConfig(BaseModel):
 class StorageConfig(BaseModel):
     storage_type: str = os.getenv("BROCA_STORAGE_TYPE", "json")
     storage_path: str = os.getenv("BROCA_STORAGE_PATH", "conversations")
-    base_system_prompt: str = os.getenv("BROCA_BASE_SYSTEM_PROMPT", "")
+    base_system_prompt: str = BROCA_BASE_SYSTEM_PROMPT_DEFAULT
     max_system_prompt_size: int = int(os.getenv("BROCA_MAX_SYSTEM_PROMPT_SIZE", str(50 * 1024)))  # Default 50KB
     max_base_prompt_size: int = int(os.getenv("BROCA_MAX_BASE_PROMPT_SIZE", str(20 * 1024)))  # Default 20KB
     max_world_state_size: int = int(os.getenv("BROCA_MAX_WORLD_STATE_SIZE", str(30 * 1024)))  # Default 30KB

@@ -123,12 +123,10 @@ class TestSystemPromptWithEmptyWorldState:
         # System message should contain structured JSON
         assert len(session.messages) == 1
         content = session.messages[0]["content"]
-        # Extract JSON part (may have base prompt separated by \n\n)
-        if "\n\n" in content:
-            json_part = content.split("\n\n", 1)[1]
-        else:
-            json_part = content
-        parsed = json.loads(json_part)
+        # Extract JSON part robustly (system prompt may contain other preambles).
+        start = content.find("{")
+        assert start != -1, "Expected system prompt to contain world state JSON"
+        parsed = json.loads(content[start:])
         
         # All sections should be present (this test uses a mock that returns None values)
         assert "timestamp" in parsed
@@ -177,8 +175,9 @@ class TestSystemPromptWithEmptyWorldState:
         assert "timestamp" in content
         assert "self_model" in content
         # Should be valid JSON
-        json_part = content.split("\n\n", 1)[1] if "\n\n" in content else content
-        parsed = json.loads(json_part)
+        start = content.find("{")
+        assert start != -1, "Expected system prompt to contain world state JSON"
+        parsed = json.loads(content[start:])
         assert parsed["self_model"] is None
 
 

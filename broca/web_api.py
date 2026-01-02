@@ -2005,7 +2005,49 @@ def stream_response(
                 since_start_ms=int((llm_t1 - request_t0) * 1000),
             )
             last_response = response  # Store for max_iterations handling
+
+            # Parity with ConversationSession.send(): extract Gemini thought_signature FIRST so it can
+            # be attached to tool_calls (required by Gemini SDK for tool-call continuity).
+            try:
+                if (
+                    hasattr(session, "_is_gemini_client")
+                    and callable(getattr(session, "_is_gemini_client"))
+                    and session._is_gemini_client()
+                    and hasattr(session.llm, "extract_thought_signature")
+                ):
+                    extracted_sig = session.llm.extract_thought_signature(response)
+                    if extracted_sig:
+                        session._current_thought_signature = extracted_sig
+            except Exception:
+                pass
+
             tool_calls = session.llm.extract_tool_calls(response)
+
+            # Parity with ConversationSession._handle_tool_calls(): ensure each Gemini tool_call carries
+            # thought_signature (Gemini SDK requirement).
+            try:
+                if (
+                    tool_calls
+                    and hasattr(session, "_is_gemini_client")
+                    and callable(getattr(session, "_is_gemini_client"))
+                    and session._is_gemini_client()
+                ):
+                    current_sig = None
+                    getter = getattr(session, "_get_effective_thought_signature", None)
+                    if callable(getter):
+                        current_sig = getter()
+                    if not current_sig:
+                        current_sig = getattr(session, "_current_thought_signature", None)
+                    if current_sig:
+                        try:
+                            from .repl.session import _inject_thought_signature_into_tool_calls
+                            _inject_thought_signature_into_tool_calls(tool_calls, current_sig)
+                        except Exception:
+                            for tc in tool_calls:
+                                if isinstance(tc, dict) and "thought_signature" not in tc:
+                                    tc["thought_signature"] = current_sig
+            except Exception:
+                pass
             
             # Extract assistant content (intermediary commentary) before processing tool calls
             assistant_content = session.llm.extract_assistant_content(response) or None

@@ -40,6 +40,95 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _inject_thought_signature_into_tool_calls(
+    tool_calls: List[Dict[str, Any]],
+    thought_signature: Optional[str],
+) -> bool:
+    """
+    Ensure each OpenAI-format tool_call dict contains `thought_signature` (Gemini requirement).
+
+    Returns True if at least one tool_call was modified.
+    """
+    if not tool_calls or not isinstance(thought_signature, str) or not thought_signature.strip():
+        return False
+    changed = False
+    for tc in tool_calls:
+        if isinstance(tc, dict) and "thought_signature" not in tc:
+            tc["thought_signature"] = thought_signature
+            changed = True
+    return changed
+
+def _truncate_text_with_marker(text: str, max_len: int, marker: str) -> str:
+    """
+    Truncate text to max_len, appending marker on a new line if possible.
+    Always returns a string of length <= max_len (unless max_len is non-positive).
+    """
+    if max_len <= 0:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    if len(text) <= max_len:
+        return text
+    marker_line = "\n" + marker
+    reserve = len(marker_line)
+    if reserve >= max_len:
+        return marker_line[:max_len]
+    truncated = text[: max_len - reserve]
+    # Prefer a clean boundary.
+    last_nl = truncated.rfind("\n")
+    if last_nl > (max_len - reserve) * 0.8:
+        truncated = truncated[:last_nl]
+    truncated = truncated.rstrip()
+    if marker not in truncated:
+        truncated = truncated + marker_line
+    return truncated[:max_len]
+
+
+def _truncate_json_with_truncated_flag(raw_json: str, max_len: int) -> str:
+    """
+    Best-effort: truncate JSON string to max_len while keeping it valid JSON by adding
+    a `_truncated: true` flag when possible.
+    """
+    if max_len <= 0:
+        return ""
+    if not isinstance(raw_json, str):
+        raw_json = str(raw_json)
+    if len(raw_json) <= max_len:
+        return raw_json
+
+    minimal = '{"_truncated": true}'
+    if max_len < len(minimal):
+        return minimal[:max_len]
+
+    prefix = raw_json[:max_len]
+    last_brace = prefix.rfind("}")
+    if last_brace == -1:
+        return minimal
+    prefix = prefix[: last_brace + 1].rstrip()
+
+    # Replace the final '}' with ', "_truncated": true }'
+    marker_suffix = ',\n  "_truncated": true\n}'
+    if not prefix.endswith("}"):
+        return minimal
+
+    base = prefix[:-1].rstrip()
+    # Avoid dangling commas.
+    if base.endswith(","):
+        base = base[:-1].rstrip()
+
+    # Ensure we stay within max_len.
+    allowed_base = max_len - len(marker_suffix)
+    if allowed_base <= 0:
+        return minimal
+    if len(base) > allowed_base:
+        base = base[:allowed_base].rstrip()
+        if base.endswith(","):
+            base = base[:-1].rstrip()
+    candidate = base + marker_suffix
+    if len(candidate) > max_len:
+        candidate = candidate[:max_len]
+    return candidate
+
 class ConversationSession:
     """
     Maintains chat history and exposes a simple .send(user_text) → assistant_text interface.
@@ -1745,6 +1834,12 @@ When you need to use tools to complete a task:
                 # from streaming responses (see lines 291-300 below for fallback logic).
                 tools_for_call = tools
                 can_stream = stream and hasattr(self.llm, "chat_stream")
+                # Parity/correctness: disable streaming for Gemini in the REPL.
+                # Gemini streaming (especially REST/OpenAI-compatible) does not reliably round-trip
+                # thought_signature and can yield empty/no-content responses that never get printed.
+                # Using non-streaming keeps behavior aligned with web_api.py and avoids tool-call loops.
+                if is_gemini:
+                    can_stream = False
                 use_streaming = can_stream
                 
                 # Log streaming decision for debugging
@@ -2534,6 +2629,10 @@ When you need to use tools to complete a task:
 
                 # PEA/PFREA removed - final responses are always allowed
                 
+                # Ensure we never print an empty response. This must happen BEFORE printing,
+                # since the end-of-turn response guard runs after the print block.
+                assistant_text = self._ensure_response_non_empty(assistant_text)
+
                 # Ensure response is always printed
                 if used_streaming:
                     # If we streamed, content was already printed chunk by chunk (if any)
@@ -3148,6 +3247,69 @@ When you need to use tools to complete a task:
                 return True
         
         return False
+
+    def _is_gemini_sdk_active(self) -> bool:
+        """
+        Return True if the underlying Gemini client is configured to use the SDK.
+
+        Rationale:
+        - Gemini tool-calling continuity relies on thought_signature.
+        - Our Gemini REST streaming path may not reliably round-trip thought_signature,
+          while the SDK path supports it end-to-end.
+        - For REPL parity with web_api (which uses non-stream calls), we disable streaming
+          when Gemini SDK is active.
+        """
+        try:
+            from ..llm.gemini_client import GeminiClient
+            from ..llm.cached_client import CachedLLMClient
+        except Exception:
+            return False
+
+        underlying = None
+        if isinstance(self.llm, GeminiClient):
+            underlying = self.llm
+        elif isinstance(self.llm, CachedLLMClient):
+            underlying = getattr(self.llm, "_underlying", None)
+
+        if not isinstance(underlying, GeminiClient):
+            return False
+
+        # Treat SDK as active if use_sdk is True and we have a non-None sdk client.
+        # (We avoid calling internal _should_use_sdk() here to keep it purely structural.)
+        return bool(getattr(underlying, "use_sdk", False) and getattr(underlying, "_sdk_client", None) is not None)
+
+    def _get_effective_thought_signature(self) -> Optional[str]:
+        """
+        Best-effort retrieval of the current Gemini thought_signature.
+
+        Priority:
+        1) Session-local signature extracted from the last model response
+        2) Underlying GeminiClient stored signature (covers cases where the client stored it
+           but session-local extraction didn't run or the response shape differed)
+        """
+        sig = getattr(self, "_current_thought_signature", None)
+        if isinstance(sig, str) and sig.strip():
+            return sig
+
+        try:
+            from ..llm.gemini_client import GeminiClient
+            from ..llm.cached_client import CachedLLMClient
+        except Exception:
+            return None
+
+        underlying = None
+        if isinstance(self.llm, GeminiClient):
+            underlying = self.llm
+        elif isinstance(self.llm, CachedLLMClient):
+            underlying = getattr(self.llm, "_underlying", None)
+
+        if not isinstance(underlying, GeminiClient):
+            return None
+
+        stored = getattr(underlying, "_thought_signature", None)
+        if isinstance(stored, str) and stored.strip():
+            return stored
+        return None
 
     def consume_auto_continue_prompt(self) -> Optional[str]:
         """
@@ -5446,15 +5608,7 @@ When you need to use tools to complete a task:
                             # Truncate world state if needed
                             if component_sizes[2] > world_state_target:
                                 world_state_part = parts[2]
-                                truncated_world_state = world_state_part[:world_state_target - 50]
-                                # Try to truncate at JSON boundary
-                                last_brace = truncated_world_state.rfind("}")
-                                if last_brace > world_state_target * 0.8:
-                                    truncated_world_state = truncated_world_state[:last_brace + 1]
-                                else:
-                                    truncated_world_state = truncated_world_state.rstrip() + '\n}'
-                                truncated_world_state += '\n  "_truncated": true\n}'
-                                parts[2] = truncated_world_state
+                                parts[2] = _truncate_json_with_truncated_flag(world_state_part, world_state_target)
                                 logger.warning(
                                     f"World state reduced from {component_sizes[2]} to {len(parts[2])} characters"
                                 )
@@ -5494,16 +5648,11 @@ When you need to use tools to complete a task:
                     base_prompt_size = len(parts[0]) if parts else 0
                     if base_prompt_size > max_size:
                         # Base prompt is too large, truncate it directly
-                        truncated_base = parts[0][:max_size - 50]  # Leave room for truncation message
-                        last_newline = truncated_base.rfind("\n")
-                        if last_newline > (max_size - 50) * 0.8:
-                            truncated_base = truncated_base[:last_newline]
-                        # Check if truncation message already exists to prevent accumulation
-                        truncation_msg = "[System prompt truncated due to size limit]"
-                        if truncation_msg not in truncated_base:
-                            complete_prompt = truncated_base + "\n" + truncation_msg
-                        else:
-                            complete_prompt = truncated_base
+                        complete_prompt = _truncate_text_with_marker(
+                            parts[0],
+                            max_size,
+                            "[System prompt truncated due to size limit]",
+                        )
                     else:
                         # Keep base prompt and summary, truncate world state
                         base_and_summary = "\n\n".join(parts[:-1])  # All except world state
@@ -5512,29 +5661,27 @@ When you need to use tools to complete a task:
                         
                         if available_for_world_state > 100:  # Only if we have reasonable space
                             # Truncate world state JSON
-                            truncated_world_state = world_state_part[:available_for_world_state]
-                            # Try to truncate at a JSON boundary
-                            last_brace = truncated_world_state.rfind("}")
-                            if last_brace > available_for_world_state * 0.8:
-                                truncated_world_state = truncated_world_state[:last_brace + 1]
-                            else:
-                                truncated_world_state = truncated_world_state.rstrip() + '\n}'
-                            truncated_world_state += '\n  "_truncated": true\n}'
+                            truncated_world_state = _truncate_json_with_truncated_flag(world_state_part, available_for_world_state)
                             complete_prompt = base_and_summary + "\n\n" + truncated_world_state
                         else:
                             # Too little space, just keep base and summary
                             complete_prompt = base_and_summary + "\n\n[World state omitted due to size limit]"
                 else:
                     # Single part, truncate directly
-                    complete_prompt = complete_prompt[:max_size - 50]  # Leave room for message
-                    # Try to truncate at a reasonable boundary
-                    last_newline = complete_prompt.rfind("\n")
-                    if last_newline > (max_size - 50) * 0.8:
-                        complete_prompt = complete_prompt[:last_newline]
-                    # Check if truncation message already exists to prevent accumulation
-                    truncation_msg = "[System prompt truncated due to size limit]"
-                    if truncation_msg not in complete_prompt:
-                        complete_prompt += "\n" + truncation_msg
+                    complete_prompt = _truncate_text_with_marker(
+                        complete_prompt,
+                        max_size,
+                        "[System prompt truncated due to size limit]",
+                    )
+
+                # Final absolute safety: regardless of branch above, never exceed max_size.
+                # (Some branches can omit world state but still exceed the cap due to other preambles.)
+                if len(complete_prompt) > max_size:
+                    complete_prompt = _truncate_text_with_marker(
+                        complete_prompt,
+                        max_size,
+                        "[System prompt truncated due to size limit]",
+                    )
                 
                 logger.warning(
                     f"System prompt truncated from {original_size} to {len(complete_prompt)} characters "
@@ -6163,23 +6310,17 @@ When you need to use tools to complete a task:
         # For Gemini, ensure each tool_call has thought_signature
         # If missing, add the current thought_signature from the response
         if is_gemini and tool_calls:
-            current_sig = getattr(self, '_current_thought_signature', None)
+            current_sig = self._get_effective_thought_signature()
             tool_calls_fixed = False
-            for tool_call in tool_calls:
-                if isinstance(tool_call, dict) and "thought_signature" not in tool_call:
-                    if current_sig:
-                        tool_call["thought_signature"] = current_sig
-                        tool_calls_fixed = True
-                        logger.debug(
-                            "Added thought_signature to tool_call using current signature",
-                            extra={
-                                "event": "thought_signature_added_to_tool_call",
-                                "tool_call_id": tool_call.get("id", "unknown"),
-                                "function_name": tool_call.get("function", {}).get("name", "unknown"),
-                            }
-                        )
-                    else:
-                        logger.warning(
+            if current_sig:
+                tool_calls_fixed = _inject_thought_signature_into_tool_calls(tool_calls, current_sig)
+            else:
+                # Only warn loudly when SDK is active (we expect thought_signature to exist).
+                # For REST-only configurations, this is often outside our control and can be noisy.
+                log_fn = logger.warning if self._is_gemini_sdk_active() else logger.debug
+                for tool_call in tool_calls:
+                    if isinstance(tool_call, dict) and "thought_signature" not in tool_call:
+                        log_fn(
                             "Tool call missing thought_signature and no current signature available",
                             extra={
                                 "event": "missing_thought_signature_in_tool_call",
@@ -6199,7 +6340,9 @@ When you need to use tools to complete a task:
         
         # Log thought_signature preservation for Gemini (for debugging)
         if is_gemini:
-            thought_sigs_in_tool_calls = sum(1 for tc in tool_calls if tc.get("thought_signature"))
+            thought_sigs_in_tool_calls = sum(
+                1 for tc in tool_calls if isinstance(tc, dict) and tc.get("thought_signature")
+            )
             if thought_sigs_in_tool_calls > 0:
                 logger.debug(
                     f"Preserved thought_signature in {thought_sigs_in_tool_calls}/{len(tool_calls)} tool_calls",
@@ -6210,7 +6353,8 @@ When you need to use tools to complete a task:
                     }
                 )
             elif len(tool_calls) > 0:
-                logger.warning(
+                log_fn = logger.warning if self._is_gemini_sdk_active() else logger.debug
+                log_fn(
                     "No thought_signature found in tool_calls for Gemini - this may cause API errors",
                     extra={
                         "event": "missing_thought_signature_in_tool_calls",

@@ -332,25 +332,35 @@ class TestSizeLimitEnforcement:
         """Test that max_summary_context_size is enforced by PromptBuilder."""
         from broca.summarization.prompt_builder import PromptBuilder
         from broca.summarization.storage import SummaryStorage
+        from broca.summarization.models import SessionSummary, SummaryHeader, SummaryBlocks
         
         original_max = config.storage.max_summary_context_size
         config.storage.max_summary_context_size = 200  # Small limit
         
         try:
             storage = Mock(spec=SummaryStorage)
-            storage.load_session_summary.return_value = None
+            # Create a large session summary so PromptBuilder must truncate.
+            storage.load_session_summary.return_value = SessionSummary(
+                header=SummaryHeader(
+                    session_id="test",
+                    created_at="2024-01-01T00:00:00Z",
+                    last_updated_at="2024-01-01T00:00:00Z",
+                ),
+                summary_blocks=SummaryBlocks(
+                    current_goal="A" * 1000,
+                    what_we_built=["B" * 600] * 5,
+                    open_questions=["C" * 600] * 5,
+                    constraints=["D" * 600] * 5,
+                    next_steps=["E" * 600] * 5,
+                ),
+            )
             storage.load_project_state.return_value = None
             
             builder = PromptBuilder(summary_storage=storage)
-            # Create large context
-            large_context = "A" * 1000
-            builder.build_context = Mock(return_value=large_context)
-            
-            # PromptBuilder should enforce limit (tested via actual implementation)
-            # For this test, we verify the limit is respected in session
             context = builder.build_context("test", [], system_prompt=None)
             # If context exceeds limit, it should be truncated
             assert len(context) <= config.storage.max_summary_context_size + 50  # Allow truncation message overhead
+            assert "[Summary context truncated due to size limit]" in context
         finally:
             config.storage.max_summary_context_size = original_max
     
