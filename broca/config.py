@@ -716,10 +716,33 @@ class VetoConfig(BaseModel):
     hysteresis_h: float = float(os.getenv("BROCA_VETO_HYSTERESIS_H", "0.05"))
     clear_k: int = int(os.getenv("BROCA_VETO_CLEAR_K", "3"))
 
+    # Anomaly / violation signal
+    # - "threshold": legacy behavior (veto when I < learned_threshold)
+    # - "residual": veto when |I - I_hat| exceeds a learned residual threshold (recommended)
+    anomaly_mode: str = os.getenv("BROCA_VETO_ANOMALY_MODE", "threshold").strip().lower()
+    # Residual threshold baseline (EMA mean/var of |I - I_hat|)
+    residual_alpha: float = float(os.getenv("BROCA_VETO_RESIDUAL_ALPHA", "0.05"))
+    residual_k: float = float(os.getenv("BROCA_VETO_RESIDUAL_K", "3.0"))
+    residual_min_samples: int = int(os.getenv("BROCA_VETO_RESIDUAL_MIN_SAMPLES", "8"))
+
+    # Failsafe (prevents permanent incapacitation)
+    # If >0, allow at most N consecutive vetoed tool calls per user turn. After that, fail-open
+    # (execute the tool) while logging a warning for analysis.
+    max_consecutive_vetos: int = int(os.getenv("BROCA_VETO_MAX_CONSECUTIVE_VETOS", "0"))
+
     # Online finetuning controls
     max_train_steps_per_observation: int = int(os.getenv("BROCA_VETO_MAX_TRAIN_STEPS", "1"))
     min_train_interval_s: float = float(os.getenv("BROCA_VETO_MIN_TRAIN_INTERVAL_S", "0.2"))
     max_reprompts_per_turn: int = int(os.getenv("BROCA_VETO_MAX_REPROMPTS_PER_TURN", "2"))
+
+    # Persistence (stateful across restarts)
+    # - state_path: JSON snapshot of buffers/EMA/hysteresis state
+    # - model_path: torch weights for GRU/LSTM (best-effort; skipped if torch not available)
+    #
+    # If either path is set to an empty string, persistence for that component is disabled.
+    state_path: str = os.getenv("BROCA_VETO_STATE_PATH", "runtime/veto_guard_state.json")
+    model_path: str = os.getenv("BROCA_VETO_MODEL_PATH", "models/rl/veto_guard.pt")
+    save_interval_s: float = float(os.getenv("BROCA_VETO_SAVE_INTERVAL_S", "1.0"))
 
 
 class LearningConfig(BaseModel):

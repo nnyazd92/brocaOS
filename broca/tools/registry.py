@@ -177,6 +177,7 @@ class ToolRegistry:
         self._turn_no: Optional[int] = None
         self._execute_whitelist_block_count: int = 0
         self._execute_whitelist_block_by_base: Dict[str, int] = {}
+        self._consecutive_veto_count: int = 0
 
         logger.debug("Initialized ToolRegistry")
 
@@ -185,6 +186,7 @@ class ToolRegistry:
         self._turn_no = int(turn_no) if isinstance(turn_no, int) else None
         self._execute_whitelist_block_count = 0
         self._execute_whitelist_block_by_base = {}
+        self._consecutive_veto_count = 0
         # Reset per-turn sticky forced exploration to avoid cross-turn action-space collapse.
         self._sticky_forced_selection = None
         self._sticky_forced_context = None
@@ -1439,6 +1441,13 @@ class ToolRegistry:
                     kappa_integrated=float(k_int),
                 )
 
+                # Failsafe: cap consecutive vetoes per user turn to prevent permanent incapacitation.
+                # If the cap is hit, fail-open and execute the tool anyway (but log loudly).
+                try:
+                    max_vetos = int(getattr(getattr(config, "veto", None), "max_consecutive_vetos", 0) or 0)
+                except Exception:
+                    max_vetos = 0
+
                 # CSV telemetry: log only when training ran OR veto state changed (default cadence request).
                 try:
                     dbg = decision_v.debug if isinstance(decision_v.debug, dict) else {}
@@ -1458,59 +1467,92 @@ class ToolRegistry:
                     pass
 
                 if bool(decision_v.veto):
-                    ts_logger = _get_tool_selection_logger()
+                    # Track consecutive vetoes and apply failsafe if configured.
                     try:
-                        ts_logger.warning(
-                            "TOOL_CALL_VETO | "
-                            f"tool_call_id={tool_call_id} | tool={tool_name} | "
-                            f"threshold={decision_v.threshold:.6f} | kappa_integrated={decision_v.kappa_integrated:.6f} | "
-                            f"persist_m={decision_v.debug.get('persist_m')} | persist_n={decision_v.debug.get('persist_n')}"
-                        )
+                        self._consecutive_veto_count = int(getattr(self, "_consecutive_veto_count", 0) or 0) + 1
                     except Exception:
-                        pass
+                        self._consecutive_veto_count = 1
 
-                    veto_payload = {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "tool_name": str(tool_name),
-                        "tool_call_id": str(tool_call_id),
-                        "source_of_conflict": "LearnedVetoGuard: κ_integrated sustained below learned threshold (coherence non-stationarity).",
-                        "kappa": float(decision_v.kappa_last),
-                        "kappa_integrated": float(decision_v.kappa_integrated),
-                        "threshold": float(decision_v.threshold),
-                        "debug": dict(decision_v.debug or {}),
-                    }
+                    should_failsafe = bool(max_vetos > 0 and int(self._consecutive_veto_count) > int(max_vetos))
+                    if should_failsafe:
+                        try:
+                            ts_logger.warning(
+                                "TOOL_CALL_VETO_FAILSAFE | "
+                                f"tool_call_id={tool_call_id} | tool={tool_name} | "
+                                f"max_consecutive_vetos={int(max_vetos)} | "
+                                f"consecutive_vetos={int(self._consecutive_veto_count)}"
+                            )
+                        except Exception:
+                            pass
+                        # Fail-open: allow tool execution to proceed.
+                        # Reset counter so the system can make forward progress.
+                        self._consecutive_veto_count = 0
+                    else:
+                        # Normal veto behavior.
+                        ts_logger = _get_tool_selection_logger()
+                        try:
+                            ts_logger.warning(
+                                "TOOL_CALL_VETO | "
+                                f"tool_call_id={tool_call_id} | tool={tool_name} | "
+                                f"threshold={decision_v.threshold:.6f} | kappa_integrated={decision_v.kappa_integrated:.6f} | "
+                                f"persist_m={decision_v.debug.get('persist_m')} | persist_n={decision_v.debug.get('persist_n')}"
+                            )
+                        except Exception:
+                            pass
 
-                    # Synthetic penalty: learn from near-miss (treat as failure).
-                    try:
-                        self.record_rl_outcome(
-                            tool_name=str(tool_name),
-                            success=False,
-                            execution_time_ms=0.0,
-                            result_quality=0.0,
-                            tool_arguments=arguments if isinstance(arguments, dict) else None,
-                            tool_result_text=f"VETOED: {veto_payload}",
-                        )
-                    except Exception:
-                        pass
-
-                    return {
-                        "tool_call_id": tool_call_id,
-                        "role": "tool",
-                        "name": tool_name,
-                        "_success": False,
-                        "_veto": True,
-                        "_veto_payload": veto_payload,
-                        "content": (
-                            "VETO: action suppressed (Immediate Inhibition).\n\n"
-                            "Dissonance Report (L3 Injection):\n"
-                            f"- source_of_conflict: {veto_payload['source_of_conflict']}\n"
-                            f"- kappa: {veto_payload['kappa']}\n"
-                            f"- kappa_integrated (I): {veto_payload['kappa_integrated']}\n"
-                            f"- learned_threshold: {veto_payload['threshold']}\n\n"
-                            "Second Look required: re-sample context (re-read prompt/files, gather missing info) and choose a safer alternative.\n"
-                            "Do NOT retry the same tool call unchanged."
+                        veto_payload = {
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "tool_name": str(tool_name),
+                            "tool_call_id": str(tool_call_id),
+                            "source_of_conflict": "LearnedVetoGuard: κ_integrated sustained below learned threshold (coherence non-stationarity).",
+                            "kappa": float(decision_v.kappa_last),
+                            "kappa_integrated": float(decision_v.kappa_integrated),
+                            "threshold": float(decision_v.threshold),
+                        "threshold_mode": (
+                            str(decision_v.debug.get("threshold_mode"))
+                            if isinstance(decision_v.debug, dict) and decision_v.debug.get("threshold_mode") is not None
+                            else "threshold"
                         ),
-                    }
+                            "debug": dict(decision_v.debug or {}),
+                        }
+
+                        # Synthetic penalty: learn from near-miss (treat as failure).
+                        try:
+                            self.record_rl_outcome(
+                                tool_name=str(tool_name),
+                                success=False,
+                                execution_time_ms=0.0,
+                                result_quality=0.0,
+                                tool_arguments=arguments if isinstance(arguments, dict) else None,
+                                tool_result_text=f"VETOED: {veto_payload}",
+                            )
+                        except Exception:
+                            pass
+
+                        return {
+                            "tool_call_id": tool_call_id,
+                            "role": "tool",
+                            "name": tool_name,
+                            "_success": False,
+                            "_veto": True,
+                            "_veto_payload": veto_payload,
+                            "content": (
+                                "VETO: action suppressed (Immediate Inhibition).\n\n"
+                                "Dissonance Report (L3 Injection):\n"
+                                f"- source_of_conflict: {veto_payload['source_of_conflict']}\n"
+                                f"- kappa: {veto_payload['kappa']}\n"
+                                f"- kappa_integrated (I): {veto_payload['kappa_integrated']}\n"
+                            f"- learned_threshold (mode={veto_payload.get('threshold_mode','threshold')}): {veto_payload['threshold']}\n\n"
+                                "Second Look required: re-sample context (re-read prompt/files, gather missing info) and choose a safer alternative.\n"
+                                "Do NOT retry the same tool call unchanged."
+                            ),
+                        }
+                else:
+                    # Clear consecutive veto streak on non-veto decisions.
+                    try:
+                        self._consecutive_veto_count = 0
+                    except Exception:
+                        pass
             except Exception:
                 # Fail open: veto is best-effort and must not break tool execution.
                 pass
