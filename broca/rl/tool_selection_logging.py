@@ -8,6 +8,7 @@ This avoids importing a specific policy module just to get the logger and ensure
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from threading import Lock
 
@@ -16,6 +17,7 @@ _DEFAULT_LOG_PATH = Path("data/rl/tool_selection.log")
 
 _init_lock = Lock()
 _initialized = False
+_sig = None
 
 
 def get_tool_selection_logger() -> logging.Logger:
@@ -25,18 +27,23 @@ def get_tool_selection_logger() -> logging.Logger:
     Safe to call multiple times; will not attach duplicate file handlers.
     """
     global _initialized
+    global _sig
 
     logger = logging.getLogger(_LOGGER_NAME)
 
-    if _initialized:
+    # Allow tests and callers to override log path without polluting repo logs.
+    cfg_path = os.getenv("BROCA_TOOL_SELECTION_LOG_FILE", "").strip()
+    desired = Path(cfg_path) if cfg_path else _DEFAULT_LOG_PATH
+    log_path = desired.resolve()
+    sig = str(log_path)
+
+    if _initialized and _sig == sig:
         return logger
 
     with _init_lock:
-        if _initialized:
+        if _initialized and _sig == sig:
             return logger
 
-        # Resolve to an absolute path so FileHandler.baseFilename comparisons work.
-        log_path = _DEFAULT_LOG_PATH.resolve()
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
@@ -59,4 +66,5 @@ def get_tool_selection_logger() -> logging.Logger:
         logger.propagate = False
 
         _initialized = True
+        _sig = sig
         return logger

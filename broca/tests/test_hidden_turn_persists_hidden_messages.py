@@ -44,3 +44,26 @@ def test_hidden_turn_persists_hidden_user_message_and_deduped_duplicate_assistan
     assistant_msgs = [m for m in saved if isinstance(m, dict) and m.get("role") == "assistant"]
     assert len(assistant_msgs) >= 2
     assert assistant_msgs[-1].get("hidden") is True
+
+
+def test_hidden_turn_persists_hidden_assistant_even_when_not_duplicate():
+    """
+    Regression: hidden internal turns (RESPOND_AND_CONTINUE auto-continue) must not persist
+    user-visible assistant messages, even when the assistant text differs from the last visible
+    assistant (so the dedup-only heuristic does not trigger).
+    """
+    storage = _CaptureStorage()
+    session = ConversationSession(storage=storage, tool_registry=None, llm=_EchoLLM("different"))
+    session.messages.append({"role": "assistant", "content": "previous visible"})
+
+    _ = session.send("internal prompt", stream=False, hidden_user_message=True)
+
+    assert storage.saved, "expected at least one save_conversation call"
+    saved = storage.saved[-1]["messages"]
+
+    user_msgs = [m for m in saved if isinstance(m, dict) and m.get("role") == "user"]
+    assert user_msgs and user_msgs[-1].get("hidden") is True
+
+    assistant_msgs = [m for m in saved if isinstance(m, dict) and m.get("role") == "assistant"]
+    assert assistant_msgs and assistant_msgs[-1].get("content") == "different"
+    assert assistant_msgs[-1].get("hidden") is True

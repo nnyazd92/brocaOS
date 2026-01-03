@@ -17,12 +17,70 @@ import pytest
 
 _ALLOW = os.getenv("BROCA_TEST_ALLOW_WORKSPACE_RL_WRITES", "false").lower() == "true"
 if not _ALLOW:
+    os.environ["BROCA_TEST_MODE"] = "true"
+    # Tests default to legacy toolset unless they explicitly opt into primitive mode.
+    # This prevents unrelated legacy-tool tests from breaking when production defaults change.
+    os.environ.setdefault("BROCA_TOOLSET", "legacy")
     run_dir = os.getenv("BROCA_TEST_ARTIFACTS_DIR")
     if not run_dir:
         run_dir = tempfile.mkdtemp(prefix="broca_pytest_")
         os.environ["BROCA_TEST_ARTIFACTS_DIR"] = run_dir
     rl_dir = os.path.join(run_dir, "rl")
+    logs_dir = os.path.join(run_dir, "logs")
+    gov_dir = os.path.join(run_dir, "governance")
+    ws_dir = os.path.join(run_dir, "world_state")
+    evt_dir = os.path.join(run_dir, "events")
+    reasoning_dir = os.path.join(run_dir, "reasoning")
+    matching_dir = os.path.join(run_dir, "matching")
     os.makedirs(rl_dir, exist_ok=True)
+    os.makedirs(logs_dir, exist_ok=True)
+    os.makedirs(gov_dir, exist_ok=True)
+    os.makedirs(ws_dir, exist_ok=True)
+    os.makedirs(evt_dir, exist_ok=True)
+    os.makedirs(reasoning_dir, exist_ok=True)
+    os.makedirs(matching_dir, exist_ok=True)
+
+    # Core app logging (avoid broca_repl.log pollution)
+    os.environ["BROCA_LOG_FILE"] = os.path.join(logs_dir, "broca_repl_test.log")
+
+    # Governance writes
+    os.environ["BROCA_GOVERNANCE_AUDIT_LOG_PATH"] = os.path.join(gov_dir, "audit_log.jsonl")
+    os.environ["BROCA_GOVERNANCE_POLICY_PATH"] = os.path.join(gov_dir, "policy.json")
+    os.environ["BROCA_GOVERNANCE_POLICY_REQUESTS_PATH"] = os.path.join(gov_dir, "policy_requests.json")
+
+    # World-state shared state persistence
+    os.environ["BROCA_SHARED_WORLD_STATE_PATH"] = os.path.join(ws_dir, "shared_state.json")
+
+    # Event logging (summarization/event logger)
+    os.environ["BROCA_EVENT_LOG_PATH"] = os.path.join(evt_dir, "events")
+
+    # Context selection CSV
+    os.environ["BROCA_CONTEXT_SELECTION_LOG_FILE"] = os.path.join(logs_dir, "context_selection.csv")
+
+    # Tool selection log (human-readable)
+    os.environ["BROCA_TOOL_SELECTION_LOG_FILE"] = os.path.join(rl_dir, "tool_selection.log")
+
+    # RL/telemetry series logs (disable append so repeated runs don't interleave)
+    os.environ["BROCA_K_LOG_FILE"] = os.path.join(rl_dir, "k_series.csv")
+    os.environ["BROCA_K_LOG_APPEND"] = "false"
+    os.environ["BROCA_KAPPA_LOG_FILE"] = os.path.join(rl_dir, "kappa_series.csv")
+    os.environ["BROCA_KAPPA_LOG_APPEND"] = "false"
+    os.environ["BROCA_KAPPA_INTEGRATED_LOG_FILE"] = os.path.join(rl_dir, "kappa_integrated_series.csv")
+    os.environ["BROCA_KAPPA_INTEGRATED_LOG_APPEND"] = "false"
+    os.environ["BROCA_RL_PPO_TRAIN_LOG_FILE"] = os.path.join(rl_dir, "ppo_training_metrics.csv")
+    os.environ["BROCA_VETO_LOG_FILE"] = os.path.join(rl_dir, "veto_guard.csv")
+    os.environ["BROCA_VETO_LOG_APPEND"] = "false"
+
+    # Reasoning/RL aux files
+    os.environ["BROCA_REASONING_LLM_PATTERN_LOG_PATH"] = os.path.join(reasoning_dir, "llm_pattern_matching_log.csv")
+    os.environ["BROCA_REASONING_RL_VARNORM_PATH"] = os.path.join(reasoning_dir, "reward_variance.json")
+
+    # Matcher cache
+    os.environ["BROCA_MATCHER_EMBED_CACHE_PATH"] = os.path.join(matching_dir, "embeddings.sqlite")
+
+    # Internal sensing persistence (already resolved to workspace root if relative)
+    os.environ["BROCA_INTERNAL_SENSING_STATE_PATH"] = os.path.join(run_dir, "internal_sensing_state.json")
+
     os.environ["BROCA_RL_PPO_BUFFER_PATH"] = os.path.join(rl_dir, "ppo_buffer.json")
     os.environ["BROCA_RL_BUFFER_PATH"] = os.path.join(rl_dir, "replay_buffer.json")
     os.environ["BROCA_RL_REWARD_DESIGN_PATH"] = os.path.join(rl_dir, "reward_design.json")
@@ -52,6 +110,32 @@ def _reset_gemini_global_rate_limit():
 
         with GeminiClient._global_rate_limit_lock:
             GeminiClient._global_rate_limit_until_monotonic = 0.0
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _prevent_repo_writes_in_tests():
+    """
+    Hard safety: block tests from writing/appending into the repo tree (data/, models/, logs, etc.).
+
+    Tests should write only into BROCA_TEST_ARTIFACTS_DIR / tmp paths. This prevents
+    production log corruption (e.g., data/rl/*.csv) during local analysis.
+    """
+    allow = [
+        "broca/tests/fixtures",
+        "broca/tests/veto",  # our golden traces live under fixtures already; allow for safety
+    ]
+    try:
+        from broca.testing.write_guard import install_repo_write_guard
+
+        uninstall = install_repo_write_guard(allow_repo_subpaths=allow)
+    except Exception:
+        uninstall = None
+    yield
+    try:
+        if uninstall is not None:
+            uninstall()
     except Exception:
         pass
 

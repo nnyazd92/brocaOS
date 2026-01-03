@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 import logging
 import math
+import os
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from collections import deque
 
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
     from .affective_state import ComputationalAffectMonitor
 
 logger = logging.getLogger(__name__)
+
+from broca.rl.kappa_integrated import KappaIntegratedConfig, KappaIntegratedTracker  # noqa: E402
 
 
 class PredictiveInteroception:
@@ -66,8 +69,97 @@ class PredictiveInteroception:
             "var": 0.05,  # non-zero prior variance to avoid division by zero
         }
         self._calibrated_surprise_history: deque = deque(maxlen=100)
+
+        # κ(t) / κ_integrated(t) wiring:
+        # We treat κ_integrated as a slow coherence / stability memory, used to modulate
+        # predictive coding confidence/uncertainty and effective horizons.
+        self._kappa_last: float = 1.0
+        try:
+            lam = float(os.getenv("BROCA_KAPPA_INTEGRATED_LAMBDA", "0.5"))
+        except Exception:
+            lam = 0.5
+        try:
+            dt_max = float(os.getenv("BROCA_KAPPA_INTEGRATED_DT_MAX", "60.0"))
+        except Exception:
+            dt_max = 60.0
+        self._kappa_integrated_cfg = KappaIntegratedConfig(lam=float(lam), dt_max=float(dt_max))
+        self._kappa_integrated_tracker = KappaIntegratedTracker(self._kappa_integrated_cfg)
+        self._kappa_integrated: float = 0.0
         
         logger.info("Initialized PredictiveInteroception (predictive coding theory)")
+
+    def record_kappa_sample(self, kappa: float, *, now: Optional[float] = None) -> float:
+        """
+        Event-driven update: record a new κ(t) sample and update κ_integrated immediately.
+        """
+        try:
+            k = float(kappa)
+        except Exception:
+            k = 0.0
+        if math.isnan(k) or math.isinf(k):
+            k = 0.0
+        k = max(0.0, min(1.0, k))
+        self._kappa_last = k
+        try:
+            self._kappa_integrated = float(self._kappa_integrated_tracker.update(k, now=now))
+        except Exception:
+            pass
+        return float(self._kappa_integrated)
+
+    def tick_kappa(self, *, now: Optional[float] = None) -> float:
+        """
+        Time-driven update: advance κ_integrated using the last observed κ(t)
+        (piecewise-constant hold).
+        """
+        try:
+            self._kappa_integrated = float(self._kappa_integrated_tracker.update(self._kappa_last, now=now))
+        except Exception:
+            pass
+        return float(self._kappa_integrated)
+
+    def get_kappa_integrated(self) -> float:
+        return float(self._kappa_integrated)
+
+    def get_kappa_last(self) -> float:
+        return float(self._kappa_last)
+
+    def _kappa_precision(self) -> float:
+        """
+        Map κ_integrated (which has units of time) into a bounded precision proxy in [0,1].
+        For constant κ=1, κ_integrated converges to 1/λ, so λ*κ_integrated is a natural normalization.
+        """
+        lam = float(getattr(self._kappa_integrated_cfg, "lam", 0.0) or 0.0)
+        ki = float(self._kappa_integrated)
+        if lam > 0.0:
+            x = lam * ki
+        else:
+            # If λ==0 (pure integral), fall back to a saturating map.
+            x = ki / (ki + 1.0) if ki >= 0.0 else 0.0
+        if not math.isfinite(x):
+            x = 0.0
+        return max(0.0, min(1.0, float(x)))
+
+    def effective_horizon(self, base_horizon: int, *, min_scale: float = 0.4) -> int:
+        """
+        Adaptive horizon: shrink horizon when κ_integrated (precision) is low to avoid compounding error.
+        """
+        try:
+            h = int(base_horizon)
+        except Exception:
+            h = 1
+        h = max(1, h)
+        p = float(self._kappa_precision())
+        ms = max(0.05, min(1.0, float(min_scale)))
+        scale = ms + (1.0 - ms) * p
+        heff = int(max(1, round(h * scale)))
+        return heff
+
+    def _inflate_uncertainty(self, u: float, *, max_u: float = 1.0, factor: float = 1.0) -> float:
+        p = float(self._kappa_precision())
+        uu = max(0.0, min(float(max_u), float(u)))
+        # When coherence is low (p small), inflate uncertainty.
+        mult = 1.0 + (1.0 - p) * float(factor)
+        return max(0.0, min(float(max_u), uu * mult))
 
     def _update_error_distribution(self, error: float, alpha: float = 0.05) -> None:
         """
@@ -150,6 +242,15 @@ class PredictiveInteroception:
         Returns:
             Dictionary with predicted resource metrics and uncertainty intervals
         """
+        # Update κ_integrated on each call (tick-based hold). IntegratedInteroception also calls tick_kappa().
+        try:
+            self.tick_kappa(now=time.time())
+        except Exception:
+            pass
+
+        base_h = horizon
+        horizon = self.effective_horizon(horizon)
+
         history = physiology.get_history()
         current_load = physiology.metrics.get("computational_load", 0.5)
         current_memory = physiology.metrics.get("memory_pressure", 0.5)
@@ -195,6 +296,10 @@ class PredictiveInteroception:
             memory_uncertainty = 0.8  # High uncertainty instead of neutral 0.5
             load_uncertainty_quality = "missing"
             memory_uncertainty_quality = "missing"
+
+        # Inflate uncertainty intervals when κ_integrated is low.
+        load_uncertainty = self._inflate_uncertainty(load_uncertainty, factor=1.0)
+        memory_uncertainty = self._inflate_uncertainty(memory_uncertainty, factor=1.0)
         
         prediction = {
             "computational_load": predicted_load,
@@ -210,6 +315,9 @@ class PredictiveInteroception:
             "energy_efficiency": physiology.metrics.get("energy_efficiency", 0.5),
             "timestamp": time.time() + horizon,
             "horizon": horizon,
+            "base_horizon": int(base_h),
+            "kappa_last": float(self._kappa_last),
+            "kappa_integrated": float(self._kappa_integrated),
         }
         
         # Add data quality indicators
@@ -258,6 +366,14 @@ class PredictiveInteroception:
         Returns:
             Dictionary with predicted cognitive states (always returns dict with defaults if needed)
         """
+        try:
+            self.tick_kappa(now=time.time())
+        except Exception:
+            pass
+
+        base_h = horizon
+        horizon = self.effective_horizon(horizon)
+
         history = cognitive.get_history()
         current_confidence = cognitive.states.get("confidence_level", 0.5)
         
@@ -282,6 +398,10 @@ class PredictiveInteroception:
             "uncertainty_tracking": cognitive.states.get("uncertainty_tracking", 0.0),
             "attention_allocation": cognitive.states.get("attention_allocation", {}).copy(),
             "timestamp": time.time() + horizon,
+            "horizon": int(horizon),
+            "base_horizon": int(base_h),
+            "kappa_last": float(self._kappa_last),
+            "kappa_integrated": float(self._kappa_integrated),
         }
         
         return prediction
@@ -301,6 +421,14 @@ class PredictiveInteroception:
         Returns:
             Dictionary with predicted affective states
         """
+        try:
+            self.tick_kappa(now=time.time())
+        except Exception:
+            pass
+
+        base_h = horizon
+        horizon = self.effective_horizon(horizon)
+
         current = affective.affective_states.copy()
         
         predicted = {}
@@ -322,6 +450,10 @@ class PredictiveInteroception:
                     predicted[key] = val
                 
         predicted["timestamp"] = time.time() + horizon
+        predicted["horizon"] = int(horizon)
+        predicted["base_horizon"] = int(base_h)
+        predicted["kappa_last"] = float(self._kappa_last)
+        predicted["kappa_integrated"] = float(self._kappa_integrated)
         return predicted
     
     def predict_error_probability(
@@ -357,6 +489,14 @@ class PredictiveInteroception:
             (1.0 - coherence) * 0.3 + 
             surprise * 0.2
         )
+
+        # κ-integrated modulation: low coherence reserve increases error probability.
+        try:
+            self.tick_kappa(now=time.time())
+            p = float(self._kappa_precision())
+            risk = risk + (1.0 - p) * 0.2
+        except Exception:
+            pass
         
         return min(1.0, max(0.0, risk))
     
@@ -489,7 +629,9 @@ class PredictiveInteroception:
         # Update confidence using Bayesian approach (simplified)
         # Lower error = higher confidence
         error_normalized = min(1.0, error)  # Normalize to [0, 1]
-        confidence_update = (1.0 - error_normalized) * 0.1  # Learning rate
+        # Precision-weighted learning rate: when κ_integrated is low, reduce confidence updates.
+        precision = self._kappa_precision()
+        confidence_update = (1.0 - error_normalized) * 0.1 * float(precision)
         old_confidence = self._prediction_confidence[model_type]
         
         # Bayesian update: blend old confidence with new evidence
@@ -498,9 +640,9 @@ class PredictiveInteroception:
             recent_avg_error = sum(list(self._short_term_errors)[-3:]) / 3
             recent_confidence = 1.0 - min(1.0, recent_avg_error)
             # Exponential moving average
-            self._prediction_confidence[model_type] = (
-                0.7 * old_confidence + 0.3 * recent_confidence
-            )
+            w_recent = 0.3 * float(precision)
+            w_old = 1.0 - w_recent
+            self._prediction_confidence[model_type] = (w_old * old_confidence + w_recent * recent_confidence)
         else:
             # Simple update if insufficient short-term data
             self._prediction_confidence[model_type] = old_confidence + confidence_update
@@ -515,7 +657,8 @@ class PredictiveInteroception:
             mean_error = sum(error_history) / len(error_history)
             variance = sum((e - mean_error) ** 2 for e in error_history) / len(error_history)
             # Uncertainty is proportional to error variance
-            self._prediction_uncertainty[model_type] = min(1.0, variance ** 0.5)
+            base_u = min(1.0, variance ** 0.5)
+            self._prediction_uncertainty[model_type] = self._inflate_uncertainty(base_u, factor=1.0)
         
         # Model adaptation: adjust prediction strategy based on recent errors
         # If errors are consistently high, increase uncertainty in future predictions
@@ -626,6 +769,14 @@ class PredictiveInteroception:
                 "prediction_errors": [float(x) for x in list(self._prediction_errors)],
                 "prediction_confidence": {str(k): float(v) for k, v in (self._prediction_confidence or {}).items()},
                 "prediction_uncertainty": {str(k): float(v) for k, v in (self._prediction_uncertainty or {}).items()},
+                "kappa": {
+                    "kappa_last": float(self._kappa_last),
+                    "kappa_integrated": float(self._kappa_integrated),
+                    "lambda": float(getattr(self._kappa_integrated_cfg, "lam", 0.0)),
+                    "dt_max": float(getattr(self._kappa_integrated_cfg, "dt_max", 60.0)),
+                    "integrator_last_t": float(getattr(self._kappa_integrated_tracker, "_last_t", 0.0) or 0.0),
+                    "integrator_I": float(getattr(self._kappa_integrated_tracker, "_I", 0.0) or 0.0),
+                },
             }
         except Exception:
             # Best-effort: never let persistence crash the system.
@@ -697,5 +848,30 @@ class PredictiveInteroception:
         if isinstance(unc, dict):
             try:
                 self._prediction_uncertainty = {str(k): max(0.0, min(1.0, float(v))) for k, v in unc.items()}
+            except Exception:
+                pass
+
+        # Restore κ-integrator state (optional; backward compatible)
+        kappa = data.get("kappa")
+        if isinstance(kappa, dict):
+            try:
+                self._kappa_last = max(0.0, min(1.0, float(kappa.get("kappa_last", self._kappa_last))))
+            except Exception:
+                pass
+            try:
+                self._kappa_integrated = float(kappa.get("kappa_integrated", self._kappa_integrated))
+            except Exception:
+                pass
+            try:
+                lam = float(kappa.get("lambda", getattr(self._kappa_integrated_cfg, "lam", 0.5)))
+                dt_max = float(kappa.get("dt_max", getattr(self._kappa_integrated_cfg, "dt_max", 60.0)))
+                self._kappa_integrated_cfg = KappaIntegratedConfig(lam=float(lam), dt_max=float(dt_max))
+                self._kappa_integrated_tracker = KappaIntegratedTracker(self._kappa_integrated_cfg)
+                # Restore internal integrator state
+                try:
+                    self._kappa_integrated_tracker._last_t = float(kappa.get("integrator_last_t", 0.0))  # type: ignore[attr-defined]
+                    self._kappa_integrated_tracker._I = float(kappa.get("integrator_I", 0.0))  # type: ignore[attr-defined]
+                except Exception:
+                    pass
             except Exception:
                 pass

@@ -31,6 +31,8 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 import numpy as np
 
 from .features import RL_SIGNAL_KEYS, extract_state_features, BASE_STATE_DIM
+from .k_functor import compute_k_kl, normalize_probs
+from .k_logger import get_k_series_logger
 from .reward import RewardWeights, compute_reward_from_outcome
 from .tool_selection_logging import get_tool_selection_logger
 
@@ -699,6 +701,62 @@ class OnlinePolicyRanker:
         # Get predictions with confidence
         proba, confidence = self._network.predict_proba(features, n_mc_samples=self.mc_samples)
         proba = proba.flatten()
+
+        # K functor (exploration) for online_nn:
+        # alpha is an annealed exploration rate. We log K(t)=KL(p||p') and apply exploration
+        # by sampling uniformly with probability alpha (mixture semantics).
+        try:
+            from broca.config import config as _config
+
+            # selection counter for annealing
+            if not hasattr(self, "_selection_count"):
+                self._selection_count = 0  # type: ignore[attr-defined]
+            try:
+                self._selection_count = int(getattr(self, "_selection_count", 0)) + 1  # type: ignore[attr-defined]
+            except Exception:
+                self._selection_count = 1  # type: ignore[attr-defined]
+
+            init = float(getattr(_config.rl, "initial_exploration_rate", 0.1))
+            min_r = float(getattr(_config.rl, "min_exploration_rate", 0.01))
+            decay = float(getattr(_config.rl, "exploration_decay", 0.999))
+            step = max(0, int(getattr(self, "_selection_count", 0)))  # type: ignore[attr-defined]
+            alpha = max(min_r, init * (decay ** step))
+            alpha = max(0.0, min(1.0, float(alpha)))
+
+            # Compute p over allowed tools (as seen by this call).
+            allowed_indices: List[int] = []
+            try:
+                for t in tools:
+                    name = getattr(t, "name", None)
+                    if isinstance(name, str) and name in self._tool_to_idx:
+                        allowed_indices.append(int(self._tool_to_idx[name]))
+            except Exception:
+                allowed_indices = []
+            allowed_indices = sorted(list(set(allowed_indices)))
+            if allowed_indices:
+                p_allowed = normalize_probs(proba[allowed_indices].astype(np.float64))
+                _, k_kl = compute_k_kl(p_allowed, alpha=float(alpha))
+                get_k_series_logger().log_k(float(k_kl))
+
+            # Apply exploration as the mixture: with prob alpha, sample uniform tool.
+            if tools and alpha > 0.0:
+                if random.random() < alpha:
+                    forced = random.choice(tools)
+                    forced_name = getattr(forced, "name", "")
+                    selection = ToolSelection(
+                        tool_name=str(forced_name),
+                        score=0.0,
+                        confidence=0.0,
+                        mode="forced",
+                        alternatives=[],
+                        reason=f"K exploration (alpha={alpha:.3f}) - uniform tool sample",
+                        all_scores={},
+                    )
+                    self._last_selection = selection
+                    self._last_context = context.copy()
+                    return selection
+        except Exception:
+            pass
 
         # Rank tools by probability
         ranked_indices = np.argsort(proba)[::-1]  # Descending

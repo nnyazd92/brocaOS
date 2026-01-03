@@ -30,6 +30,7 @@ class MockTool:
 
 def test_tool_selection_log_appends_per_tool_call(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BROCA_TOOL_SELECTION_LOG_FILE", str(tmp_path / "data" / "rl" / "tool_selection.log"))
 
     # Ensure logger initialization is bound to this tmp cwd.
     import broca.rl.tool_selection_logging as tsl

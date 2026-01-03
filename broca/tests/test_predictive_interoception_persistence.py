@@ -19,9 +19,14 @@ def test_predictive_interoception_state_persists(tmp_path):
         predicted={"computational_load": 0.0},
         actual={"computational_load": 1.0},
     )
+
+    # Also ensure κ-integrated state persists (so predictive interoception has continuity).
+    fw1.interoception.prediction.record_kappa_sample(0.2, now=0.0)
+    fw1.interoception.prediction.tick_kappa(now=10.0)
     fw1.save_state()
 
     fw2 = InternalSensingFramework(sampling_rate=1.0, history_window=60)
     assert fw2.interoception.prediction.get_rl_surprise_signal() > 0.0
+    assert fw2.interoception.prediction.get_kappa_integrated() >= 0.0
 
 

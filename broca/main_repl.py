@@ -201,10 +201,10 @@ def _initialize_tool_registry(
             tool_selection_guidance=tool_selection_guidance
         )
 
-        # Toolset selection: default to legacy unless explicitly set.
+        # Toolset selection: default to primitive (macros only) unless explicitly set.
         toolset = getattr(app_config.tools, "toolset", None)
         if not isinstance(toolset, str):
-            toolset = os.getenv("BROCA_TOOLSET", "legacy")
+            toolset = os.getenv("BROCA_TOOLSET", "primitive")
 
         if toolset.lower() == "primitive":
             try:

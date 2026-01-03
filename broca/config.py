@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
+from pathlib import Path
 from typing import List, Optional
 
 # Code-owned default system prompt. Do NOT source from environment variables.
@@ -19,7 +20,18 @@ BROCA_BASE_SYSTEM_PROMPT_DEFAULT = (
 # Prefer `.env` as the local source of truth (avoids "stuck" values when a shell exports
 # older config). This is primarily a local-dev ergonomics choice; in environments without
 # a `.env` file this is a no-op.
-load_dotenv(override=True)
+#
+# Important: tests must NOT implicitly read developer-local `.env` because it makes pytest
+# outcomes depend on secrets/local flags (e.g., BROCA_TOOLSET=primitive). Tests set explicit
+# env vars in broca/tests/conftest.py instead.
+if os.getenv("BROCA_TEST_MODE", "false").lower() != "true":
+    try:
+        _repo_root = Path(__file__).resolve().parents[1]
+        _dotenv_path = _repo_root / ".env"
+        load_dotenv(dotenv_path=str(_dotenv_path), override=True)
+    except Exception:
+        # Best-effort fallback: default discovery behavior.
+        load_dotenv(override=True)
 from .reasoning.config import ReasoningConfig
 
 
@@ -195,6 +207,9 @@ class ToolsConfig(BaseModel):
     tools_mode: str = os.getenv("BROCA_TOOLS_MODE", "normal")  # "normal" or "read_only"
     # Primitive EXECUTE tool (optional) allowlist. If empty, EXECUTE allows any base command.
     execute_command_whitelist: list[str] = parse_execute_whitelist_env()
+    # If true, ToolSelectionGuidance applies K (stochastic convolution) to reorder tools.
+    # If false, it only logs K(t) computed from the ranking distribution.
+    guidance_apply_k: bool = os.getenv("BROCA_TOOLS_GUIDANCE_APPLY_K", "false").lower() == "true"
     # Browser navigation tool configuration
     enable_browser_navigation: bool = os.getenv("BROCA_ENABLE_BROWSER_NAVIGATION", "false").lower() == "true"
     browser_headless: bool = os.getenv("BROCA_BROWSER_HEADLESS", "true").lower() == "true"
@@ -674,6 +689,39 @@ class RLConfig(BaseModel):
     require_done_for_response: bool = os.getenv("BROCA_RL_REQUIRE_DONE_FOR_RESPONSE", "true").lower() == "true"
 
 
+class VetoConfig(BaseModel):
+    """
+    Learned runtime veto (GRU/LSTM) over rolling time slices.
+
+    The model produces a dynamic threshold scalar for κ_integrated; veto triggers when κ_integrated
+    stays below threshold for a persistence window (hysteresis).
+    """
+
+    enabled: bool = os.getenv("BROCA_VETO_ENABLED", "true").lower() == "true"
+
+    # Model architecture
+    model_type: str = os.getenv("BROCA_VETO_MODEL_TYPE", "gru").strip().lower()  # "gru" or "lstm"
+    seq_len: int = int(os.getenv("BROCA_VETO_SEQ_LEN", "16"))
+    hidden_dim: int = int(os.getenv("BROCA_VETO_HIDDEN_DIM", "32"))
+    learning_rate: float = float(os.getenv("BROCA_VETO_LR", "0.001"))
+    norm_alpha: float = float(os.getenv("BROCA_VETO_NORM_ALPHA", "0.01"))
+
+    # Threshold mapping (from predicted next-I and uncertainty)
+    sigma_multiplier: float = float(os.getenv("BROCA_VETO_SIGMA_MULT", "1.5"))
+    fixed_margin: float = float(os.getenv("BROCA_VETO_FIXED_MARGIN", "0.0"))
+
+    # Persistence/hysteresis
+    persistence_n: int = int(os.getenv("BROCA_VETO_PERSIST_N", "8"))
+    persistence_m: int = int(os.getenv("BROCA_VETO_PERSIST_M", "5"))
+    hysteresis_h: float = float(os.getenv("BROCA_VETO_HYSTERESIS_H", "0.05"))
+    clear_k: int = int(os.getenv("BROCA_VETO_CLEAR_K", "3"))
+
+    # Online finetuning controls
+    max_train_steps_per_observation: int = int(os.getenv("BROCA_VETO_MAX_TRAIN_STEPS", "1"))
+    min_train_interval_s: float = float(os.getenv("BROCA_VETO_MIN_TRAIN_INTERVAL_S", "0.2"))
+    max_reprompts_per_turn: int = int(os.getenv("BROCA_VETO_MAX_REPROMPTS_PER_TURN", "2"))
+
+
 class LearningConfig(BaseModel):
     """Configuration for learning system."""
     
@@ -745,6 +793,7 @@ class BrocaConfig(BaseModel):
     systems: SystemsConfig = SystemsConfig()
     control: ControlConfig = ControlConfig()
     rl: RLConfig = RLConfig()
+    veto: VetoConfig = VetoConfig()
 
 
 config = BrocaConfig()

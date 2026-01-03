@@ -35,15 +35,19 @@ def test_registry_hides_legacy_tools_in_primitive_toolset(monkeypatch):
 
     registry = ToolRegistry()
     registry.register_tool(_MockTool("READ_FILE"))
+    registry.register_tool(_MockTool("MEMORY_GET"))
     registry.register_tool(_MockTool("environment_access"))
     registry.register_tool(_MockTool("terminal"))
+    registry.register_tool(_MockTool("retrieve_memories"))
 
     tools = registry.to_openai_format()
     names = [t["function"]["name"] for t in tools]
 
     assert "READ_FILE" in names
+    assert "MEMORY_GET" in names
     assert "environment_access" not in names
     assert "terminal" not in names
+    assert "retrieve_memories" not in names
 
 
 def test_registry_blocks_execution_of_hidden_tool_in_primitive_toolset(monkeypatch):
@@ -52,6 +56,7 @@ def test_registry_blocks_execution_of_hidden_tool_in_primitive_toolset(monkeypat
     registry = ToolRegistry()
     registry.register_tool(_MockTool("READ_FILE"))
     registry.register_tool(_MockTool("environment_access"))
+    registry.register_tool(_MockTool("retrieve_memories"))
 
     # Simulate a provider emitting a hidden tool call anyway.
     result = registry.execute_tool_call(
@@ -59,4 +64,10 @@ def test_registry_blocks_execution_of_hidden_tool_in_primitive_toolset(monkeypat
     )
     assert result.get("_success") is False
     assert "blocked by toolset policy" in (result.get("content") or "").lower()
+
+    result2 = registry.execute_tool_call(
+        {"id": "y", "type": "function", "function": {"name": "retrieve_memories", "arguments": "{}"}}
+    )
+    assert result2.get("_success") is False
+    assert "blocked by toolset policy" in (result2.get("content") or "").lower()
 

@@ -597,24 +597,109 @@ class GovernanceEngine:
             roots = [str(x) for x in (policy.get("exec", {}) or {}).get("cwd_roots", []) if isinstance(x, str)]
             if roots and not _within_roots(cwd_n, roots):
                 return PolicyDecision(False, False, "cwd_outside_allowed_roots", "exec.cwd_roots", normalized, {})
-            # Base command extraction similar to ExecuteTool.
-            base = ""
-            try:
-                import shlex
-
-                parts = shlex.split(cmd.strip())
-                for part in parts:
-                    if "=" in part and not part.startswith(("./", "/")) and part.split("=", 1)[0].isidentifier():
+            # Base command extraction similar to ExecuteTool, but hardened against shell chaining.
+            # For policy enforcement we validate the base command of every chain/pipeline segment.
+            def _split_shell_chain(command: str) -> List[str]:
+                s = str(command)
+                segs: List[str] = []
+                cur: List[str] = []
+                i = 0
+                in_s = False
+                in_d = False
+                esc = False
+                saw_op = False
+                while i < len(s):
+                    ch = s[i]
+                    if esc:
+                        esc = False
+                        cur.append(ch)
+                        i += 1
                         continue
-                    base = part
-                    break
-            except Exception:
-                base = cmd.strip().split()[0] if cmd.strip().split() else ""
-            normalized["base_command"] = base
+                    if ch == "\\" and not in_s:
+                        esc = True
+                        cur.append(ch)
+                        i += 1
+                        continue
+                    if ch == "'" and not in_d:
+                        in_s = not in_s
+                        cur.append(ch)
+                        i += 1
+                        continue
+                    if ch == '"' and not in_s:
+                        in_d = not in_d
+                        cur.append(ch)
+                        i += 1
+                        continue
+                    if in_s or in_d:
+                        cur.append(ch)
+                        i += 1
+                        continue
+
+                    if s.startswith("&&", i) or s.startswith("||", i) or s.startswith("|&", i):
+                        seg = "".join(cur).strip()
+                        segs.append(seg)
+                        cur = []
+                        saw_op = True
+                        i += 2
+                        continue
+                    if ch in ("|", ";", "&"):
+                        seg = "".join(cur).strip()
+                        segs.append(seg)
+                        cur = []
+                        saw_op = True
+                        i += 1
+                        continue
+
+                    cur.append(ch)
+                    i += 1
+
+                tail = "".join(cur).strip()
+                if tail or saw_op:
+                    segs.append(tail)
+                return segs
+
+            def _base_command_for_segment(segment: str) -> str:
+                base = ""
+                try:
+                    import shlex
+
+                    parts = shlex.split(segment.strip())
+                    for part in parts:
+                        if "=" in part and not part.startswith(("./", "/")) and part.split("=", 1)[0].isidentifier():
+                            continue
+                        base = part
+                        break
+                except Exception:
+                    base = segment.strip().split()[0] if segment.strip().split() else ""
+                if "/" in base:
+                    base = os.path.basename(base)
+                return base
+
+            segments = _split_shell_chain(cmd)
+            bases = [_base_command_for_segment(seg) for seg in segments] if segments else [_base_command_for_segment(cmd)]
+            normalized["base_command"] = (bases[0] if bases else "")
             allowlist = [str(x) for x in (policy.get("exec", {}) or {}).get("command_whitelist", []) if isinstance(x, str) and x.strip()]
             if allowlist:
-                if base not in allowlist:
-                    return PolicyDecision(False, False, "command_not_allowed", "exec.command_whitelist", normalized, {"base_command": base, "allowed": allowlist})
+                allowset = set(allowlist)
+                if segments and any(not seg for seg in segments):
+                    return PolicyDecision(
+                        False,
+                        False,
+                        "command_not_allowed",
+                        "exec.command_whitelist",
+                        normalized,
+                        {"base_command": (bases[0] if bases else ""), "allowed": allowlist, "detail": "empty_command_segment"},
+                    )
+                bad = [b for b in bases if not b or b not in allowset]
+                if bad:
+                    return PolicyDecision(
+                        False,
+                        False,
+                        "command_not_allowed",
+                        "exec.command_whitelist",
+                        normalized,
+                        {"base_command": (bases[0] if bases else ""), "allowed": allowlist, "disallowed": bad},
+                    )
             env_allowlist = arguments.get("env_allowlist") or []
             requested_env = [x for x in env_allowlist if isinstance(x, str) and x.strip()]
             allowed_env = [str(x) for x in (policy.get("exec", {}) or {}).get("env_allowlist", []) if isinstance(x, str) and x.strip()]

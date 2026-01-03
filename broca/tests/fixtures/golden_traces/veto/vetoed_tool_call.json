@@ -1,0 +1,11 @@
+{
+  "tool_call_id": "call_veto_1",
+  "tool_name": "READ_FILE",
+  "source_of_conflict": "LearnedVetoGuard: κ_integrated sustained below learned threshold (coherence non-stationarity).",
+  "kappa": 1.0,
+  "kappa_integrated": 0.0,
+  "threshold": 1.0,
+  "has_debug": true
+}
+
+

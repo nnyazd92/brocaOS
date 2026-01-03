@@ -11,11 +11,14 @@ import logging
 import time
 import hashlib
 import math
+import random
 from typing import Dict, Any, List, Optional, TYPE_CHECKING, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from collections import deque, defaultdict
 from enum import Enum
+
+import numpy as np
 
 if TYPE_CHECKING:
     from . import Tool
@@ -26,6 +29,10 @@ if TYPE_CHECKING:
     from .selection_metrics import ToolSelectionMetrics
 
 logger = logging.getLogger(__name__)
+
+# K functor utilities (stochastic convolution) and K(t)=KL logger.
+from broca.rl.k_functor import compute_k_kl, normalize_probs  # noqa: E402
+from broca.rl.k_logger import get_k_series_logger  # noqa: E402
 
 
 class ValidationStrictness(Enum):
@@ -640,6 +647,7 @@ class MultiArmedBanditRanker:
                 # Never pulled - high exploration value
                 ucb_value = 1.0
                 exploration_bonus = 0.5
+                exploration_term = float(exploration_bonus)
             else:
                 # UCB1 formula: avg_reward + c * sqrt(ln(total_pulls) / pulls)
                 exploration_term = self.exploration_factor * math.sqrt(
@@ -837,11 +845,12 @@ class ToolRanker:
             List of ToolRanking objects, sorted by score (highest first)
         """
         rankings: List[ToolRanking] = []
-        
-        active_goals = context.get("active_goals", [])
-        applicable_skills = context.get("applicable_skills", [])
-        rl_signals = context.get("rl_signals")
-        working_memory_items = context.get("working_memory_items", [])
+
+        ctx = context if isinstance(context, dict) else {}
+        active_goals = ctx.get("active_goals", [])
+        applicable_skills = ctx.get("applicable_skills", [])
+        rl_signals = ctx.get("rl_signals")
+        working_memory_items = ctx.get("working_memory_items", [])
         
         for tool in tools:
             ranking = self._rank_tool(tool, active_goals, applicable_skills, rl_signals, working_memory_items)
@@ -864,8 +873,16 @@ class ToolRanker:
         score = 0.5  # Base score
         reasons: List[str] = []
         expected_reward = 0.5
-        
-        tool_name = tool.name
+
+        # Tools may expose `name` as @property or (incorrectly) as a method. Normalize to str.
+        try:
+            tool_name = getattr(tool, "name")
+            if callable(tool_name):
+                tool_name = tool_name()
+        except Exception:
+            tool_name = ""
+        if not isinstance(tool_name, str):
+            tool_name = str(tool_name)
         
         # 1. Check if tool is needed for active goals
         goal_relevance = self._check_goal_relevance(tool_name, active_goals)
@@ -1508,6 +1525,49 @@ class ToolSelectionGuidance:
         
         # Re-sort after adjustments
         rankings.sort(key=lambda r: r.score, reverse=True)
+
+        # K functor logging (and optional application):
+        # Treat ranking scores as an unnormalized distribution p over tools, then apply
+        # p'=(1-alpha)p+alpha*Uniform and log K(t)=KL(p||p').
+        try:
+            from broca.config import config as _config
+
+            scores = [float(r.score) if isinstance(r.score, (int, float)) else 0.0 for r in rankings]
+            p = normalize_probs(np.asarray(scores, dtype=np.float64))
+
+            alpha = float(getattr(self.mab_ranker, "exploration_factor", 0.1)) if self.mab_ranker else float(getattr(self, "exploration_factor", 0.1))
+            # Optionally gate by exploration_balance if present.
+            try:
+                if isinstance(context, dict):
+                    rl = context.get("rl_signals")
+                    if isinstance(rl, dict) and "exploration_balance" in rl:
+                        eb = float(rl.get("exploration_balance", 0.5))
+                        eb = max(0.0, min(1.0, eb))
+                        alpha = alpha * eb
+            except Exception:
+                pass
+            alpha = max(0.0, min(1.0, float(alpha)))
+
+            p_prime, k_kl = compute_k_kl(p, alpha=alpha)
+            get_k_series_logger().log_k(float(k_kl))
+
+            # Optional: actually apply K to reorder tools by sampling without replacement from p'.
+            if bool(getattr(_config.tools, "guidance_apply_k", False)) and len(rankings) > 1:
+                # Sample indices without replacement using p' weights.
+                weights = np.asarray(p_prime, dtype=np.float64)
+                weights = normalize_probs(weights)
+                order: List[int] = []
+                pool = list(range(len(rankings)))
+                w = weights.copy()
+                while pool:
+                    # Normalize over remaining pool.
+                    wp = normalize_probs(w[pool])
+                    choice = int(np.random.choice(pool, p=wp))
+                    order.append(choice)
+                    pool.remove(choice)
+                rankings = [rankings[i] for i in order]
+        except Exception:
+            pass
         
         # Record rankings in metrics
         if self.metrics:
@@ -1519,7 +1579,18 @@ class ToolSelectionGuidance:
                 )
         
         # Create mapping from tool name to tool object
-        tool_map = {tool.name: tool for tool in tools}
+        tool_map = {}
+        for tool in tools:
+            try:
+                tn = getattr(tool, "name")
+                if callable(tn):
+                    tn = tn()
+            except Exception:
+                tn = ""
+            if not isinstance(tn, str):
+                tn = str(tn)
+            if tn:
+                tool_map[tn] = tool
         
         # Return tools in ranked order (highest score first)
         ranked_tools = []
@@ -1530,7 +1601,15 @@ class ToolSelectionGuidance:
         # Include any tools not in rankings (shouldn't happen, but safety)
         ranked_names = {r.tool_name for r in rankings}
         for tool in tools:
-            if tool.name not in ranked_names:
+            try:
+                tn2 = getattr(tool, "name")
+                if callable(tn2):
+                    tn2 = tn2()
+            except Exception:
+                tn2 = ""
+            if not isinstance(tn2, str):
+                tn2 = str(tn2)
+            if tn2 not in ranked_names:
                 ranked_tools.append(tool)
         
         return ranked_tools
