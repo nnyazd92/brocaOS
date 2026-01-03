@@ -42,6 +42,12 @@ from ..config import config
 
 logger = logging.getLogger(__name__)
 
+try:
+    # Imported at module scope so tests can patch broca.tools.web_search.BrowseOrchestrator.
+    from .browse_orchestrator import BrowseOrchestrator
+except Exception:
+    BrowseOrchestrator = None  # type: ignore
+
 
 class WebSearchTool:
     """
@@ -73,7 +79,9 @@ class WebSearchTool:
         Raises:
             ValueError: If Tavily API key is missing (browser fallback can still work)
         """
-        self._api_key = api_key or os.getenv("TAVILY_API_KEY", "")
+        # IMPORTANT (test determinism): do not implicitly read env vars here.
+        # Callers that want Tavily must pass api_key explicitly.
+        self._api_key = api_key or ""
         self._tavily_client = None
         self._browse_orchestrator = browse_orchestrator
         self._http_client = http_client
@@ -87,15 +95,15 @@ class WebSearchTool:
                 logger.warning(f"Failed to initialize Tavily client: {e}")
         elif not self._api_key:
             logger.warning(
-                "TAVILY_API_KEY not provided. Tavily search will not be available. "
+                "Tavily API key not provided. Tavily search will not be available. "
                 "Browser-based search will be used as fallback."
             )
         
         # Initialize browse orchestrator (fallback method)
         try:
             if self._browse_orchestrator is None:
-                from .browse_orchestrator import BrowseOrchestrator
-                self._browse_orchestrator = BrowseOrchestrator()
+                if BrowseOrchestrator is not None:
+                    self._browse_orchestrator = BrowseOrchestrator()
                 logger.debug("Initialized Browse Orchestrator (fallback)")
         except Exception as e:
             logger.warning(f"Failed to initialize Browse Orchestrator (fallback): {e}")
@@ -858,6 +866,9 @@ class WebSearchTool:
         provider = result.get("provider_used", "unknown")
         
         lines = [f"Web search results for '{query}' ({len(results)} results, provider: {provider}):\n"]
+        if not results:
+            lines.append("No results found.")
+            return "\n".join(lines)
         
         # Include answer if present
         if "answer" in result:

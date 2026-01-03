@@ -41,7 +41,16 @@ class _RenamedTool:
 
     @property
     def parameters(self):
-        return getattr(self._inner, "parameters")
+        try:
+            v = getattr(self._inner, "parameters")
+        except Exception:
+            return {"type": "object", "properties": {}, "required": []}
+        try:
+            if callable(v):
+                v = v()
+        except Exception:
+            return {"type": "object", "properties": {}, "required": []}
+        return v
 
     def execute(self, **kwargs):
         return self._inner.execute(**kwargs)
@@ -216,7 +225,7 @@ def register_primitive_toolset(
     try:
         from .web_fetch import WebFetchTool
 
-        registry.register_tool(WebFetchTool())
+        registry.register_tool(_RenamedTool(WebFetchTool(), "WEB_FETCH"))
     except Exception:
         # Optional; WEB_FETCH depends on extra libs.
         pass

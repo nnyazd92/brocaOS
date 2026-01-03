@@ -8,6 +8,7 @@ import sys
 import re
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
+from broca.veto.veto_logger import get_veto_csv_logger
 from ..llm import create_llm_client, LLMClient
 from .response_guard import ensure_non_empty
 from .ansi_repair import repair_ansi_codes
@@ -1536,6 +1537,7 @@ When you need to use tools to complete a task:
         force_final_response_reprompt_attempts = 0
         require_done_reprompt_attempts = 0
         background_contract_reprompt_attempts = 0
+        veto_reprompt_attempts = 0
 
         # Clear reasoning_content when starting a new user turn (prevents 400 errors)
         # For deepseek-reasoner, reasoning_content should only be used within a single turn
@@ -2703,10 +2705,209 @@ When you need to use tools to complete a task:
                     logger.debug(f"Failed to enforce RL response contract: {e}", exc_info=True)
 
                 # PEA/PFREA removed - final responses are always allowed
+
+                # Learned Veto (GRU/LSTM): if κ_integrated has been below the learned threshold
+                # persistently, force a second-look reprompt instead of emitting this response.
+                try:
+                    from broca.veto import get_veto_guard
+
+                    if assistant_text:
+                        k_last = 1.0
+                        k_int = 0.0
+                        try:
+                            pred = (
+                                self.internal_sensing_framework.interoception.prediction
+                                if getattr(self, "internal_sensing_framework", None) is not None
+                                and getattr(self.internal_sensing_framework, "interoception", None) is not None
+                                and getattr(self.internal_sensing_framework.interoception, "prediction", None) is not None
+                                else None
+                            )
+                            if pred is not None:
+                                k_last = float(pred.get_kappa_last())
+                                k_int = float(pred.get_kappa_integrated())
+                        except Exception:
+                            k_last = 1.0
+                            k_int = 0.0
+
+                        veto_ctx = None
+                        try:
+                            if (
+                                self.tool_registry
+                                and hasattr(self.tool_registry, "tool_selection_guidance")
+                                and self.tool_registry.tool_selection_guidance is not None
+                                and getattr(self.tool_registry.tool_selection_guidance, "guidance_aggregator", None) is not None
+                            ):
+                                veto_ctx = self.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+                        except Exception:
+                            veto_ctx = None
+                        rl_signals = veto_ctx.get("rl_signals") if isinstance(veto_ctx, dict) else None
+
+                        x_t = get_veto_guard().build_time_slice(
+                            kappa_last=float(k_last),
+                            kappa_integrated=float(k_int),
+                            rl_signals=rl_signals if isinstance(rl_signals, dict) else None,
+                            tool_name="FINAL_RESPONSE",
+                            tool_success_last=None,
+                            tool_count_this_turn=int(iterations),
+                        )
+                        decision_v = get_veto_guard().check(
+                            x_t=x_t,
+                            reason="final_response",
+                            kappa_last=float(k_last),
+                            kappa_integrated=float(k_int),
+                        )
+
+                        # CSV telemetry: log only when training ran OR veto state changed (default cadence).
+                        try:
+                            dbg = decision_v.debug if isinstance(decision_v.debug, dict) else {}
+                            train = dbg.get("train") if isinstance(dbg.get("train"), dict) else {}
+                            trained = bool(train.get("trained", False))
+                            changed = bool(dbg.get("state_changed", False))
+                            if trained or changed:
+                                get_veto_csv_logger().log_decision(
+                                    decision_v,
+                                    event="final_response",
+                                    tool_name="FINAL_RESPONSE",
+                                    tool_call_id="",
+                                    turn_no=None,
+                                    iteration=int(iterations),
+                                )
+                        except Exception:
+                            pass
+
+                        if bool(decision_v.veto):
+                            veto_reprompt_attempts += 1
+                            max_reprompts = 2
+                            try:
+                                max_reprompts = int(getattr(getattr(config, "veto", None), "max_reprompts_per_turn", 2))
+                            except Exception:
+                                max_reprompts = 2
+
+                            logger.warning(
+                                "Final response vetoed by learned VetoGuard; forcing second look",
+                                extra={
+                                    "event": "final_response_vetoed",
+                                    "attempt": veto_reprompt_attempts,
+                                    "max_reprompts": max_reprompts,
+                                    "threshold": decision_v.threshold,
+                                    "kappa_integrated": decision_v.kappa_integrated,
+                                },
+                            )
+
+                            # Record attempted assistant output (hidden), then reprompt.
+                            self.messages.append({"role": "assistant", "content": assistant_text, "hidden": True})
+                            assistant_text = None
+
+                            veto_payload = {
+                                "tool_name": "FINAL_RESPONSE",
+                                "source_of_conflict": "LearnedVetoGuard: κ_integrated sustained below learned threshold (coherence non-stationarity).",
+                                "kappa": float(decision_v.kappa_last),
+                                "kappa_integrated": float(decision_v.kappa_integrated),
+                                "threshold": float(decision_v.threshold),
+                                "debug": dict(decision_v.debug or {}),
+                            }
+
+                            # Cognitive injection: store dissonance report in Working Memory (best-effort).
+                            try:
+                                if (
+                                    self.world_state_aggregator
+                                    and hasattr(self.world_state_aggregator, "reasoning_tool")
+                                    and self.world_state_aggregator.reasoning_tool is not None
+                                ):
+                                    rt = self.world_state_aggregator.reasoning_tool
+                                    wm = getattr(getattr(rt, "rule_system", None), "working_memory", None)
+                                    if wm is not None and hasattr(wm, "add"):
+                                        wm.add(
+                                            {"type": "dissonance_report", "timestamp": time.time(), "payload": veto_payload},
+                                            activation=2.0,
+                                        )
+                            except Exception:
+                                pass
+
+                            # Synthetic penalty: learn from near-miss (best-effort).
+                            try:
+                                if self.tool_registry and hasattr(self.tool_registry, "record_rl_outcome"):
+                                    self.tool_registry.record_rl_outcome(
+                                        tool_name="FINAL_RESPONSE",
+                                        success=False,
+                                        execution_time_ms=0.0,
+                                        result_quality=0.0,
+                                        tool_arguments=None,
+                                        tool_result_text=f"VETOED_FINAL_RESPONSE: {veto_payload}",
+                                    )
+                            except Exception:
+                                pass
+
+                            # Force a fresh world-state sample next iteration.
+                            try:
+                                self._last_world_state_hash = None
+                            except Exception:
+                                pass
+
+                            if veto_reprompt_attempts <= max_reprompts:
+                                self.messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "[SYSTEM DIRECTIVE - SECOND LOOK REQUIRED] Your last response was vetoed.\n"
+                                            "Re-sample context (re-read prompt/files), identify missing info, and produce a safer, coherent response.\n"
+                                            "If tools are needed, choose safer tools/arguments. Do NOT repeat the same action unchanged."
+                                        ),
+                                        "hidden": True,
+                                    }
+                                )
+                                continue
+
+                            logger.warning(
+                                "Veto reprompt budget exhausted; allowing final response despite veto signal",
+                                extra={"event": "final_response_veto_budget_exhausted", "iteration": iterations},
+                            )
+                except Exception as e:
+                    logger.debug(f"Failed to apply learned veto to final response: {e}", exc_info=True)
                 
                 # Ensure we never print an empty response. This must happen BEFORE printing,
                 # since the end-of-turn response guard runs after the print block.
                 assistant_text = self._ensure_response_non_empty(assistant_text)
+
+                # κ / κ_integrated CSV logging (so you get series even on non-tool turns).
+                # This complements the tool-execution logging in ToolRegistry.
+                try:
+                    pred = None
+                    try:
+                        if (
+                            getattr(self, "internal_sensing_framework", None) is not None
+                            and getattr(self.internal_sensing_framework, "interoception", None) is not None
+                        ):
+                            pred = getattr(self.internal_sensing_framework.interoception, "prediction", None)
+                    except Exception:
+                        pred = None
+
+                    # Prefer a rich context dict when available (matches ToolRegistry: post-context > pre-context).
+                    ctx = {}
+                    try:
+                        if (
+                            self.tool_registry
+                            and hasattr(self.tool_registry, "tool_selection_guidance")
+                            and self.tool_registry.tool_selection_guidance is not None
+                            and getattr(self.tool_registry.tool_selection_guidance, "guidance_aggregator", None) is not None
+                        ):
+                            c = self.tool_registry.tool_selection_guidance.guidance_aggregator.gather_context()
+                            if isinstance(c, dict):
+                                ctx = c
+                    except Exception:
+                        ctx = {}
+
+                    from broca.rl.coherence_telemetry import get_coherence_telemetry
+
+                    tele = get_coherence_telemetry()
+                    if pred is not None and hasattr(pred, "get_kappa_last") and hasattr(pred, "get_kappa_integrated"):
+                        k_last = float(pred.get_kappa_last())
+                        k_int = float(pred.get_kappa_integrated())
+                        tele.observe(kappa=k_last, kappa_integrated=k_int, now=time.time())
+                    else:
+                        tele.update_from_context(ctx, tool_name="FINAL_RESPONSE", success=True, now=time.time())
+                except Exception:
+                    pass
 
                 # Ensure response is always printed
                 if used_streaming:
@@ -2900,9 +3101,13 @@ When you need to use tools to complete a task:
                 # Increment turn counter for manual summarization tracking only
                 self._turns_since_last_summary += 1
 
-                # Persist immediately so callers (and tests) can observe saved state
+                # Persist immediately so callers (and tests) can observe saved state.
+                # IMPORTANT: for hidden internal turns (RESPOND_AND_CONTINUE auto-continue),
+                # ensure all messages created during this send() are marked hidden BEFORE persisting,
+                # otherwise the web UI can see duplicate assistant messages.
                 try:
                     _hide_duplicate_assistant_for_hidden_turn()
+                    _hide_all_turn_messages_for_hidden_turn()
                     self._save_conversation()
                 except Exception:
                     pass
@@ -3158,6 +3363,7 @@ When you need to use tools to complete a task:
                                 # This ensures saved conversations show the latest internal sensing values, not defaults
                                 try:
                                     _hide_duplicate_assistant_for_hidden_turn()
+                                    _hide_all_turn_messages_for_hidden_turn()
                                     self._save_conversation()
                                     logger.info("Re-saved conversation with updated world state after recording")
                                 except Exception as save_error:
@@ -3187,6 +3393,7 @@ When you need to use tools to complete a task:
                     # The initial save at line 1216 happens before instrumentation, so we need to save again here
                     try:
                         _hide_duplicate_assistant_for_hidden_turn()
+                        _hide_all_turn_messages_for_hidden_turn()
                         self._save_conversation()
                         logger.debug("Re-saved conversation after instrumentation with updated world state")
                     except Exception as save_error:
@@ -6607,6 +6814,33 @@ When you need to use tools to complete a task:
                         logger.warning(f"Failed to log tool call event: {e}", exc_info=True)
                 
                 tool_result = self.tool_registry.execute_tool_call(tool_call)
+
+                # If tool execution was vetoed, inject into working memory and force a fresh
+                # world-state sample next iteration (second look / re-sampling).
+                try:
+                    if isinstance(tool_result, dict) and tool_result.get("_veto") is True:
+                        payload = tool_result.get("_veto_payload") if isinstance(tool_result.get("_veto_payload"), dict) else {}
+                        try:
+                            if (
+                                self.world_state_aggregator
+                                and hasattr(self.world_state_aggregator, "reasoning_tool")
+                                and self.world_state_aggregator.reasoning_tool is not None
+                            ):
+                                rt = self.world_state_aggregator.reasoning_tool
+                                wm = getattr(getattr(rt, "rule_system", None), "working_memory", None)
+                                if wm is not None and hasattr(wm, "add"):
+                                    wm.add(
+                                        {"type": "dissonance_report", "timestamp": time.time(), "payload": payload},
+                                        activation=2.0,
+                                    )
+                        except Exception:
+                            pass
+                        try:
+                            self._last_world_state_hash = None
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
 
                 # RESPOND_AND_CONTINUE: capture pending auto-continue prompt for the caller.
                 try:

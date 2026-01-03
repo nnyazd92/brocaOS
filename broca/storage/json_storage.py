@@ -155,6 +155,10 @@ class JSONFileStorage:
                         "session_id": session_id,
                         **metadata
                     })
+                except FileNotFoundError:
+                    # Benign race: file was removed between glob() and open().
+                    logger.debug(f"Conversation file disappeared during listing: {file_path}")
+                    continue
                 except (OSError, IOError, json.JSONDecodeError) as e:
                     logger.warning(f"Failed to read conversation file {file_path}: {e}")
                     continue

@@ -28,6 +28,8 @@ import numpy as np
 
 from .ppo_policy import PPOConfig, PPOPolicy
 from .features import RL_SIGNAL_KEYS, extract_state_features, BASE_STATE_DIM
+from .k_functor import compute_k_kl, normalize_probs
+from .k_logger import get_k_series_logger
 from .reward import RewardWeights, compute_reward_from_outcome
 from .tool_selection_logging import get_tool_selection_logger
 
@@ -784,6 +786,17 @@ class PPOOnlinePolicyRanker:
             progress = ts if ts > 0 else int(self._selection_count)
             p = _anneal_prob(base=base_p, min_prob=min_p, decay=decay, progress=progress)
             roll = random.random()
+
+            # K functor measurement: treat alpha == effective exploration probability p.
+            # Compute p over allowed tools and log K(t) = KL(p || p'), where p' mixes with uniform.
+            try:
+                if allowed_indices:
+                    p_allowed = normalize_probs(probs[allowed_indices].astype(np.float64))
+                    _, k_kl = compute_k_kl(p_allowed, alpha=float(p))
+                    get_k_series_logger().log_k(float(k_kl))
+            except Exception:
+                pass
+
             try:
                 tool_selection_logger.info(
                     f"PPO_EXPLORE_CHECK | base_p={base_p:.3f} | p={p:.3f} | min_p={min_p:.3f} | decay={decay:.6f} | "

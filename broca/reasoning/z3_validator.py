@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime, timezone
 from collections import deque, defaultdict
+import warnings
 
 try:
     from z3 import Bool, BoolRef, Solver, And, Or, Not, Implies, sat, unsat, unknown
@@ -148,7 +149,13 @@ class Z3LogicalValidator:
             return
         
         if len(self._constraints) >= self.max_constraints:
-            logger.warning(f"Maximum constraints limit ({self.max_constraints}) reached")
+            msg = f"Maximum constraints limit ({self.max_constraints}) reached"
+            logger.warning(msg)
+            # Emit a Python warning so tests (and callers) can intercept this as a signal.
+            try:
+                warnings.warn(msg, RuntimeWarning)
+            except Exception:
+                pass
             return
         
         constraint = LogicalConstraint(
@@ -763,7 +770,23 @@ class Z3LogicalValidator:
         if not propositions:
             return []
         
-        contradictions = []
+        contradictions: List[Tuple[str, str]] = []
+
+        # Fast-path: detect direct contradictions for the same proposition name.
+        # If a name appears with both True and False, return (name, NOT(name)).
+        by_name: Dict[str, Set[bool]] = defaultdict(set)
+        for prop_name, truth_value in propositions:
+            if isinstance(prop_name, str) and prop_name:
+                by_name[prop_name].add(bool(truth_value))
+        for name, vals in by_name.items():
+            if True in vals and False in vals:
+                contradictions.append((name, f"NOT({name})"))
+
+        # If we already found direct contradictions, return them (keeps output stable and avoids
+        # spurious pairwise contradictions caused by duplicated facts in the solver).
+        if contradictions:
+            return contradictions
+
         solver = Solver()
         
         try:
@@ -778,9 +801,11 @@ class Z3LogicalValidator:
                     else:
                         solver.add(Not(var))
             
-            # Check for contradictions by trying all pairs
+            # Check for contradictions by trying all pairs (distinct proposition names).
             for i, (prop1_name, prop1_val) in enumerate(propositions):
                 for prop2_name, prop2_val in propositions[i+1:]:
+                    if prop1_name == prop2_name:
+                        continue
                     # Check if prop1 and prop2 can both be true
                     solver.push()
                     var1 = self._get_variable(prop1_name)
@@ -984,7 +1009,7 @@ class Z3LogicalValidator:
             "total_contradictions": len(contradictions)
         }
     
-    def get_validation_summary(self, max_size_bytes: int = 200) -> Dict[str, Any]:
+    def get_validation_summary(self, max_size_bytes: int = 1024) -> Dict[str, Any]:
         """
         Get compact validation summary for world state integration.
         
@@ -1022,6 +1047,10 @@ class Z3LogicalValidator:
                     "causal_chains_valid": result["causal_chains_valid"],
                     "goal_dependencies_valid": result["goal_dependencies_valid"],
                 }
+                json_str = json.dumps(result)
+                if len(json_str.encode("utf-8")) > max_size_bytes:
+                    # Final fallback: smallest useful summary.
+                    result = {"enabled": result["enabled"]}
         
         return result
     

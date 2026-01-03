@@ -83,6 +83,12 @@ class IntegratedInteroception:
         Returns:
             Dictionary containing unified internal state
         """
+        # Tick κ-integrated (piecewise-constant hold) every interoception sample.
+        try:
+            self.prediction.tick_kappa(now=time.time())
+        except Exception:
+            pass
+
         # Sample all components
         computational = self.physiology.sample_resources()
         cognitive = self.cognition.sample_cognitive_state()
@@ -150,6 +156,8 @@ class IntegratedInteroception:
                 "cognitive": cognitive_prediction,
                 "affective": affective_prediction,
                 "error_probability": error_probability,
+                "kappa_last": float(self.prediction.get_kappa_last()) if hasattr(self.prediction, "get_kappa_last") else None,
+                "kappa_integrated": float(self.prediction.get_kappa_integrated()) if hasattr(self.prediction, "get_kappa_integrated") else None,
             },
             "timestamp": time.time(),
         }

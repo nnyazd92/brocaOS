@@ -36,8 +36,24 @@ class JsonFormatter(logging.Formatter):
             return {k: self._make_json_serializable(v) for k, v in obj.items()}
         elif isinstance(obj, (list, tuple)):
             return [self._make_json_serializable(item) for item in obj]
-        else:
+        # Common non-JSON-serializable objects (functions, methods, Path, exceptions, etc.)
+        # should never crash logging. Fall back to a stable string representation.
+        try:
+            json.dumps(obj, ensure_ascii=False)
             return obj
+        except Exception:
+            try:
+                # Avoid huge dumps for callables.
+                if callable(obj):
+                    name = getattr(obj, "__name__", None) or getattr(getattr(obj, "__class__", None), "__name__", None) or "callable"
+                    mod = getattr(obj, "__module__", None) or ""
+                    return f"<callable {mod}.{name}>"
+            except Exception:
+                pass
+            try:
+                return repr(obj)
+            except Exception:
+                return str(type(obj))
 
     def format(self, record: logging.LogRecord) -> str:
         base = {

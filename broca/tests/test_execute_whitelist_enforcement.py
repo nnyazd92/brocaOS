@@ -91,3 +91,28 @@ def test_registry_execute_whitelist_budget_resets_each_turn(monkeypatch, tmp_pat
     res = reg.execute_tool_call(_execute_call("ls", allowed_cwd, "c4"))
     assert res.get("_success") is False
     assert "attempt: 1/3" in res["content"]
+
+
+def test_execute_whitelist_blocks_pipelines_and_chained_segments(monkeypatch, tmp_path: Path):
+    """
+    Ensure whitelist is enforced for *every* command segment, not just the first token.
+    This prevents bypasses like: python -c '...' | terraform
+    """
+    reg = ToolRegistry()
+    reg.register_tool(ExecuteTool())
+
+    monkeypatch.setattr(config.tools, "toolset", "primitive", raising=False)
+    monkeypatch.setattr(config.tools, "execute_command_whitelist", ["python3"], raising=False)
+
+    reg.start_turn(1)
+    allowed_cwd = Path.cwd()
+
+    # Pipe to disallowed command
+    res1 = reg.execute_tool_call(_execute_call("python3 -c 'print(1)' | ls", allowed_cwd, "p1"))
+    assert res1.get("_success") is False
+    assert "command_not_allowed" in (res1.get("content") or "")
+
+    # Chaining to disallowed command
+    res2 = reg.execute_tool_call(_execute_call("python3 -c 'print(1)' && pwd", allowed_cwd, "p2"))
+    assert res2.get("_success") is False
+    assert "command_not_allowed" in (res2.get("content") or "")

@@ -800,27 +800,223 @@ class ExecuteTool:
             allowed.add("PATH")
             env = {k: v for k, v in os.environ.items() if k in allowed}
 
-            # Optional command allowlist to reduce "universal actuator" collapse.
-            base = ""
-            try:
-                parts = shlex.split(cmd.strip())
-                # Skip env var assignments like FOO=bar
-                for part in parts:
-                    if "=" in part and not part.startswith(("./", "/")) and part.split("=", 1)[0].isidentifier():
-                        continue
-                    base = part
-                    break
-            except Exception:
-                base = cmd.strip().split()[0] if cmd.strip().split() else ""
+            def _iter_shell_ops(command: str):
+                """
+                Yield shell operator tokens found outside of quotes.
 
+                Conservative parser for bash-style operators. We don't attempt to fully parse bash;
+                we just need to (a) detect dangerous constructs and (b) split chains/pipelines so
+                each segment can be allowlisted.
+                """
+                s = str(command)
+                i = 0
+                in_s = False
+                in_d = False
+                esc = False
+                while i < len(s):
+                    ch = s[i]
+                    if esc:
+                        esc = False
+                        i += 1
+                        continue
+                    if ch == "\\" and not in_s:
+                        esc = True
+                        i += 1
+                        continue
+                    if ch == "'" and not in_d:
+                        in_s = not in_s
+                        i += 1
+                        continue
+                    if ch == '"' and not in_s:
+                        in_d = not in_d
+                        i += 1
+                        continue
+                    if in_s or in_d:
+                        i += 1
+                        continue
+
+                    # Subshell / command substitution / redirections are blocked under whitelist mode.
+                    if s.startswith("$(", i):
+                        yield "$("
+                        i += 2
+                        continue
+                    if ch == "`":
+                        yield "`"
+                        i += 1
+                        continue
+                    if s.startswith(">>", i):
+                        yield ">>"
+                        i += 2
+                        continue
+                    if s.startswith("<<", i):
+                        yield "<<"
+                        i += 2
+                        continue
+                    if ch in (">", "<"):
+                        yield ch
+                        i += 1
+                        continue
+
+                    # Chaining operators
+                    if s.startswith("&&", i):
+                        yield "&&"
+                        i += 2
+                        continue
+                    if s.startswith("||", i):
+                        yield "||"
+                        i += 2
+                        continue
+                    if s.startswith("|&", i):
+                        yield "|&"
+                        i += 2
+                        continue
+                    if ch == "|":
+                        yield "|"
+                        i += 1
+                        continue
+                    if ch == ";":
+                        yield ";"
+                        i += 1
+                        continue
+                    if ch == "&":
+                        yield "&"
+                        i += 1
+                        continue
+
+                    i += 1
+
+            def _split_shell_chain(command: str) -> List[str]:
+                """
+                Split a command string by top-level chaining/pipeline operators (outside quotes).
+                Returns list of segment strings (no operators).
+                """
+                s = str(command)
+                segs: List[str] = []
+                cur: List[str] = []
+                i = 0
+                in_s = False
+                in_d = False
+                esc = False
+                saw_op = False
+                while i < len(s):
+                    ch = s[i]
+                    if esc:
+                        esc = False
+                        cur.append(ch)
+                        i += 1
+                        continue
+                    if ch == "\\" and not in_s:
+                        esc = True
+                        cur.append(ch)
+                        i += 1
+                        continue
+                    if ch == "'" and not in_d:
+                        in_s = not in_s
+                        cur.append(ch)
+                        i += 1
+                        continue
+                    if ch == '"' and not in_s:
+                        in_d = not in_d
+                        cur.append(ch)
+                        i += 1
+                        continue
+                    if in_s or in_d:
+                        cur.append(ch)
+                        i += 1
+                        continue
+
+                    # operators: treat any of these as a split point (but keep parsing)
+                    if s.startswith("&&", i) or s.startswith("||", i) or s.startswith("|&", i):
+                        seg = "".join(cur).strip()
+                        segs.append(seg)
+                        cur = []
+                        saw_op = True
+                        i += 2
+                        continue
+                    if ch in ("|", ";", "&"):
+                        seg = "".join(cur).strip()
+                        segs.append(seg)
+                        cur = []
+                        saw_op = True
+                        i += 1
+                        continue
+
+                    cur.append(ch)
+                    i += 1
+
+                tail = "".join(cur).strip()
+                if tail or saw_op:
+                    segs.append(tail)
+                return segs
+
+            def _base_command_for_segment(segment: str) -> str:
+                base = ""
+                try:
+                    parts = shlex.split(segment.strip())
+                    # Skip env var assignments like FOO=bar
+                    for part in parts:
+                        if "=" in part and not part.startswith(("./", "/")) and part.split("=", 1)[0].isidentifier():
+                            continue
+                        base = part
+                        break
+                except Exception:
+                    base = segment.strip().split()[0] if segment.strip().split() else ""
+                # Normalize paths so "/usr/bin/python3" matches "python3" allowlists.
+                if "/" in base:
+                    base = os.path.basename(base)
+                return base
+
+            # Optional command allowlist to reduce "universal actuator" collapse.
+            # IMPORTANT: EXECUTE uses shell=True with bash. That means a single 'cmd' string can
+            # chain multiple commands via operators like '|', '&&', ';', etc.
+            # We must enforce the whitelist for EVERY segment, and block redirections/subshells.
             allowlist = getattr(config.tools, "execute_command_whitelist", None)
             if isinstance(allowlist, list) and allowlist:
-                if base not in allowlist:
+                allowset = {str(x) for x in allowlist if isinstance(x, str) and x.strip()}
+
+                ops = list(_iter_shell_ops(cmd))
+                # Hard-block dangerous shell constructs when whitelist is active.
+                blocked_ops = {"$(", "`", ">", "<", ">>", "<<"}
+                if any(op in blocked_ops for op in ops):
                     return {
                         "success": False,
                         "error": "command_not_allowed",
-                        "base_command": base,
-                        "allowed_commands": allowlist,
+                        "base_command": _base_command_for_segment(cmd),
+                        "allowed_commands": list(allowlist),
+                        "detail": "shell_operator_not_allowed",
+                    }
+                # Disallow backgrounding entirely (as it can outlive the sandboxed turn).
+                if "&" in ops:
+                    return {
+                        "success": False,
+                        "error": "command_not_allowed",
+                        "base_command": _base_command_for_segment(cmd),
+                        "allowed_commands": list(allowlist),
+                        "detail": "background_operator_not_allowed",
+                    }
+
+                segments = _split_shell_chain(cmd)
+                if not segments:
+                    return {"success": False, "error": "cmd_required"}
+                if any(not seg for seg in segments):
+                    return {
+                        "success": False,
+                        "error": "command_not_allowed",
+                        "base_command": _base_command_for_segment(cmd),
+                        "allowed_commands": list(allowlist),
+                        "detail": "empty_command_segment",
+                    }
+                bases = [_base_command_for_segment(seg) for seg in segments]
+                bad = [b for b in bases if not b or b not in allowset]
+                if bad:
+                    # Keep base_command for backwards compat in ToolRegistry logging.
+                    base0 = bases[0] if bases else ""
+                    return {
+                        "success": False,
+                        "error": "command_not_allowed",
+                        "base_command": base0,
+                        "allowed_commands": list(allowlist),
+                        "disallowed_commands": bad,
                     }
 
             proc = subprocess.run(

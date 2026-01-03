@@ -159,6 +159,8 @@ def test_execute_respects_allowlist(monkeypatch, tmp_path: Path):
 
 def test_execute_timeout(tmp_path: Path):
     tool = ExecuteTool()
-    res = tool.execute(cmd="sleep 2", cwd=str(tmp_path), timeout=1, env_allowlist=["PATH"])
+    # Use a whitelisted base command (python3) so the test is robust even when
+    # BROCA_EXECUTE_WHITELIST is set via .env during test runs.
+    res = tool.execute(cmd="python3 -c 'import time; time.sleep(2)'", cwd=str(tmp_path), timeout=1, env_allowlist=["PATH"])
     assert res["success"] is False
     assert res["error"] == "timeout"

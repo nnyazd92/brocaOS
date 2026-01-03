@@ -29,6 +29,8 @@ from .logging_utils import (
     log_tool_result
 )
 from .json_repair import attempt_json_repair
+from ..veto import get_veto_guard
+from ..veto.veto_logger import get_veto_csv_logger
 
 if TYPE_CHECKING:
     from ..rl.online_policy import OnlinePolicyRanker, ToolSelection
@@ -530,13 +532,49 @@ class ToolRegistry:
         Returns:
             List of missing parameter names
         """
-        schema = tool.parameters
+        schema = self._tool_parameters(tool)
         required = schema.get("required", [])
         
         return [
             param for param in required
             if param not in arguments or arguments[param] is None
         ]
+
+    @staticmethod
+    def _tool_attr_value(tool: Tool, attr: str) -> Any:
+        """
+        Robustly fetch tool attributes that may be defined as @property or as a method.
+        """
+        try:
+            v = getattr(tool, attr)
+        except Exception:
+            return None
+        try:
+            if callable(v):
+                return v()
+        except Exception:
+            return None
+        return v
+
+    def _tool_name(self, tool: Tool) -> str:
+        v = self._tool_attr_value(tool, "name")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        # Avoid inserting method objects as keys; always coerce.
+        return str(v) if v is not None else ""
+
+    def _tool_description(self, tool: Tool) -> str:
+        v = self._tool_attr_value(tool, "description")
+        if isinstance(v, str):
+            return v
+        return str(v) if v is not None else ""
+
+    def _tool_parameters(self, tool: Tool) -> Dict[str, Any]:
+        v = self._tool_attr_value(tool, "parameters")
+        if isinstance(v, dict):
+            return v
+        # Defensive fallback: always return a valid (empty) schema dict.
+        return {"type": "object", "properties": {}, "required": []}
     
     def register_tool(self, tool: Tool) -> None:
         """
@@ -548,11 +586,14 @@ class ToolRegistry:
         Raises:
             ValueError: If a tool with the same name is already registered
         """
-        if tool.name in self._tools:
-            raise ValueError(f"Tool '{tool.name}' is already registered")
-        
-        self._tools[tool.name] = tool
-        logger.info(f"Registered tool: {tool.name}")
+        name = self._tool_name(tool)
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Tool has invalid name (must be non-empty string)")
+        if name in self._tools:
+            raise ValueError(f"Tool '{name}' is already registered")
+
+        self._tools[name] = tool
+        logger.info(f"Registered tool: {name}")
     
     def get_tool(self, name: str) -> Optional[Tool]:
         """
@@ -629,13 +670,22 @@ class ToolRegistry:
         }
 
     def _is_tool_visible(self, tool_name: str) -> bool:
-        toolset = str(getattr(config.tools, "toolset", "legacy") or "legacy").lower()
+        # Read from env first (supports runtime overrides + tests patching os.environ), fallback to config.
+        toolset = str(os.getenv("BROCA_TOOLSET", getattr(config.tools, "toolset", "primitive")) or "primitive").lower()
         if toolset != "primitive":
             return True
         return tool_name in self._primitive_allowed_tool_names()
 
     def _visible_tools(self) -> List[Tool]:
-        return [t for t in self._tools.values() if self._is_tool_visible(t.name)]
+        # Use normalized registry keys for visibility filtering (avoid calling t.name which may be misdefined).
+        out: List[Tool] = []
+        for name, t in self._tools.items():
+            try:
+                if self._is_tool_visible(str(name)):
+                    out.append(t)
+            except Exception:
+                continue
+        return out
     
     def get_registry_hash(self) -> str:
         """
@@ -803,7 +853,7 @@ class ToolRegistry:
         # Persist the *allowed* tool names for this formatting pass so we can enforce
         # forced-mode even if the LLM/provider emits an out-of-schema tool call.
         try:
-            self._last_format_allowed_tools = [t.name for t in all_tools]
+            self._last_format_allowed_tools = [self._tool_name(t) for t in all_tools]
         except Exception:
             self._last_format_allowed_tools = []
 
@@ -844,15 +894,18 @@ class ToolRegistry:
         tools = []
         tool_names = []
         for tool in all_tools:
+            tname = self._tool_name(tool)
+            tdesc = self._tool_description(tool)
+            tparams = self._tool_parameters(tool)
             tools.append({
                 "type": "function",
                 "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.parameters
+                    "name": tname,
+                    "description": tdesc,
+                    "parameters": tparams
                 }
             })
-            tool_names.append(tool.name)
+            tool_names.append(tname)
         
         logger.info(
             f"Converted {len(tools)} tools to OpenAI format",
@@ -1337,6 +1390,130 @@ class ToolRegistry:
                 except Exception:
                     # Fail open if policy evaluation errors; keep system usable.
                     pass
+
+            # Learned Veto (GRU/LSTM over time slices): suppress action when κ_integrated remains
+            # below a dynamic threshold for a persistent window (hysteresis).
+            try:
+                from datetime import datetime, timezone
+
+                k_last = 1.0
+                k_int = 0.0
+                try:
+                    pred = (
+                        self.internal_sensing_framework.interoception.prediction
+                        if getattr(self, "internal_sensing_framework", None) is not None
+                        and getattr(self.internal_sensing_framework, "interoception", None) is not None
+                        and getattr(self.internal_sensing_framework.interoception, "prediction", None) is not None
+                        else None
+                    )
+                    if pred is not None:
+                        k_last = float(pred.get_kappa_last())
+                        k_int = float(pred.get_kappa_integrated())
+                except Exception:
+                    k_last = 1.0
+                    k_int = 0.0
+
+                veto_ctx = None
+                try:
+                    if (
+                        getattr(self, "tool_selection_guidance", None) is not None
+                        and getattr(self.tool_selection_guidance, "guidance_aggregator", None) is not None
+                    ):
+                        veto_ctx = self.tool_selection_guidance.guidance_aggregator.gather_context()
+                except Exception:
+                    veto_ctx = None
+                rl_signals = veto_ctx.get("rl_signals") if isinstance(veto_ctx, dict) else None
+
+                x_t = get_veto_guard().build_time_slice(
+                    kappa_last=float(k_last),
+                    kappa_integrated=float(k_int),
+                    rl_signals=rl_signals if isinstance(rl_signals, dict) else None,
+                    tool_name=str(tool_name),
+                    tool_success_last=None,
+                    tool_count_this_turn=int(self._turn_no) if isinstance(self._turn_no, int) else None,
+                )
+                decision_v = get_veto_guard().check(
+                    x_t=x_t,
+                    reason="pre_tool_call",
+                    kappa_last=float(k_last),
+                    kappa_integrated=float(k_int),
+                )
+
+                # CSV telemetry: log only when training ran OR veto state changed (default cadence request).
+                try:
+                    dbg = decision_v.debug if isinstance(decision_v.debug, dict) else {}
+                    train = dbg.get("train") if isinstance(dbg.get("train"), dict) else {}
+                    trained = bool(train.get("trained", False))
+                    changed = bool(dbg.get("state_changed", False))
+                    if trained or changed:
+                        get_veto_csv_logger().log_decision(
+                            decision_v,
+                            event="decision",
+                            tool_name=str(tool_name),
+                            tool_call_id=str(tool_call_id),
+                            turn_no=int(self._turn_no) if isinstance(self._turn_no, int) else None,
+                            iteration=None,
+                        )
+                except Exception:
+                    pass
+
+                if bool(decision_v.veto):
+                    ts_logger = _get_tool_selection_logger()
+                    try:
+                        ts_logger.warning(
+                            "TOOL_CALL_VETO | "
+                            f"tool_call_id={tool_call_id} | tool={tool_name} | "
+                            f"threshold={decision_v.threshold:.6f} | kappa_integrated={decision_v.kappa_integrated:.6f} | "
+                            f"persist_m={decision_v.debug.get('persist_m')} | persist_n={decision_v.debug.get('persist_n')}"
+                        )
+                    except Exception:
+                        pass
+
+                    veto_payload = {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "tool_name": str(tool_name),
+                        "tool_call_id": str(tool_call_id),
+                        "source_of_conflict": "LearnedVetoGuard: κ_integrated sustained below learned threshold (coherence non-stationarity).",
+                        "kappa": float(decision_v.kappa_last),
+                        "kappa_integrated": float(decision_v.kappa_integrated),
+                        "threshold": float(decision_v.threshold),
+                        "debug": dict(decision_v.debug or {}),
+                    }
+
+                    # Synthetic penalty: learn from near-miss (treat as failure).
+                    try:
+                        self.record_rl_outcome(
+                            tool_name=str(tool_name),
+                            success=False,
+                            execution_time_ms=0.0,
+                            result_quality=0.0,
+                            tool_arguments=arguments if isinstance(arguments, dict) else None,
+                            tool_result_text=f"VETOED: {veto_payload}",
+                        )
+                    except Exception:
+                        pass
+
+                    return {
+                        "tool_call_id": tool_call_id,
+                        "role": "tool",
+                        "name": tool_name,
+                        "_success": False,
+                        "_veto": True,
+                        "_veto_payload": veto_payload,
+                        "content": (
+                            "VETO: action suppressed (Immediate Inhibition).\n\n"
+                            "Dissonance Report (L3 Injection):\n"
+                            f"- source_of_conflict: {veto_payload['source_of_conflict']}\n"
+                            f"- kappa: {veto_payload['kappa']}\n"
+                            f"- kappa_integrated (I): {veto_payload['kappa_integrated']}\n"
+                            f"- learned_threshold: {veto_payload['threshold']}\n\n"
+                            "Second Look required: re-sample context (re-read prompt/files, gather missing info) and choose a safer alternative.\n"
+                            "Do NOT retry the same tool call unchanged."
+                        ),
+                    }
+            except Exception:
+                # Fail open: veto is best-effort and must not break tool execution.
+                pass
             
             # Log execution start
             log_tool_execution_start(tool_name, arguments, tool_call_id, logger)
@@ -1468,6 +1645,53 @@ class ToolRegistry:
                 formatted_result = tool.format_result(result)
             
 
+            # --- Instrumentation: κ / κ_integrated telemetry (always-on; best-effort) ---
+            # We want the CSVs to exist even when internal sensing / PredictiveInteroception is disabled.
+            kappa_val = 0.0
+            try:
+                # Prefer post-tool guidance context when available; fall back to pre-RL context.
+                pre_context = getattr(self, "_last_rl_context", None) if isinstance(getattr(self, "_last_rl_context", None), dict) else {}
+                post_context = None
+                try:
+                    if (
+                        getattr(self, "tool_selection_guidance", None) is not None
+                        and getattr(self.tool_selection_guidance, "guidance_aggregator", None) is not None
+                    ):
+                        pc = self.tool_selection_guidance.guidance_aggregator.gather_context()
+                        if isinstance(pc, dict):
+                            post_context = pc
+                except Exception:
+                    post_context = None
+
+                kappa_ctx = post_context if isinstance(post_context, dict) else pre_context
+                pred = None
+                if (
+                    getattr(self, "internal_sensing_framework", None) is not None
+                    and getattr(self.internal_sensing_framework, "interoception", None) is not None
+                ):
+                    pred = getattr(self.internal_sensing_framework.interoception, "prediction", None)
+
+                k_int_override = None
+                try:
+                    if pred is not None and hasattr(pred, "get_kappa_integrated"):
+                        k_int_override = float(pred.get_kappa_integrated())
+                except Exception:
+                    k_int_override = None
+
+                from broca.rl.coherence_telemetry import log_from_context
+
+                sample = log_from_context(
+                    kappa_ctx if isinstance(kappa_ctx, dict) else {},
+                    tool_name=str(tool_name),
+                    success=bool(result.get("success", True) if isinstance(result, dict) else True),
+                    now=time.time(),
+                    kappa_integrated_override=k_int_override,
+                )
+                kappa_val = float(sample.kappa)
+            except Exception:
+                # Telemetry must never break tool execution.
+                kappa_val = 0.0
+
             # Record usage in internal sensing framework
             if self.internal_sensing_framework:
                 try:
@@ -1475,6 +1699,56 @@ class ToolRegistry:
                     # Estimate impact based on tool type
                     impact = 2 if tool_name in ('terminal', 'web_search') else 1
                     self.internal_sensing_framework.record_cognitive_impact(tool_name, impact)
+
+                    # Feed κ sample into PredictiveInteroception (event-driven) when available.
+                    try:
+                        pred = getattr(self.internal_sensing_framework.interoception, "prediction", None) if self.internal_sensing_framework else None
+                        if pred is not None and hasattr(pred, "record_kappa_sample"):
+                            pred.record_kappa_sample(float(kappa_val), now=time.time())
+                    except Exception:
+                        pass
+
+                    # Feed a post-action observation into the learned veto model (best-effort).
+                    try:
+                        pred = getattr(self.internal_sensing_framework.interoception, "prediction", None) if self.internal_sensing_framework else None
+                        k_last2 = float(pred.get_kappa_last()) if pred is not None and hasattr(pred, "get_kappa_last") else float(kappa_val)
+                        k_int2 = float(pred.get_kappa_integrated()) if pred is not None and hasattr(pred, "get_kappa_integrated") else 0.0
+
+                        # Reuse the same post/pre context choice used for telemetry.
+                        post_ctx2 = post_context if isinstance(post_context, dict) else pre_context if isinstance(pre_context, dict) else {}
+                        rl_s2 = post_ctx2.get("rl_signals") if isinstance(post_ctx2, dict) else None
+                        x_post = get_veto_guard().build_time_slice(
+                            kappa_last=float(k_last2),
+                            kappa_integrated=float(k_int2),
+                            rl_signals=rl_s2 if isinstance(rl_s2, dict) else None,
+                            tool_name=str(tool_name),
+                            tool_success_last=bool(result.get("success", True) if isinstance(result, dict) else True),
+                            tool_count_this_turn=int(self._turn_no) if isinstance(self._turn_no, int) else None,
+                        )
+                        decision_post = get_veto_guard().check(
+                            x_t=x_post,
+                            reason="post_tool_call",
+                            kappa_last=float(k_last2),
+                            kappa_integrated=float(k_int2),
+                        )
+                        # Log post-tool observation if training ran or veto state changed.
+                        try:
+                            dbg2 = decision_post.debug if isinstance(decision_post.debug, dict) else {}
+                            train2 = dbg2.get("train") if isinstance(dbg2.get("train"), dict) else {}
+                            trained2 = bool(train2.get("trained", False))
+                            changed2 = bool(dbg2.get("state_changed", False))
+                            if trained2 or changed2:
+                                get_veto_csv_logger().log_decision(
+                                    decision_post,
+                                    event="observation",
+                                    tool_name=str(tool_name),
+                                    tool_call_id=str(tool_call_id),
+                                    turn_no=int(self._turn_no) if isinstance(self._turn_no, int) else None,
+                                )
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
 
                     # --- Instrumentation: append structured experience for RL ---
                     try:

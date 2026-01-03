@@ -178,6 +178,37 @@ class TestErrorPrediction:
         assert error_probability < 0.5
 
 
+class TestKappaIntegratedModulation:
+    def test_low_kappa_shrinks_horizon_and_widens_intervals(self):
+        monitor = PredictiveInteroception()
+        physiology = ComputationalPhysiologyMonitor()
+
+        # Build a tiny history with stable load so uncertainty is defined.
+        physiology.metrics["computational_load"] = 0.5
+        physiology.metrics["memory_pressure"] = 0.5
+        physiology.sample_resources()
+        physiology.metrics["computational_load"] = 0.5
+        physiology.metrics["memory_pressure"] = 0.5
+        physiology.sample_resources()
+
+        # High coherence reserve: κ_integrated high => horizon stays closer to base and narrower intervals.
+        monitor.record_kappa_sample(1.0, now=0.0)
+        monitor.tick_kappa(now=10.0)
+        pred_hi = monitor.predict_resources(physiology, horizon=10)
+
+        # Low coherence reserve: κ_integrated low => horizon shrinks and intervals widen.
+        monitor2 = PredictiveInteroception()
+        monitor2.record_kappa_sample(0.0, now=0.0)
+        monitor2.tick_kappa(now=10.0)
+        pred_lo = monitor2.predict_resources(physiology, horizon=10)
+
+        assert int(pred_lo.get("horizon", 10)) <= int(pred_hi.get("horizon", 10))
+
+        hi_w = float(pred_hi["computational_load_interval"][1] - pred_hi["computational_load_interval"][0])
+        lo_w = float(pred_lo["computational_load_interval"][1] - pred_lo["computational_load_interval"][0])
+        assert lo_w >= hi_w
+
+
 class TestPredictionErrorComputation:
     """Test prediction error computation."""
     
