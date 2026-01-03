@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
+import json
 import math
 import os
 import threading
+import tempfile
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
+from pathlib import Path
 
 import numpy as np
 
@@ -204,12 +207,19 @@ class VetoGuard:
         norm_alpha: float,
         sigma_mult: float,
         fixed_margin: float,
+        anomaly_mode: str = "threshold",
+        residual_alpha: float = 0.05,
+        residual_k: float = 3.0,
+        residual_min_samples: int = 8,
         hysteresis_h: float,
         persist_n: int,
         persist_m: int,
         clear_k: int,
         max_train_steps_per_obs: int,
         min_train_interval_s: float,
+        state_path: Optional[str] = None,
+        model_path: Optional[str] = None,
+        save_interval_s: float = 1.0,
     ) -> None:
         self.enabled = bool(enabled)
         self.model_type = str(model_type).strip().lower() or "gru"
@@ -219,6 +229,12 @@ class VetoGuard:
         self.lr = float(lr)
         self.sigma_mult = float(sigma_mult)
         self.fixed_margin = float(fixed_margin)
+        self.anomaly_mode = str(anomaly_mode or "threshold").strip().lower()
+        if self.anomaly_mode not in {"threshold", "residual"}:
+            self.anomaly_mode = "threshold"
+        self.residual_alpha = float(residual_alpha)
+        self.residual_k = float(residual_k)
+        self.residual_min_samples = max(0, int(residual_min_samples))
         self.hysteresis_h = float(hysteresis_h)
         self.persist_n = max(1, int(persist_n))
         self.persist_m = max(1, min(int(persist_m), int(persist_n)))
@@ -244,8 +260,273 @@ class VetoGuard:
         # training throttle
         self._last_train_ts: float = 0.0
 
+        # Residual baseline (EMA mean/var for |I - I_hat|).
+        self._res_mean: float = 0.0
+        self._res_var: float = 0.1
+        self._res_seen: int = 0
+
+        # Persistence (stateful across restarts)
+        self._state_path: Optional[str] = (str(state_path).strip() if state_path else None) or None
+        self._model_path: Optional[str] = (str(model_path).strip() if model_path else None) or None
+        try:
+            si = float(save_interval_s)
+            if not math.isfinite(si):
+                si = 1.0
+        except Exception:
+            si = 1.0
+        self._save_interval_s: float = max(0.0, si)
+        self._last_save_ts: float = 0.0
+
         if self.enabled:
             self._try_init_torch()
+
+    def _atomic_write_json(self, path: str, payload: Dict[str, Any]) -> None:
+        try:
+            p = Path(path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=str(p.parent),
+                delete=False,
+                suffix=".tmp",
+                encoding="utf-8",
+            ) as f:
+                json.dump(payload, f, ensure_ascii=False, sort_keys=True)
+                f.flush()
+                os.fsync(f.fileno())
+                tmp_name = f.name
+            Path(tmp_name).replace(p)
+        except Exception:
+            # Best-effort: never crash runtime for persistence.
+            return
+
+    def serialize_state(self) -> Dict[str, Any]:
+        """
+        Serialize the *behaviorally relevant* veto state (buffers/EMA/hysteresis),
+        so veto decisions remain stateful across restarts.
+        """
+        try:
+            with self._lock:
+                xs = [[float(v) for v in x.reshape(-1).tolist()] for x in list(self._xs)]
+                mean = [float(v) for v in self._norm.mean.reshape(-1).tolist()]
+                var = [float(v) for v in self._norm.var.reshape(-1).tolist()]
+                seen = int(getattr(self._norm, "_seen", 0) or 0)
+                return {
+                    "version": 1,
+                    "ts": float(time.time()),
+                    "cfg": {
+                        "model_type": str(self.model_type),
+                        "input_dim": int(self.input_dim),
+                        "seq_len": int(self.seq_len),
+                        "hidden_dim": int(self.hidden_dim),
+                        "anomaly_mode": str(self.anomaly_mode),
+                        "persist_n": int(self.persist_n),
+                        "persist_m": int(self.persist_m),
+                        "clear_k": int(self.clear_k),
+                        "hysteresis_h": float(self.hysteresis_h),
+                        "sigma_mult": float(self.sigma_mult),
+                        "fixed_margin": float(self.fixed_margin),
+                        "norm_alpha": float(getattr(self._norm, "alpha", 0.01)),
+                        "residual_alpha": float(self.residual_alpha),
+                        "residual_k": float(self.residual_k),
+                        "residual_min_samples": int(self.residual_min_samples),
+                    },
+                    "state": {
+                        "veto_active": bool(self._veto_active),
+                        "clear_count": int(self._clear_count),
+                        "violations": [bool(v) for v in list(self._violations)[-int(self.persist_n) :]],
+                    },
+                    "buffers": {"xs": xs},
+                    "norm": {"seen": int(seen), "mean": mean, "var": var},
+                    "residual": {"seen": int(self._res_seen), "mean": float(self._res_mean), "var": float(self._res_var)},
+                }
+        except Exception:
+            return {}
+
+    def deserialize_state(self, data: Dict[str, Any]) -> None:
+        """
+        Restore state from a persisted snapshot (best-effort, backward compatible).
+        """
+        if not isinstance(data, dict):
+            return
+        try:
+            with self._lock:
+                st = data.get("state") or {}
+                if isinstance(st, dict):
+                    self._veto_active = bool(st.get("veto_active", self._veto_active))
+                    try:
+                        self._clear_count = int(st.get("clear_count", self._clear_count) or 0)
+                    except Exception:
+                        pass
+                    vio = st.get("violations")
+                    if isinstance(vio, list):
+                        self._violations = [bool(v) for v in vio][-int(self.persist_n) :]
+
+                buf = data.get("buffers") or {}
+                if isinstance(buf, dict):
+                    xs = buf.get("xs")
+                    if isinstance(xs, list):
+                        new_xs: list[np.ndarray] = []
+                        for row in xs[-max(self.seq_len * 4, 64) :]:
+                            if not isinstance(row, list):
+                                continue
+                            try:
+                                rr = np.asarray([float(v) for v in row], dtype=np.float64).reshape(-1)
+                            except Exception:
+                                continue
+                            if rr.size != int(self.input_dim):
+                                continue
+                            if not np.all(np.isfinite(rr)):
+                                continue
+                            new_xs.append(rr)
+                        self._xs = new_xs
+
+                norm = data.get("norm") or {}
+                if isinstance(norm, dict):
+                    mean = norm.get("mean")
+                    var = norm.get("var")
+                    if isinstance(mean, list) and isinstance(var, list) and len(mean) == int(self.input_dim) and len(var) == int(self.input_dim):
+                        mm = np.asarray([float(v) for v in mean], dtype=np.float64).reshape(-1)
+                        vv = np.asarray([float(v) for v in var], dtype=np.float64).reshape(-1)
+                        if np.all(np.isfinite(mm)) and np.all(np.isfinite(vv)):
+                            self._norm.mean = mm
+                            self._norm.var = np.clip(vv, 1e-8, 1e6)
+                    try:
+                        self._norm._seen = int(norm.get("seen", getattr(self._norm, "_seen", 0) or 0) or 0)
+                    except Exception:
+                        pass
+
+                res = data.get("residual") or {}
+                if isinstance(res, dict):
+                    try:
+                        self._res_seen = int(res.get("seen", self._res_seen) or 0)
+                    except Exception:
+                        pass
+                    try:
+                        self._res_mean = float(res.get("mean", self._res_mean))
+                    except Exception:
+                        pass
+                    try:
+                        self._res_var = float(res.get("var", self._res_var))
+                    except Exception:
+                        pass
+                    if not math.isfinite(self._res_var):
+                        self._res_var = 0.1
+                    self._res_var = max(1e-8, min(1e6, float(self._res_var)))
+        except Exception:
+            return
+
+    def save_persisted_state(self, *, force: bool = False) -> None:
+        if not self._state_path:
+            return
+        if not force:
+            try:
+                if self._save_interval_s > 0.0 and (time.time() - float(self._last_save_ts)) < float(self._save_interval_s):
+                    return
+            except Exception:
+                pass
+        payload = self.serialize_state()
+        if not payload:
+            return
+        self._atomic_write_json(self._state_path, payload)
+        self._last_save_ts = float(time.time())
+
+    def load_persisted_state(self) -> None:
+        if not self._state_path:
+            return
+        try:
+            p = Path(self._state_path)
+            if not p.exists():
+                return
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                self.deserialize_state(data)
+        except Exception:
+            return
+
+    def _save_model_weights(self) -> None:
+        if not self._model_path:
+            return
+        if not self._torch_ok or self._torch_model is None:
+            return
+        try:
+            import torch  # type: ignore
+        except Exception:
+            return
+        try:
+            tm = self._torch_model
+            payload = {
+                "version": 1,
+                "ts": float(time.time()),
+                "model_type": str(self.model_type),
+                "input_dim": int(self.input_dim),
+                "hidden_dim": int(self.hidden_dim),
+                "rnn": tm.rnn.state_dict(),
+                "head_mu": tm.head_mu.state_dict(),
+                "head_log_sigma": tm.head_log_sigma.state_dict(),
+            }
+            p = Path(self._model_path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(payload, str(p))
+        except Exception:
+            return
+
+    def _load_model_weights(self) -> None:
+        if not self._model_path:
+            return
+        if not self._torch_ok or self._torch_model is None:
+            return
+        try:
+            import torch  # type: ignore
+        except Exception:
+            return
+        try:
+            p = Path(self._model_path)
+            if not p.exists():
+                return
+            payload = torch.load(str(p), map_location="cpu")
+            if not isinstance(payload, dict):
+                return
+            tm = self._torch_model
+            if "rnn" in payload:
+                tm.rnn.load_state_dict(payload["rnn"], strict=False)
+            if "head_mu" in payload:
+                tm.head_mu.load_state_dict(payload["head_mu"], strict=False)
+            if "head_log_sigma" in payload:
+                tm.head_log_sigma.load_state_dict(payload["head_log_sigma"], strict=False)
+        except Exception:
+            return
+    def _ema_update_scalar(self, *, mean: float, var: float, x: float, alpha: float) -> Tuple[float, float]:
+        a = float(alpha)
+        a = max(0.001, min(0.5, a))
+        m = float(mean)
+        v = float(var)
+        dx = float(x) - m
+        m2 = (1.0 - a) * m + a * float(x)
+        v2 = (1.0 - a) * v + a * (dx * dx)
+        if not math.isfinite(v2):
+            v2 = 0.1
+        v2 = max(1e-8, min(1e6, v2))
+        return float(m2), float(v2)
+
+    def _predict_next_i_from_prev(self) -> Tuple[Optional[float], Optional[float], Dict[str, Any]]:
+        """
+        Predict current I from the previous seq_len slices (residual mode).
+        Returns (mu, sigma, debug). mu/sigma None when unavailable/warmup.
+        """
+        if not self._torch_ok or self._torch_model is None:
+            return None, None, {"ok": False, "reason": "torch_unavailable"}
+        if len(self._xs) < (self.seq_len + 1):
+            return None, None, {"ok": False, "reason": "warmup"}
+        # Use the previous seq_len slices to predict the current slice's I.
+        prev = self._xs[-(self.seq_len + 1) : -1]
+        seq = self._seq_norm(prev)
+        try:
+            mu, sigma = self._torch_model.predict(seq=seq)
+            return float(mu), float(sigma), {"ok": True, "mu": float(mu), "sigma": float(sigma)}
+        except Exception as e:
+            return None, None, {"ok": False, "reason": f"pred_error:{type(e).__name__}"}
 
     def _try_init_torch(self) -> None:
         try:
@@ -406,6 +687,10 @@ class VetoGuard:
                 debug={"enabled": False},
             )
 
+        should_save = False
+        should_save_weights = False
+        decision: Optional[VetoDecision] = None
+
         with self._lock:
             # Append slice and train (best-effort).
             try:
@@ -414,10 +699,79 @@ class VetoGuard:
                 pass
             train_dbg = self._train_if_ready()
 
-            thr, pred_dbg = self._predict_threshold()
-
             I = max(0.0, _safe_float(kappa_integrated, 0.0))
-            violation = bool(I < float(thr))
+            thr = 0.0
+            pred_dbg: Dict[str, Any] = {}
+            residual_dbg: Dict[str, Any] = {}
+
+            if self.anomaly_mode == "residual":
+                mu, sigma, pred_dbg = self._predict_next_i_from_prev()
+                if mu is None:
+                    # No prediction yet -> no violation (fail-open) while warming up.
+                    violation = False
+                    thr = 0.0
+                    residual_dbg = {
+                        "mode": "residual",
+                        "ok": False,
+                        "reason": str(pred_dbg.get("reason") or "warmup"),
+                        "res_mean": float(self._res_mean),
+                        "res_var": float(self._res_var),
+                        "res_seen": int(self._res_seen),
+                    }
+                else:
+                    err = abs(float(I) - float(mu))
+                    if not math.isfinite(err):
+                        err = 0.0
+
+                    # Compute threshold from current baseline.
+                    res_std = math.sqrt(max(1e-8, float(self._res_var)))
+                    err_thr = float(self._res_mean) + float(self.residual_k) * float(res_std)
+                    if not math.isfinite(err_thr):
+                        err_thr = 0.0
+                    err_thr = max(0.0, err_thr)
+
+                    # Warmup gating: require some baseline samples before flagging.
+                    enough = int(self._res_seen) >= int(self.residual_min_samples)
+                    if not enough:
+                        violation = False
+                    else:
+                        violation = bool(err > float(err_thr))
+                    thr = float(err_thr)
+
+                    # Update baseline:
+                    # - always during warmup
+                    # - after warmup only on non-violation AND when not currently vetoing
+                    if not enough:
+                        self._res_mean, self._res_var = self._ema_update_scalar(
+                            mean=float(self._res_mean),
+                            var=float(self._res_var),
+                            x=float(err),
+                            alpha=float(self.residual_alpha),
+                        )
+                        self._res_seen += 1
+                    elif (not self._veto_active) and (not violation):
+                        self._res_mean, self._res_var = self._ema_update_scalar(
+                            mean=float(self._res_mean),
+                            var=float(self._res_var),
+                            x=float(err),
+                            alpha=float(self.residual_alpha),
+                        )
+                        self._res_seen += 1
+
+                    residual_dbg = {
+                        "mode": "residual",
+                        "ok": True,
+                        "err": float(err),
+                        "err_thr": float(err_thr),
+                        "res_mean": float(self._res_mean),
+                        "res_var": float(self._res_var),
+                        "res_seen": int(self._res_seen),
+                        "enough_samples": bool(enough),
+                    }
+            else:
+                thr, pred_dbg = self._predict_threshold()
+                violation = bool(I < float(thr))
+                residual_dbg = {"mode": "threshold"}
 
             # Persistence/hysteresis state machine.
             prev_active = bool(self._veto_active)
@@ -430,20 +784,35 @@ class VetoGuard:
                     self._veto_active = True
                     self._clear_count = 0
             else:
-                # Clear only when I is safely above threshold + hysteresis for clear_k consecutive steps.
-                if I > (float(thr) + float(self.hysteresis_h)):
-                    self._clear_count += 1
+                # Clear rule depends on anomaly mode:
+                # - threshold mode: clear when I is safely above threshold + hysteresis
+                # - residual mode: clear when the violation condition is False for clear_k consecutive steps
+                if self.anomaly_mode == "residual":
+                    if not bool(violation):
+                        self._clear_count += 1
+                    else:
+                        self._clear_count = 0
                 else:
-                    self._clear_count = 0
+                    if I > (float(thr) + float(self.hysteresis_h)):
+                        self._clear_count += 1
+                    else:
+                        self._clear_count = 0
                 if self._clear_count >= self.clear_k:
                     self._veto_active = False
                     self._clear_count = 0
                     self._violations = []
 
             state_changed = bool(prev_active != bool(self._veto_active))
+            try:
+                trained = bool(train_dbg.get("trained", False)) if isinstance(train_dbg, dict) else False
+            except Exception:
+                trained = False
+            should_save = bool(state_changed or trained)
+            should_save_weights = bool(trained)
             debug = {
                 "enabled": True,
                 "reason": str(reason),
+                "threshold_mode": str(self.anomaly_mode),
                 "threshold": float(thr),
                 "violation": bool(violation),
                 "state_changed": bool(state_changed),
@@ -455,10 +824,11 @@ class VetoGuard:
                 "clear_count": int(self._clear_count),
                 "hysteresis_h": float(self.hysteresis_h),
                 "pred": pred_dbg,
+                "residual": residual_dbg,
                 "train": train_dbg,
             }
 
-            return VetoDecision(
+            decision = VetoDecision(
                 veto=bool(self._veto_active),
                 reason=str(reason),
                 threshold=float(thr),
@@ -466,6 +836,27 @@ class VetoGuard:
                 kappa_last=float(_clamp01(kappa_last)),
                 debug=debug,
             )
+
+        # Persist outside the lock to avoid blocking the decision loop.
+        if should_save:
+            try:
+                self.save_persisted_state()
+            except Exception:
+                pass
+        if should_save_weights:
+            try:
+                self._save_model_weights()
+            except Exception:
+                pass
+
+        return decision or VetoDecision(
+            veto=False,
+            reason="error",
+            threshold=0.0,
+            kappa_integrated=float(kappa_integrated),
+            kappa_last=float(kappa_last),
+            debug={"enabled": bool(self.enabled), "reason": "decision_missing"},
+        )
 
 
 _global_guard: Optional[VetoGuard] = None
@@ -497,15 +888,32 @@ def get_veto_guard() -> VetoGuard:
     norm_alpha = float(getattr(cfg, "norm_alpha", float(os.getenv("BROCA_VETO_NORM_ALPHA", "0.01"))))
     sigma_mult = float(getattr(cfg, "sigma_multiplier", float(os.getenv("BROCA_VETO_SIGMA_MULT", "1.5"))))
     fixed_margin = float(getattr(cfg, "fixed_margin", float(os.getenv("BROCA_VETO_FIXED_MARGIN", "0.0"))))
+    anomaly_mode = str(getattr(cfg, "anomaly_mode", os.getenv("BROCA_VETO_ANOMALY_MODE", "threshold"))).strip().lower()
+    residual_alpha = float(getattr(cfg, "residual_alpha", float(os.getenv("BROCA_VETO_RESIDUAL_ALPHA", "0.05"))))
+    residual_k = float(getattr(cfg, "residual_k", float(os.getenv("BROCA_VETO_RESIDUAL_K", "3.0"))))
+    residual_min_samples = int(getattr(cfg, "residual_min_samples", int(os.getenv("BROCA_VETO_RESIDUAL_MIN_SAMPLES", "8"))))
     hysteresis_h = float(getattr(cfg, "hysteresis_h", float(os.getenv("BROCA_VETO_HYSTERESIS_H", "0.05"))))
     persist_n = int(getattr(cfg, "persistence_n", int(os.getenv("BROCA_VETO_PERSIST_N", "8"))))
     persist_m = int(getattr(cfg, "persistence_m", int(os.getenv("BROCA_VETO_PERSIST_M", "5"))))
     clear_k = int(getattr(cfg, "clear_k", int(os.getenv("BROCA_VETO_CLEAR_K", "3"))))
     max_train_steps = int(getattr(cfg, "max_train_steps_per_observation", int(os.getenv("BROCA_VETO_MAX_TRAIN_STEPS", "1"))))
     min_train_interval_s = float(getattr(cfg, "min_train_interval_s", float(os.getenv("BROCA_VETO_MIN_TRAIN_INTERVAL_S", "0.2"))))
+    state_path = str(getattr(cfg, "state_path", os.getenv("BROCA_VETO_STATE_PATH", "runtime/veto_guard_state.json")) or "").strip()
+    model_path = str(getattr(cfg, "model_path", os.getenv("BROCA_VETO_MODEL_PATH", "models/rl/veto_guard.pt")) or "").strip()
+    save_interval_s = float(getattr(cfg, "save_interval_s", float(os.getenv("BROCA_VETO_SAVE_INTERVAL_S", "1.0"))))
 
     # Keep input_dim fixed by the slice schema length.
     input_dim = 12
+
+    # Resolve persistence paths to absolute paths (avoid CWD-dependent resets).
+    try:
+        repo_root = Path(__file__).resolve().parents[2]
+        if state_path and not Path(state_path).is_absolute():
+            state_path = str((repo_root / state_path).resolve())
+        if model_path and not Path(model_path).is_absolute():
+            model_path = str((repo_root / model_path).resolve())
+    except Exception:
+        pass
 
     sig = (
         enabled,
@@ -517,12 +925,19 @@ def get_veto_guard() -> VetoGuard:
         norm_alpha,
         sigma_mult,
         fixed_margin,
+        anomaly_mode,
+        residual_alpha,
+        residual_k,
+        residual_min_samples,
         hysteresis_h,
         persist_n,
         persist_m,
         clear_k,
         max_train_steps,
         min_train_interval_s,
+        state_path,
+        model_path,
+        save_interval_s,
     )
 
     if _global_guard is None or _global_sig != sig:
@@ -536,13 +951,29 @@ def get_veto_guard() -> VetoGuard:
             norm_alpha=float(norm_alpha),
             sigma_mult=float(sigma_mult),
             fixed_margin=float(fixed_margin),
+            anomaly_mode=str(anomaly_mode),
+            residual_alpha=float(residual_alpha),
+            residual_k=float(residual_k),
+            residual_min_samples=int(residual_min_samples),
             hysteresis_h=float(hysteresis_h),
             persist_n=int(persist_n),
             persist_m=int(persist_m),
             clear_k=int(clear_k),
             max_train_steps_per_obs=int(max_train_steps),
             min_train_interval_s=float(min_train_interval_s),
+            state_path=state_path if state_path else None,
+            model_path=model_path if model_path else None,
+            save_interval_s=float(save_interval_s),
         )
+        # Load persisted state/weights best-effort.
+        try:
+            _global_guard.load_persisted_state()
+        except Exception:
+            pass
+        try:
+            _global_guard._load_model_weights()
+        except Exception:
+            pass
         _global_sig = sig
     return _global_guard
 

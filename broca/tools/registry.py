@@ -1508,6 +1508,11 @@ class ToolRegistry:
                             "kappa": float(decision_v.kappa_last),
                             "kappa_integrated": float(decision_v.kappa_integrated),
                             "threshold": float(decision_v.threshold),
+                        "threshold_mode": (
+                            str(decision_v.debug.get("threshold_mode"))
+                            if isinstance(decision_v.debug, dict) and decision_v.debug.get("threshold_mode") is not None
+                            else "threshold"
+                        ),
                             "debug": dict(decision_v.debug or {}),
                         }
 
@@ -1537,7 +1542,7 @@ class ToolRegistry:
                                 f"- source_of_conflict: {veto_payload['source_of_conflict']}\n"
                                 f"- kappa: {veto_payload['kappa']}\n"
                                 f"- kappa_integrated (I): {veto_payload['kappa_integrated']}\n"
-                                f"- learned_threshold: {veto_payload['threshold']}\n\n"
+                            f"- learned_threshold (mode={veto_payload.get('threshold_mode','threshold')}): {veto_payload['threshold']}\n\n"
                                 "Second Look required: re-sample context (re-read prompt/files, gather missing info) and choose a safer alternative.\n"
                                 "Do NOT retry the same tool call unchanged."
                             ),
