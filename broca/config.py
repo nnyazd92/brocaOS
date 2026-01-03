@@ -716,6 +716,11 @@ class VetoConfig(BaseModel):
     hysteresis_h: float = float(os.getenv("BROCA_VETO_HYSTERESIS_H", "0.05"))
     clear_k: int = int(os.getenv("BROCA_VETO_CLEAR_K", "3"))
 
+    # Failsafe (prevents permanent incapacitation)
+    # If >0, allow at most N consecutive vetoed tool calls per user turn. After that, fail-open
+    # (execute the tool) while logging a warning for analysis.
+    max_consecutive_vetos: int = int(os.getenv("BROCA_VETO_MAX_CONSECUTIVE_VETOS", "0"))
+
     # Online finetuning controls
     max_train_steps_per_observation: int = int(os.getenv("BROCA_VETO_MAX_TRAIN_STEPS", "1"))
     min_train_interval_s: float = float(os.getenv("BROCA_VETO_MIN_TRAIN_INTERVAL_S", "0.2"))
