@@ -2376,11 +2376,13 @@ def stream_response(
                 # PEA/PFREA removed - final responses are always allowed
                 
                 # Final response is allowed - deliver it
+                final_message_id = str(uuid4())
                 chunk_size = 32
                 for i in range(0, len(content), chunk_size):
                     yield json.dumps({
                         "type": "text",
                         "content": content[i:i+chunk_size],
+                        "message_id": final_message_id,
                         "conversation_id": conversation_id
                     }) + "\n"
                 
@@ -2398,7 +2400,7 @@ def stream_response(
                     )
                     content = cleaned_content
                 
-                session.messages.append({"role": "assistant", "content": content})
+                session.messages.append({"role": "assistant", "content": content, "message_id": final_message_id})
                 assistant_text = content
                 
                 # PEA/PFREA removed - no final response tracking needed
@@ -2575,11 +2577,13 @@ def stream_response(
                 assistant_text = "I apologize, but I encountered an issue processing your request."
             
             # Stream the error message
+            final_message_id = str(uuid4())
             chunk_size = 32
             for i in range(0, len(assistant_text), chunk_size):
                 yield json.dumps({
                     "type": "text",
                     "content": assistant_text[i:i+chunk_size],
+                    "message_id": final_message_id,
                     "conversation_id": conversation_id
                 }) + "\n"
             
@@ -2598,7 +2602,7 @@ def stream_response(
                     )
                     assistant_text = cleaned_text
             
-            session.messages.append({"role": "assistant", "content": assistant_text})
+            session.messages.append({"role": "assistant", "content": assistant_text, "message_id": final_message_id})
         
         if session.internal_sensing_framework and ResponseAnalyzer and 'assistant_text' in locals():
             try:
@@ -2754,6 +2758,12 @@ def stream_response(
         "type": "done",
         "conversation_id": conversation_id
     }
+    # Help clients de-dupe streamed text vs persisted conversation messages.
+    try:
+        if "final_message_id" in locals() and isinstance(final_message_id, str) and final_message_id:
+            done_data["final_message_id"] = final_message_id
+    except Exception:
+        pass
 
     # If RESPOND_AND_CONTINUE was triggered, inform the client so it can poll for updates.
     try:

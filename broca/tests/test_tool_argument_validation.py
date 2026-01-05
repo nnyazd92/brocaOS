@@ -15,6 +15,7 @@ import os
 
 from broca.tools.registry import ToolRegistry
 from broca.tools.terminal import TerminalTool
+from broca.tools.primitive_io import WriteFileTool, PatchFileTool
 
 
 class LogCapture:
@@ -289,6 +290,60 @@ class TestToolArgumentValidation:
         assert "command" in result.get("content", "")
         # Should not contain TypeError traceback
         assert "TypeError" not in result.get("content", "")
+
+    def test_write_file_missing_content_has_actionable_guidance(self, normal_tools_mode):
+        """
+        Test that WRITE_FILE missing required 'content' returns actionable guidance.
+
+        Rationale: Prevents repeated tool-call loops by teaching the model to READ_FILE then WRITE_FILE with content.
+        """
+        registry = ToolRegistry()
+        registry.register_tool(WriteFileTool())
+
+        tool_call = {
+            "id": "call_write_missing_content",
+            "type": "function",
+            "function": {
+                "name": "WRITE_FILE",
+                "arguments": json.dumps({"path": "/tmp/example.txt"}),  # Missing content
+            },
+        }
+
+        result = registry.execute_tool_call(tool_call)
+        content = result.get("content", "")
+
+        assert "missing" in content.lower() or "required" in content.lower()
+        assert "content" in content
+        assert "READ_FILE" in content  # plan: explicit READ_FILE → WRITE_FILE recovery
+        assert "WRITE_FILE" in content
+
+    def test_patch_file_no_edits_provided_includes_examples(self, normal_tools_mode, tmp_path):
+        """
+        Test that PATCH_FILE called without edits/unified_diff returns self-correcting guidance.
+
+        Rationale: PATCH_FILE requires either edits or unified_diff; the error should include examples mentioning edits.
+        """
+        target = tmp_path / "a.txt"
+        target.write_text("one\ntwo\nthree\n", encoding="utf-8")
+
+        registry = ToolRegistry()
+        registry.register_tool(PatchFileTool())
+
+        tool_call = {
+            "id": "call_patch_no_edits",
+            "type": "function",
+            "function": {
+                "name": "PATCH_FILE",
+                "arguments": json.dumps({"path": str(target)}),  # No edits/unified_diff
+            },
+        }
+
+        result = registry.execute_tool_call(tool_call)
+        content = result.get("content", "")
+
+        assert "no_edits_provided" in content
+        assert "edits" in content  # plan: mention edits guidance
+        assert "unified_diff" in content  # plan: mention unified diff alternative
     
     def test_none_value_treated_as_missing(self):
         """

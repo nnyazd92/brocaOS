@@ -1,7 +1,8 @@
 """
 World state formatter that converts aggregated state to JSON.
 
-Formats world state data as pretty-printed JSON for inclusion in LLM system prompts.
+Formats world state data as compact JSON for inclusion in LLM system prompts.
+Optimized for token efficiency - uses minimal whitespace.
 """
 
 from __future__ import annotations
@@ -17,8 +18,9 @@ class WorldStateFormatter:
     """
     Formats world state data as JSON for system prompts.
     
-    Converts structured world state data into pretty-printed JSON
+    Converts structured world state data into compact JSON
     suitable for inclusion in LLM system prompts.
+    Optimized for token efficiency by removing unnecessary whitespace.
     """
     
     def __init__(self, max_length: Optional[int] = None) -> None:
@@ -37,52 +39,43 @@ class WorldStateFormatter:
     
     def format(self, world_state: Dict[str, Any]) -> str:
         """
-        Format world state as pretty-printed JSON for system prompt.
+        Format world state as compact JSON for system prompt.
         
         Args:
             world_state: Aggregated world state dictionary (clean hierarchical structure)
             
         Returns:
-            Pretty-printed JSON string for system prompt
+            Compact JSON string for system prompt (optimized for token efficiency)
         """
-        # Convert to JSON with pretty printing
-        json_str = json.dumps(world_state, indent=2, ensure_ascii=False, sort_keys=False)
+        # Convert to JSON with compact formatting (no whitespace)
+        json_str = json.dumps(world_state, separators=(',', ':'), ensure_ascii=False, sort_keys=False)
         
         # Apply length limit if specified
         if self.max_length and len(json_str) > self.max_length:
             # For very small limits, just return a minimal message
             if self.max_length < 50:
-                json_str = '{"_truncated": true, "_message": "World state too large"}'
+                json_str = '{"_truncated":true,"_message":"World state too large"}'
                 logger.warning(f"World state JSON truncated to minimal message (limit: {self.max_length})")
             else:
-                # Try to truncate at a reasonable point (end of a complete JSON structure)
-                # Find the last complete key-value pair before the limit
-                truncation_msg = ',\n  "_truncated": true\n}'
+                # For compact JSON, truncate and close with truncation marker
+                truncation_msg = ',"_truncated":true}'
                 max_content_length = self.max_length - len(truncation_msg)
                 
-                # Find last complete line that ends with a comma or closing brace
+                # Find a safe truncation point (after a comma)
                 truncated = json_str[:max_content_length]
-                # Look backwards for a line ending with ',' or '}' or ']'
-                lines = truncated.split('\n')
-                # Remove incomplete last line
-                if lines:
-                    lines.pop()
-                # Reconstruct, ensuring we end properly
-                truncated = '\n'.join(lines)
-                # Remove trailing comma if present (but keep structure intact)
-                truncated = truncated.rstrip()
-                if truncated.endswith(','):
-                    truncated = truncated[:-1].rstrip()
-                # Ensure we close any open structures properly
-                if not truncated.endswith('}'):
-                    # Count open braces to close them
-                    open_braces = truncated.count('{') - truncated.count('}')
-                    truncated = truncated.rstrip().rstrip(',')
-                    truncated += '\n' + '  ' * (open_braces - 1) + '}'
-                # Add truncation marker
-                json_str = truncated + truncation_msg
+                # Look for last comma to truncate cleanly
+                last_comma = truncated.rfind(',')
+                if last_comma > 0:
+                    truncated = truncated[:last_comma]
+                
+                # Count braces/brackets to close properly
+                open_braces = truncated.count('{') - truncated.count('}')
+                open_brackets = truncated.count('[') - truncated.count(']')
+                
+                # Close any open structures
+                closing = ']' * open_brackets + '}' * max(0, open_braces - 1)  # -1 because truncation_msg adds one
+                json_str = truncated + closing + truncation_msg
                 
                 logger.warning(f"World state JSON truncated to {self.max_length} characters")
         
         return json_str
-

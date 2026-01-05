@@ -69,6 +69,12 @@ class LLMConfig(BaseModel):
     gemini_respect_retry_after: bool = os.getenv("BROCA_GEMINI_RESPECT_RETRY_AFTER", "true").lower() == "true"
     anthropic_version: str = os.getenv("ANTHROPIC_VERSION", "2023-06-01")
     anthropic_beta: str | None = os.getenv("ANTHROPIC_BETA", None)
+    # Anthropic retry / backoff configuration (429 + transient 5xx)
+    anthropic_max_retries: int = int(os.getenv("BROCA_ANTHROPIC_MAX_RETRIES", "6"))
+    anthropic_backoff_base_seconds: float = float(os.getenv("BROCA_ANTHROPIC_BACKOFF_BASE_SECONDS", "1.0"))
+    anthropic_backoff_max_seconds: float = float(os.getenv("BROCA_ANTHROPIC_BACKOFF_MAX_SECONDS", "60.0"))
+    anthropic_backoff_jitter: float = float(os.getenv("BROCA_ANTHROPIC_BACKOFF_JITTER", "0.25"))
+    anthropic_respect_retry_after: bool = os.getenv("BROCA_ANTHROPIC_RESPECT_RETRY_AFTER", "true").lower() == "true"
 
     def __init__(self, **kwargs):
         # Get provider first
@@ -715,6 +721,9 @@ class VetoConfig(BaseModel):
     persistence_m: int = int(os.getenv("BROCA_VETO_PERSIST_M", "5"))
     hysteresis_h: float = float(os.getenv("BROCA_VETO_HYSTERESIS_H", "0.05"))
     clear_k: int = int(os.getenv("BROCA_VETO_CLEAR_K", "3"))
+    # If true, persist/restore the *latch* state (veto_active / violations window) across restarts.
+    # If false (default), keep learned baselines/buffers but always start with veto inactive on boot.
+    persist_latch: bool = os.getenv("BROCA_VETO_PERSIST_LATCH", "false").lower() == "true"
 
     # Anomaly / violation signal
     # - "threshold": legacy behavior (veto when I < learned_threshold)
@@ -724,6 +733,10 @@ class VetoConfig(BaseModel):
     residual_alpha: float = float(os.getenv("BROCA_VETO_RESIDUAL_ALPHA", "0.05"))
     residual_k: float = float(os.getenv("BROCA_VETO_RESIDUAL_K", "3.0"))
     residual_min_samples: int = int(os.getenv("BROCA_VETO_RESIDUAL_MIN_SAMPLES", "8"))
+    # Residual anomaly direction:
+    # - "down": only flag when I is much LOWER than predicted (safer for a coherence veto)
+    # - "both": flag on absolute error (|I - Î|), the legacy behavior
+    residual_direction: str = os.getenv("BROCA_VETO_RESIDUAL_DIRECTION", "down").strip().lower()
 
     # Failsafe (prevents permanent incapacitation)
     # If >0, allow at most N consecutive vetoed tool calls per user turn. After that, fail-open

@@ -14,7 +14,7 @@ def _make_response(json_data: Dict[str, Any]) -> httpx.Response:
 
 
 def test_chat_success_text_only(monkeypatch):
-    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test", timeout=30.0)
+    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test", timeout=30.0, max_retries=0)
 
     def fake_post(path, json=None, headers=None):  # type: ignore[override]
         assert path == "/v1/messages"
@@ -39,7 +39,7 @@ def test_chat_success_text_only(monkeypatch):
 
 
 def test_chat_tool_use_maps_to_openai_tool_calls(monkeypatch):
-    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test", timeout=30.0)
+    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test", timeout=30.0, max_retries=0)
 
     def fake_post(path, json=None, headers=None):  # type: ignore[override]
         assert path == "/v1/messages"
@@ -76,7 +76,7 @@ def test_chat_tool_use_maps_to_openai_tool_calls(monkeypatch):
 
 
 def test_openai_tool_messages_become_tool_result_blocks(monkeypatch):
-    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test", timeout=30.0)
+    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test", timeout=30.0, max_retries=0)
 
     def fake_post(path, json=None, headers=None):  # type: ignore[override]
         assert path == "/v1/messages"
@@ -117,7 +117,7 @@ def test_openai_tool_messages_become_tool_result_blocks(monkeypatch):
 
 
 def test_chat_timeout_maps_to_timeout_error(monkeypatch):
-    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test")
+    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test", max_retries=0)
 
     def fake_post(path, json=None, headers=None):  # type: ignore[override]
         raise httpx.ReadTimeout("timeout", request=None)
@@ -146,7 +146,7 @@ class DummyStream:
 
 
 def test_chat_stream_yields_text_deltas_until_message_stop(monkeypatch):
-    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test")
+    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test", max_retries=0)
 
     lines = [
         "event: message_start",
@@ -170,7 +170,43 @@ def test_chat_stream_yields_text_deltas_until_message_stop(monkeypatch):
 
 
 def test_chat_stream_ignores_tool_input_json_delta(monkeypatch):
-    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test")
+    client = AnthropicClient(api_key="test-key", base_url="https://api.anthropic.com", model="claude-test", max_retries=0)
+
+
+def test_chat_retries_on_429_then_succeeds(monkeypatch):
+    client = AnthropicClient(
+        api_key="test-key",
+        base_url="https://api.anthropic.com",
+        model="claude-test",
+        max_retries=2,
+        backoff_base_seconds=0.0,
+        backoff_jitter=0.0,
+        respect_retry_after=True,
+        _sleep_fn=lambda _s: None,
+    )
+
+    calls = {"n": 0}
+
+    def fake_post(path, json=None, headers=None):  # type: ignore[override]
+        calls["n"] += 1
+        if calls["n"] < 3:
+            req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+            resp = httpx.Response(429, headers={"retry-after": "0"}, request=req)
+            raise httpx.HTTPStatusError("rate limited", request=req, response=resp)
+        return _make_response(
+            {
+                "id": "msg_ok",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "OK"}],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+        )
+
+    monkeypatch.setattr(client._client, "post", fake_post)
+    resp = client.chat(messages=[{"role": "user", "content": "hi"}])
+    assert AnthropicClient.extract_assistant_content(resp) == "OK"
+    assert calls["n"] == 3
 
     lines = [
         "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"README.md\\\"\"}}",
