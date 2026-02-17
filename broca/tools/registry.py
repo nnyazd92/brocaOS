@@ -474,7 +474,39 @@ class ToolRegistry:
         ]
         
         # Add tool-specific examples
-        if tool_name == "terminal":
+        if tool_name in {"WRITE_FILE", "APPEND_FILE"} and "content" in missing:
+            import json
+
+            # Prefill path if provided so the model only needs to add `content`.
+            path_value = None
+            try:
+                pv = provided_arguments.get("path")
+                if isinstance(pv, str) and pv.strip():
+                    path_value = pv
+            except Exception:
+                path_value = None
+
+            example: Dict[str, Any] = {"path": path_value or "<path_value>", "content": "<content_value>"}
+            if tool_name == "WRITE_FILE":
+                example.update({"encoding": "utf-8", "mkdirs": True, "overwrite": True})
+            else:
+                example.update({"encoding": "utf-8", "mkdirs": True})
+
+            lines.extend(
+                [
+                    "The 'content' parameter is REQUIRED and must be a non-empty string.",
+                    "",
+                    "Common fix (2 steps):",
+                    "1) READ_FILE the source file to get the text you want to write",
+                    "2) Call WRITE_FILE/APPEND_FILE again and include that text as the 'content' field",
+                    "",
+                    "Correct usage example:",
+                    f"{json.dumps(example, indent=2)}",
+                    "",
+                    "Do NOT call WRITE_FILE/APPEND_FILE with only a path; you must include 'content'.",
+                ]
+            )
+        elif tool_name == "terminal":
             lines.extend([
                 "The 'command' parameter is REQUIRED and must be a non-empty string.",
                 "",
@@ -1415,6 +1447,15 @@ class ToolRegistry:
                     k_last = 1.0
                     k_int = 0.0
 
+                # DONE must never be vetoed: the agent must always be able to end the tool loop
+                # and produce natural-language output. (RESPOND_AND_CONTINUE remains veto-able.)
+                if str(tool_name) == "DONE":
+                    try:
+                        self._consecutive_veto_count = 0
+                    except Exception:
+                        pass
+                    raise RuntimeError("_skip_veto_for_done")
+
                 veto_ctx = None
                 try:
                     if (
@@ -1504,7 +1545,21 @@ class ToolRegistry:
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                             "tool_name": str(tool_name),
                             "tool_call_id": str(tool_call_id),
-                            "source_of_conflict": "LearnedVetoGuard: κ_integrated sustained below learned threshold (coherence non-stationarity).",
+                            "source_of_conflict": (
+                                "LearnedVetoGuard: |I - Î| exceeded residual error threshold (coherence non-stationarity)."
+                                if str(
+                                    (
+                                        decision_v.debug.get("threshold_mode")
+                                        if isinstance(decision_v.debug, dict)
+                                        else ""
+                                    )
+                                    or ""
+                                )
+                                .strip()
+                                .lower()
+                                == "residual"
+                                else "LearnedVetoGuard: κ_integrated sustained below learned threshold (coherence non-stationarity)."
+                            ),
                             "kappa": float(decision_v.kappa_last),
                             "kappa_integrated": float(decision_v.kappa_integrated),
                             "threshold": float(decision_v.threshold),
@@ -1515,6 +1570,29 @@ class ToolRegistry:
                         ),
                             "debug": dict(decision_v.debug or {}),
                         }
+
+                        # Residual-mode helpers (best-effort): predicted_I and residual error.
+                        try:
+                            dbg = veto_payload.get("debug") if isinstance(veto_payload.get("debug"), dict) else {}
+                            pred_dbg = dbg.get("pred") if isinstance(dbg.get("pred"), dict) else {}
+                            res_dbg = dbg.get("residual") if isinstance(dbg.get("residual"), dict) else {}
+                            mu = pred_dbg.get("mu")
+                            err = res_dbg.get("err")
+                            abs_err = res_dbg.get("abs_err")
+                            down_err = res_dbg.get("down_err")
+                            direction = res_dbg.get("direction")
+                            if isinstance(mu, (int, float)):
+                                veto_payload["predicted_i"] = float(mu)
+                            if isinstance(err, (int, float)):
+                                veto_payload["residual_error"] = float(err)
+                            if isinstance(abs_err, (int, float)):
+                                veto_payload["abs_error"] = float(abs_err)
+                            if isinstance(down_err, (int, float)):
+                                veto_payload["down_error"] = float(down_err)
+                            if isinstance(direction, str) and direction.strip():
+                                veto_payload["residual_direction"] = direction.strip()
+                        except Exception:
+                            pass
 
                         # Synthetic penalty: learn from near-miss (treat as failure).
                         try:
@@ -1542,9 +1620,20 @@ class ToolRegistry:
                                 f"- source_of_conflict: {veto_payload['source_of_conflict']}\n"
                                 f"- kappa: {veto_payload['kappa']}\n"
                                 f"- kappa_integrated (I): {veto_payload['kappa_integrated']}\n"
-                            f"- learned_threshold (mode={veto_payload.get('threshold_mode','threshold')}): {veto_payload['threshold']}\n\n"
-                                "Second Look required: re-sample context (re-read prompt/files, gather missing info) and choose a safer alternative.\n"
-                                "Do NOT retry the same tool call unchanged."
+                                + (
+                                    (
+                                        f"- predicted_i (Î): {veto_payload.get('predicted_i')}\n"
+                                        f"- residual_direction: {veto_payload.get('residual_direction')}\n"
+                                        f"- abs_error (|I-Î|): {veto_payload.get('abs_error')}\n"
+                                        f"- down_error (max(0,Î-I)): {veto_payload.get('down_error')}\n"
+                                        f"- residual_metric_used: {veto_payload.get('residual_error')}\n"
+                                        f"- error_threshold (mode=residual): {veto_payload['threshold']}\n\n"
+                                    )
+                                    if str(veto_payload.get("threshold_mode", "threshold")).strip().lower() == "residual"
+                                    else f"- learned_threshold (mode=threshold): {veto_payload['threshold']}\n\n"
+                                )
+                                + "Second Look required: re-sample context (re-read prompt/files, gather missing info) and choose a safer alternative.\n"
+                                + "Do NOT retry the same tool call unchanged."
                             ),
                         }
                 else:
@@ -1553,7 +1642,9 @@ class ToolRegistry:
                         self._consecutive_veto_count = 0
                     except Exception:
                         pass
-            except Exception:
+            except Exception as e:
+                if str(e) == "_skip_veto_for_done":
+                    pass
                 # Fail open: veto is best-effort and must not break tool execution.
                 pass
             
@@ -1797,7 +1888,7 @@ class ToolRegistry:
                         from broca.rl.experiences import append_experience
                         import json
                         from pathlib import Path as _Path
-                        from datetime import datetime as _dt
+                        from datetime import datetime as _dt, timezone
 
                         uid = hashlib.sha1(f"{tool_name}:{time.time()}".encode()).hexdigest()
                         # Best-effort snapshots for offline RL dataset building:
@@ -1816,7 +1907,7 @@ class ToolRegistry:
 
                         experience = {
                             "uid": uid,
-                            "timestamp": _dt.utcnow().isoformat() + "Z",
+                            "timestamp": _dt.now(timezone.utc).isoformat() + "Z",
                             "tool_call_id": tool_call_id,
                             "tool_name": tool_name,
                             "arguments": arguments,

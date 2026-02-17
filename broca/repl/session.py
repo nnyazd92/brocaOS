@@ -2565,7 +2565,7 @@ When you need to use tools to complete a task:
                 # PEA/PFREA removed - planning is now handled via planning tool
                 # No tool calls - extract final response
                 # PEA/PFREA removed - planning is now handled via planning tool
-                logger.info(f"NO TOOL CALLS: Reached final response path (iteration {iterations}), will run post-processing")
+                logger.debug(f"NO TOOL CALLS: Reached final response path (iteration {iterations}), will run post-processing")
                 if iterations > 1:
                     logger.info(
                         f"Final LLM response after {iterations} tool iteration(s)",
@@ -3038,6 +3038,13 @@ When you need to use tools to complete a task:
 
                 # Add message to conversation history immediately
                 assistant_message = {"role": "assistant", "content": assistant_text}
+                # Stable identifier for web UI de-duping (streaming vs persisted / updates).
+                # Prefer event_id if present, otherwise generate a UUID.
+                if "message_id" not in assistant_message:
+                    try:
+                        assistant_message["message_id"] = assistant_event_id or str(uuid.uuid4())
+                    except Exception:
+                        assistant_message["message_id"] = str(uuid.uuid4())
                 if assistant_event_id:
                     assistant_message["event_ids"] = [assistant_event_id]
                 self.messages.append(assistant_message)
@@ -3463,7 +3470,15 @@ When you need to use tools to complete a task:
         # Apply response guard to ensure non-empty
         assistant_text = self._ensure_response_non_empty(assistant_text)
 
-        self.messages.append({"role": "assistant", "content": assistant_text})
+        msg_id = None
+        try:
+            msg_id = str(uuid.uuid4())
+        except Exception:
+            msg_id = None
+        msg = {"role": "assistant", "content": assistant_text}
+        if msg_id:
+            msg["message_id"] = msg_id
+        self.messages.append(msg)
         self.updated_at = datetime.now(timezone.utc).isoformat()
         # Log conversation turn completion even on max iterations
         if response:

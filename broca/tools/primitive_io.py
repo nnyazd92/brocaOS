@@ -733,7 +733,31 @@ class PatchFileTool:
 
     def format_result(self, result: Dict[str, Any]) -> str:
         if not result.get("success"):
-            return f"PATCH_FILE error: {result.get('error', result.get('stderr', 'unknown'))} ({result.get('path')})"
+            err = result.get("error", result.get("stderr", "unknown"))
+            if err == "no_edits_provided":
+                path = result.get("path")
+                return (
+                    "PATCH_FILE error: no_edits_provided\n"
+                    "You MUST provide either `edits` (preferred) or `unified_diff`.\n"
+                    f"path: {path}\n\n"
+                    "Preferred (deterministic) example using `edits` (1-based, inclusive):\n"
+                    '{\n'
+                    '  "path": "<path>",\n'
+                    '  "edits": [\n'
+                    '    {\n'
+                    '      "start_line": 10,\n'
+                    '      "end_line": 12,\n'
+                    '      "replacement": "new lines here\\n"\n'
+                    "    }\n"
+                    "  ]\n"
+                    "}\n\n"
+                    "Alternative example using `unified_diff`:\n"
+                    '{\n'
+                    '  "path": "<path>",\n'
+                    '  "unified_diff": "--- a/file.txt\\n+++ b/file.txt\\n@@ -1,1 +1,1 @@\\n-old\\n+new\\n"\n'
+                    "}\n"
+                )
+            return f"PATCH_FILE error: {err} ({result.get('path')})"
         if "applied_edits" in result:
             return f"PATCH_FILE: applied {result.get('applied_edits')} edit(s) to {result.get('path')}"
         if "applied_hunks" in result:

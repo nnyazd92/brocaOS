@@ -1154,6 +1154,8 @@ def main() -> None:
         app_config = None
     
     setup_logging()
+    import warnings
+    warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*datetime.datetime.utcnow.*")
     # Apply persisted reward design (if present) so reward shaping survives restarts.
     try:
         from .rl.reward_design import apply_persisted_reward_design

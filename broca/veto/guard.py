@@ -211,12 +211,14 @@ class VetoGuard:
         residual_alpha: float = 0.05,
         residual_k: float = 3.0,
         residual_min_samples: int = 8,
+        residual_direction: str = "down",
         hysteresis_h: float,
         persist_n: int,
         persist_m: int,
         clear_k: int,
         max_train_steps_per_obs: int,
         min_train_interval_s: float,
+        persist_latch: bool = False,
         state_path: Optional[str] = None,
         model_path: Optional[str] = None,
         save_interval_s: float = 1.0,
@@ -235,12 +237,18 @@ class VetoGuard:
         self.residual_alpha = float(residual_alpha)
         self.residual_k = float(residual_k)
         self.residual_min_samples = max(0, int(residual_min_samples))
+        rd = str(residual_direction or "down").strip().lower()
+        if rd not in {"down", "both"}:
+            rd = "down"
+        self.residual_direction = rd
         self.hysteresis_h = float(hysteresis_h)
         self.persist_n = max(1, int(persist_n))
         self.persist_m = max(1, min(int(persist_m), int(persist_n)))
         self.clear_k = max(1, int(clear_k))
         self.max_train_steps_per_obs = max(0, int(max_train_steps_per_obs))
         self.min_train_interval_s = max(0.0, float(min_train_interval_s))
+        # Whether to persist/restore the latch state (veto_active / violations window) across restarts.
+        self.persist_latch = bool(persist_latch)
 
         self._lock = threading.Lock()
         self._norm = _EmaNorm(self.input_dim, alpha=float(norm_alpha))
@@ -311,6 +319,17 @@ class VetoGuard:
                 mean = [float(v) for v in self._norm.mean.reshape(-1).tolist()]
                 var = [float(v) for v in self._norm.var.reshape(-1).tolist()]
                 seen = int(getattr(self._norm, "_seen", 0) or 0)
+                # If persist_latch is disabled, do not persist latch state across restarts.
+                # We still include a neutral state object for schema stability and to avoid
+                # "resurrecting" an old latch if persist_latch is later enabled.
+                st = {
+                    "veto_active": bool(self._veto_active),
+                    "clear_count": int(self._clear_count),
+                    "violations": [bool(v) for v in list(self._violations)[-int(self.persist_n) :]],
+                }
+                if not bool(self.persist_latch):
+                    st = {"veto_active": False, "clear_count": 0, "violations": []}
+
                 return {
                     "version": 1,
                     "ts": float(time.time()),
@@ -330,12 +349,9 @@ class VetoGuard:
                         "residual_alpha": float(self.residual_alpha),
                         "residual_k": float(self.residual_k),
                         "residual_min_samples": int(self.residual_min_samples),
+                        "residual_direction": str(self.residual_direction),
                     },
-                    "state": {
-                        "veto_active": bool(self._veto_active),
-                        "clear_count": int(self._clear_count),
-                        "violations": [bool(v) for v in list(self._violations)[-int(self.persist_n) :]],
-                    },
+                    "state": st,
                     "buffers": {"xs": xs},
                     "norm": {"seen": int(seen), "mean": mean, "var": var},
                     "residual": {"seen": int(self._res_seen), "mean": float(self._res_mean), "var": float(self._res_var)},
@@ -351,16 +367,23 @@ class VetoGuard:
             return
         try:
             with self._lock:
-                st = data.get("state") or {}
-                if isinstance(st, dict):
-                    self._veto_active = bool(st.get("veto_active", self._veto_active))
-                    try:
-                        self._clear_count = int(st.get("clear_count", self._clear_count) or 0)
-                    except Exception:
-                        pass
-                    vio = st.get("violations")
-                    if isinstance(vio, list):
-                        self._violations = [bool(v) for v in vio][-int(self.persist_n) :]
+                if bool(self.persist_latch):
+                    st = data.get("state") or {}
+                    if isinstance(st, dict):
+                        self._veto_active = bool(st.get("veto_active", self._veto_active))
+                        try:
+                            self._clear_count = int(st.get("clear_count", self._clear_count) or 0)
+                        except Exception:
+                            pass
+                        vio = st.get("violations")
+                        if isinstance(vio, list):
+                            self._violations = [bool(v) for v in vio][-int(self.persist_n) :]
+                else:
+                    # Default: never restore a veto latch from a prior run (prevents "stuck" vetoes
+                    # carrying over after crashes or transient coherence dips).
+                    self._veto_active = False
+                    self._clear_count = 0
+                    self._violations = []
 
                 buf = data.get("buffers") or {}
                 if isinstance(buf, dict):
@@ -719,9 +742,16 @@ class VetoGuard:
                         "res_seen": int(self._res_seen),
                     }
                 else:
-                    err = abs(float(I) - float(mu))
-                    if not math.isfinite(err):
-                        err = 0.0
+                    # Residual metric depends on direction:
+                    # - both: |I - Î| (legacy, detects any non-stationarity)
+                    # - down: max(0, Î - I) (only penalize unexpected drops in coherence)
+                    abs_err = abs(float(I) - float(mu))
+                    down_err = float(mu) - float(I)
+                    if not math.isfinite(abs_err):
+                        abs_err = 0.0
+                    if not math.isfinite(down_err):
+                        down_err = 0.0
+                    metric = abs_err if self.residual_direction == "both" else max(0.0, down_err)
 
                     # Compute threshold from current baseline.
                     res_std = math.sqrt(max(1e-8, float(self._res_var)))
@@ -735,7 +765,7 @@ class VetoGuard:
                     if not enough:
                         violation = False
                     else:
-                        violation = bool(err > float(err_thr))
+                        violation = bool(metric > float(err_thr))
                     thr = float(err_thr)
 
                     # Update baseline:
@@ -745,7 +775,7 @@ class VetoGuard:
                         self._res_mean, self._res_var = self._ema_update_scalar(
                             mean=float(self._res_mean),
                             var=float(self._res_var),
-                            x=float(err),
+                            x=float(metric),
                             alpha=float(self.residual_alpha),
                         )
                         self._res_seen += 1
@@ -753,7 +783,7 @@ class VetoGuard:
                         self._res_mean, self._res_var = self._ema_update_scalar(
                             mean=float(self._res_mean),
                             var=float(self._res_var),
-                            x=float(err),
+                            x=float(metric),
                             alpha=float(self.residual_alpha),
                         )
                         self._res_seen += 1
@@ -761,7 +791,10 @@ class VetoGuard:
                     residual_dbg = {
                         "mode": "residual",
                         "ok": True,
-                        "err": float(err),
+                        "direction": str(self.residual_direction),
+                        "err": float(metric),
+                        "abs_err": float(abs_err),
+                        "down_err": float(max(0.0, down_err)),
                         "err_thr": float(err_thr),
                         "res_mean": float(self._res_mean),
                         "res_var": float(self._res_var),
@@ -892,12 +925,14 @@ def get_veto_guard() -> VetoGuard:
     residual_alpha = float(getattr(cfg, "residual_alpha", float(os.getenv("BROCA_VETO_RESIDUAL_ALPHA", "0.05"))))
     residual_k = float(getattr(cfg, "residual_k", float(os.getenv("BROCA_VETO_RESIDUAL_K", "3.0"))))
     residual_min_samples = int(getattr(cfg, "residual_min_samples", int(os.getenv("BROCA_VETO_RESIDUAL_MIN_SAMPLES", "8"))))
+    residual_direction = str(getattr(cfg, "residual_direction", os.getenv("BROCA_VETO_RESIDUAL_DIRECTION", "down"))).strip().lower()
     hysteresis_h = float(getattr(cfg, "hysteresis_h", float(os.getenv("BROCA_VETO_HYSTERESIS_H", "0.05"))))
     persist_n = int(getattr(cfg, "persistence_n", int(os.getenv("BROCA_VETO_PERSIST_N", "8"))))
     persist_m = int(getattr(cfg, "persistence_m", int(os.getenv("BROCA_VETO_PERSIST_M", "5"))))
     clear_k = int(getattr(cfg, "clear_k", int(os.getenv("BROCA_VETO_CLEAR_K", "3"))))
     max_train_steps = int(getattr(cfg, "max_train_steps_per_observation", int(os.getenv("BROCA_VETO_MAX_TRAIN_STEPS", "1"))))
     min_train_interval_s = float(getattr(cfg, "min_train_interval_s", float(os.getenv("BROCA_VETO_MIN_TRAIN_INTERVAL_S", "0.2"))))
+    persist_latch = bool(getattr(cfg, "persist_latch", os.getenv("BROCA_VETO_PERSIST_LATCH", "false").lower() == "true"))
     state_path = str(getattr(cfg, "state_path", os.getenv("BROCA_VETO_STATE_PATH", "runtime/veto_guard_state.json")) or "").strip()
     model_path = str(getattr(cfg, "model_path", os.getenv("BROCA_VETO_MODEL_PATH", "models/rl/veto_guard.pt")) or "").strip()
     save_interval_s = float(getattr(cfg, "save_interval_s", float(os.getenv("BROCA_VETO_SAVE_INTERVAL_S", "1.0"))))
@@ -929,12 +964,14 @@ def get_veto_guard() -> VetoGuard:
         residual_alpha,
         residual_k,
         residual_min_samples,
+        residual_direction,
         hysteresis_h,
         persist_n,
         persist_m,
         clear_k,
         max_train_steps,
         min_train_interval_s,
+        persist_latch,
         state_path,
         model_path,
         save_interval_s,
@@ -955,12 +992,14 @@ def get_veto_guard() -> VetoGuard:
             residual_alpha=float(residual_alpha),
             residual_k=float(residual_k),
             residual_min_samples=int(residual_min_samples),
+            residual_direction=str(residual_direction),
             hysteresis_h=float(hysteresis_h),
             persist_n=int(persist_n),
             persist_m=int(persist_m),
             clear_k=int(clear_k),
             max_train_steps_per_obs=int(max_train_steps),
             min_train_interval_s=float(min_train_interval_s),
+            persist_latch=bool(persist_latch),
             state_path=state_path if state_path else None,
             model_path=model_path if model_path else None,
             save_interval_s=float(save_interval_s),
@@ -970,6 +1009,17 @@ def get_veto_guard() -> VetoGuard:
             _global_guard.load_persisted_state()
         except Exception:
             pass
+        # If latch persistence is disabled, ensure we don't carry a prior-run latch and
+        # immediately rewrite the persisted state so disk doesn't keep reporting "veto_active: true".
+        if not bool(persist_latch):
+            try:
+                with _global_guard._lock:
+                    _global_guard._veto_active = False
+                    _global_guard._clear_count = 0
+                    _global_guard._violations = []
+                _global_guard.save_persisted_state(force=True)
+            except Exception:
+                pass
         try:
             _global_guard._load_model_weights()
         except Exception:
